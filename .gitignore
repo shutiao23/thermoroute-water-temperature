@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# OS / editor / local
+.DS_Store
+.claude/
+.idea/
+.vscode/
+
+# Large, regenerable artifacts (reproduced by the scripts)
+outputs/predictions/
+outputs/models/
+outputs/logs/
+data/processed/
+
+# Per-station intermediate downloads (the combined panels are committed instead)
+data_usgs/n*.csv
+
+# Stray run checkpoints
+*_ckpt/
