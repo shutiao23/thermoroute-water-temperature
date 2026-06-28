@@ -199,7 +199,9 @@ probabilistic: conformal intervals (achieved PICP 0.65–0.91 across stations) a
 high-temperature warnings the point baselines cannot provide. We report this
 negative result in full rather than selecting a favourable framing, and use it to
 motivate the large-sample study: a single, heavily-damped cascade simply lacks the
-forecast headroom to distinguish models.
+forecast headroom to distinguish models (Figure 1).
+
+![**Figure 1.** Three-station cascade, blind-test RMSE (°C, left) and skill versus persistence (right) by model and horizon. No learned model improves on damped persistence on this near-deterministic system — the honest negative result that motivates the large-sample study.](outputs/figures/fig3_results_heatmap.png){width=90%}
 
 ### 4.2 Large-sample USGS — ThermoRoute beats the strong baseline (Table A)
 
@@ -235,7 +237,9 @@ a *typical* station ThermoRoute is at least as accurate as LightGBM and signific
 better at the longer leads, while LightGBM retains a small edge in the
 station-averaged median. We therefore claim a robust improvement over the physics
 baselines and at-least-parity with a strong learned baseline, and we disclose both
-aggregations rather than choosing the flattering one.
+aggregations rather than choosing the flattering one (Figure 2).
+
+![**Figure 2.** Per-station blind-test RMSE on the 40 USGS stations: ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 81–92 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
 
 ### 4.3 Spatial transfer to unseen basins (Table B)
 
@@ -255,7 +259,7 @@ After conformal calibration, ThermoRoute's 90 % intervals achieve **PICP 0.904 /
 0.906 / 0.909** at 1 / 3 / 7 days on the large sample — essentially nominal, in
 contrast to the undercoverage on the three-station cascade (0.65–0.91). Coverage is
 also *tight across stations*: 97 / 92 / 89 % of the 40 stations fall within ±0.05 of
-the 0.90 target (Fig. `fig_usgs_calibration.png`), so the calibration is a
+the 0.90 target (Figure 3), so the calibration is a
 population property, not a station-averaged artifact. The
 high-temperature exceedance warnings have modest positive skill (Brier-skill
 +0.30 / +0.25 / +0.24; AUPRC 0.57 / 0.51 / 0.49), comparable to LightGBM
@@ -272,6 +276,8 @@ configuration-specific run suggested the opposite ordering; it did not replicate
 and we report the robust finding.) The defensible probabilistic contribution is
 therefore the *calibration* (near-nominal coverage), not a decision-value advantage
 over persistence-based warnings.
+
+![**Figure 3.** Conformal calibration on the 40 USGS stations. (a) Per-station coverage (PICP) distribution against the 0.90 target; (b) mean coverage versus lead time; (c) interval sharpness. Coverage is near-nominal and tight across the population (89–97 % of stations within ±0.05 of 0.90).](outputs/figures/fig_usgs_calibration.png){width=95%}
 
 ### 4.5 Mechanism: interpretable drivers, but no generalisable κ–flow dependence
 
@@ -292,7 +298,9 @@ shift sensibly with horizon — humidity- and air-temperature-led at 1 day (RHME
 35 %, TEMP 26 %, PRCP 15 %), with precipitation rising to share the lead at 7 days
 (RHMEAN 23 %, PRCP 22 %, TEMP 20 %) — consistent with event-driven, runoff-mediated
 temperature change becoming more important at longer leads. We present this as an
-interpretive read-out, not a causal mechanism.
+interpretive read-out, not a causal mechanism (Figure 4).
+
+![**Figure 4.** Dynamic relaxation rate κ on the 40 USGS stations. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only 18 % of stations (median ratio 0.92) — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
 
 ### 4.6 Module ablations on the large sample
 
