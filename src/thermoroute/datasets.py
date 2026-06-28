@@ -105,7 +105,12 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         raw = {v: sub[v].to_numpy(float) for v in C.ALL_VARS}
         obs = {v: sub[f"{v}_observed"].to_numpy(float) for v in C.ALL_VARS}
         # standardised matrix [T, V]
-        Xstd = np.stack([scaler.transform_value(st, v, raw[v]) for v in variables], axis=1)
+        # Defensive: any residual NaN (e.g. a doy with no training samples for a
+        # given site/variable and global_median itself NaN) is set to 0 (the
+        # standardised mean), so the encoder never sees NaN. The Mask column
+        # records whether each cell was originally observed.
+        Xstd = np.stack([np.nan_to_num(scaler.transform_value(st, v, raw[v]), nan=0.0)
+                         for v in variables], axis=1)
         Mstd = np.stack([obs[v] for v in variables], axis=1)
         clim_series = clim.predict(st, doy)
         logflowz = np.nan_to_num(scaler.transform_value(st, "FLOW", raw["FLOW"]), nan=0.0)
@@ -113,12 +118,13 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         obs_wt = (sub["WTEMP_observed"].to_numpy() if "WTEMP_observed" in sub.columns
                   else np.ones(len(sub), dtype=bool))
         if P > 0:
-            phys = np.stack([scaler.transform_value(st, v, raw[v]) for v in phys_vars], axis=1)
+            phys = np.stack([np.nan_to_num(scaler.transform_value(st, v, raw[v]), nan=0.0)
+                             for v in phys_vars], axis=1)
         else:
             phys = np.zeros((len(sub), 0), dtype=float)
-        wtemp_std = scaler.transform_value(st, "WTEMP", raw["WTEMP"])
-        prcpz = scaler.transform_value(st, "PRCP", raw["PRCP"])
-        tempz = scaler.transform_value(st, "TEMP", raw["TEMP"])
+        wtemp_std = np.nan_to_num(scaler.transform_value(st, "WTEMP", raw["WTEMP"]), nan=0.0)
+        prcpz = np.nan_to_num(scaler.transform_value(st, "PRCP", raw["PRCP"]), nan=0.0)
+        tempz = np.nan_to_num(scaler.transform_value(st, "TEMP", raw["TEMP"]), nan=0.0)
         dwt = np.concatenate([[0.0], np.diff(wtemp_std)])  # standardised tendency
         sin_d = np.sin(2 * np.pi * doy / C.SEASONAL_PERIOD)
         cos_d = np.cos(2 * np.pi * doy / C.SEASONAL_PERIOD)
