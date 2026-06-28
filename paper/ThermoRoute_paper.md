@@ -297,15 +297,20 @@ interpretive read-out, not a causal mechanism.
 ### 4.6 Module ablations on the large sample
 
 Unlike the three-station cascade (where the extra machinery did not help), the
-large-sample ablations show most components earn their place (median per-station
-RMSE, 1/3/7 d): removing the physics prior is catastrophic (1.045 / 1.314 / 1.551
-vs the full 0.554 / 1.175 / 1.490), confirming the prior carries the forecast;
-removing the mixture-of-experts hurts (0.632 / 1.233 / 1.536); removing the router
-hurts slightly (0.570 / 1.196 / 1.502). The exception is the dynamic-κ modulation:
-freezing it (TR-fixedKappa, 0.574 / 1.185 / 1.481) is statistically indistinguishable
-from — and at 7 days marginally better than — the full model, consistent with §4.5.
-The honest reading is that the prior, router and experts contribute, while the
-dynamic-κ modulation is interpretive overhead we do not claim as an accuracy lever.
+large-sample ablations show most components earn their place. We train each ablation
+at **3 seeds** and compare it to the full model by a per-station paired test (median
+per-station RMSE at 1/3/7 d; Wilcoxon at h=3): removing the physics prior is
+catastrophic (0.995 / 1.302 / 1.531 vs the full 0.554 / 1.175 / 1.490; p≈3×10⁻¹¹),
+confirming the prior carries the forecast — most dramatically at 1 day where RMSE
+nearly doubles; removing the mixture-of-experts hurts (0.623 / 1.236 / 1.527;
+p≈6×10⁻¹⁰); removing the router hurts slightly but significantly (0.568 / 1.189 /
+1.497; p≈2×10⁻⁹). The exception is the dynamic-κ modulation: freezing it
+(TR-fixedKappa, 0.559 / 1.177 / 1.482) is within ±0.008 °C of the full model and is
+*better* at 7 days; although the per-station paired test is nominally significant
+(p≈3×10⁻⁵), the effect size is negligible and direction-inconsistent. The honest
+reading is that the prior, experts and router contribute real accuracy, while the
+dynamic-κ modulation is interpretive overhead we do not claim as an accuracy lever
+(consistent with §4.5).
 
 ## 5. Discussion
 
