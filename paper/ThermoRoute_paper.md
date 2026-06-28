@@ -1,5 +1,16 @@
 # ThermoRoute: a dynamic thermal-memory prior with calibrated, transferable multi-station river water-temperature forecasting
 
+[Author One]^a,\*^, [Author Two]^a^, [Author Three]^b^
+
+^a^ [Department / Laboratory, Institution, City, Postcode, Country]
+^b^ [Department / Laboratory, Institution, City, Postcode, Country]
+
+\* Corresponding author. E-mail: [corresponding.author@institution.edu]
+
+> **Author/affiliation block is a template** — replace the bracketed fields with the
+> real author names, ORCID iDs, affiliations and the corresponding author's e-mail
+> before submission. (A corresponding e-mail is available on file if you wish to use it.)
+
 > Manuscript draft, rewritten around the large-sample evaluation. All numbers are
 > produced by the code in this repository: the three-station case study by
 > `scripts/04`, the 40-station large-sample experiment by `scripts/09` (5 seeds),
@@ -401,11 +412,86 @@ finding-by-finding disposition is provided in `outputs/reports/review_response.m
 
 ## References
 
-[F1] Corona, C. R., & Hogue, T. S. (2025). Machine learning in stream and river water temperature modeling: a review and metrics for evaluation. *HESS*, 29, 2521–2549.
-[F2] Feigl, M., et al. (2021). Machine-learning methods for stream water temperature prediction. *HESS*, 25, 2951–2977.
-[F3] Zwart, J. A., et al. (2023). Evaluating deep learning architecture and data assimilation for water temperature forecasts at unmonitored locations. *Frontiers in Water*, 5.
-[F4] Jia, X., et al. (2020). Physics-Guided Recurrent Graph Networks for Predicting Flow and Temperature in River Networks. arXiv:2009.12575.
-[F7] Rahmani, F., et al. (2021). Exploring the exceptional performance of a deep learning stream temperature model and the value of streamflow data. *ERL*.
-[F12] Toffolon, M., & Piccolroaz, S. (2015). A hybrid model for river water temperature as a function of air temperature and discharge. *Hydrological Processes*.
-[D1] De Cicco, L. A., et al. dataRetrieval: R/Python packages for discovering and retrieving water data from USGS and EPA. USGS.
-[D2] Thornton, P. E., et al. Daymet: daily surface weather data. ORNL DAAC.
+*Formatted following the* Journal of Hydrology *house style (Elsevier numeric-author–year). Cross-reference labels in the manuscript text use the F-numbers retained for traceability.*
+
+### Stream temperature: reviews, baselines and learned models
+
+Corona, C. R., Hogue, T. S., 2025. Machine learning in stream and river water temperature modeling: a review and metrics for evaluation. Hydrology and Earth System Sciences 29, 2521–2549. https://doi.org/10.5194/hess-29-2521-2025. [F1]
+
+Feigl, M., Lebiedzinski, K., Herrnegger, M., Schulz, K., 2021. Machine-learning methods for stream water temperature prediction. Hydrology and Earth System Sciences 25, 2951–2977. https://doi.org/10.5194/hess-25-2951-2021. [F2]
+
+Zwart, J. A., Sadler, J. M., Appling, A. P., Read, J. S., Oliver, S. K., Diaz-Gonzalez, M., Bertassello, L. E., Jia, X., 2023. Evaluating deep learning architecture and data assimilation for improving water temperature forecasts at unmonitored locations. Frontiers in Water 5, 1184992. https://doi.org/10.3389/frwa.2023.1184992. [F3]
+
+Jia, X., Zwart, J., Sadler, J., Appling, A., Oliver, S., Markstrom, S., Willard, J., Xu, S., Steinbach, M., Read, J., Kumar, V., 2021. Physics-guided recurrent graph model for predicting flow and temperature in river networks, in: Proceedings of the 2021 SIAM International Conference on Data Mining (SDM). SIAM, pp. 612–620. https://doi.org/10.1137/1.9781611976700.69 (preprint: arXiv:2009.12575). [F4]
+
+Luo, S., Yu, R., Chen, S., Jia, X., Kumar, V., 2025. Geo-aware models for stream temperature prediction across different spatial regions and scales, in: Proceedings of the 33rd ACM SIGSPATIAL International Conference on Advances in Geographic Information Systems. ACM. https://doi.org/10.1145/3748636.3762716 (preprint: arXiv:2510.09500). [F5]
+
+Rahmani, F., Lawson, K., Ouyang, W., Appling, A., Oliver, S., Shen, C., 2021. Exploring the exceptional performance of a deep learning stream temperature model and the value of streamflow data. Environmental Research Letters 16, 024025. https://doi.org/10.1088/1748-9326/abd501. [F7]
+
+Rahmani, F., Shen, C., Oliver, S., Lawson, K., Appling, A., 2021. Deep learning approaches for improving prediction of daily stream temperature in data-scarce, unmonitored, and dammed basins. Hydrological Processes 35, e14400. https://doi.org/10.1002/hyp.14400. [F8]
+
+Rahmani, F., Appling, A., Feng, D., Lawson, K., Shen, C., 2023. Identifying structural priors in a hybrid differentiable model for stream water temperature modeling. Water Resources Research 59, e2023WR034420. https://doi.org/10.1029/2023WR034420. [F9]
+
+Sadler, J. M., Appling, A. P., Read, J. S., Oliver, S. K., Jia, X., Zwart, J. A., Kumar, V., 2022. Multi-task deep learning of daily streamflow and water temperature. Water Resources Research 58, e2021WR030138. https://doi.org/10.1029/2021WR030138. [F10]
+
+Topp, S. N., Appling, A. P., Diaz-Gonzalez, M. A., Heinrich, L. R., Zwart, J. A., Read, J. S., Oliver, S. K., 2023. Stream temperature predictions for river basin management in the Pacific Northwest and Mid-Atlantic regions using machine learning. Water Resources Research 59, e2022WR033880. https://doi.org/10.1029/2022WR033880. [F11]
+
+Toffolon, M., Piccolroaz, S., 2015. A hybrid model for river water temperature as a function of air temperature and discharge. Environmental Research Letters 10, 114011. https://doi.org/10.1088/1748-9326/10/11/114011. [F12]
+
+Piccolroaz, S., Calamita, E., Majone, B., Gallice, A., Siviglia, A., Toffolon, M., 2016. Prediction of river water temperature: a comparison between a new family of hybrid models and statistical approaches. Hydrological Processes 30, 3901–3917. https://doi.org/10.1002/hyp.10913.
+
+Mohseni, O., Stefan, H. G., Erickson, T. R., 1998. A nonlinear regression model for weekly stream temperatures. Water Resources Research 34, 2685–2692. https://doi.org/10.1029/98WR01877.
+
+Caissie, D., 2006. The thermal regime of rivers: a review. Freshwater Biology 51, 1389–1406. https://doi.org/10.1111/j.1365-2427.2006.01597.x.
+
+### Methods — machine learning, calibration, statistics
+
+Romano, Y., Patterson, E., Candès, E. J., 2019. Conformalized quantile regression, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 3543–3553.
+
+Vovk, V., Gammerman, A., Shafer, G., 2005. Algorithmic Learning in a Random World. Springer, New York.
+
+Martins, A. F. T., Astudillo, R. F., 2016. From softmax to sparsemax: a sparse model of attention and multi-label classification, in: Proceedings of the 33rd International Conference on Machine Learning (ICML), pp. 1614–1623.
+
+Bai, S., Kolter, J. Z., Koltun, V., 2018. An empirical evaluation of generic convolutional and recurrent networks for sequence modeling. arXiv:1803.01271.
+
+Shazeer, N., Mirhoseini, A., Maziarz, K., Davis, A., Le, Q., Hinton, G., Dean, J., 2017. Outrageously large neural networks: the sparsely-gated mixture-of-experts layer, in: International Conference on Learning Representations (ICLR).
+
+Ke, G., Meng, Q., Finley, T., Wang, T., Chen, W., Ma, W., Ye, Q., Liu, T.-Y., 2017. LightGBM: a highly efficient gradient boosting decision tree, in: Advances in Neural Information Processing Systems 30 (NeurIPS 2017), pp. 3146–3154.
+
+Diebold, F. X., Mariano, R. S., 1995. Comparing predictive accuracy. Journal of Business & Economic Statistics 13, 253–263. https://doi.org/10.1080/07350015.1995.10524599.
+
+Harvey, D., Leybourne, S., Newbold, P., 1997. Testing the equality of prediction mean squared errors. International Journal of Forecasting 13, 281–291. https://doi.org/10.1016/S0169-2070(96)00719-4.
+
+Künsch, H. R., 1989. The jackknife and the bootstrap for general stationary observations. The Annals of Statistics 17, 1217–1241. https://doi.org/10.1214/aos/1176347265.
+
+Wilks, D. S., 2011. Statistical Methods in the Atmospheric Sciences, 3rd ed. Academic Press, Oxford. (Chapters on bootstrap CIs, Brier/Brier-skill, AUPRC, and the Relative Economic Value of probabilistic forecasts.)
+
+Richardson, D. S., 2000. Skill and relative economic value of the ECMWF ensemble prediction system. Quarterly Journal of the Royal Meteorological Society 126, 649–667. https://doi.org/10.1002/qj.49712656313.
+
+Gneiting, T., Raftery, A. E., 2007. Strictly proper scoring rules, prediction, and estimation. Journal of the American Statistical Association 102, 359–378. https://doi.org/10.1198/016214506000001437.
+
+Kingma, D. P., Ba, J., 2015. Adam: a method for stochastic optimization, in: International Conference on Learning Representations (ICLR).
+
+Loshchilov, I., Hutter, F., 2019. Decoupled weight decay regularization, in: International Conference on Learning Representations (ICLR).
+
+Nash, J. E., Sutcliffe, J. V., 1970. River flow forecasting through conceptual models part I — a discussion of principles. Journal of Hydrology 10, 282–290. https://doi.org/10.1016/0022-1694(70)90255-6.
+
+Gupta, H. V., Kling, H., Yilmaz, K. K., Martinez, G. F., 2009. Decomposition of the mean squared error and NSE performance criteria: implications for improving hydrological modelling. Journal of Hydrology 377, 80–91. https://doi.org/10.1016/j.jhydro.2009.08.003.
+
+### Software and data sources
+
+De Cicco, L. A., Lorenz, D., Hirsch, R. M., Watkins, W., Johnson, M., 2024. dataRetrieval: R packages for discovering and retrieving water data available from federal hydrologic web services. U.S. Geological Survey. https://doi.org/10.5066/P9X4L3GE. [D1]
+
+Hodson, T. O., Decker, J. K., 2023. dataretrieval (Python): a Python package for discovering and retrieving water data available from U.S. federal hydrologic web services. U.S. Geological Survey. https://doi.org/10.5066/P94I5TX3.
+
+U.S. Geological Survey, 2024. National Water Information System (NWIS). Web services accessed via dataRetrieval; parameter codes 00010 (water temperature), 00060 (discharge), 00065 (gage height). https://waterdata.usgs.gov/nwis. [public domain]
+
+Thornton, P. E., Shrestha, R., Thornton, M., Kao, S.-C., Wei, Y., Wilson, B. E., 2022. Daymet: daily surface weather data on a 1-km grid for North America, version 4 R1. ORNL DAAC, Oak Ridge, Tennessee, USA. https://doi.org/10.3334/ORNLDAAC/2129. [D2]
+
+Abatzoglou, J. T., 2013. Development of gridded surface meteorological data for ecological applications and modelling. International Journal of Climatology 33, 121–131. https://doi.org/10.1002/joc.3413. (gridMET / METDATA.) [D3]
+
+Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., Desmaison, A., Köpf, A., Yang, E., DeVito, Z., Raison, M., Tejani, A., Chilamkurthy, S., Steiner, B., Fang, L., Bai, J., Chintala, S., 2019. PyTorch: an imperative style, high-performance deep learning library, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 8026–8037.
+
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., Duchesnay, É., 2011. Scikit-learn: machine learning in Python. Journal of Machine Learning Research 12, 2825–2830.
+
+Virtanen, P., Gommers, R., Oliphant, T. E., Haberland, M., Reddy, T., Cournapeau, D., Burovski, E., Peterson, P., Weckesser, W., Bright, J., van der Walt, S. J., Brett, M., Wilson, J., Millman, K. J., Mayorov, N., Nelson, A. R. J., Jones, E., Kern, R., Larson, E., Carey, C. J., Polat, I., Feng, Y., Moore, E. W., VanderPlas, J., Laxalde, D., Perktold, J., Cimrman, R., Henriksen, I., Quintero, E. A., Harris, C. R., Archibald, A. M., Ribeiro, A. H., Pedregosa, F., van Mulbregt, P., SciPy 1.0 Contributors, 2020. SciPy 1.0: fundamental algorithms for scientific computing in Python. Nature Methods 17, 261–272. https://doi.org/10.1038/s41592-019-0686-5.

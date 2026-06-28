@@ -1,5 +1,12 @@
 **Cover letter**
 
+[Author One]
+[Department / Laboratory]
+[Institution, City, Postcode, Country]
+E-mail: [corresponding.author@institution.edu]
+
+[Date]
+
 To the Editor-in-Chief
 *Journal of Hydrology*
 
@@ -56,4 +63,9 @@ code is available for review.
 Thank you for considering our work.
 
 Sincerely,
-The authors
+
+[Author One]
+on behalf of all authors
+
+> **Author block is a template** — replace the bracketed fields with the real
+> author name, affiliation, e-mail and date before submission.

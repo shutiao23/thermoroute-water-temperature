@@ -134,6 +134,11 @@ def main():
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--delta_scale", type=float, default=DELTA_SCALE)
     ap.add_argument("--ablations", action="store_true", default=True)
+    ap.add_argument("--air2stream", action="store_true", default=False,
+                    help="add canonical air2stream a4+a8 baselines (slower)")
+    ap.add_argument("--out_predictions", default="usgs_predictions.parquet")
+    ap.add_argument("--out_report", default="usgs_experiment.md")
+    ap.add_argument("--out_scores", default="usgs_scores.csv")
     args = ap.parse_args()
 
     panel, panel_imp, masks, clim, stations = prep(args.panel)
@@ -158,6 +163,14 @@ def main():
     log("baselines done")
 
     # ---- joint LightGBM ------------------------------------------------- #
+    if args.air2stream:
+        from thermoroute import air2stream as A2S
+        clim_air = F.HarmonicClimatology.fit(panel_imp, masks.train, target="TEMP")
+        for v in ("a4", "a8"):
+            t = time.time()
+            chunks.append(A2S.run_air2stream(panel_imp, masks, clim_air,
+                                             stations=stations, variant=v))
+            log(f"  air2stream-{v}: {time.time() - t:.0f}s")
     chunks.append(lightgbm_joint(panel_imp, panel, clim, masks, thr))
     log("LightGBM joint done")
 
@@ -226,7 +239,7 @@ def main():
             log(f"  {name}: {time.time()-te:.0f}s val={r.best_val:.4f}")
 
     allp = pd.concat(chunks, ignore_index=True)
-    allp.to_parquet(C.PREDICTIONS / "usgs_predictions.parquet")
+    allp.to_parquet(C.PREDICTIONS / args.out_predictions)
     log(f"saved predictions ({len(allp)} rows)")
 
     # ---- headline point report (seed-mean ThermoRoute) ------------------ #
@@ -253,24 +266,28 @@ def main():
             rows.append({"horizon": h, "site": s, "rmse_persist": rp.get(s, np.nan),
                          "rmse_damped": rd.get(s, np.nan), "rmse_thermo": rt.get(s, np.nan)})
     sc = pd.DataFrame(rows)
-    sc.to_csv(C.TABLES / "usgs_scores.csv", index=False)
+    sc.to_csv(C.TABLES / args.out_scores, index=False)
 
     L = [f"# USGS large-sample experiment ({len(stations)} stations, {args.seeds} seeds)\n",
          f"_Variables {', '.join(USGS_VARS)}. Observed targets only; identical samples "
          f"across models. ThermoRoute = {args.seeds}-seed mean._\n",
-         "| horizon | persist | damped | LightGBM | ThermoRoute | skill vs persist | "
-         "skill vs damped | win-rate vs damped |", "|---|---|---|---|---|---|---|---|"]
+         "| horizon | persist | damped | air2stream-a8 | LightGBM | ThermoRoute | "
+         "skill vs persist | skill vs damped | win-rate vs damped |",
+         "|---|---|---|---|---|---|---|---|---|"]
     lg = allp[(allp.model == "LightGBM") & (allp.split == "test")]
+    a2s_a8 = allp[(allp.model == "Air2stream-a8") & (allp.split == "test")]
     for h in wd.horizons:
         d = sc[sc.horizon == h]
         rl = rmse_per_station(lg, h)
         ml = np.median([rl[s] for s in stations if s in rl])
+        ra = rmse_per_station(a2s_a8, h)
+        ma = np.median([ra[s] for s in stations if s in ra]) if ra else float("nan")
         mp, md, mt = d.rmse_persist.median(), d.rmse_damped.median(), d.rmse_thermo.median()
         sk_p = 1 - (d.rmse_thermo / d.rmse_persist).median()
         sk_d = 1 - (d.rmse_thermo / d.rmse_damped).median()
         win = float((d.rmse_thermo < d.rmse_damped).mean())
-        L.append(f"| {h} | {mp:.3f} | {md:.3f} | {ml:.3f} | {mt:.3f} | {sk_p:+.3f} | "
-                 f"{sk_d:+.3f} | {win:.2f} |")
+        L.append(f"| {h} | {mp:.3f} | {md:.3f} | {ma:.3f} | {ml:.3f} | {mt:.3f} | "
+                 f"{sk_p:+.3f} | {sk_d:+.3f} | {win:.2f} |")
     # leave-group-out
     lgo = allp[(allp.model == "ThermoRoute-LGO") & (allp.split == "test")]
     L += ["", f"## Leave-group-out transfer ({len(trainset)}→{len(hold)} unseen basins)\n",
@@ -301,7 +318,7 @@ def main():
             r = rmse_per_station(sub, h)
             meds.append(np.median([r[s] for s in stations if s in r]))
         L.append(f"| {m} | {meds[0]:.3f} | {meds[1]:.3f} | {meds[2]:.3f} |")
-    (C.REPORTS / "usgs_experiment.md").write_text("\n".join(L))
+    (C.REPORTS / args.out_report).write_text("\n".join(L))
     log("DONE")
     print("\n" + "\n".join(L[3:10]))
 
