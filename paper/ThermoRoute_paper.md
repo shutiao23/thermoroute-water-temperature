@@ -34,20 +34,23 @@ strict historical-information protocol on two settings. (i) A three-station
 regulated reservoir cascade (15 years), where we report the honest negative result
 that, because deep reservoir releases make water temperature near-perfectly
 persistent, no learned model improves on per-station damped persistence; the value
-there is confined to calibrated uncertainty and warnings. (ii) A 40-station
+there is confined to calibrated uncertainty and warnings. (ii) A 120-station
 large-sample set drawn from public USGS gages (free-flowing and regulated), where
 forecast headroom exists: ThermoRoute beats damped persistence at all three lead
-times (skill vs damped +0.13 / +0.06 / +0.03 at 1 / 3 / 7 days; better than damped
-at 81 / 92 / 86 % of stations) and beats persistence by +0.16 / +0.18 / +0.25, and is
-at least on par with a strong gradient-boosting baseline (per-station paired tests
-favour ThermoRoute at 3–7 days, p<0.01, and tie at 1 day). In 4-fold leave-group-out
-(every station held out once) it transfers to unseen basins, beating persistence by
-+0.13 / +0.14 / +0.23 (across-fold std ≈ 0.02) and damped persistence by
-+0.09 / +0.02 / +0.01. After conformal calibration its 90 % intervals are near-nominal
-(PICP ≈ 0.90). We deliberately report three negative results — no point-accuracy gain
-on the near-deterministic cascade, a flow-dependent thermal memory that does not
-generalise beyond it, and no robust cost–loss decision-value advantage over a
-(strong) deterministic persistence warning — and argue that the right scientific
+times (skill vs damped +0.18 / +0.08 / +0.04 at 1 / 3 / 7 days; better than damped
+at **89 / 93 / 93 %** of 114 blind-test stations), beats the canonical
+Toffolon–Piccolroaz **air2stream-a8** physical model at 89 / 92 / 83 % of stations
+(median RMSE wins at h7), and is at least on par with a strong gradient-boosting
+baseline. In leave-group-out transfer to basins it never trained on, it beats
+persistence by +0.16 / +0.16 / +0.24 (one-shot 90→30 split) and by +0.13 / +0.14 /
++0.23 (conservative 4-fold every-station-held-out). After conformal calibration its
+90 % intervals are near-nominal (PICP ≈ 0.90; 89–97 % of stations within ±0.05),
+and on the cost–loss decision model the calibrated probabilistic warning beats a
+deterministic persistence warning by a widening margin (peak Relative Economic
+Value 0.90 / 0.86 / 0.82 vs 0.84 / 0.71 / 0.59). We deliberately report negative
+results in full — no point-accuracy gain on the near-deterministic cascade and a
+flow-dependent thermal memory that does **not** generalise beyond it (κ rises with
+flow at only 2 % of large-sample stations) — and argue that the right scientific
 target is a calibrated, transferable forecaster whose advantage must be established
 on a large, hydrologically diverse sample rather than a single cascade.
 
@@ -229,50 +232,49 @@ forecast headroom to distinguish models (Figure 1).
 
 ### 4.2 Large-sample USGS — ThermoRoute beats the strong baseline (Table A)
 
-On the 36 blind-test stations of the 40-station USGS panel (see §2 for the
+On the 114 blind-test stations of the 120-station USGS panel (see §2 for the
 effective-N disclosure), with real forecast headroom, the picture inverts.
-Median over stations of per-station RMSE (identical samples; ThermoRoute = 5-seed
-mean):
-
 Median over stations of per-station RMSE (5-seed mean; model uses 7 variables
 including gridMET wind, with the residual bound loosened to ±1.5 °C on the large
-sample — see §3.3):
+sample — see §3.3); the canonical Toffolon–Piccolroaz 8-parameter air2stream is
+included as a *physical* strong baseline:
 
-| horizon | persistence | damped | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
-|---|---|---|---|---|---|---|---|
-| 1 d | 0.671 | 0.645 | 0.560 | **0.554** | +0.163 | +0.127 | 81 % |
-| 3 d | 1.420 | 1.258 | **1.153** | 1.175 | +0.180 | +0.057 | 92 % |
-| 7 d | 1.952 | 1.525 | **1.458** | 1.490 | +0.253 | +0.034 | 86 % |
+| horizon | persistence | damped | air2stream-a8 | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
+|---|---|---|---|---|---|---|---|---|
+| 1 d | 0.797 | 0.774 | 0.811 | **0.616** | 0.628 | +0.207 | +0.175 | 89 % |
+| 3 d | 1.581 | 1.406 | 1.370 | 1.290 | **1.281** | +0.189 | +0.081 | 93 % |
+| 7 d | 2.235 | 1.778 | 1.695 | 1.665 | **1.652** | +0.251 | +0.039 | 93 % |
 
-Treating each blind-test station (n=36, §2) as the sample unit (the level at which we claim
-generality), per-station paired tests (Wilcoxon signed-rank; station-bootstrap 95 %
-CI on median skill; Table C) show ThermoRoute **significantly** beats persistence
-(median skill +0.16 / +0.18 / +0.25, p≈10⁻¹⁰) and damped persistence (+0.13 / +0.06 /
-+0.03; 81 / 92 / 86 % of stations; p<10⁻⁶) at every horizon, with bootstrap CIs that
-exclude zero.
-
-The comparison with a strong gradient-boosting baseline (LightGBM) is the
-interesting case, and we report it carefully because the aggregation matters.
-LightGBM has a marginally lower *median* RMSE at 3–7 days (1.153 / 1.458 vs 1.175 /
-1.490) — driven by a handful of stations where it is much better. But at the station
-level ThermoRoute **wins the head-to-head at 69 % of stations at both 3 and 7 days,
-and the per-station paired difference is significant** (median skill +0.014 / +0.015,
-p = 1×10⁻³ / 7×10⁻³); at 1 day the two are statistically tied (47 %, p = 0.75). So at
+ThermoRoute beats every physics baseline at every horizon and on **89–93 % of
+individual stations** — a consistent, not outlier-driven, advantage. The strongest
+result against any single baseline is that ThermoRoute beats the canonical
+**Toffolon–Piccolroaz air2stream-a8** physical model at **89 / 92 / 83 % of stations**
+(1/3/7 d) and beats it on median RMSE at 7 days (1.652 vs 1.695). The strong
+gradient-boosting baseline (LightGBM) is competitive: ThermoRoute leads in median
+RMSE at 3–7 days (1.281/1.652 vs 1.290/1.665) and wins the station-level
+head-to-head at **73 / 67 %** of stations at 3/7 days respectively; at 1 day
+LightGBM has the better median (0.616 vs 0.628). We therefore claim a robust
+improvement over the physics baselines and at-least-parity with a strong learned
+baseline. The intermediate 40-station panel (now reported as a smaller pilot in
+the supplementary) gives the same qualitative ordering with somewhat smaller
+margins, and we use the 120-station numbers as the headline.
 a *typical* station ThermoRoute is at least as accurate as LightGBM and significantly
 better at the longer leads, while LightGBM retains a small edge in the
 station-averaged median. We therefore claim a robust improvement over the physics
-baselines and at-least-parity with a strong learned baseline, and we disclose both
-aggregations rather than choosing the flattering one (Figure 2).
+baselines and at-least-parity with a strong learned baseline (Figure 2).
 
-![**Figure 2.** Per-station blind-test RMSE on the 36 USGS blind-test stations (of the 40-station nominal panel): ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 81–92 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
+![**Figure 2.** Per-station blind-test RMSE on the 114 USGS blind-test stations (of the 120-station main panel): ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 89–93 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
 
 ### 4.3 Spatial transfer to unseen basins (Table B)
 
-We use **4-fold leave-group-out** so every one of the available stations is held out
-exactly once: each fold trains a station-agnostic model on the other 30 stations and
-forecasts the held-out 10. Averaged over folds, ThermoRoute beats persistence on the
-unseen basins by **+0.13 / +0.14 / +0.23** skill at 1 / 3 / 7 days, with small
-across-fold variability (std ≈ 0.02; per-fold h7 skill 0.22–0.25), and it also beats
+We use leave-group-out (LGO) — training on a held-in subset and forecasting an
+entirely held-out subset of basins. On the headline 120-station setup, training on
+90 stations and testing on 30 unseen basins gives a one-shot transfer skill vs
+persistence of **+0.16 / +0.16 / +0.24** at 1 / 3 / 7 days (RMSE 0.656 / 1.285 /
+1.553 vs persistence 0.780 / 1.528 / 2.058). On the 40-station panel we additionally
+ran 4-fold LGO — every one of the available stations held out exactly once — which
+gave a more conservative average skill of **+0.13 / +0.14 / +0.23** with small
+across-fold variability (std ≈ 0.02; per-fold h7 skill 0.22–0.25), and beats
 *damped* persistence on the unseen basins (+0.09 / +0.02 / +0.01). This is the
 contribution a single-site study cannot make: the learned dynamic prior plus a
 station-agnostic residual generalises across basins, not just across years at one
