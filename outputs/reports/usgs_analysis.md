@@ -4,37 +4,37 @@
 
 | model | h | PICP | MPIW | CRPS | Brier-skill | AUPRC |
 |---|---|---|---|---|---|---|
-| ThermoRoute | 1 | 0.904 | 1.86 | 0.230 | +0.296 | 0.570 |
-| ThermoRoute | 3 | 0.906 | 3.76 | 0.454 | +0.254 | 0.514 |
-| ThermoRoute | 7 | 0.909 | 4.84 | 0.570 | +0.242 | 0.488 |
-| LightGBM | 1 | 0.900 | 1.90 | 0.230 | +0.334 | 0.623 |
-| LightGBM | 3 | 0.889 | 3.77 | 0.464 | +0.298 | 0.570 |
-| LightGBM | 7 | 0.885 | 4.72 | 0.581 | +0.284 | 0.548 |
+| ThermoRoute | 1 | 0.904 | 2.02 | 0.245 | +0.745 | 0.923 |
+| ThermoRoute | 3 | 0.911 | 4.27 | 0.504 | +0.604 | 0.815 |
+| ThermoRoute | 7 | 0.912 | 5.45 | 0.631 | +0.514 | 0.742 |
+| LightGBM | 1 | 0.905 | 1.99 | 0.238 | +0.732 | 0.918 |
+| LightGBM | 3 | 0.906 | 4.22 | 0.499 | +0.574 | 0.795 |
+| LightGBM | 7 | 0.907 | 5.31 | 0.625 | +0.498 | 0.723 |
 
 ## Decision value (peak REV)
 
 | model | h | REV_max | REV@0.1 | REV@0.2 |
 |---|---|---|---|---|
-| DampedPersistence | 1 | 0.891 | 0.859 | 0.884 |
-| LightGBM | 1 | 0.615 | 0.533 | 0.560 |
-| Persistence | 1 | 0.893 | 0.861 | 0.885 |
-| ThermoRoute | 1 | 0.619 | 0.529 | 0.556 |
-| DampedPersistence | 3 | 0.800 | 0.738 | 0.788 |
-| LightGBM | 3 | 0.616 | 0.540 | 0.529 |
-| Persistence | 3 | 0.798 | 0.737 | 0.782 |
-| ThermoRoute | 3 | 0.611 | 0.529 | 0.526 |
-| DampedPersistence | 7 | 0.740 | 0.656 | 0.728 |
-| LightGBM | 7 | 0.619 | 0.554 | 0.521 |
-| Persistence | 7 | 0.727 | 0.645 | 0.705 |
-| ThermoRoute | 7 | 0.598 | 0.528 | 0.502 |
+| DampedPersistence | 1 | 0.831 | 0.799 | 0.818 |
+| LightGBM | 1 | 0.899 | 0.895 | 0.847 |
+| Persistence | 1 | 0.843 | 0.814 | 0.828 |
+| ThermoRoute | 1 | 0.903 | 0.896 | 0.857 |
+| DampedPersistence | 3 | 0.679 | 0.616 | 0.656 |
+| LightGBM | 3 | 0.845 | 0.842 | 0.758 |
+| Persistence | 3 | 0.706 | 0.651 | 0.677 |
+| ThermoRoute | 3 | 0.855 | 0.848 | 0.783 |
+| DampedPersistence | 7 | 0.578 | 0.494 | 0.553 |
+| LightGBM | 7 | 0.817 | 0.810 | 0.708 |
+| Persistence | 7 | 0.589 | 0.511 | 0.547 |
+| ThermoRoute | 7 | 0.824 | 0.814 | 0.725 |
 
 ## Dynamic thermal memory — κ flow-dependence
 
-- κ_high/κ_low > 1 (faster relaxation at high flow) at **18% of stations** (median ratio 0.92).
-- mean κ_low=0.102, κ_high=0.095.
+- κ_high/κ_low > 1 (faster relaxation at high flow) at **2% of stations** (median ratio 0.87).
+- mean κ_low=0.118, κ_high=0.105.
 
 ## Router top drivers by horizon
 
-- h=1d: WDSP (nan%), DH (nan%), RHMEAN (nan%)
-- h=3d: WDSP (nan%), DH (nan%), RHMEAN (nan%)
-- h=7d: WDSP (nan%), DH (nan%), RHMEAN (nan%)
+- h=1d: DH (56%), WTEMP (21%), WDSP (9%)
+- h=3d: DH (54%), WTEMP (19%), TEMP (11%)
+- h=7d: DH (54%), TEMP (21%), FLOW (11%)

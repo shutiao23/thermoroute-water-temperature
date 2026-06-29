@@ -182,12 +182,42 @@ class StandardScalerPerStation:
 
 
 def prepare_dataset() -> dict[str, object]:
-    """One-stop builder: panel + masks + fitted imputer, fully fold-safe."""
+    """One-stop builder for the 3-station cascade: panel + masks + imputer."""
     assert_split_disjoint()
     panel = load_panel()
     masks = split_masks(panel["DATE"])
-    # masks are over the concatenated panel; build per-row train mask for fitting
     train_mask = masks.train
     imputer = Imputer.fit(panel, train_mask)
     panel_imp = imputer.transform(panel)
     return {"panel_raw": panel, "panel": panel_imp, "masks": masks, "imputer": imputer}
+
+
+def prepare_dataset_from_panel(panel_path: str, set_global_stations: bool = True) -> dict[str, object]:
+    """Same fold-safe pipeline applied to an externally-acquired panel
+    (e.g. ``data_usgs/panel_usgs_100.parquet``).
+
+    Reads the panel, registers its station list as ``C.STATIONS`` (so the rest of
+    the code — scalers, climatology, ThermoRoute n_stations — sees the right
+    dimension), masks observed flags, builds time-split masks, fits the imputer
+    on the training fold and returns the imputed panel.
+
+    The 3-station ``prepare_dataset`` and 09's previous private ``prep()`` are
+    superseded by this single entry point; both 3-station and USGS pipelines now
+    share one fold-safe preparation step.
+    """
+    panel = pd.read_parquet(panel_path)
+    panel["DATE"] = pd.to_datetime(panel["DATE"])
+    stations = tuple(sorted(panel.site_id.unique()))
+    if set_global_stations:
+        C.STATIONS = stations
+        C.UPSTREAM = {s: None for s in stations}
+    for v in C.ALL_VARS:
+        if v in panel.columns:
+            panel[f"{v}_observed"] = panel[v].notna()
+    masks = split_masks(panel["DATE"])
+    imputer = Imputer.fit(panel, masks.train)
+    panel_imp = imputer.transform(panel)
+    return {
+        "panel_raw": panel, "panel": panel_imp, "masks": masks,
+        "imputer": imputer, "stations": stations,
+    }

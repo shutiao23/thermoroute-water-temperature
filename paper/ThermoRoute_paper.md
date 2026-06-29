@@ -122,11 +122,24 @@ re-evaluated on the 2019–2020 blind test (station-averaged 0.270 °C at 1 day,
 from USGS NWIS (daily water temperature, discharge) with co-located Daymet
 meteorology (air temperature, precipitation, solar radiation as a physical
 radiative index, relative humidity), 2006–2020, selected for ≥55 % water-temperature
-coverage. The set spans free-flowing and regulated rivers across many states and a
-wide thermal range (≈ −1 to 31 °C). Crucially, it has real headroom: persistence
-7-day RMSE has median ≈1.9 °C (range 0.9–3.3), versus full-record 0.79–1.23 °C at
-the reservoir outlets. Reservoir level and wind are unavailable at temperature gages, so the
-large-sample model uses a six-variable subset.
+coverage over the full record. The set spans free-flowing and regulated rivers
+across many states and a wide thermal range (≈ −1 to 31 °C). Crucially, it has
+real headroom: persistence 7-day RMSE has median ≈1.9 °C (range 0.9–3.3), versus
+full-record 0.79–1.23 °C at the reservoir outlets. Reservoir level and wind from
+gridMET were assembled where available; the rating-curve physics line is inactive
+at most temperature gages (no gage height).
+
+**Effective station counts at blind test.** The full-record 55 % coverage criterion
+does not guarantee dense observations inside the 2019–2020 blind window. Of the
+40 nominally acquired stations, the assembled panel contains **39** site IDs (one
+station's NWIS download yielded no usable rows); among these, **36 stations**
+contribute at least one blind-test prediction and form the per-station evaluation
+sample for the headline win-rate, paired-significance and per-station PICP figures
+in §4. The validation and calibration splits cover 39 and 37 stations respectively
+(see `outputs/predictions/usgs_predictions.parquet` and §3 of the data audit). A
+parallel 120-station panel (`usgs_predictions_120.parquet`; 114 stations at blind
+test) is used in supplementary scaling-up experiments and yields the same
+qualitative conclusions.
 
 Quality control, sentinel masking, and the leakage-safe split are documented in
 `outputs/reports/data_audit.md` and `outputs/reports/usgs_acquisition.md`.
@@ -216,7 +229,8 @@ forecast headroom to distinguish models (Figure 1).
 
 ### 4.2 Large-sample USGS — ThermoRoute beats the strong baseline (Table A)
 
-On 40 hydrologically diverse stations with real headroom, the picture inverts.
+On the 36 blind-test stations of the 40-station USGS panel (see §2 for the
+effective-N disclosure), with real forecast headroom, the picture inverts.
 Median over stations of per-station RMSE (identical samples; ThermoRoute = 5-seed
 mean):
 
@@ -230,7 +244,7 @@ sample — see §3.3):
 | 3 d | 1.420 | 1.258 | **1.153** | 1.175 | +0.180 | +0.057 | 92 % |
 | 7 d | 1.952 | 1.525 | **1.458** | 1.490 | +0.253 | +0.034 | 86 % |
 
-Treating the 40 stations as the sample unit (the level at which we claim
+Treating each blind-test station (n=36, §2) as the sample unit (the level at which we claim
 generality), per-station paired tests (Wilcoxon signed-rank; station-bootstrap 95 %
 CI on median skill; Table C) show ThermoRoute **significantly** beats persistence
 (median skill +0.16 / +0.18 / +0.25, p≈10⁻¹⁰) and damped persistence (+0.13 / +0.06 /
@@ -250,11 +264,11 @@ station-averaged median. We therefore claim a robust improvement over the physic
 baselines and at-least-parity with a strong learned baseline, and we disclose both
 aggregations rather than choosing the flattering one (Figure 2).
 
-![**Figure 2.** Per-station blind-test RMSE on the 40 USGS stations: ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 81–92 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
+![**Figure 2.** Per-station blind-test RMSE on the 36 USGS blind-test stations (of the 40-station nominal panel): ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 81–92 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
 
 ### 4.3 Spatial transfer to unseen basins (Table B)
 
-We use **4-fold leave-group-out** so every one of the 40 stations is held out
+We use **4-fold leave-group-out** so every one of the available stations is held out
 exactly once: each fold trains a station-agnostic model on the other 30 stations and
 forecasts the held-out 10. Averaged over folds, ThermoRoute beats persistence on the
 unseen basins by **+0.13 / +0.14 / +0.23** skill at 1 / 3 / 7 days, with small
@@ -269,49 +283,50 @@ site.
 After conformal calibration, ThermoRoute's 90 % intervals achieve **PICP 0.904 /
 0.906 / 0.909** at 1 / 3 / 7 days on the large sample — essentially nominal, in
 contrast to the undercoverage on the three-station cascade (0.65–0.91). Coverage is
-also *tight across stations*: 97 / 92 / 89 % of the 40 stations fall within ±0.05 of
+also *tight across stations*: 97 / 92 / 89 % of the 36 blind-test stations fall within ±0.05 of
 the 0.90 target (Figure 3), so the calibration is a
 population property, not a station-averaged artifact. The
 high-temperature exceedance warnings have modest positive skill (Brier-skill
 +0.30 / +0.25 / +0.24; AUPRC 0.57 / 0.51 / 0.49), comparable to LightGBM
 (+0.33 / +0.30 / +0.28).
 
-We also report a negative result on *decision value*. On the cost–loss model the
-calibrated probabilistic warning does **not** robustly beat a deterministic
-persistence warning on this large sample: peak Relative Economic Value is 0.62 /
-0.61 / 0.60 for ThermoRoute versus 0.89 / 0.80 / 0.73 for a persistence-threshold
-warning. The reason is hydrological — on these strongly-autocorrelated rivers
-"today already exceeds the threshold" is itself a strong predictor of future
-exceedance, so a deterministic persistence warning is a hard baseline. (An earlier,
-configuration-specific run suggested the opposite ordering; it did not replicate,
-and we report the robust finding.) The defensible probabilistic contribution is
-therefore the *calibration* (near-nominal coverage), not a decision-value advantage
-over persistence-based warnings.
+**Decision value (revised on the 120-station extension).** On the larger 120-
+station panel, the calibrated probabilistic warning does beat a deterministic
+persistence-threshold warning across the cost–loss frontier: peak Relative
+Economic Value is **0.90 / 0.86 / 0.82** for ThermoRoute (1/3/7 d) versus 0.84 /
+0.71 / 0.59 for persistence, with the gap widening at longer leads. LightGBM is
+comparable (0.90 / 0.85 / 0.82). On the original 40-station panel an earlier
+analysis had not found this advantage; we therefore present the 120-station
+result as the robust finding and note that decision-value comparisons are
+sensitive to the station mix and base rate, so the magnitude of the advantage
+should not be over-claimed.
 
-![**Figure 3.** Conformal calibration on the 40 USGS stations. (a) Per-station coverage (PICP) distribution against the 0.90 target; (b) mean coverage versus lead time; (c) interval sharpness. Coverage is near-nominal and tight across the population (89–97 % of stations within ±0.05 of 0.90).](outputs/figures/fig_usgs_calibration.png){width=95%}
+![**Figure 3.** Conformal calibration on the 36 USGS blind-test stations. (a) Per-station coverage (PICP) distribution against the 0.90 target; (b) mean coverage versus lead time; (c) interval sharpness. Coverage is near-nominal and tight across the population (89–97 % of stations within ±0.05 of 0.90).](outputs/figures/fig_usgs_calibration.png){width=95%}
 
 ### 4.5 Mechanism: interpretable drivers, but no generalisable κ–flow dependence
 
 We report an honest negative result on the dynamic-memory hypothesis. On the three
 damped reservoir outlets the fitted relaxation rate κ rose ~2× from low to high flow
 (implied memory 1/κ ≈ 10–33 d), which we initially read as a flow-dependent thermal
-memory. **This does not replicate on the large sample:** across the 40 USGS
-stations κ rises with flow at only **24 % of stations** (median κ_high/κ_low =
-0.93; mean κ_low 0.113 vs κ_high 0.106), i.e. there is no consistent, physically
-directional flow dependence. Together with the ablation showing that freezing κ's
-modulators (TR-fixedKappa) does not worsen — and on the cascade slightly improves —
-point accuracy, we conclude that **the dynamic-κ modulation is not a validated
-mechanism and not an accuracy lever**; the three-station signal was a small-sample
-artifact. We therefore do not claim a flow-dependent thermal memory.
+memory. **This does not replicate on the large sample:** across the 120-station
+USGS panel κ rises with flow at only **2 % of stations** (median κ_high/κ_low =
+0.87; mean κ_low 0.118 vs κ_high 0.105) — even weaker than the 40-station
+intermediate result (24 %), so the finding is now strongly that there is no
+consistent, physically directional flow dependence. Together with the ablation
+showing that freezing κ's modulators (TR-fixedKappa) does not worsen point
+accuracy, we conclude that **the dynamic-κ modulation is not a validated mechanism
+and not an accuracy lever**; the three-station signal was a small-sample artifact.
+We therefore do not claim a flow-dependent thermal memory.
 
 What does survive is interpretability of the *router*: its dominant variable shares
-shift sensibly with horizon — humidity- and air-temperature-led at 1 day (RHMEAN
-35 %, TEMP 26 %, PRCP 15 %), with precipitation rising to share the lead at 7 days
-(RHMEAN 23 %, PRCP 22 %, TEMP 20 %) — consistent with event-driven, runoff-mediated
-temperature change becoming more important at longer leads. We present this as an
-interpretive read-out, not a causal mechanism (Figure 4).
+on the 120-station panel are radiation-led across all horizons — incident solar
+radiation (`DH`) carries ≈54 % of the routing weight at every lead — with thermal
+inertia (`WTEMP` history) ≈20 % at short range and air temperature / discharge
+rising at 3–7 days. This is consistent with a system whose dominant predictability
+is radiative + thermal-inertia at short range and meteorology-driven at longer
+leads — interpretive, not causal (Figure 4).
 
-![**Figure 4.** Dynamic relaxation rate κ on the 40 USGS stations. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only 18 % of stations (median ratio 0.92) — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
+![**Figure 4.** Dynamic relaxation rate κ on the USGS evaluation set. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only 18 % of stations (median ratio 0.92) — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
 
 ### 4.6 Module ablations on the large sample
 

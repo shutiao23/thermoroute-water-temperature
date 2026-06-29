@@ -56,17 +56,12 @@ def log(m):
 
 
 def prep(panel_path: str):
-    panel = pd.read_parquet(panel_path)
-    panel["DATE"] = pd.to_datetime(panel["DATE"])
-    stations = tuple(sorted(panel.site_id.unique()))
-    C.STATIONS = stations
-    C.UPSTREAM = {s: None for s in stations}
-    for v in C.ALL_VARS:
-        panel[f"{v}_observed"] = panel[v].notna()
-    masks = D.split_masks(panel["DATE"])
-    panel_imp = D.Imputer.fit(panel, masks.train).transform(panel)
+    """Now a thin shim over the shared D.prepare_dataset_from_panel — the same
+    fold-safe preparation used by the 3-station track and any future panel."""
+    b = D.prepare_dataset_from_panel(panel_path)
+    panel, panel_imp, masks = b["panel_raw"], b["panel"], b["masks"]
     clim = F.HarmonicClimatology.fit(panel, masks.train)
-    return panel, panel_imp, masks, clim, stations
+    return panel, panel_imp, masks, clim, b["stations"]
 
 
 def phi_per_station(panel, clim, masks):

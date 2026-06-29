@@ -42,11 +42,15 @@ from thermoroute.thermoroute import ThermoRoute
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 DELTA_SCALE = 1.5
-PRED = C.PREDICTIONS / "usgs_predictions.parquet"
+# Auto-pick the latest predictions+panel pair: prefer 120-station if present.
+_120_pred = C.PREDICTIONS / "usgs_predictions_120.parquet"
+PRED = _120_pred if _120_pred.exists() else C.PREDICTIONS / "usgs_predictions.parquet"
+_panel_120 = ROOT / "data_usgs" / "panel_usgs_100.parquet"
+PANEL_PATH = _panel_120 if _120_pred.exists() else (ROOT / "data_usgs" / "panel_usgs_wind.parquet")
 
 
 def prep():
-    panel = pd.read_parquet(ROOT / "data_usgs" / "panel_usgs.parquet")
+    panel = pd.read_parquet(PANEL_PATH)
     panel["DATE"] = pd.to_datetime(panel["DATE"])
     stations = tuple(sorted(panel.site_id.unique()))
     C.STATIONS = stations

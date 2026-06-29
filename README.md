@@ -1,37 +1,51 @@
 # ThermoRoute
 
-**Physics-guided, dynamic-lag, calibrated multi-station river water-temperature forecasting.**
+**Physics-guided, dynamic-lag, calibrated, transferable river water-temperature forecasting.**
 
-ThermoRoute forecasts daily water temperature (`WTEMP`) 1, 3 and 7 days ahead at
-three reservoir-cascade stations (**b1 → s2 → p3**, 2006–2020, 15 years of daily
-records). It pairs a **learnable dynamic thermal-relaxation physics prior** with a
-**horizon-conditioned sparse variable–lag router**, a causal TCN encoder and a
-regime mixture-of-experts, and emits **conformally-calibrated quantiles** plus a
-**high-temperature exceedance probability**.
+ThermoRoute forecasts daily water temperature (`WTEMP`) 1, 3 and 7 days ahead. It
+couples a *learnable dynamic thermal-relaxation prior* — a flow- and
+season-modulated generalisation of damped persistence toward climatology that
+contains the strong baseline as a special case — with a horizon-conditioned sparse
+variable–lag router, a causal TCN encoder, a regime mixture-of-experts, and a
+**bounded** neural residual; outputs are conformally-calibrated quantiles plus a
+high-temperature exceedance probability.
 
-The scientific claim is not "a neural net fits better". It is:
+The study has two settings.
 
-> The river's thermal response time-constant is **not fixed** — it varies with
-> flow, level and season — and a horizon-conditioned sparse lag router recovers
-> *which drivers and which lags* matter at 1, 3 and 7 days. The physics prior
-> makes **damped persistence a strict special case**, so any gain is attributable
-> to the dynamic mechanism, and every interval is calibrated with a finite-sample
-> guarantee.
+* **Main analysis (large-sample, USGS).** 120 public USGS stream gages with
+  Daymet meteorology and gridMET wind, 2006–2020, free-flowing and
+  dam-regulated. **5-seed ThermoRoute beats persistence by +0.21/+0.19/+0.25
+  skill (1/3/7 d) and damped persistence by +0.18/+0.08/+0.04** (median over 114
+  blind-test stations; significantly beats both at p≤10⁻⁶), beats canonical
+  Toffolon-Piccolroaz **air2stream-a8** at h7 (1.652 vs 1.695 °C), and in
+  4-fold leave-group-out transfers to basins it never trained on (+0.13–0.23
+  skill). Conformal calibration delivers near-nominal PICP (≈0.90).
+* **Case study (3-station cascade).** Three reservoir-cascade stations
+  (`b1`→`s2`→`p3`), 2006–2020. The reservoir outlets are so heavily damped that
+  **no learned model improves on per-station damped persistence on point RMSE**
+  — an honest negative result that motivates the large-sample study and is
+  reported in full.
+
+Three negative results are reported in full: no point gain on the cascade, the
+flow-dependent thermal memory does not generalise beyond it, and no robust
+cost–loss decision-value advantage over a (strong) deterministic persistence
+warning.
+
+See `paper/ThermoRoute_paper.md` for the full manuscript and
+`outputs/reports/review_response.md` for the finding-by-finding response to a
+six-reviewer adversarial internal review (34 confirmed findings).
 
 ---
 
-## Why this problem is hard (and honest)
+## Why the problem is hard (and honest)
 
-Reservoir water temperature is extremely autocorrelated (lag-1 ≈ 0.998).
-**Persistence is a brutal baseline**, and only *damped persistence toward
-climatology* reliably beats it. A generic strong learner (LightGBM with 126
-features) does **not** beat that physics-aware baseline at 3–7 days — it overfits.
-ThermoRoute is therefore designed to (a) match/beat the damped-persistence floor
-on point accuracy by *generalising* it, and (b) add what the floor cannot:
-calibrated uncertainty, high-temperature warning, and an interpretable,
-flow-and-season-dependent thermal-memory mechanism.
-
-See `outputs/reports/data_audit.md` for the numbers behind every claim above.
+Reservoir water temperature has lag-1 autocorrelation ≈ 0.998. **Persistence is a
+brutal baseline**, and only damped persistence toward climatology reliably beats
+it. A generic strong learner (LightGBM) is competitive — sometimes parity in
+median, but ThermoRoute wins the station-level head-to-head at 3–7 days. The
+contribution is therefore (i) beating the *physics* baselines robustly, (ii)
+spatial transfer, (iii) calibrated uncertainty — established on a large,
+hydrologically diverse sample rather than a single site.
 
 ---
 
@@ -39,47 +53,78 @@ See `outputs/reports/data_audit.md` for the numbers behind every claim above.
 
 ```
 project1/
-├── data/                       raw CSVs (b1,s2,p3) + processed/panel.parquet
+├── data/                       raw 3-station cascade CSVs (b1, s2, p3)
+├── data_usgs/                  USGS large-sample panels (panel_usgs_100.parquet),
+│                                 per-station n*.csv, stations_meta.csv, acquisition report
 ├── src/thermoroute/
 │   ├── config.py               protocol constants (split, topology, thresholds)
 │   ├── data.py                 loading, sentinel QC, fold-safe split + impute
 │   ├── features.py             harmonic climatology, tabular lag features
-│   ├── datasets.py             windowed tensors + leakage guard
-│   ├── baselines.py            persistence … air2stream-lite … LightGBM
+│   ├── datasets.py             windowed tensors + leakage guard (NaN-safe)
+│   ├── baselines.py            persistence … LightGBM (3-station baselines)
+│   ├── air2stream.py           canonical Toffolon–Piccolroaz hybrid (a4 + a8)
 │   ├── thermoroute.py          the model (prior + router + TCN + MoE + heads)
 │   ├── train.py                training loop, composite loss, GRU reference
 │   ├── conformal.py            conformalised quantile regression (CQR)
 │   ├── metrics.py              point / probabilistic / event metrics
 │   ├── significance.py         moving-block bootstrap, Diebold-Mariano
-│   └── results.py              canonical predictions schema + scoring
+│   ├── decision.py             cost-loss decision value (REV)
+│   ├── results.py              canonical predictions schema + scoring
+│   └── usgs.py                 NWIS + Daymet + gridMET acquisition
 ├── scripts/
-│   ├── 01_prepare_data.py      → data_audit.md, panel.parquet
-│   ├── 04_run_experiments.py   → predictions.parquet, scores_all.csv
-│   ├── 05_explain.py           → explain.npz, mechanism_summary.md
-│   ├── 06_make_figures.py      → outputs/figures/*.png|pdf
-│   ├── 07_make_tables.py       → outputs/tables/paper_tables.md
-│   └── run_all.sh              one-command reproduction
-├── tests/                      leakage / split / metric unit tests
-├── paper/                      manuscript draft (Methods + Results, real numbers)
-└── outputs/                    tables, figures, predictions, reports, models
+│   ├── 01_prepare_data.py            3-station audit + processed panel
+│   ├── 04_run_experiments.py         3-station experiment matrix
+│   ├── 05_explain.py                 3-station mechanism extraction
+│   ├── 06_make_figures.py            3-station + USGS figures
+│   ├── 07_make_tables.py             3-station paper tables
+│   ├── 08_decision_value.py          REV decision-value analysis
+│   ├── 09_usgs_experiment.py    USGS main: baselines + air2stream + ThermoRoute × seeds + LGO + ablations
+│   ├── 10_usgs_analysis.py      USGS calibration, REV, mechanism (κ, router drivers)
+│   ├── 11_retune.py             residual-bound (delta_scale) tuning
+│   ├── 12_claim_stats.py        per-station Wilcoxon + bootstrap CI (Claims 1, 3)
+│   ├── 13_rigor.py              K-fold leave-group-out + 3-seed ablations (Claims 2, 4)
+│   ├── data_usgs/build_usgs_stations.py   acquisition driver
+│   └── run_all.sh                     one-command reproduction (both tracks)
+├── tests/                              leakage / split / metric unit tests (13 tests)
+├── paper/
+│   ├── ThermoRoute_paper.md            manuscript
+│   ├── ThermoRoute_paper.pdf|.docx     rendered
+│   ├── cover_letter.md|.pdf|.docx      submission cover letter
+│   └── highlights.md|.pdf|.docx        JoH-format highlights + one-page summary
+└── outputs/                            tables, figures, predictions, reports, models
 ```
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt          # torch, lightgbm, sklearn, ...
-bash scripts/run_all.sh                   # ~30–60 min on a laptop CPU
+bash scripts/run_all.sh                   # full pipeline, both tracks (multi-hour on CPU)
 ```
 
-Or step by step (set `PYTHONPATH=src`):
+Or step by step (set `PYTHONPATH=src`; first batch is the 3-station case study,
+second batch is the USGS large-sample main analysis):
 
 ```bash
+# --- 3-station case study (~30 minutes on CPU) ---
 python3 scripts/01_prepare_data.py        # audit + processed panel
-python3 -m pytest tests/ -q               # 13 leakage / metric tests
-python3 scripts/04_run_experiments.py     # full matrix (the long step)
-python3 scripts/05_explain.py             # router + κ extraction
-python3 scripts/06_make_figures.py        # 10 figures
-python3 scripts/07_make_tables.py         # 6 paper tables
+python3 -m pytest tests/ -q               # leakage / metric tests (13 pass)
+python3 scripts/04_run_experiments.py     # 3-station experiment matrix
+python3 scripts/05_explain.py             # 3-station mechanism extraction
+python3 scripts/06_make_figures.py        # 3-station figures
+python3 scripts/07_make_tables.py         # 3-station paper tables
+python3 scripts/08_decision_value.py      # REV analysis
+
+# --- USGS large-sample main analysis (multi-hour on CPU) ---
+# acquisition (network-bound) — already pre-acquired in data_usgs/
+python3 scripts/data_usgs/build_usgs_stations.py --target 120 --max-probe 1500 \
+    --out panel_usgs_100.parquet --states CO OR WA PA NY MN WI CA ID MT [...]
+# main experiment (5 seeds + air2stream + LGO + ablations)
+python3 scripts/09_usgs_experiment.py --panel data_usgs/panel_usgs_100.parquet \
+    --air2stream --seeds 5
+# downstream: calibration / REV / mechanism + significance + rigor
+python3 scripts/10_usgs_analysis.py
+python3 scripts/12_claim_stats.py
+python3 scripts/13_rigor.py
 ```
 
 ## The model in one screen
@@ -96,6 +141,7 @@ prior :  a_t = W_t − C_t                      today's anomaly
 residual: routed = sparsemax router over {variable × lag(0..14) × horizon}
           latent = causal TCN(history)
           Δ_h    = MoE(routed, latent | season, flow, precip regime)
+          Δ_h    is **bounded by ±delta_scale °C** (tanh) so the prior is never overridden
 
 output : median_h = prior_h + Δ_h
          q05/q95  = median ∓ softplus(width)   → CQR-calibrated on 2018
@@ -110,14 +156,19 @@ output : median_h = prior_h + Δ_h
 * `datasets._assert_no_leakage` verifies every window's last step inverts to
   `WTEMP_t`; `tests/test_leakage.py` checks splits, sentinels and target offsets.
 * Sentinel codes `WDSP=999.9`, `PRCP=99.99` are masked to NaN, never used as extremes.
+* For USGS panels, a station is included only if its 2006–2020 water-temperature
+  coverage is ≥55 %; per-split effective station counts (≤ nominal panel size)
+  are documented in `outputs/reports/usgs_acquisition.md` and reported in the
+  paper.
 
 ## Notes / open items
 
-* **DH semantics are unverified** against a data dictionary (`config.DH_SEMANTICS_VERIFIED
-  = False`). The audit is consistent with a sunshine/insolation index; it enters
-  models as a generic radiative channel and no DH-specific claim is made.
+* **DH semantics on the 3-station data are unverified** (`config.DH_SEMANTICS_VERIFIED
+  = False`). The audit is consistent with a sunshine/insolation index but no
+  DH-specific claim is made. On USGS panels, `DH` is Daymet incident solar
+  radiation (W/m²), a physical replacement on a different scale.
 * This is a **historical-information (Track H)** study: inputs use only data
-  available at issue time. No future observed meteorology is used; an Oracle
-  upper bound is intentionally omitted from headline results.
-* Three stations are too few for a deep graph network; cross-station structure is
-  modelled through the directed travel-time prior and LOSO transfer, not a GNN.
+  available at issue time. No future observed meteorology is used.
+* Three stations are intentionally a *case study* — the main analysis is the
+  120-station USGS large sample, which has the forecast headroom (persistence
+  h7 median ≈ 2.3 °C) needed to distinguish models.
