@@ -165,17 +165,43 @@ def fetch_gridmet_wind(lat: float, lon: float, start: str, end: str,
 # --------------------------------------------------------------------------- #
 def build_station(site: str, lat: float, lon: float, site_id: str,
                   start: str, end: str, min_wtemp_cov: float = 0.0,
-                  min_flow_cov: float = 0.0) -> tuple[pd.DataFrame | None, dict]:
+                  min_flow_cov: float = 0.0,
+                  min_wtemp_cov_test: float = 0.0,
+                  min_flow_cov_test: float = 0.0,
+                  test_start: str = "2019-01-01"
+                  ) -> tuple[pd.DataFrame | None, dict]:
+    """Acquire one station and apply the inclusion thresholds.
+
+    Two coverage gates are checked, both BEFORE the (slower) Daymet/gridMET
+    calls so probing stays fast:
+
+    * **Full-period** (``min_wtemp_cov`` / ``min_flow_cov``): observation
+      density across the whole 2006–2020 record.
+    * **Blind-test-period** (``min_wtemp_cov_test`` / ``min_flow_cov_test``):
+      observation density inside the held-out years (default 2019 onward).
+      This second gate stops a station from sneaking into the panel on its
+      pre-2019 record only to vanish from the actual blind-test evaluation
+      (the 39→36 shrinkage in the original 40-station panel).
+    """
     nwis_df = fetch_nwis_daily(site, start, end)
     if nwis_df is None:
         return None, {"site": site, "ok": False, "reason": "no NWIS WTEMP+FLOW"}
     wt_cov = nwis_df["WTEMP"].notna().mean()
     fl_cov = nwis_df["FLOW"].notna().mean()
+    test_mask = nwis_df.index >= pd.Timestamp(test_start)
+    wt_cov_test = nwis_df.loc[test_mask, "WTEMP"].notna().mean() if test_mask.any() else 0.0
+    fl_cov_test = nwis_df.loc[test_mask, "FLOW"].notna().mean() if test_mask.any() else 0.0
+    cov_info = {"wtemp_cov": round(float(wt_cov), 3),
+                "flow_cov": round(float(fl_cov), 3),
+                "wtemp_cov_test": round(float(wt_cov_test), 3),
+                "flow_cov_test": round(float(fl_cov_test), 3)}
     # reject on coverage BEFORE the (slower) Daymet call to speed up probing
     if wt_cov < min_wtemp_cov or fl_cov < min_flow_cov:
-        return None, {"site": site, "ok": False, "reason": "low coverage",
-                      "wtemp_cov": round(float(wt_cov), 3),
-                      "flow_cov": round(float(fl_cov), 3)}
+        return None, {"site": site, "ok": False, "reason": "low full-period coverage",
+                      **cov_info}
+    if (wt_cov_test < min_wtemp_cov_test) or (fl_cov_test < min_flow_cov_test):
+        return None, {"site": site, "ok": False,
+                      "reason": "low blind-test-period coverage", **cov_info}
     met = fetch_daymet(lat, lon, start, end)
     if met is None:
         return None, {"site": site, "ok": False, "reason": "no Daymet"}
@@ -190,6 +216,8 @@ def build_station(site: str, lat: float, lon: float, site_id: str,
              "TEMP", "PRCP", "WDSP", "RHMEAN", "DH"]]
     info = {"site": site, "site_id": site_id, "ok": True,
             "wtemp_cov": round(float(wt_cov), 3), "flow_cov": round(float(fl_cov), 3),
+            "wtemp_cov_test": round(float(wt_cov_test), 3),
+            "flow_cov_test": round(float(fl_cov_test), 3),
             "wlevel_cov": round(float(df["WLEVEL"].notna().mean()), 3),
             "n_days": len(df)}
     return df, info
