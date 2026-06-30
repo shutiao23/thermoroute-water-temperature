@@ -89,12 +89,25 @@ def canon(wd, idx, model_name, preds_by_h, scope="joint_usgs"):
 
 
 def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr):
-    """One LightGBM across all stations per horizon (point + quantiles + exceedance)."""
+    """One LightGBM across all stations per horizon (point + quantiles + exceedance).
+
+    Uses the **imputed** panel and keeps every row whose target WTEMP is observed
+    — matching ThermoRoute's windowed sample selection so the two models can be
+    compared on identical (site_id, issue_date, horizon) keys (enforced by the
+    final join in ``main`` and by ``tests/test_sample_consistency.py``).
+    """
     from thermoroute import baselines as B
     frames = []
     for h in C.HORIZONS:
-        tab = F.attach_split(F.build_tabular(panel_raw, h, USGS_VARS, clim))
+        tab = F.attach_split(F.build_tabular(
+            panel_imp, h, USGS_VARS, clim,
+            drop_feature_nans=False, require_observed_target=True))
         cols = F.feature_columns(tab)
+        # NaN-safe design matrix: LightGBM natively handles NaN, but we also
+        # zero-fill to remove any residual surprise — equivalent to the
+        # standardised-mean fallback used by ThermoRoute's encoder.
+        for c in cols:
+            tab[c] = pd.to_numeric(tab[c], errors="coerce").fillna(0.0)
         tr, va = tab[tab.split == "train"], tab[tab.split == "val"]
         ev = tab[tab.split.isin(["calib", "test"])]
         Xtr, ytr, Xva, yva = tr[cols].to_numpy(float), tr["y"].to_numpy(float), \
@@ -234,6 +247,32 @@ def main():
             log(f"  {name}: {time.time()-te:.0f}s val={r.best_val:.4f}")
 
     allp = pd.concat(chunks, ignore_index=True)
+
+    # ---- enforce identical (site_id, horizon, issue_date) keys across models -
+    # Build the intersection of test-split keys present in every comparable
+    # model, then drop any row outside it. This is what makes "ThermoRoute vs
+    # damped persistence vs LightGBM vs air2stream" a fair comparison on
+    # **identical samples** rather than each model's own subset (the issue
+    # raised in the advisor review). The unit test
+    # tests/test_sample_consistency.py asserts the post-join equality.
+    compare = {"Persistence", "Climatology", "DampedPersistence",
+               "Air2stream-a4", "Air2stream-a8", "LightGBM", "ThermoRoute"}
+    te = allp[(allp.split == "test") & (allp.model.isin(compare))]
+    if not te.empty:
+        # ThermoRoute may have multiple seeds -> take the union of TR keys
+        keys_per_model = {m: set(zip(g.site_id, g.horizon, g.issue_date.astype(str)))
+                          for m, g in te.groupby("model")}
+        common = set.intersection(*keys_per_model.values())
+        log(f"sample registry: {len(common)} keys common to all {len(keys_per_model)} models "
+            f"(per-model row counts: {[(m, len(k)) for m, k in keys_per_model.items()]})")
+        if common:
+            mask_test = allp.split.eq("test") & allp.model.isin(compare)
+            tup = list(zip(allp.site_id, allp.horizon, allp.issue_date.astype(str)))
+            keep = ~mask_test | pd.Series([t in common for t in tup], index=allp.index)
+            dropped = (~keep).sum()
+            allp = allp.loc[keep].reset_index(drop=True)
+            log(f"  -> dropped {dropped} non-shared rows to enforce identical test keys")
+
     allp.to_parquet(C.PREDICTIONS / args.out_predictions)
     log(f"saved predictions ({len(allp)} rows)")
 

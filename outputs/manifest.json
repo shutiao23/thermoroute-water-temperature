@@ -1,0 +1,135 @@
+{
+  "commit": "13d88404d477",
+  "tag_at_head": "prefreeze-12-redlines",
+  "commit_date": "2026-06-30T12:42:15+01:00",
+  "lockfile": "requirements-lock.txt",
+  "data": {
+    "data/b1.csv": {
+      "sha256_16": "1ece1ab4459583c4",
+      "bytes": 310769
+    },
+    "data/s2.csv": {
+      "sha256_16": "63cdde81ea0b59b9",
+      "bytes": 314193
+    },
+    "data/p3.csv": {
+      "sha256_16": "962b2f53526d80ba",
+      "bytes": 311589
+    },
+    "data_usgs/panel_usgs.parquet": {
+      "sha256_16": "1c3d9a52cbca1c10",
+      "bytes": 4451155
+    },
+    "data_usgs/panel_usgs_wind.parquet": {
+      "sha256_16": "20fdb80477726ab9",
+      "bytes": 4669836
+    },
+    "data_usgs/panel_usgs_100.parquet": {
+      "sha256_16": "577f764b00c49bfa",
+      "bytes": 12868078
+    },
+    "data_usgs/stations_meta.csv": {
+      "sha256_16": "9290f69ffea6365d",
+      "bytes": 12617
+    },
+    "data_usgs/stations_meta_40.csv": {
+      "sha256_16": "2e9929708680728d",
+      "bytes": 4252
+    }
+  },
+  "predictions": {
+    "outputs/predictions/predictions.parquet": {
+      "sha256_16": "70d03c4cae1b03f6",
+      "bytes": 16758229
+    },
+    "outputs/predictions/usgs_predictions.parquet": {
+      "sha256_16": "2b1da24b7781f933",
+      "bytes": 66732164
+    },
+    "outputs/predictions/usgs_predictions_120.parquet": {
+      "sha256_16": "021bb555b9421d37",
+      "bytes": 251213066
+    }
+  },
+  "tables": {
+    "outputs/tables/scores_all.csv": {
+      "sha256_16": "f66bccbbd9ca5a56",
+      "bytes": 210775
+    },
+    "outputs/tables/decision_value.csv": {
+      "sha256_16": "378c0ed704de16dd",
+      "bytes": 1852
+    },
+    "outputs/tables/usgs_scores_120.csv": {
+      "sha256_16": "83a5a7498872a635",
+      "bytes": 21620
+    },
+    "outputs/tables/usgs_scores.csv": {
+      "sha256_16": "d34b15e4ae703ba6",
+      "bytes": 6910
+    },
+    "outputs/tables/usgs_retune.csv": {
+      "sha256_16": "c7366139bbe15846",
+      "bytes": 203
+    },
+    "outputs/tables/claim3_calibration.csv": {
+      "sha256_16": "3e1acd94a6e1f613",
+      "bytes": 222
+    },
+    "outputs/tables/usgs_stations_with_huc.csv": {
+      "sha256_16": "9ed9d54edb85323e",
+      "bytes": 15365
+    },
+    "outputs/tables/usgs_kappa.csv": {
+      "sha256_16": "eee886f9f1939a86",
+      "bytes": 4243
+    },
+    "outputs/tables/claim2_kfold_lgo.csv": {
+      "sha256_16": "f76cca31fa57ddb8",
+      "bytes": 801
+    },
+    "outputs/tables/usgs_rev.csv": {
+      "sha256_16": "a880f2f35753c362",
+      "bytes": 1701
+    },
+    "outputs/tables/usgs_calibration.csv": {
+      "sha256_16": "92b8898dbaa3e6f3",
+      "bytes": 687
+    }
+  },
+  "reports": {
+    "outputs/reports/rigor.md": {
+      "sha256_16": "00108f634df83ac0",
+      "bytes": 766
+    },
+    "outputs/reports/review_response.md": {
+      "sha256_16": "171e5c2b2c2888a6",
+      "bytes": 7927
+    },
+    "outputs/reports/usgs_analysis.md": {
+      "sha256_16": "d11dbbcc37181a9f",
+      "bytes": 1527
+    },
+    "outputs/reports/data_audit.md": {
+      "sha256_16": "4152f2b642d63125",
+      "bytes": 3934
+    },
+    "outputs/reports/usgs_experiment.md": {
+      "sha256_16": "a7c2811c635c092a",
+      "bytes": 1070
+    },
+    "outputs/reports/usgs_acquisition.md": {
+      "sha256_16": "0a5c2a5429f14657",
+      "bytes": 10122
+    },
+    "outputs/reports/usgs_experiment_120.md": {
+      "sha256_16": "9474d4957328dc82",
+      "bytes": 1115
+    },
+    "outputs/reports/mechanism_summary.md": {
+      "sha256_16": "b805d0f248a7ca85",
+      "bytes": 650
+    }
+  },
+  "figures_count": 15
+}

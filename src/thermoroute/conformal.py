@@ -1,10 +1,16 @@
 """Conformalised quantile regression (Romano et al., 2019).
 
 The model's raw quantiles are under-calibrated (the baselines showed PICP≈0.80
-for a nominal 90% band).  CQR adds a finite-sample coverage guarantee by widening
-the interval using calibration-set conformity scores, done per
-(station × horizon) — a Mondrian split that respects the heteroscedasticity we
-expect across stations and lead times.
+for a nominal 90% band). CQR widens the interval using calibration-set
+conformity scores, done per (station × horizon) — a Mondrian split that respects
+the heteroscedasticity we expect across stations and lead times.
+
+Note on the "guarantee": split-CQR's formal finite-sample (1−α) coverage holds
+under exchangeability between calibration and test points. In this study
+calibration (2018) and test (2019–2020) are disjoint future years and stations
+are not i.i.d., so the assumption is **not satisfied strictly**. The intervals
+should therefore be read as *empirically* near-nominal — and we report the
+achieved PICP on the blind years rather than claim a formal guarantee.
 """
 
 from __future__ import annotations

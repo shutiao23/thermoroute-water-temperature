@@ -1,0 +1,20 @@
+# Pinned versions used to produce the published numbers in
+# paper/ThermoRoute_paper.md (commit prefreeze-12-redlines and later).
+# Install with:
+#     pip install -r requirements-lock.txt
+# Built and tested on Python 3.12 (macOS arm64). A clean reinstall should
+# reproduce numbers within floating-point drift across BLAS/CUDA versions;
+# see requirements.txt for the looser floors used for forward compatibility.
+
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.13.1
+scikit-learn==1.5.1
+lightgbm==4.6.0
+torch==2.12.0
+matplotlib==3.9.2
+statsmodels==0.14.2
+pyarrow==24.0.0
+pytest==8.0.0
+dataretrieval==1.2.0
+pypandoc_binary==1.17    # only needed if regenerating paper/*.pdf or *.docx

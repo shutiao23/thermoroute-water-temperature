@@ -65,6 +65,8 @@ def build_tabular(
     horizon: int,
     variables: tuple[str, ...],
     clim: HarmonicClimatology,
+    drop_feature_nans: bool = True,
+    require_observed_target: bool = True,
 ) -> pd.DataFrame:
     """Build a leakage-safe tabular design for one horizon.
 
@@ -106,10 +108,31 @@ def build_tabular(
                              "target_date": target_date.to_numpy()})
         feat = pd.concat([meta, pd.DataFrame(cols)], axis=1)
         feat["y"] = sub[C.TARGET].shift(-horizon).astype(float).to_numpy()
+        # Capture whether the target was REALLY observed (or imputed) so
+        # require_observed_target can drop imputed-target rows correctly even
+        # when the input panel has been imputed.
+        if f"{C.TARGET}_observed" in sub.columns:
+            target_obs = sub[f"{C.TARGET}_observed"].astype(bool).shift(-horizon)
+            feat["y_observed"] = target_obs.fillna(False).to_numpy()
+        else:
+            feat["y_observed"] = feat["y"].notna().to_numpy()
         out_frames.append(feat)
 
     tab = pd.concat(out_frames, ignore_index=True)
-    return tab.dropna().reset_index(drop=True)
+    # Target must be REALLY observed (never trained nor evaluated on imputed
+    # labels). When an imputed panel is passed, the y column is non-NaN by
+    # construction; the y_observed boolean preserves the truth.
+    if require_observed_target:
+        tab = tab[tab["y_observed"].astype(bool)]
+    tab = tab.drop(columns=["y_observed"])
+    # Feature NaNs: by default drop rows that still have any (mirrors the legacy
+    # behaviour used by 3-station baselines, which fed clean lag features into
+    # LightGBM). For sample-consistency with ThermoRoute windowed inputs (which
+    # use imputed features behind a mask), pass ``drop_feature_nans=False``;
+    # caller must then impute or zero-fill before fitting tree models.
+    if drop_feature_nans:
+        tab = tab.dropna()
+    return tab.reset_index(drop=True)
 
 
 def attach_split(tab: pd.DataFrame, split: C.TimeSplit = C.SPLIT) -> pd.DataFrame:

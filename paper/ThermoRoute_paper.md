@@ -328,7 +328,7 @@ rising at 3–7 days. This is consistent with a system whose dominant predictabi
 is radiative + thermal-inertia at short range and meteorology-driven at longer
 leads — interpretive, not causal (Figure 4).
 
-![**Figure 4.** Dynamic relaxation rate κ on the USGS evaluation set. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only 18 % of stations (median ratio 0.92) — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
+![**Figure 4.** Dynamic relaxation rate κ on the 120-station USGS panel. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only **2 % of stations** on the 120-station panel (and 24 % on the 40-station intermediate that we report for comparison), median ratio 0.87 — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
 
 ### 4.6 Module ablations on the large sample
 
@@ -359,8 +359,12 @@ and delivers near-nominally-calibrated warnings. This argues against single-site
 "state-of-the-art" claims and for large-sample, transfer-tested evaluation as the
 standard for this problem.
 
-**Limitations.** The large-sample model omits reservoir level and wind (unavailable
-at temperature gages) and uses solar radiation as the radiative channel. The median
+**Limitations.** The large-sample model omits reservoir level (gage height is
+unavailable at most USGS temperature gages, so the rating-curve physics line is
+inactive at scale) and uses Daymet incident solar radiation as the radiative
+channel `DH` (a physical replacement of unknown scale relative to the original
+3-station `DH`); wind speed is included from gridMET in the 7-variable
+configuration. The median
 margin over damped persistence at 3–7 days is small (the win-rate carries the
 result), and a strong gradient-boosting baseline (LightGBM) is competitive — slightly
 better than ThermoRoute at 3–7 days — so we claim a robust improvement over the

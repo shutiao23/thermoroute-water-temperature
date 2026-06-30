@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Stage 11 — retune the residual bound (delta_scale) on the large sample.
+"""Stage 11 — retune the residual bound (delta_scale) on the validation split.
 
 On the 3-station data the residual was clamped tight (±0.4 °C) for stability; on
-the 40-station large sample with real headroom a looser clamp may let ThermoRoute
-add skill at 3–7 days, where a strong LightGBM currently leads. This trains one
-seed per delta_scale and reports median per-station RMSE against the known damped
-(1.261/1.528 at h3/h7) and LightGBM (1.168/1.486) references.
+the large sample with forecast headroom a looser clamp may let ThermoRoute add
+skill at 3–7 days. This script trains one seed per delta_scale and reports
+median per-station RMSE on the **validation split (2016–2017) only**. The blind-
+test years (2019–2020) are never read here — the chosen value is then committed
+to ``config.TrainConfig`` and propagated to the headline experiments.
+
+An earlier version of this script evaluated on the test split; those results are
+deprecated and replaced by val-based numbers (see commit history).
 
 Run:  PYTHONPATH=src python3 scripts/11_retune.py --scales 0.4 1.0 1.5
 """
@@ -63,7 +67,12 @@ def main():
            for s in stations}
     wd = DS.build_windows(panel_imp, masks, clim, variables=USGS_VARS,
                           require_observed_target=True)
-    idx = wd.idx("test")
+    # IMPORTANT: hyperparameter selection MUST happen on the validation split,
+    # never on test. Earlier versions of this script read wd.idx("test") which
+    # let test labels leak into the chosen delta_scale; the corresponding numbers
+    # are deprecated and have been overwritten by this val-based sweep.
+    idx = wd.idx("val")
+    eval_split = "val"
 
     def med_rmse(pred):  # median over stations of per-station RMSE, per horizon
         site = np.array([C.STATIONS[i] for i in wd.station[idx]])
@@ -71,25 +80,26 @@ def main():
         for hi, h in enumerate(wd.horizons):
             y, yp = wd.y[idx][:, hi], pred[hi]
             per = [np.sqrt(np.mean((y[site == s] - yp[site == s]) ** 2))
-                   for s in np.unique(site)]
-            out[h] = float(np.median(per))
+                   for s in np.unique(site) if (site == s).sum() > 0]
+            out[h] = float(np.median(per)) if per else float("nan")
         return out
 
-    print(f"refs: damped h3/h7=1.261/1.528, LightGBM=1.168/1.486", flush=True)
+    print("# delta_scale sweep on VALIDATION split (2016-2017). Test years stay sealed.", flush=True)
     rows = []
     for ds in args.scales:
         te = time.time()
         model = ThermoRoute(n_vars=len(wd.var_names), n_stations=len(stations),
                             n_phys=wd.n_phys, delta_scale=ds)
         res = fit_model(model, wd, thr, cfg=CFG, seed=0, feature_set="USGS")
-        sub = res.pred[res.pred.split == "test"]
+        sub = res.pred[res.pred.split == eval_split]
         preds = [sub[sub.horizon == h].set_index(["site_id", "issue_date"]).y_pred
                  .reindex(pd.MultiIndex.from_arrays(
                      [np.array([C.STATIONS[i] for i in wd.station[idx]]),
                       wd.issue_date[idx]])).to_numpy() for h in wd.horizons]
         m = med_rmse(preds)
-        rows.append({"delta_scale": ds, **{f"h{h}": m[h] for h in wd.horizons}})
-        print(f"delta_scale={ds}: h1={m[1]:.3f} h3={m[3]:.3f} h7={m[7]:.3f} "
+        rows.append({"delta_scale": ds, "split": eval_split,
+                     **{f"h{h}_val": m[h] for h in wd.horizons}})
+        print(f"delta_scale={ds}: val h1={m[1]:.3f} val h3={m[3]:.3f} val h7={m[7]:.3f} "
               f"({time.time()-te:.0f}s, {res.epochs+1}ep)", flush=True)
     df = pd.DataFrame(rows)
     df.to_csv(C.TABLES / "usgs_retune.csv", index=False)
