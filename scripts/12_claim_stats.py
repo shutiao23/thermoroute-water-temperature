@@ -31,7 +31,12 @@ from thermoroute import data as D
 from thermoroute.conformal import cqr_offsets, apply_cqr
 from thermoroute import metrics as M
 
-PRED = pd.read_parquet(C.PREDICTIONS / "usgs_predictions.parquet")
+_v2 = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+_120 = C.PREDICTIONS / "usgs_predictions_120.parquet"
+_40 = C.PREDICTIONS / "usgs_predictions.parquet"
+PRED_PATH = _v2 if _v2.exists() else (_120 if _120.exists() else _40)
+print(f"# claim_stats using {PRED_PATH.name}", flush=True)
+PRED = pd.read_parquet(PRED_PATH)
 
 
 def per_station_rmse(model, h, ensemble=False):

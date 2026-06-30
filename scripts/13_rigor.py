@@ -52,7 +52,11 @@ def log(m): print(f"[{time.time()-_t0:6.0f}s] {m}", flush=True)
 
 
 def prep():
-    panel = pd.read_parquet(ROOT / "data_usgs" / "panel_usgs_wind.parquet")
+    _p100 = ROOT / "data_usgs" / "panel_usgs_100.parquet"
+    _pwind = ROOT / "data_usgs" / "panel_usgs_wind.parquet"
+    panel_path = _p100 if _p100.exists() else _pwind
+    log(f"using panel {panel_path.name}")
+    panel = pd.read_parquet(panel_path)
     panel["DATE"] = pd.to_datetime(panel["DATE"])
     stations = tuple(sorted(panel.site_id.unique()))
     C.STATIONS = stations; C.UPSTREAM = {s: None for s in stations}
@@ -159,7 +163,12 @@ def main():
 
     # claim 4: ablations 3-seed mean per-station, paired vs full
     abl_new = ablation_seeds(wd, thr, stations)
-    allp = pd.read_parquet(C.PREDICTIONS / "usgs_predictions.parquet")
+    _v2 = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+    _120 = C.PREDICTIONS / "usgs_predictions_120.parquet"
+    _40 = C.PREDICTIONS / "usgs_predictions.parquet"
+    pred_path = _v2 if _v2.exists() else (_120 if _120.exists() else _40)
+    log(f"using predictions {pred_path.name}")
+    allp = pd.read_parquet(pred_path)
     full = allp[(allp.model == "ThermoRoute") & (allp.split == "test")]
     abl_seed0 = allp[allp.model.str.startswith("TR-") & (allp.split == "test")]
     abl_all = pd.concat([abl_seed0, abl_new], ignore_index=True)

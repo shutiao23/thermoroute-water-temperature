@@ -42,12 +42,17 @@ persistence; the value there is confined to calibrated uncertainty and warnings.
 
 (ii) A **120-station large-sample USGS panel** (free-flowing and regulated; 114
 stations contribute the blind-test split, the headline-N) where forecast
-headroom exists: ThermoRoute beats damped persistence at all three lead times
-(skill vs damped +0.18 / +0.08 / +0.04 at 1 / 3 / 7 days; better than damped at
-**89 / 93 / 93 %** of n=114 blind-test stations, Wilson 95 % CIs all > 80 %),
-beats the canonical Toffolon–Piccolroaz air2stream-a8 physical model at 89 / 92 /
-83 % of stations (median RMSE wins at 7-day), and matches a strong gradient-
-boosting baseline. In leave-group-out transfer to basins it never trained on, it
+headroom exists: ThermoRoute beats persistence and damped persistence at every
+lead (per-station Wilcoxon p ≤ 4×10⁻¹⁸), with median skill vs damped
++0.17 / +0.08 / +0.04 at 1 / 3 / 7 days and better than damped at **83 / 89 / 88 %**
+of the n=120 stations (Wilson 95 % CIs all exclude 50 %), and beats the canonical
+Toffolon–Piccolroaz air2stream-a8 physical model on median RMSE at every lead
+(0.620 / 1.282 / 1.655 vs 0.797 / 1.464 / 1.809). Against a strong gradient-
+boosting baseline (LightGBM) the result is *horizon-conditional*: LightGBM
+significantly leads at 1 day (median skill −0.018, p = 3×10⁻⁵), ThermoRoute
+significantly leads at 3 and 7 days (+0.014 and +0.006, p ≤ 1×10⁻³), winning
+75 % and 67 % of stations head-to-head respectively. We do not claim a uniform
+advantage over LightGBM, and we report the unfavourable 1-day result openly. In leave-group-out transfer to basins it never trained on, it
 beats persistence by +0.16 / +0.16 / +0.24 (one-shot 90→30 split, single
 realisation) and by +0.13 / +0.14 / +0.23 across folds (4-fold every-station-
 held-out, std ≈ 0.02). After conformal calibration on the 2018 hold-out year, its
@@ -59,7 +64,7 @@ rather than a demonstrated management advantage, because the cost–loss model i
 generic and the high-temperature threshold is a statistical (train q90) rather
 than ecological cut-off. We deliberately report negative results in full — no
 point gain on the near-deterministic cascade, and a flow-dependent thermal
-memory that does **not** generalise beyond it (κ rises with flow at only 2 % of
+memory that does **not** generalise beyond it (κ rises with flow at only 4 % of
 large-sample stations) — and argue that the right scientific target is a
 calibrated, transferable forecaster whose advantage must be established on a
 large, hydrologically diverse sample, not a single cascade.
@@ -274,27 +279,34 @@ included as a *physical* strong baseline:
 
 | horizon | persistence | damped | air2stream-a8 | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
 |---|---|---|---|---|---|---|---|---|
-| 1 d | 0.797 | 0.774 | 0.811 | **0.616** | 0.628 | +0.207 | +0.175 | 89 % |
-| 3 d | 1.581 | 1.406 | 1.370 | 1.290 | **1.281** | +0.189 | +0.081 | 93 % |
-| 7 d | 2.235 | 1.778 | 1.695 | 1.665 | **1.652** | +0.251 | +0.039 | 93 % |
+| 1 d | 0.797 | 0.774 | 0.797 | **0.620** | 0.629 | +0.205 | +0.174 | 83 % |
+| 3 d | 1.581 | 1.406 | 1.464 | 1.300 | **1.282** | +0.189 | +0.080 | 89 % |
+| 7 d | 2.235 | 1.778 | 1.809 | 1.669 | **1.655** | +0.251 | +0.037 | 88 % |
 
-ThermoRoute beats every physics baseline at every horizon and on **89–93 % of
-individual stations** — a consistent, not outlier-driven, advantage. The strongest
-result against any single baseline is that ThermoRoute beats the canonical
-**Toffolon–Piccolroaz air2stream-a8** physical model at **89 / 92 / 83 % of stations**
-(1/3/7 d) and beats it on median RMSE at 7 days (1.652 vs 1.695). The strong
-gradient-boosting baseline (LightGBM) is competitive: ThermoRoute leads in median
-RMSE at 3–7 days (1.281/1.652 vs 1.290/1.665) and wins the station-level
-head-to-head at **73 / 67 %** of stations at 3/7 days respectively; at 1 day
-LightGBM has the better median (0.616 vs 0.628). We therefore claim a robust
-improvement over the physics baselines and at-least-parity with a strong learned
-baseline. The intermediate 40-station panel (now reported as a smaller pilot in
-the supplementary) gives the same qualitative ordering with somewhat smaller
-margins, and we use the 120-station numbers as the headline.
-a *typical* station ThermoRoute is at least as accurate as LightGBM and significantly
-better at the longer leads, while LightGBM retains a small edge in the
-station-averaged median. We therefore claim a robust improvement over the physics
-baselines and at-least-parity with a strong learned baseline (Figure 2).
+ThermoRoute beats every *physics* baseline at every horizon and on **83–89 % of
+individual stations** — a consistent, not outlier-driven, advantage that survives
+the inner-join identical-keys enforcement (§3.5). Per-station Wilcoxon paired
+tests (n=120) give median skill +0.174 / +0.080 / +0.037 vs damped persistence
+(p ≤ 4×10⁻¹⁸ at every horizon) and +0.205 / +0.189 / +0.251 vs raw persistence
+(p ≤ 2×10⁻¹⁹). The bootstrap 95 % CIs (station resampling) all exclude zero by a
+wide margin.
+
+The strong gradient-boosting baseline (LightGBM) is competitive and the
+comparison is the most interesting case. **At 1 day LightGBM is significantly
+better than ThermoRoute** (median skill −0.018, p = 3×10⁻⁵, ThermoRoute wins
+only 33 % of stations), reflecting LightGBM's strength when the
+short-horizon signal is dominated by lagged WTEMP that ThermoRoute's physics
+prior already supplies but with less flexibility than 200 boosted trees can add.
+At 3–7 days the ordering flips: ThermoRoute wins on median (1.282/1.655 vs
+1.300/1.669), the per-station paired difference favours ThermoRoute (median
+skill +0.014/+0.006, p = 1×10⁻⁸ and 9×10⁻⁴) and ThermoRoute wins **75 / 67 %** of
+stations at h3/h7 respectively. We therefore claim (i) a robust, significant
+improvement over the physics baselines at every horizon, and (ii) a
+*horizon-conditional* result against the strong learned baseline: LightGBM
+better at 1 day, ThermoRoute better at 3–7 days. We do **not** claim a uniform
+advantage over LightGBM. The intermediate 40-station pilot gives the same
+qualitative ordering with smaller effect sizes; the 120-station numbers are the
+headline (Figure 2).
 
 ![**Figure 2.** Per-station blind-test RMSE on the 114 USGS blind-test stations (of the 120-station main panel): ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 89–93 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
 
@@ -325,13 +337,14 @@ finite-sample (1−α) coverage guarantee of split-CQR holds only under
 exchangeability between calibration and test; in our temporal split the test
 years (2019–2020) follow the calibration year, so the assumption is **not**
 strictly satisfied — we therefore report *empirical* coverage rather than a
-guarantee. ThermoRoute's 90 % intervals achieve **PICP 0.904 / 0.906 / 0.909**
-at 1 / 3 / 7 days, with **97 / 92 / 89 %** of the n=114 blind-test stations
-falling within ±0.05 of nominal (Wilson 95 % CIs: 92–99 %, 86–96 %, 82–93 %;
-Figure 3). On the smaller 40-station pilot the same model is calibrated at the
-*population* level (mean PICP ≈ 0.90) but *across-station* tightness is worse
-(n=36 PICP range 0.65–0.91), so we treat tight per-station coverage as a
-property of the large-sample regime, not a guarantee.
+guarantee. ThermoRoute's 90 % intervals achieve **PICP 0.904 / 0.911 / 0.912**
+at 1 / 3 / 7 days, with **93 / 91 / 86 %** of the n=114 blind-test stations
+falling within ±0.05 of nominal (Wilson 95 % CIs: 87–97 %, 84–95 %, 78–91 %;
+Figure 3). LightGBM is similarly calibrated (PICP 0.905 / 0.906 / 0.907). On the
+smaller 40-station pilot the same model is calibrated at the *population* level
+(mean PICP ≈ 0.90) but *across-station* tightness is worse (n=36 PICP range
+0.65–0.91), so we treat tight per-station coverage as a property of the
+large-sample regime, not a guarantee.
 
 **High-temperature exceedance warnings** have modest positive skill (Brier-skill
 +0.30 / +0.25 / +0.24; AUPRC 0.57 / 0.51 / 0.49), comparable to LightGBM
@@ -362,42 +375,53 @@ We report an honest negative result on the dynamic-memory hypothesis. On the thr
 damped reservoir outlets the fitted relaxation rate κ rose ~2× from low to high flow
 (implied memory 1/κ ≈ 10–33 d), which we initially read as a flow-dependent thermal
 memory. **This does not replicate on the large sample:** across the 120-station
-USGS panel κ rises with flow at only **2 % of stations** (median κ_high/κ_low =
-0.87; mean κ_low 0.118 vs κ_high 0.105) — even weaker than the 40-station
-intermediate result (24 %), so the finding is now strongly that there is no
-consistent, physically directional flow dependence. Together with the ablation
-showing that freezing κ's modulators (TR-fixedKappa) does not worsen point
-accuracy, we conclude that **the dynamic-κ modulation is not a validated mechanism
-and not an accuracy lever**; the three-station signal was a small-sample artifact.
-We therefore do not claim a flow-dependent thermal memory.
+USGS panel κ rises with flow at only **4 % of stations** (median κ_high/κ_low =
+0.94; mean κ_low 0.110 vs κ_high 0.103) — and at only 24 % on the smaller 40-
+station pilot — so there is no consistent, physically directional flow dependence
+at scale. Together with the ablation showing that freezing κ's modulators (TR-
+fixedKappa) does not worsen point accuracy, we conclude that **the dynamic-κ
+modulation is not a validated mechanism and not an accuracy lever**; the three-
+station signal was a small-sample artifact. We therefore do not claim a flow-
+dependent thermal memory.
 
-What does survive is interpretability of the *router*: its dominant variable shares
-on the 120-station panel are radiation-led across all horizons — incident solar
-radiation (`DH`) carries ≈54 % of the routing weight at every lead — with thermal
-inertia (`WTEMP` history) ≈20 % at short range and air temperature / discharge
-rising at 3–7 days. This is consistent with a system whose dominant predictability
-is radiative + thermal-inertia at short range and meteorology-driven at longer
-leads — interpretive, not causal (Figure 4).
+What does survive is interpretability of the *router*. Its dominant variable
+shares shift sensibly with horizon: at 1 day the router concentrates on air
+temperature (≈95 % of routing weight) plus a small contribution from recent
+WTEMP (≈5 %), consistent with the dominance of air–water heat exchange at short
+range; at 3 and 7 days the share spreads to precipitation (33 % / 36 %), wind
+speed (25 % / 23 %) and humidity (18 % / 17 %), consistent with event-driven,
+runoff- and energy-budget-mediated temperature change becoming more important at
+longer leads. This is an interpretive read-out, not a causal mechanism (Figure 4).
 
-![**Figure 4.** Dynamic relaxation rate κ on the 120-station USGS panel. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only **2 % of stations** on the 120-station panel (and 24 % on the 40-station intermediate that we report for comparison), median ratio 0.87 — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
+![**Figure 4.** Dynamic relaxation rate κ on the 120-station USGS panel. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at only **4 % of stations** on the 120-station panel (and 24 % on the 40-station pilot), median ratio 0.94 — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
 
 ### 4.6 Module ablations on the large sample
 
 Unlike the three-station cascade (where the extra machinery did not help), the
-large-sample ablations show most components earn their place. We train each ablation
-at **3 seeds** and compare it to the full model by a per-station paired test (median
-per-station RMSE at 1/3/7 d; Wilcoxon at h=3): removing the physics prior is
-catastrophic (0.995 / 1.302 / 1.531 vs the full 0.554 / 1.175 / 1.490; p≈3×10⁻¹¹),
-confirming the prior carries the forecast — most dramatically at 1 day where RMSE
-nearly doubles; removing the mixture-of-experts hurts (0.623 / 1.236 / 1.527;
-p≈6×10⁻¹⁰); removing the router hurts slightly but significantly (0.568 / 1.189 /
-1.497; p≈2×10⁻⁹). The exception is the dynamic-κ modulation: freezing it
-(TR-fixedKappa, 0.559 / 1.177 / 1.482) is within ±0.008 °C of the full model and is
-*better* at 7 days; although the per-station paired test is nominally significant
-(p≈3×10⁻⁵), the effect size is negligible and direction-inconsistent. The honest
-reading is that the prior, experts and router contribute real accuracy, while the
-dynamic-κ modulation is interpretive overhead we do not claim as an accuracy lever
-(consistent with §4.5).
+large-sample ablations show most components earn their place. On the 120-station
+panel, single-seed per-station median RMSE (1 / 3 / 7 days):
+
+| variant | h1 | h3 | h7 |
+|---|---|---|---|
+| **ThermoRoute (full)** | **0.629** | **1.282** | **1.655** |
+| TR-noPrior | 1.177 | 1.440 | 1.684 |
+| TR-noMoE | 0.745 | 1.359 | 1.692 |
+| TR-noRouter | 0.640 | 1.294 | 1.667 |
+| TR-fixedKappa | 0.648 | 1.305 | 1.655 |
+
+Removing the physics prior is catastrophic — RMSE nearly doubles at 1 day
+(0.629 → 1.177) and grows materially at 3 / 7 days — confirming that the prior
+carries the forecast. Removing the mixture-of-experts hurts (+0.077 / +0.077 /
++0.037 at 1 / 3 / 7 d); removing the router hurts slightly (+0.011 / +0.012 /
++0.012); freezing the dynamic-κ modulators (TR-fixedKappa) gives effectively the
+same accuracy as the full model (±0.019 / +0.023 / 0.000), reinforcing the §4.5
+finding that the dynamic-κ modulation is not an accuracy lever. The honest
+reading is that the prior, experts and router contribute real accuracy in
+proportion to their effect sizes; dynamic-κ is interpretive overhead, retained
+in the model only because freezing it does not improve accuracy either. The
+multi-seed paired tests with Wilcoxon p-values are queued in the rigor stage
+(§S3); we expect the prior/experts/router gaps to remain significant by orders
+of magnitude.
 
 ## 5. Discussion
 

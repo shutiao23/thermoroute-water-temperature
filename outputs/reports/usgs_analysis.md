@@ -30,11 +30,11 @@
 
 ## Dynamic thermal memory — κ flow-dependence
 
-- κ_high/κ_low > 1 (faster relaxation at high flow) at **2% of stations** (median ratio 0.87).
-- mean κ_low=0.118, κ_high=0.105.
+- κ_high/κ_low > 1 (faster relaxation at high flow) at **4% of stations** (median ratio 0.94).
+- mean κ_low=0.110, κ_high=0.103.
 
 ## Router top drivers by horizon
 
-- h=1d: DH (56%), WTEMP (21%), WDSP (9%)
-- h=3d: DH (54%), WTEMP (19%), TEMP (11%)
-- h=7d: DH (54%), TEMP (21%), FLOW (11%)
+- h=1d: TEMP (95%), WTEMP (5%), RHMEAN (0%)
+- h=3d: PRCP (33%), WDSP (25%), RHMEAN (18%)
+- h=7d: PRCP (36%), WDSP (23%), RHMEAN (17%)
