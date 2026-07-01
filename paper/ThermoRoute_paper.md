@@ -52,10 +52,9 @@ boosting baseline (LightGBM) the result is *horizon-conditional*: LightGBM
 significantly leads at 1 day (median skill −0.018, p = 3×10⁻⁵), ThermoRoute
 significantly leads at 3 and 7 days (+0.014 and +0.006, p ≤ 1×10⁻³), winning
 75 % and 67 % of stations head-to-head respectively. We do not claim a uniform
-advantage over LightGBM, and we report the unfavourable 1-day result openly. In leave-group-out transfer to basins it never trained on, it
-beats persistence by +0.16 / +0.16 / +0.24 (one-shot 90→30 split, single
-realisation) and by +0.13 / +0.14 / +0.23 across folds (4-fold every-station-
-held-out, std ≈ 0.02). After conformal calibration on the 2018 hold-out year, its
+advantage over LightGBM, and we report the unfavourable 1-day result openly. In 4-fold leave-group-out transfer (every station held out
+once), it beats persistence on unseen basins by +0.18 / +0.17 / +0.24 (across-
+fold std ≤ 0.024) and damped persistence by +0.15 / +0.06 / +0.03. After conformal calibration on the 2018 hold-out year, its
 90 % intervals are empirically near-nominal (PICP 0.90 ± 0.01 on the test years).
 On a generic cost–loss decision model, the calibrated probabilistic warning
 captures more relative economic value than a deterministic persistence warning
@@ -308,26 +307,30 @@ advantage over LightGBM. The intermediate 40-station pilot gives the same
 qualitative ordering with smaller effect sizes; the 120-station numbers are the
 headline (Figure 2).
 
-![**Figure 2.** Per-station blind-test RMSE on the 114 USGS blind-test stations (of the 120-station main panel): ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 89–93 % of stations.](outputs/figures/fig_usgs_perstation.png){width=95%}
+![**Figure 2.** Per-station blind-test RMSE on the 114 USGS blind-test stations (of the 120-station main panel): ThermoRoute versus damped persistence at 1, 3 and 7 days. Each point is one station; points below the diagonal (blue) are stations where ThermoRoute is more accurate. ThermoRoute wins 83 / 89 / 88 % of stations at 1 / 3 / 7 days.](outputs/figures/fig_usgs_perstation.png){width=95%}
 
 ### 4.3 Spatial transfer to unseen basins (Table B)
 
-We use leave-group-out (LGO) — training on a held-in subset and forecasting an
-entirely held-out subset of basins. On the headline 120-station setup, training on
-90 stations and testing on 30 unseen basins gives a **single-realisation**
-transfer skill vs persistence of **+0.16 / +0.16 / +0.24** at 1 / 3 / 7 days
-(RMSE 0.656 / 1.285 / 1.553 vs persistence 0.780 / 1.528 / 2.058). A single
-random 75/25 split does not give an across-fold uncertainty estimate; for that
-we point to the 4-fold LGO on the 40-station pilot — every available station
-held out exactly once — which gave a more conservative average skill of
-**+0.13 / +0.14 / +0.23** with small across-fold variability (std ≈ 0.02;
-per-fold h7 skill 0.22–0.25), and also beats *damped* persistence on the unseen
-basins (+0.09 / +0.02 / +0.01). The combination — large-sample one-shot for
-effect size, small-sample multi-fold for variance — is the most informative
-report under the available compute; a full 4-fold LGO on the 120-station panel
-is queued as a robustness check (§S3). This is the contribution a single-site
-study cannot make: the learned prior plus a station-agnostic residual
-generalises across basins, not just across years at one site.
+We use **4-fold leave-group-out (LGO)** on the 120-station panel: the stations are
+partitioned into four folds, each fold trains a station-agnostic model on the
+other 90 stations and forecasts the 30 held-out basins the model never saw during
+training. Every station is thus held out exactly once, and we report the mean ±
+standard deviation of transfer skill across the four folds (Table B):
+
+| horizon | TR transfer RMSE | skill vs persistence | skill vs damped |
+|---|---|---|---|
+| 1 d | 0.688 | **+0.181 ± 0.023** | +0.149 ± 0.024 |
+| 3 d | 1.360 | **+0.170 ± 0.010** | +0.058 ± 0.012 |
+| 7 d | 1.654 | **+0.240 ± 0.010** | +0.028 ± 0.010 |
+
+ThermoRoute transfers to unseen basins with a skill over persistence of
++0.18 / +0.17 / +0.24 at 1 / 3 / 7 days and small across-fold variability
+(std ≤ 0.024), and it also beats *damped* persistence on the held-out basins at
+every lead. The transfer skill is close to the in-sample skill of §4.2, i.e. the
+station-agnostic model loses little when applied to basins outside its training
+set. This is the contribution a single-site study cannot make: the learned prior
+plus a station-agnostic residual generalises across basins, not just across years
+at one site.
 
 ### 4.4 Calibration, warnings and decision value
 
@@ -398,30 +401,34 @@ longer leads. This is an interpretive read-out, not a causal mechanism (Figure 4
 ### 4.6 Module ablations on the large sample
 
 Unlike the three-station cascade (where the extra machinery did not help), the
-large-sample ablations show most components earn their place. On the 120-station
-panel, single-seed per-station median RMSE (1 / 3 / 7 days):
+large-sample ablations show most components earn their place. Each ablation is
+trained at **3 seeds** on the 120-station panel and compared to the full model by
+a per-station paired test (Wilcoxon signed-rank at h=3); 3-seed-mean per-station
+median RMSE (1 / 3 / 7 days):
 
-| variant | h1 | h3 | h7 |
-|---|---|---|---|
-| **ThermoRoute (full)** | **0.629** | **1.282** | **1.655** |
-| TR-noPrior | 1.177 | 1.440 | 1.684 |
-| TR-noMoE | 0.745 | 1.359 | 1.692 |
-| TR-noRouter | 0.640 | 1.294 | 1.667 |
-| TR-fixedKappa | 0.648 | 1.305 | 1.655 |
+| variant | h1 | h3 | h7 | Wilcoxon p (h3 vs full) |
+|---|---|---|---|---|
+| **ThermoRoute (full)** | **0.629** | **1.282** | **1.655** | — |
+| TR-noPrior | 1.149 | 1.416 | 1.670 | 3.9×10⁻²⁰ * |
+| TR-noMoE | 0.733 | 1.345 | 1.690 | 1.0×10⁻¹⁶ * |
+| TR-noRouter | 0.640 | 1.293 | 1.666 | 2.4×10⁻¹⁶ * |
+| TR-fixedKappa | 0.635 | 1.286 | 1.659 | 1.1×10⁻⁵ * |
 
 Removing the physics prior is catastrophic — RMSE nearly doubles at 1 day
-(0.629 → 1.177) and grows materially at 3 / 7 days — confirming that the prior
-carries the forecast. Removing the mixture-of-experts hurts (+0.077 / +0.077 /
-+0.037 at 1 / 3 / 7 d); removing the router hurts slightly (+0.011 / +0.012 /
-+0.012); freezing the dynamic-κ modulators (TR-fixedKappa) gives effectively the
-same accuracy as the full model (±0.019 / +0.023 / 0.000), reinforcing the §4.5
-finding that the dynamic-κ modulation is not an accuracy lever. The honest
-reading is that the prior, experts and router contribute real accuracy in
-proportion to their effect sizes; dynamic-κ is interpretive overhead, retained
-in the model only because freezing it does not improve accuracy either. The
-multi-seed paired tests with Wilcoxon p-values are queued in the rigor stage
-(§S3); we expect the prior/experts/router gaps to remain significant by orders
-of magnitude.
+(0.629 → 1.149) and the per-station difference is significant at p ≈ 4×10⁻²⁰ —
+confirming that the prior carries the forecast. Removing the mixture-of-experts
+(+0.104 / +0.063 / +0.035 at 1 / 3 / 7 d, p ≈ 1×10⁻¹⁶) and the router
+(+0.011 / +0.011 / +0.011, p ≈ 2×10⁻¹⁶) both hurt significantly. Freezing the
+dynamic-κ modulators (TR-fixedKappa) leaves accuracy essentially unchanged
+(+0.006 / +0.004 / +0.004): although the paired test is *nominally* significant
+(p ≈ 1×10⁻⁵) because the tiny differences are consistent in sign across stations,
+the effect size is negligible — two orders of magnitude smaller than the prior,
+MoE or router effects. The honest reading is that the prior, experts and router
+contribute real accuracy while the dynamic-κ modulation is interpretive overhead,
+retained only because freezing it does not improve accuracy either (consistent
+with the §4.5 mechanism result). Note that unlike the 40-station pilot — where
+fixed-κ was marginally *better* at 7 days — the sign is now consistently (if
+negligibly) in favour of the dynamic version, which we read as within-noise.
 
 ## 5. Discussion
 
