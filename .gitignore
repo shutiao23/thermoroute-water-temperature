@@ -22,3 +22,11 @@ data_usgs/n*.csv
 
 # Stray run checkpoints
 *_ckpt/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.bbl
+*.blg
+*.out
+*.synctex.gz
