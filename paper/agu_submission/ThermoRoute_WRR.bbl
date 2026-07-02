@@ -1,0 +1,1263 @@
+\begin{thebibliography}{}
+
+\bibitem [\protect \citeauthoryear {%
+Abatzoglou%
+}{%
+Abatzoglou%
+}{%
+{\protect \APACyear {2013}}%
+}]{%
+abatzoglou2013development}
+\APACinsertmetastar {%
+abatzoglou2013development}%
+\begin{APACrefauthors}%
+Abatzoglou, J\BPBI T.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2013}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Development of gridded surface meteorological data for
+  ecological applications and modelling} {Development of gridded surface
+  meteorological data for ecological applications and modelling}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{International Journal of Climatology}{33}{}{121--131}.
+\newblock
+\APACrefnote{gridMET / METDATA}
+\newblock
+\begin{APACrefDOI} \doi{10.1002/joc.3413} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Bai%
+, Kolter%
+\BCBL {}\ \BBA {} Koltun%
+}{%
+Bai%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2018}}%
+}]{%
+bai2018empirical}
+\APACinsertmetastar {%
+bai2018empirical}%
+\begin{APACrefauthors}%
+Bai, S.%
+, Kolter, J\BPBI Z.%
+\BCBL {}\ \BBA {} Koltun, V.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2018}{}{}.
+\newblock
+\APACrefbtitle {An empirical evaluation of generic convolutional and recurrent
+  networks for sequence modeling.} {An empirical evaluation of generic
+  convolutional and recurrent networks for sequence modeling.}
+\newblock
+\APACrefnote{arXiv:1803.01271}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Beven%
+\ \BBA {} Binley%
+}{%
+Beven%
+\ \BBA {} Binley%
+}{%
+{\protect \APACyear {1992}}%
+}]{%
+beven1992future}
+\APACinsertmetastar {%
+beven1992future}%
+\begin{APACrefauthors}%
+Beven, K.%
+\BCBT {}\ \BBA {} Binley, A.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{1992}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {The future of distributed models: model calibration and
+  uncertainty prediction} {The future of distributed models: model calibration
+  and uncertainty prediction}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Hydrological Processes}{6}{3}{279--298}.
+\newblock
+\begin{APACrefDOI} \doi{10.1002/hyp.3360060305} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Caissie%
+}{%
+Caissie%
+}{%
+{\protect \APACyear {2006}}%
+}]{%
+caissie2006thermal}
+\APACinsertmetastar {%
+caissie2006thermal}%
+\begin{APACrefauthors}%
+Caissie, D.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2006}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {The thermal regime of rivers: a review} {The thermal
+  regime of rivers: a review}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Freshwater Biology}{51}{}{1389--1406}.
+\newblock
+\begin{APACrefDOI} \doi{10.1111/j.1365-2427.2006.01597.x} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Corona%
+\ \BBA {} Hogue%
+}{%
+Corona%
+\ \BBA {} Hogue%
+}{%
+{\protect \APACyear {2025}}%
+}]{%
+corona2025ml}
+\APACinsertmetastar {%
+corona2025ml}%
+\begin{APACrefauthors}%
+Corona, C\BPBI R.%
+\BCBT {}\ \BBA {} Hogue, T\BPBI S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2025}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Machine learning in stream and river water temperature
+  modeling: a review and metrics for evaluation} {Machine learning in stream
+  and river water temperature modeling: a review and metrics for
+  evaluation}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Hydrology and Earth System Sciences}{29}{}{2521--2549}.
+\newblock
+\begin{APACrefDOI} \doi{10.5194/hess-29-2521-2025} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+De~Cicco%
+, Hirsch%
+, Lorenz%
+, Watkins%
+\BCBL {}\ \BBA {} Johnson%
+}{%
+De~Cicco%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2024}}%
+}]{%
+decicco2024dataretrieval}
+\APACinsertmetastar {%
+decicco2024dataretrieval}%
+\begin{APACrefauthors}%
+De~Cicco, L\BPBI A.%
+, Hirsch, R\BPBI M.%
+, Lorenz, D.%
+, Watkins, W\BPBI D.%
+\BCBL {}\ \BBA {} Johnson, M.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2024}{}{}.
+\newblock
+\APACrefbtitle {{dataRetrieval}: {R} packages for discovering and retrieving
+  water data available from federal hydrologic web services, v.2.7.17.}
+  {{dataRetrieval}: {R} packages for discovering and retrieving water data
+  available from federal hydrologic web services, v.2.7.17.}
+\newblock
+\APAChowpublished {U.S. Geological Survey}.
+\newblock
+\begin{APACrefDOI} \doi{10.5066/P9X4L3GE} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Diebold%
+\ \BBA {} Mariano%
+}{%
+Diebold%
+\ \BBA {} Mariano%
+}{%
+{\protect \APACyear {1995}}%
+}]{%
+diebold1995comparing}
+\APACinsertmetastar {%
+diebold1995comparing}%
+\begin{APACrefauthors}%
+Diebold, F\BPBI X.%
+\BCBT {}\ \BBA {} Mariano, R\BPBI S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{1995}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Comparing predictive accuracy} {Comparing predictive
+  accuracy}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Journal of Business \& Economic
+  Statistics}{13}{}{253--263}.
+\newblock
+\begin{APACrefDOI} \doi{10.1080/07350015.1995.10524599} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Feigl%
+, Lebiedzinski%
+, Herrnegger%
+\BCBL {}\ \BBA {} Schulz%
+}{%
+Feigl%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2021}}%
+}]{%
+feigl2021ml}
+\APACinsertmetastar {%
+feigl2021ml}%
+\begin{APACrefauthors}%
+Feigl, M.%
+, Lebiedzinski, K.%
+, Herrnegger, M.%
+\BCBL {}\ \BBA {} Schulz, K.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2021}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Machine-learning methods for stream water temperature
+  prediction} {Machine-learning methods for stream water temperature
+  prediction}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Hydrology and Earth System Sciences}{25}{}{2951--2977}.
+\newblock
+\begin{APACrefDOI} \doi{10.5194/hess-25-2951-2021} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Gneiting%
+\ \BBA {} Raftery%
+}{%
+Gneiting%
+\ \BBA {} Raftery%
+}{%
+{\protect \APACyear {2007}}%
+}]{%
+gneiting2007strictly}
+\APACinsertmetastar {%
+gneiting2007strictly}%
+\begin{APACrefauthors}%
+Gneiting, T.%
+\BCBT {}\ \BBA {} Raftery, A\BPBI E.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2007}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Strictly proper scoring rules, prediction, and
+  estimation} {Strictly proper scoring rules, prediction, and
+  estimation}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Journal of the American Statistical
+  Association}{102}{}{359--378}.
+\newblock
+\begin{APACrefDOI} \doi{10.1198/016214506000001437} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Gupta%
+, Kling%
+, Yilmaz%
+\BCBL {}\ \BBA {} Martinez%
+}{%
+Gupta%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2009}}%
+}]{%
+gupta2009decomposition}
+\APACinsertmetastar {%
+gupta2009decomposition}%
+\begin{APACrefauthors}%
+Gupta, H\BPBI V.%
+, Kling, H.%
+, Yilmaz, K\BPBI K.%
+\BCBL {}\ \BBA {} Martinez, G\BPBI F.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2009}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Decomposition of the mean squared error and {NSE}
+  performance criteria: implications for improving hydrological modelling}
+  {Decomposition of the mean squared error and {NSE} performance criteria:
+  implications for improving hydrological modelling}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Journal of Hydrology}{377}{}{80--91}.
+\newblock
+\begin{APACrefDOI} \doi{10.1016/j.jhydrol.2009.08.003} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Harvey%
+, Leybourne%
+\BCBL {}\ \BBA {} Newbold%
+}{%
+Harvey%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {1997}}%
+}]{%
+harvey1997testing}
+\APACinsertmetastar {%
+harvey1997testing}%
+\begin{APACrefauthors}%
+Harvey, D.%
+, Leybourne, S.%
+\BCBL {}\ \BBA {} Newbold, P.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{1997}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Testing the equality of prediction mean squared errors}
+  {Testing the equality of prediction mean squared errors}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{International Journal of Forecasting}{13}{}{281--291}.
+\newblock
+\begin{APACrefDOI} \doi{10.1016/S0169-2070(96)00719-4} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Hodson%
+, Hariharan%
+, Black%
+\BCBL {}\ \BBA {} Horsburgh%
+}{%
+Hodson%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2023}}%
+}]{%
+hodson2023dataretrieval}
+\APACinsertmetastar {%
+hodson2023dataretrieval}%
+\begin{APACrefauthors}%
+Hodson, T\BPBI O.%
+, Hariharan, J\BPBI A.%
+, Black, S.%
+\BCBL {}\ \BBA {} Horsburgh, J\BPBI S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2023}{}{}.
+\newblock
+\APACrefbtitle {{dataretrieval} ({Python}): a {Python} package for discovering
+  and retrieving water data available from U.S. federal hydrologic web
+  services.} {{dataretrieval} ({Python}): a {Python} package for discovering
+  and retrieving water data available from u.s. federal hydrologic web
+  services.}
+\newblock
+\APAChowpublished {U.S. Geological Survey software release}.
+\newblock
+\begin{APACrefDOI} \doi{10.5066/P94I5TX3} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Jia%
+\ \protect \BOthers {.}}{%
+Jia%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2021}}%
+}]{%
+jia2021physics}
+\APACinsertmetastar {%
+jia2021physics}%
+\begin{APACrefauthors}%
+Jia, X.%
+, Zwart, J.%
+, Sadler, J.%
+, Appling, A.%
+, Oliver, S.%
+, Markstrom, S.%
+\BDBL {}Kumar, V.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2021}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Physics-guided recurrent graph model for predicting flow
+  and temperature in river networks} {Physics-guided recurrent graph model for
+  predicting flow and temperature in river networks}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {Proceedings of the 2021 SIAM International Conference on
+  Data Mining (SDM)} {Proceedings of the 2021 siam international conference on
+  data mining (sdm)}\ (\BPGS\ 612--620).
+\newblock
+\APACaddressPublisher{}{SIAM}.
+\newblock
+\APACrefnote{Preprint: arXiv:2009.12575}
+\newblock
+\begin{APACrefDOI} \doi{10.1137/1.9781611976700.69} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Kavetski%
+, Kuczera%
+\BCBL {}\ \BBA {} Franks%
+}{%
+Kavetski%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2006}}%
+{\protect \APACexlab {{\protect \BCnt {1}}}}}]{%
+kavetski2006theory}
+\APACinsertmetastar {%
+kavetski2006theory}%
+\begin{APACrefauthors}%
+Kavetski, D.%
+, Kuczera, G.%
+\BCBL {}\ \BBA {} Franks, S\BPBI W.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2006{\protect \BCnt {1}}}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Bayesian analysis of input uncertainty in hydrological
+  modeling: 1. Theory} {Bayesian analysis of input uncertainty in hydrological
+  modeling: 1. theory}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Water Resources Research}{42}{}{W03407}.
+\newblock
+\begin{APACrefDOI} \doi{10.1029/2005WR004368} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Kavetski%
+, Kuczera%
+\BCBL {}\ \BBA {} Franks%
+}{%
+Kavetski%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2006}}%
+{\protect \APACexlab {{\protect \BCnt {2}}}}}]{%
+kavetski2006application}
+\APACinsertmetastar {%
+kavetski2006application}%
+\begin{APACrefauthors}%
+Kavetski, D.%
+, Kuczera, G.%
+\BCBL {}\ \BBA {} Franks, S\BPBI W.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2006{\protect \BCnt {2}}}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Bayesian analysis of input uncertainty in hydrological
+  modeling: 2. Application} {Bayesian analysis of input uncertainty in
+  hydrological modeling: 2. application}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Water Resources Research}{42}{}{W03408}.
+\newblock
+\begin{APACrefDOI} \doi{10.1029/2005WR004376} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Ke%
+\ \protect \BOthers {.}}{%
+Ke%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2017}}%
+}]{%
+ke2017lightgbm}
+\APACinsertmetastar {%
+ke2017lightgbm}%
+\begin{APACrefauthors}%
+Ke, G.%
+, Meng, Q.%
+, Finley, T.%
+, Wang, T.%
+, Chen, W.%
+, Ma, W.%
+\BDBL {}Liu, T\BHBI Y.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2017}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {{LightGBM}: a highly efficient gradient boosting
+  decision tree} {{LightGBM}: a highly efficient gradient boosting decision
+  tree}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {Advances in Neural Information Processing Systems 30
+  (NeurIPS 2017)} {Advances in neural information processing systems 30
+  (neurips 2017)}\ (\BPGS\ 3146--3154).
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Kingma%
+\ \BBA {} Ba%
+}{%
+Kingma%
+\ \BBA {} Ba%
+}{%
+{\protect \APACyear {2015}}%
+}]{%
+kingma2015adam}
+\APACinsertmetastar {%
+kingma2015adam}%
+\begin{APACrefauthors}%
+Kingma, D\BPBI P.%
+\BCBT {}\ \BBA {} Ba, J.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2015}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {{Adam}: a method for stochastic optimization} {{Adam}: a
+  method for stochastic optimization}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {International Conference on Learning Representations
+  (ICLR).} {International conference on learning representations (iclr).}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+K{\"u}nsch%
+}{%
+K{\"u}nsch%
+}{%
+{\protect \APACyear {1989}}%
+}]{%
+kunsch1989jackknife}
+\APACinsertmetastar {%
+kunsch1989jackknife}%
+\begin{APACrefauthors}%
+K{\"u}nsch, H\BPBI R.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{1989}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {The jackknife and the bootstrap for general stationary
+  observations} {The jackknife and the bootstrap for general stationary
+  observations}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{The Annals of Statistics}{17}{}{1217--1241}.
+\newblock
+\begin{APACrefDOI} \doi{10.1214/aos/1176347265} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Loshchilov%
+\ \BBA {} Hutter%
+}{%
+Loshchilov%
+\ \BBA {} Hutter%
+}{%
+{\protect \APACyear {2019}}%
+}]{%
+loshchilov2019decoupled}
+\APACinsertmetastar {%
+loshchilov2019decoupled}%
+\begin{APACrefauthors}%
+Loshchilov, I.%
+\BCBT {}\ \BBA {} Hutter, F.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2019}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Decoupled weight decay regularization} {Decoupled weight
+  decay regularization}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {International Conference on Learning Representations
+  (ICLR).} {International conference on learning representations (iclr).}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Luo%
+\ \protect \BOthers {.}}{%
+Luo%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2025}}%
+}]{%
+luo2025geoaware}
+\APACinsertmetastar {%
+luo2025geoaware}%
+\begin{APACrefauthors}%
+Luo, S.%
+, Yu, R.%
+, Chen, S.%
+, Fan, Y.%
+, Xie, Y.%
+, Li, Y.%
+\BCBL {}\ \BBA {} Jia, X.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2025}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Geo-aware models for stream temperature prediction
+  across different spatial regions and scales} {Geo-aware models for stream
+  temperature prediction across different spatial regions and scales}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {Proceedings of the 33rd ACM International Conference on
+  Advances in Geographic Information Systems (SIGSPATIAL '25)} {Proceedings of
+  the 33rd acm international conference on advances in geographic information
+  systems (sigspatial '25)}\ (\BPGS\ 124--136).
+\newblock
+\APACaddressPublisher{}{ACM}.
+\newblock
+\APACrefnote{Preprint: arXiv:2510.09500}
+\newblock
+\begin{APACrefDOI} \doi{10.1145/3748636.3762716} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Martins%
+\ \BBA {} Astudillo%
+}{%
+Martins%
+\ \BBA {} Astudillo%
+}{%
+{\protect \APACyear {2016}}%
+}]{%
+martins2016softmax}
+\APACinsertmetastar {%
+martins2016softmax}%
+\begin{APACrefauthors}%
+Martins, A\BPBI F\BPBI T.%
+\BCBT {}\ \BBA {} Astudillo, R\BPBI F.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2016}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {From softmax to sparsemax: a sparse model of attention
+  and multi-label classification} {From softmax to sparsemax: a sparse model of
+  attention and multi-label classification}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {Proceedings of the 33rd International Conference on
+  Machine Learning (ICML)} {Proceedings of the 33rd international conference on
+  machine learning (icml)}\ (\BPGS\ 1614--1623).
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Mohseni%
+, Stefan%
+\BCBL {}\ \BBA {} Erickson%
+}{%
+Mohseni%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {1998}}%
+}]{%
+mohseni1998nonlinear}
+\APACinsertmetastar {%
+mohseni1998nonlinear}%
+\begin{APACrefauthors}%
+Mohseni, O.%
+, Stefan, H\BPBI G.%
+\BCBL {}\ \BBA {} Erickson, T\BPBI R.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{1998}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {A nonlinear regression model for weekly stream
+  temperatures} {A nonlinear regression model for weekly stream
+  temperatures}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Water Resources Research}{34}{}{2685--2692}.
+\newblock
+\begin{APACrefDOI} \doi{10.1029/98WR01877} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Nash%
+\ \BBA {} Sutcliffe%
+}{%
+Nash%
+\ \BBA {} Sutcliffe%
+}{%
+{\protect \APACyear {1970}}%
+}]{%
+nash1970river}
+\APACinsertmetastar {%
+nash1970river}%
+\begin{APACrefauthors}%
+Nash, J\BPBI E.%
+\BCBT {}\ \BBA {} Sutcliffe, J\BPBI V.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{1970}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {River flow forecasting through conceptual models part
+  {I} --- a discussion of principles} {River flow forecasting through
+  conceptual models part {I} --- a discussion of principles}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Journal of Hydrology}{10}{}{282--290}.
+\newblock
+\begin{APACrefDOI} \doi{10.1016/0022-1694(70)90255-6} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Paszke%
+\ \protect \BOthers {.}}{%
+Paszke%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2019}}%
+}]{%
+paszke2019pytorch}
+\APACinsertmetastar {%
+paszke2019pytorch}%
+\begin{APACrefauthors}%
+Paszke, A.%
+, Gross, S.%
+, Massa, F.%
+, Lerer, A.%
+, Bradbury, J.%
+, Chanan, G.%
+\BDBL {}Chintala, S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2019}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {{PyTorch}: an imperative style, high-performance deep
+  learning library} {{PyTorch}: an imperative style, high-performance deep
+  learning library}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {Advances in Neural Information Processing Systems 32
+  (NeurIPS 2019)} {Advances in neural information processing systems 32
+  (neurips 2019)}\ (\BPGS\ 8024--8035).
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Pedregosa%
+\ \protect \BOthers {.}}{%
+Pedregosa%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2011}}%
+}]{%
+pedregosa2011scikit}
+\APACinsertmetastar {%
+pedregosa2011scikit}%
+\begin{APACrefauthors}%
+Pedregosa, F.%
+, Varoquaux, G.%
+, Gramfort, A.%
+, Michel, V.%
+, Thirion, B.%
+, Grisel, O.%
+\BDBL {}Duchesnay, {\'E}.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2011}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Scikit-learn: machine learning in {Python}}
+  {Scikit-learn: machine learning in {Python}}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Journal of Machine Learning
+  Research}{12}{}{2825--2830}.
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Piccolroaz%
+\ \protect \BOthers {.}}{%
+Piccolroaz%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2016}}%
+}]{%
+piccolroaz2016prediction}
+\APACinsertmetastar {%
+piccolroaz2016prediction}%
+\begin{APACrefauthors}%
+Piccolroaz, S.%
+, Calamita, E.%
+, Majone, B.%
+, Gallice, A.%
+, Siviglia, A.%
+\BCBL {}\ \BBA {} Toffolon, M.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2016}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Prediction of river water temperature: a comparison
+  between a new family of hybrid models and statistical approaches} {Prediction
+  of river water temperature: a comparison between a new family of hybrid
+  models and statistical approaches}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Hydrological Processes}{30}{}{3901--3917}.
+\newblock
+\begin{APACrefDOI} \doi{10.1002/hyp.10913} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Rahmani%
+, Appling%
+, Feng%
+, Lawson%
+\BCBL {}\ \BBA {} Shen%
+}{%
+Rahmani%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2023}}%
+}]{%
+rahmani2023identifying}
+\APACinsertmetastar {%
+rahmani2023identifying}%
+\begin{APACrefauthors}%
+Rahmani, F.%
+, Appling, A.%
+, Feng, D.%
+, Lawson, K.%
+\BCBL {}\ \BBA {} Shen, C.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2023}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Identifying structural priors in a hybrid differentiable
+  model for stream water temperature modeling} {Identifying structural priors
+  in a hybrid differentiable model for stream water temperature
+  modeling}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Water Resources Research}{59}{}{e2023WR034420}.
+\newblock
+\begin{APACrefDOI} \doi{10.1029/2023WR034420} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Rahmani%
+, Lawson%
+\BCBL {}\ \protect \BOthers {.}}{%
+Rahmani%
+, Lawson%
+\BCBL {}\ \protect \BOthers {.}}{%
+{\protect \APACyear {2021}}%
+}]{%
+rahmani2021exploring}
+\APACinsertmetastar {%
+rahmani2021exploring}%
+\begin{APACrefauthors}%
+Rahmani, F.%
+, Lawson, K.%
+, Ouyang, W.%
+, Appling, A.%
+, Oliver, S.%
+\BCBL {}\ \BBA {} Shen, C.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2021}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Exploring the exceptional performance of a deep learning
+  stream temperature model and the value of streamflow data} {Exploring the
+  exceptional performance of a deep learning stream temperature model and the
+  value of streamflow data}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Environmental Research Letters}{16}{}{024025}.
+\newblock
+\begin{APACrefDOI} \doi{10.1088/1748-9326/abd501} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Rahmani%
+, Shen%
+, Oliver%
+, Lawson%
+\BCBL {}\ \BBA {} Appling%
+}{%
+Rahmani%
+, Shen%
+\BCBL {}\ \protect \BOthers {.}}{%
+{\protect \APACyear {2021}}%
+}]{%
+rahmani2021deep}
+\APACinsertmetastar {%
+rahmani2021deep}%
+\begin{APACrefauthors}%
+Rahmani, F.%
+, Shen, C.%
+, Oliver, S.%
+, Lawson, K.%
+\BCBL {}\ \BBA {} Appling, A.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2021}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Deep learning approaches for improving prediction of
+  daily stream temperature in data-scarce, unmonitored, and dammed basins}
+  {Deep learning approaches for improving prediction of daily stream
+  temperature in data-scarce, unmonitored, and dammed basins}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Hydrological Processes}{35}{}{e14400}.
+\newblock
+\begin{APACrefDOI} \doi{10.1002/hyp.14400} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Richardson%
+}{%
+Richardson%
+}{%
+{\protect \APACyear {2000}}%
+}]{%
+richardson2000skill}
+\APACinsertmetastar {%
+richardson2000skill}%
+\begin{APACrefauthors}%
+Richardson, D\BPBI S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2000}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Skill and relative economic value of the {ECMWF}
+  ensemble prediction system} {Skill and relative economic value of the {ECMWF}
+  ensemble prediction system}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Quarterly Journal of the Royal Meteorological
+  Society}{126}{}{649--667}.
+\newblock
+\begin{APACrefDOI} \doi{10.1002/qj.49712656313} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Romano%
+, Patterson%
+\BCBL {}\ \BBA {} Cand{\`e}s%
+}{%
+Romano%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2019}}%
+}]{%
+romano2019conformalized}
+\APACinsertmetastar {%
+romano2019conformalized}%
+\begin{APACrefauthors}%
+Romano, Y.%
+, Patterson, E.%
+\BCBL {}\ \BBA {} Cand{\`e}s, E\BPBI J.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2019}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Conformalized quantile regression} {Conformalized
+  quantile regression}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {Advances in Neural Information Processing Systems 32
+  (NeurIPS 2019)} {Advances in neural information processing systems 32
+  (neurips 2019)}\ (\BPGS\ 3538--3548).
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Sadler%
+\ \protect \BOthers {.}}{%
+Sadler%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2022}}%
+}]{%
+sadler2022multitask}
+\APACinsertmetastar {%
+sadler2022multitask}%
+\begin{APACrefauthors}%
+Sadler, J\BPBI M.%
+, Appling, A\BPBI P.%
+, Read, J\BPBI S.%
+, Oliver, S\BPBI K.%
+, Jia, X.%
+, Zwart, J\BPBI A.%
+\BCBL {}\ \BBA {} Kumar, V.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2022}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Multi-task deep learning of daily streamflow and water
+  temperature} {Multi-task deep learning of daily streamflow and water
+  temperature}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Water Resources Research}{58}{}{e2021WR030138}.
+\newblock
+\begin{APACrefDOI} \doi{10.1029/2021WR030138} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Shazeer%
+\ \protect \BOthers {.}}{%
+Shazeer%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2017}}%
+}]{%
+shazeer2017outrageously}
+\APACinsertmetastar {%
+shazeer2017outrageously}%
+\begin{APACrefauthors}%
+Shazeer, N.%
+, Mirhoseini, A.%
+, Maziarz, K.%
+, Davis, A.%
+, Le, Q.%
+, Hinton, G.%
+\BCBL {}\ \BBA {} Dean, J.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2017}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Outrageously large neural networks: the sparsely-gated
+  mixture-of-experts layer} {Outrageously large neural networks: the
+  sparsely-gated mixture-of-experts layer}.{\BBCQ}
+\newblock
+\BIn{} \APACrefbtitle {International Conference on Learning Representations
+  (ICLR).} {International conference on learning representations (iclr).}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Thornton%
+, Shrestha%
+, Wei%
+, Thornton%
+\BCBL {}\ \BBA {} Kao%
+}{%
+Thornton%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2022}}%
+}]{%
+thornton2022daymet}
+\APACinsertmetastar {%
+thornton2022daymet}%
+\begin{APACrefauthors}%
+Thornton, M\BPBI M.%
+, Shrestha, R.%
+, Wei, Y.%
+, Thornton, P\BPBI E.%
+\BCBL {}\ \BBA {} Kao, S\BHBI C.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2022}{}{}.
+\newblock
+\APACrefbtitle {{Daymet}: daily surface weather data on a 1-km grid for {North
+  America}, version 4 {R1}.} {{Daymet}: daily surface weather data on a 1-km
+  grid for {North America}, version 4 {R1}.}
+\newblock
+\APAChowpublished {ORNL DAAC, Oak Ridge, Tennessee, USA}.
+\newblock
+\begin{APACrefDOI} \doi{10.3334/ORNLDAAC/2129} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Toffolon%
+\ \BBA {} Piccolroaz%
+}{%
+Toffolon%
+\ \BBA {} Piccolroaz%
+}{%
+{\protect \APACyear {2015}}%
+}]{%
+toffolon2015hybrid}
+\APACinsertmetastar {%
+toffolon2015hybrid}%
+\begin{APACrefauthors}%
+Toffolon, M.%
+\BCBT {}\ \BBA {} Piccolroaz, S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2015}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {A hybrid model for river water temperature as a function
+  of air temperature and discharge} {A hybrid model for river water temperature
+  as a function of air temperature and discharge}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Environmental Research Letters}{10}{}{114011}.
+\newblock
+\begin{APACrefDOI} \doi{10.1088/1748-9326/10/11/114011} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+{U.S. Geological Survey}%
+}{%
+{U.S. Geological Survey}%
+}{%
+{\protect \APACyear {2024}}%
+}]{%
+usgs2024nwis}
+\APACinsertmetastar {%
+usgs2024nwis}%
+\begin{APACrefauthors}%
+{U.S. Geological Survey}.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2024}{}{}.
+\newblock
+\APACrefbtitle {{USGS} water data for the Nation: {U.S.} Geological Survey
+  National Water Information System ({NWIS}) database.} {{USGS} water data for
+  the nation: {U.S.} geological survey national water information system
+  ({NWIS}) database.}
+\newblock
+\APAChowpublished {Web services accessed via dataRetrieval; parameter codes
+  00010, 00060, 00065}.
+\newblock
+\APACrefnote{Accessed 2026; \url{https://waterdata.usgs.gov/nwis}}
+\newblock
+\begin{APACrefDOI} \doi{10.5066/F7P55KJN} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Virtanen%
+\ \protect \BOthers {.}}{%
+Virtanen%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2020}}%
+}]{%
+virtanen2020scipy}
+\APACinsertmetastar {%
+virtanen2020scipy}%
+\begin{APACrefauthors}%
+Virtanen, P.%
+, Gommers, R.%
+, Oliphant, T\BPBI E.%
+, Haberland, M.%
+, Reddy, T.%
+, Cournapeau, D.%
+\BDBL {}{SciPy 1.0 Contributors}%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2020}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {{SciPy} 1.0: fundamental algorithms for scientific
+  computing in {Python}} {{SciPy} 1.0: fundamental algorithms for scientific
+  computing in {Python}}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Nature Methods}{17}{}{261--272}.
+\newblock
+\begin{APACrefDOI} \doi{10.1038/s41592-019-0686-2} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Vovk%
+, Gammerman%
+\BCBL {}\ \BBA {} Shafer%
+}{%
+Vovk%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2005}}%
+}]{%
+vovk2005algorithmic}
+\APACinsertmetastar {%
+vovk2005algorithmic}%
+\begin{APACrefauthors}%
+Vovk, V.%
+, Gammerman, A.%
+\BCBL {}\ \BBA {} Shafer, G.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYear{2005}.
+\newblock
+\APACrefbtitle {Algorithmic Learning in a Random World} {Algorithmic learning
+  in a random world}.
+\newblock
+\APACaddressPublisher{New York}{Springer}.
+\newblock
+\begin{APACrefDOI} \doi{10.1007/b106715} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Weierbach%
+\ \protect \BOthers {.}}{%
+Weierbach%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2022}}%
+}]{%
+weierbach2022stream}
+\APACinsertmetastar {%
+weierbach2022stream}%
+\begin{APACrefauthors}%
+Weierbach, H.%
+, Lima, A\BPBI R.%
+, Willard, J\BPBI D.%
+, Hendrix, V\BPBI C.%
+, Christianson, D\BPBI S.%
+, Lubich, M.%
+\BCBL {}\ \BBA {} Varadharajan, C.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2022}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Stream temperature predictions for river basin
+  management in the Pacific Northwest and Mid-Atlantic regions using machine
+  learning} {Stream temperature predictions for river basin management in the
+  pacific northwest and mid-atlantic regions using machine learning}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Water}{14}{}{1032}.
+\newblock
+\begin{APACrefDOI} \doi{10.3390/w14071032} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Wilks%
+}{%
+Wilks%
+}{%
+{\protect \APACyear {2011}}%
+}]{%
+wilks2011statistical}
+\APACinsertmetastar {%
+wilks2011statistical}%
+\begin{APACrefauthors}%
+Wilks, D\BPBI S.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYear{2011}.
+\newblock
+\APACrefbtitle {Statistical Methods in the Atmospheric Sciences} {Statistical
+  methods in the atmospheric sciences}\ (\PrintOrdinal{3rd}\ \BEd, \BVOL~100).
+\newblock
+\APACaddressPublisher{Oxford}{Academic Press}.
+\PrintBackRefs{\CurrentBib}
+
+\bibitem [\protect \citeauthoryear {%
+Zwart%
+\ \protect \BOthers {.}}{%
+Zwart%
+\ \protect \BOthers {.}}{%
+{\protect \APACyear {2023}}%
+}]{%
+zwart2023evaluating}
+\APACinsertmetastar {%
+zwart2023evaluating}%
+\begin{APACrefauthors}%
+Zwart, J\BPBI A.%
+, Diaz, J.%
+, Hamshaw, S.%
+, Oliver, S.%
+, Ross, J\BPBI C.%
+, Sleckman, M.%
+\BDBL {}White, E.%
+\end{APACrefauthors}%
+\unskip\
+\newblock
+\APACrefYearMonthDay{2023}{}{}.
+\newblock
+{\BBOQ}\APACrefatitle {Evaluating deep learning architecture and data
+  assimilation for improving water temperature forecasts at unmonitored
+  locations} {Evaluating deep learning architecture and data assimilation for
+  improving water temperature forecasts at unmonitored locations}.{\BBCQ}
+\newblock
+\APACjournalVolNumPages{Frontiers in Water}{5}{}{1184992}.
+\newblock
+\begin{APACrefDOI} \doi{10.3389/frwa.2023.1184992} \end{APACrefDOI}
+\PrintBackRefs{\CurrentBib}
+
+\end{thebibliography}
