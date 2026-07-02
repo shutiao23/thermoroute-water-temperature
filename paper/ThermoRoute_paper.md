@@ -13,9 +13,14 @@
 
 > Manuscript draft, rewritten around the large-sample evaluation. All numbers are
 > produced by the code in this repository: the three-station case study by
-> `scripts/04`, the 40-station large-sample experiment by `scripts/09` (5 seeds),
-> and the calibration/decision/mechanism analysis by `scripts/10`. Reports:
-> `outputs/reports/{usgs_experiment,usgs_analysis}.md`; figures `outputs/figures/`.
+> `scripts/01`–`08`, the 120-station large-sample experiment by `scripts/09`
+> (5 seeds, panel `data_usgs/panel_usgs_100.parquet` — the filename is
+> historical; the panel holds 120 stations), the calibration/decision/mechanism
+> analysis by `scripts/10`, statistical rigor by `scripts/12`–`13`, and the
+> sha256 artifact manifest by `scripts/14`. Reports:
+> `outputs/reports/{usgs_experiment_v2,usgs_analysis,rigor}.md`; tables
+> `outputs/tables/`; figures `outputs/figures/`. Every headline number is
+> traceable to a hashed artifact in `outputs/manifest.json`.
 
 ---
 
@@ -97,10 +102,11 @@ hypotheses, and — crucially — evaluate on a large, diverse station sample wi
 explicit spatial-transfer test rather than on a single site.
 
 A central, honest finding shapes the paper: on a three-station regulated reservoir
-cascade, water temperature is so heavily damped that **no learned model beats
-per-station damped persistence on point accuracy** — the dynamic machinery helps
-only calibration and warnings there. We therefore move to a 40-station large-sample
-setting where forecast headroom exists, and show that ThermoRoute's value
+cascade, water temperature is so heavily damped that **no learned model
+consistently improves on per-station damped persistence on point accuracy across
+horizons** (LightGBM edges it at 1 day only; Table 2) — the dynamic machinery
+helps only calibration and warnings there. We therefore move to a 120-station
+large-sample setting where forecast headroom exists, and show that ThermoRoute's value
 materialises: it beats the strong baseline on point accuracy, transfers across
 unseen basins, and produces near-nominally-calibrated warnings. We also report a
 negative result: the flow-dependent thermal memory suggested by the three-station
@@ -115,9 +121,10 @@ Contributions:
 2. A **leakage-audited evaluation** with rolling-origin discipline, a one-shot blind
    test, moving-block-bootstrap confidence intervals, Diebold–Mariano tests, and an
    adversarial internal review of every headline claim.
-3. A **large-sample, transfer-tested** demonstration: 40 public USGS stations,
-   leave-group-out generalisation to unseen basins, and a unified point +
-   probabilistic + event + decision-value assessment.
+3. A **large-sample, transfer-tested** demonstration: 120 public USGS stations
+   (114 contributing the blind test), leave-group-out generalisation to unseen
+   basins, and a unified point + probabilistic + event + decision-value
+   assessment.
 4. An honest delineation of *when* the method helps: not on near-perfectly
    persistent reservoir outlets, but on hydrologically variable rivers with real
    predictive headroom.
@@ -147,7 +154,7 @@ record only to drop out at evaluation (an earlier 40-station pilot exhibited
 this 40→36 shrinkage, see §S1). Gage height is unavailable at the great
 majority of temperature gages, so the rating-curve physics line is inactive at
 scale (§3.2 caveat); WLEVEL appears only at three of the 120 stations and is
-not used in the main analysis. The panel spans 35 U.S. states across 13 USGS
+not used in the main analysis. The panel spans 35 U.S. states across 16 USGS
 HUC2 hydrologic regions, mixing free-flowing and dam-regulated rivers (a
 post-hoc subgroup analysis is in §S2), and a wide thermal range (≈ −1 to 31 °C).
 Crucially, it has real forecast headroom: persistence 7-day RMSE has median
@@ -235,11 +242,22 @@ guarantee, nominal coverage under the observed year-to-year shift.
 ### 3.5 Baselines and protocol
 
 Persistence; damped persistence toward climatology; harmonic climatology; LightGBM
-(point + quantile + exceedance). Split: train 2006–2015, validate 2016–2017,
+(point + quantile + exceedance); and, on the large sample, an **air2stream-style
+eight-parameter hybrid model**. Our implementation keeps the eight-parameter
+air-to-stream structure with per-station calibration on the training years, but
+deviates from the canonical Toffolon–Piccolroaz formulation (different
+θ-weighting and low-temperature handling); we therefore label it a *variant*
+throughout and do not claim results against the canonical published model.
+Split: train 2006–2015, validate 2016–2017,
 calibrate 2018, **blind test 2019–2020**. All statistics fit on training data only.
 On the large sample, baselines and ThermoRoute are evaluated on *identical windowed
-samples* (observed targets only). Deep models use multiple seeds; we report the
-seed mean and, for the headline, the per-station win-rate and paired differences.
+samples* (observed targets only). ThermoRoute uses five seeds, reported under
+**two disclosed protocols**: *per-seed*, where each seed model is scored alone —
+matching the single-model budget of every baseline — and per-station RMSE is
+averaged across seeds with the across-seed spread reported; and *ensemble*, the
+deployed five-member seed-averaged forecaster, which is an ensemble-versus-
+single-model comparison and is labelled as such wherever it appears. Headline
+significance tables report both (Table `claim1_significance`).
 
 ## 4. Results
 
@@ -247,23 +265,29 @@ seed mean and, for the headline, the per-station win-rate and paired differences
 
 On the reservoir cascade, per-station damped persistence is near-optimal:
 station-averaged blind-test RMSE is 0.261 / 0.483 / 0.724 °C (1/3/7 d), and **no
-learned model improves on it**. ThermoRoute (joint, three seeds) is 0.343 / 0.557 /
-0.808 °C — worse than damped persistence, significantly so at b1 and p3 and better
-only at s2 (Diebold–Mariano, Table 2b). LightGBM, GRU and the module ablations tell
-the same story; indeed the ablation that *removes* the mixture-of-experts matches
-damped persistence, indicating the extra machinery does not help point accuracy on
-this near-deterministic system. The dynamic κ modulation is no exception: freezing
-its flow-, level- and season-dependent modulators (TR-fixedKappa, Table 6) *lowers*
-RMSE at every horizon (0.287 / 0.532 / 0.788 vs 0.343 / 0.557 / 0.808 °C), so a
-constant per-station relaxation rate is at least as accurate as — and here slightly
-better than — the dynamic one; the dynamic-thermal-memory modulation thus earns its
-place on mechanism and interpretability grounds, not on point accuracy. The only
-value ThermoRoute adds here is
-probabilistic: conformal intervals (achieved PICP 0.65–0.91 across stations) and
-high-temperature warnings the point baselines cannot provide. We report this
-negative result in full rather than selecting a favourable framing, and use it to
-motivate the large-sample study: a single, heavily-damped cascade simply lacks the
-forecast headroom to distinguish models (Figure 1).
+learned model consistently improves on it across horizons**. ThermoRoute (joint,
+three seeds, per-seed scores averaged) is 0.292 / 0.543 / 0.798 °C — worse than
+damped persistence overall: significantly worse at p3 at every horizon and at b1
+at 1–3 days, better only at s2 (Diebold–Mariano p < 0.05 at 1–3 days; Table 2b).
+LightGBM comes closest — it edges damped persistence at 1 day (0.255 vs
+0.261 °C) but falls behind at 7 days (0.806 vs 0.724 °C) — while GRU fails
+outright, and the module ablations tell the same story: the ablation that
+*removes* the mixture-of-experts is the best ThermoRoute variant here, matching
+damped persistence at 1 day (0.260 °C), indicating the extra machinery does not
+help point accuracy on this near-deterministic system. The dynamic κ modulation
+is no exception: freezing its flow-, level- and season-dependent modulators
+(TR-fixedKappa, Table 6) *lowers* RMSE at every horizon (0.287 / 0.525 / 0.797
+vs 0.292 / 0.543 / 0.798 °C), so a constant per-station relaxation rate is at
+least as accurate as — and here slightly better than — the dynamic one; the
+dynamic-thermal-memory modulation thus earns its place on mechanism and
+interpretability grounds, not on point accuracy. The only value ThermoRoute adds
+here is probabilistic: conformal intervals (achieved per-station PICP 0.79–0.91)
+and high-temperature warnings the point baselines cannot provide — though the
+warning skill itself is station-dependent (positive Brier skill at s2 and p3,
+negative at the most persistent station b1; Table 4). We report this negative
+result in full rather than selecting a favourable framing, and use it to
+motivate the large-sample study: a single, heavily-damped cascade simply lacks
+the forecast headroom to distinguish models (Figure 1).
 
 ![**Figure 1.** Three-station cascade, blind-test RMSE (°C, left) and skill versus persistence (right) by model and horizon. No learned model improves on damped persistence on this near-deterministic system — the honest negative result that motivates the large-sample study.](outputs/figures/fig3_results_heatmap.png){width=90%}
 
@@ -271,10 +295,11 @@ forecast headroom to distinguish models (Figure 1).
 
 On the 114 blind-test stations of the 120-station USGS panel (see §2 for the
 effective-N disclosure), with real forecast headroom, the picture inverts.
-Median over stations of per-station RMSE (5-seed mean; model uses 7 variables
-including gridMET wind, with the residual bound loosened to ±1.5 °C on the large
-sample — see §3.3); the canonical Toffolon–Piccolroaz 8-parameter air2stream is
-included as a *physical* strong baseline:
+Median over stations of per-station RMSE (5-member seed-averaged ensemble; model
+uses 7 variables including gridMET wind, with the residual bound loosened to
+±1.5 °C on the large sample — see §3.3); an air2stream-style 8-parameter model
+(a *variant* of Toffolon–Piccolroaz — §3.5) is included as a *physical* strong
+baseline:
 
 | horizon | persistence | damped | air2stream-a8 | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
 |---|---|---|---|---|---|---|---|---|
@@ -340,18 +365,20 @@ finite-sample (1−α) coverage guarantee of split-CQR holds only under
 exchangeability between calibration and test; in our temporal split the test
 years (2019–2020) follow the calibration year, so the assumption is **not**
 strictly satisfied — we therefore report *empirical* coverage rather than a
-guarantee. ThermoRoute's 90 % intervals achieve **PICP 0.904 / 0.911 / 0.912**
+guarantee. ThermoRoute's 90 % intervals achieve **PICP 0.904 / 0.909 / 0.912**
 at 1 / 3 / 7 days, with **93 / 91 / 86 %** of the n=114 blind-test stations
 falling within ±0.05 of nominal (Wilson 95 % CIs: 87–97 %, 84–95 %, 78–91 %;
 Figure 3). LightGBM is similarly calibrated (PICP 0.905 / 0.906 / 0.907). On the
 smaller 40-station pilot the same model is calibrated at the *population* level
-(mean PICP ≈ 0.90) but *across-station* tightness is worse (n=36 PICP range
-0.65–0.91), so we treat tight per-station coverage as a property of the
+(median PICP 0.90–0.91) with a wider per-station spread (n=36 per-station PICP
+range 0.81–0.97), and on the three-station cascade the spread is wider still
+(0.79–0.91, §4.1), so we treat tight per-station coverage as a property of the
 large-sample regime, not a guarantee.
 
-**High-temperature exceedance warnings** have modest positive skill (Brier-skill
-+0.30 / +0.25 / +0.24; AUPRC 0.57 / 0.51 / 0.49), comparable to LightGBM
-(+0.33 / +0.30 / +0.28). The exceedance threshold is **statistical**, set as the
+**High-temperature exceedance warnings** have clear positive skill on the
+120-station panel (Brier-skill +0.74 / +0.60 / +0.51; AUPRC 0.92 / 0.82 / 0.74
+at 1 / 3 / 7 d), slightly ahead of LightGBM (+0.73 / +0.57 / +0.49;
+AUPRC 0.92 / 0.79 / 0.72). The exceedance threshold is **statistical**, set as the
 station-specific train-period 90th percentile of WTEMP — it is not a biological
 or regulatory limit and the AUPRC numbers should be read accordingly.
 
@@ -375,9 +402,9 @@ not a demonstration of operational management value.
 ### 4.5 Mechanism: interpretable drivers, but no generalisable κ–flow dependence
 
 We report an honest negative result on the dynamic-memory hypothesis. On the three
-damped reservoir outlets the fitted relaxation rate κ rose ~2× from low to high flow
-(implied memory 1/κ ≈ 10–33 d), which we initially read as a flow-dependent thermal
-memory. **This does not replicate on the large sample:** across the 120-station
+damped reservoir outlets the fitted relaxation rate κ rose ~1.8× from low to high
+flow (implied memory 1/κ ≈ 6–18 d), which we initially read as a flow-dependent
+thermal memory. **This does not replicate on the large sample:** across the 120-station
 USGS panel κ rises with flow at only **4 % of stations** (median κ_high/κ_low =
 0.94; mean κ_low 0.110 vs κ_high 0.103) — and at only 24 % on the smaller 40-
 station pilot — so there is no consistent, physically directional flow dependence
@@ -462,7 +489,7 @@ would sharpen multi-day skill.
 
 Under a strict historical-information protocol, ThermoRoute matches per-station
 damped persistence where the system is near-deterministic (a reservoir cascade) and
-beats the physics baselines where forecast headroom exists (a 40-station large
+beats the physics baselines where forecast headroom exists (a 120-station large
 sample), transferring to unseen basins and providing near-nominally-calibrated
 warnings. We deliberately report two negative results — no point-accuracy gain on
 the cascade, and no generalisable flow-dependent thermal memory — to keep the claims
@@ -484,7 +511,7 @@ make no `DH`-specific physical claim. Two sentinel missing-codes (`WDSP=999.9`,
 `PRCP=99.99`; 0.1–0.3 % of records) are masked to NaN and imputed within the
 training fold.
 
-**(2) Forty-station USGS large sample (main analysis).** Assembled programmatically
+**(2) 120-station USGS large sample (main analysis).** Assembled programmatically
 from three open sources, in the same schema, by
 `scripts/data_usgs/build_usgs_stations.py`:
 
@@ -494,21 +521,34 @@ from three open sources, in the same schema, by
 | `TEMP`, `PRCP`, `DH`, `RHMEAN` | Daymet v4 (1 km gridded) | ORNL DAAC single-pixel API; open (CC0-equivalent for U.S. government / DAAC terms) | `TEMP` = mean of tmax/tmin; `DH` = incident solar radiation (`srad`, a physical radiative index replacing the original ambiguous `DH`, on a different scale); `RHMEAN` derived from vapour pressure via the Tetens saturation relation. |
 | `WDSP` | gridMET | Climatology Lab / Northwest Knowledge Network THREDDS NetCDF-Subset Service; open | daily mean wind speed at the station coordinate. |
 
-Forty stream gages across 17 U.S. states (≥55 % water-temperature coverage over
-2006–2020) span free-flowing and dam-regulated rivers; water-temperature coverage
-ranges 0.56–1.00 (median ≈0.85). The two assembled panels
-(`data_usgs/panel_usgs.parquet`, six variables; `data_usgs/panel_usgs_wind.parquet`,
-seven variables) and station metadata (`data_usgs/stations_meta.csv`, with USGS site
-numbers and coordinates) are included so the experiments reproduce without
+120 stream gages across 35 U.S. states and 16 HUC2 regions (≥55 %
+water-temperature and ≥70 % flow coverage over 2006–2020, plus a ≥80 %
+blind-test-window coverage gate — §2) span free-flowing and dam-regulated
+rivers; water-temperature coverage ranges 0.56–1.00 (median ≈0.88). The
+assembled main panel is `data_usgs/panel_usgs_100.parquet` (120 stations, seven
+model variables plus WLEVEL; the filename is historical and predates the
+120-station rebuild). Station metadata with USGS site numbers and coordinates
+is in `data_usgs/stations_meta_120v2.csv`, and every probed-but-rejected
+candidate is recorded in `data_usgs/rejected_sites_120v2.csv`
+(`outputs/reports/usgs_acquisition.md` documents the audit trail). The legacy
+40-station pilot panels (`data_usgs/panel_usgs.parquet`,
+`data_usgs/panel_usgs_wind.parquet`) are retained only for the §S1 pilot
+comparison. All panels are included so the experiments reproduce without
 re-downloading; the raw per-site downloads can be regenerated by re-running the
 acquisition script. All three sources are public domain or open-licensed.
 
 ## Code availability and reproducibility
 
 All code, the fixed train/validation/calibration/blind-test boundaries, unit tests
-(leakage, splits, metrics, conformal), and one-command reproduction
-(`scripts/run_all.sh`) are in this repository. Per-day predictions, model weights and
-logs are regenerable by the staged scripts (`scripts/01`–`13`). An adversarial
+(leakage, splits, metrics, conformal, cross-model sample consistency), and
+one-command reproduction (`scripts/run_all.sh`) are in this repository. Per-day
+predictions, model weights and logs are regenerable by the staged scripts
+(`scripts/01`–`14`); `scripts/14_manifest.py` writes a sha256 manifest of every
+artifact the manuscript's numbers depend on (`outputs/manifest.json`), and
+`--check` verifies the recorded hashes so any drift between the manuscript and
+the artifacts is machine-detectable. Continuous integration runs the test suite
+under both the version-locked environment that produced the published numbers
+(`requirements-lock.txt`) and loose forward-compatibility floors. An adversarial
 internal review (multiple independent expert lenses) checked every headline claim
 against the result tables; all negative results and ablations are retained, and a
 finding-by-finding disposition is provided in `outputs/reports/review_response.md`.
@@ -523,11 +563,11 @@ Corona, C. R., Hogue, T. S., 2025. Machine learning in stream and river water te
 
 Feigl, M., Lebiedzinski, K., Herrnegger, M., Schulz, K., 2021. Machine-learning methods for stream water temperature prediction. Hydrology and Earth System Sciences 25, 2951–2977. https://doi.org/10.5194/hess-25-2951-2021. [F2]
 
-Zwart, J. A., Sadler, J. M., Appling, A. P., Read, J. S., Oliver, S. K., Diaz-Gonzalez, M., Bertassello, L. E., Jia, X., 2023. Evaluating deep learning architecture and data assimilation for improving water temperature forecasts at unmonitored locations. Frontiers in Water 5, 1184992. https://doi.org/10.3389/frwa.2023.1184992. [F3]
+Zwart, J. A., Diaz, J., Hamshaw, S., Oliver, S., Ross, J. C., Sleckman, M., Appling, A. P., Corson-Dosch, H., Jia, X., Read, J., Sadler, J., Thompson, T., Watkins, D., White, E., 2023. Evaluating deep learning architecture and data assimilation for improving water temperature forecasts at unmonitored locations. Frontiers in Water 5, 1184992. https://doi.org/10.3389/frwa.2023.1184992. [F3]
 
 Jia, X., Zwart, J., Sadler, J., Appling, A., Oliver, S., Markstrom, S., Willard, J., Xu, S., Steinbach, M., Read, J., Kumar, V., 2021. Physics-guided recurrent graph model for predicting flow and temperature in river networks, in: Proceedings of the 2021 SIAM International Conference on Data Mining (SDM). SIAM, pp. 612–620. https://doi.org/10.1137/1.9781611976700.69 (preprint: arXiv:2009.12575). [F4]
 
-Luo, S., Yu, R., Chen, S., Jia, X., Kumar, V., 2025. Geo-aware models for stream temperature prediction across different spatial regions and scales, in: Proceedings of the 33rd ACM SIGSPATIAL International Conference on Advances in Geographic Information Systems. ACM. https://doi.org/10.1145/3748636.3762716 (preprint: arXiv:2510.09500). [F5]
+Luo, S., Yu, R., Chen, S., Fan, Y., Xie, Y., Li, Y., Jia, X., 2025. Geo-aware models for stream temperature prediction across different spatial regions and scales, in: Proceedings of the 33rd ACM International Conference on Advances in Geographic Information Systems (SIGSPATIAL '25). ACM, pp. 124–136. https://doi.org/10.1145/3748636.3762716 (preprint: arXiv:2510.09500). [F5]
 
 Rahmani, F., Lawson, K., Ouyang, W., Appling, A., Oliver, S., Shen, C., 2021. Exploring the exceptional performance of a deep learning stream temperature model and the value of streamflow data. Environmental Research Letters 16, 024025. https://doi.org/10.1088/1748-9326/abd501. [F7]
 
@@ -537,7 +577,7 @@ Rahmani, F., Appling, A., Feng, D., Lawson, K., Shen, C., 2023. Identifying stru
 
 Sadler, J. M., Appling, A. P., Read, J. S., Oliver, S. K., Jia, X., Zwart, J. A., Kumar, V., 2022. Multi-task deep learning of daily streamflow and water temperature. Water Resources Research 58, e2021WR030138. https://doi.org/10.1029/2021WR030138. [F10]
 
-Topp, S. N., Appling, A. P., Diaz-Gonzalez, M. A., Heinrich, L. R., Zwart, J. A., Read, J. S., Oliver, S. K., 2023. Stream temperature predictions for river basin management in the Pacific Northwest and Mid-Atlantic regions using machine learning. Water Resources Research 59, e2022WR033880. https://doi.org/10.1029/2022WR033880. [F11]
+Weierbach, H., Lima, A. R., Willard, J. D., Hendrix, V. C., Christianson, D. S., Lubich, M., Varadharajan, C., 2022. Stream temperature predictions for river basin management in the Pacific Northwest and Mid-Atlantic regions using machine learning. Water 14, 1032. https://doi.org/10.3390/w14071032. [F11]
 
 Toffolon, M., Piccolroaz, S., 2015. A hybrid model for river water temperature as a function of air temperature and discharge. Environmental Research Letters 10, 114011. https://doi.org/10.1088/1748-9326/10/11/114011. [F12]
 
@@ -549,9 +589,9 @@ Caissie, D., 2006. The thermal regime of rivers: a review. Freshwater Biology 51
 
 ### Methods — machine learning, calibration, statistics
 
-Romano, Y., Patterson, E., Candès, E. J., 2019. Conformalized quantile regression, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 3543–3553.
+Romano, Y., Patterson, E., Candès, E. J., 2019. Conformalized quantile regression, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 3538–3548.
 
-Vovk, V., Gammerman, A., Shafer, G., 2005. Algorithmic Learning in a Random World. Springer, New York.
+Vovk, V., Gammerman, A., Shafer, G., 2005. Algorithmic Learning in a Random World. Springer, New York. https://doi.org/10.1007/b106715.
 
 Martins, A. F. T., Astudillo, R. F., 2016. From softmax to sparsemax: a sparse model of attention and multi-label classification, in: Proceedings of the 33rd International Conference on Machine Learning (ICML), pp. 1614–1623.
 
@@ -567,7 +607,7 @@ Harvey, D., Leybourne, S., Newbold, P., 1997. Testing the equality of prediction
 
 Künsch, H. R., 1989. The jackknife and the bootstrap for general stationary observations. The Annals of Statistics 17, 1217–1241. https://doi.org/10.1214/aos/1176347265.
 
-Wilks, D. S., 2011. Statistical Methods in the Atmospheric Sciences, 3rd ed. Academic Press, Oxford. (Chapters on bootstrap CIs, Brier/Brier-skill, AUPRC, and the Relative Economic Value of probabilistic forecasts.)
+Wilks, D. S., 2011. Statistical Methods in the Atmospheric Sciences, 3rd ed., International Geophysics Series, vol. 100. Academic Press, Oxford. ISBN 978-0-12-385022-5.
 
 Richardson, D. S., 2000. Skill and relative economic value of the ECMWF ensemble prediction system. Quarterly Journal of the Royal Meteorological Society 126, 649–667. https://doi.org/10.1002/qj.49712656313.
 
@@ -579,22 +619,22 @@ Loshchilov, I., Hutter, F., 2019. Decoupled weight decay regularization, in: Int
 
 Nash, J. E., Sutcliffe, J. V., 1970. River flow forecasting through conceptual models part I — a discussion of principles. Journal of Hydrology 10, 282–290. https://doi.org/10.1016/0022-1694(70)90255-6.
 
-Gupta, H. V., Kling, H., Yilmaz, K. K., Martinez, G. F., 2009. Decomposition of the mean squared error and NSE performance criteria: implications for improving hydrological modelling. Journal of Hydrology 377, 80–91. https://doi.org/10.1016/j.jhydro.2009.08.003.
+Gupta, H. V., Kling, H., Yilmaz, K. K., Martinez, G. F., 2009. Decomposition of the mean squared error and NSE performance criteria: implications for improving hydrological modelling. Journal of Hydrology 377, 80–91. https://doi.org/10.1016/j.jhydrol.2009.08.003.
 
 ### Software and data sources
 
-De Cicco, L. A., Lorenz, D., Hirsch, R. M., Watkins, W., Johnson, M., 2024. dataRetrieval: R packages for discovering and retrieving water data available from federal hydrologic web services. U.S. Geological Survey. https://doi.org/10.5066/P9X4L3GE. [D1]
+De Cicco, L. A., Hirsch, R. M., Lorenz, D., Watkins, W. D., Johnson, M., 2024. dataRetrieval: R packages for discovering and retrieving water data available from federal hydrologic web services, v.2.7.17. U.S. Geological Survey. https://doi.org/10.5066/P9X4L3GE. [D1]
 
-Hodson, T. O., Decker, J. K., 2023. dataretrieval (Python): a Python package for discovering and retrieving water data available from U.S. federal hydrologic web services. U.S. Geological Survey. https://doi.org/10.5066/P94I5TX3.
+Hodson, T. O., Hariharan, J. A., Black, S., Horsburgh, J. S., 2023. dataretrieval (Python): a Python package for discovering and retrieving water data available from U.S. federal hydrologic web services. U.S. Geological Survey software release. https://doi.org/10.5066/P94I5TX3.
 
-U.S. Geological Survey, 2024. National Water Information System (NWIS). Web services accessed via dataRetrieval; parameter codes 00010 (water temperature), 00060 (discharge), 00065 (gage height). https://waterdata.usgs.gov/nwis. [public domain]
+U.S. Geological Survey, 2024. USGS water data for the Nation: U.S. Geological Survey National Water Information System (NWIS) database. Web services accessed via dataRetrieval; parameter codes 00010 (water temperature), 00060 (discharge), 00065 (gage height); accessed 2026. https://doi.org/10.5066/F7P55KJN (https://waterdata.usgs.gov/nwis). [public domain]
 
-Thornton, P. E., Shrestha, R., Thornton, M., Kao, S.-C., Wei, Y., Wilson, B. E., 2022. Daymet: daily surface weather data on a 1-km grid for North America, version 4 R1. ORNL DAAC, Oak Ridge, Tennessee, USA. https://doi.org/10.3334/ORNLDAAC/2129. [D2]
+Thornton, M. M., Shrestha, R., Wei, Y., Thornton, P. E., Kao, S.-C., 2022. Daymet: daily surface weather data on a 1-km grid for North America, version 4 R1. ORNL DAAC, Oak Ridge, Tennessee, USA. https://doi.org/10.3334/ORNLDAAC/2129. [D2]
 
 Abatzoglou, J. T., 2013. Development of gridded surface meteorological data for ecological applications and modelling. International Journal of Climatology 33, 121–131. https://doi.org/10.1002/joc.3413. (gridMET / METDATA.) [D3]
 
-Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., Desmaison, A., Köpf, A., Yang, E., DeVito, Z., Raison, M., Tejani, A., Chilamkurthy, S., Steiner, B., Fang, L., Bai, J., Chintala, S., 2019. PyTorch: an imperative style, high-performance deep learning library, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 8026–8037.
+Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., Desmaison, A., Köpf, A., Yang, E., DeVito, Z., Raison, M., Tejani, A., Chilamkurthy, S., Steiner, B., Fang, L., Bai, J., Chintala, S., 2019. PyTorch: an imperative style, high-performance deep learning library, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 8024–8035.
 
 Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., Duchesnay, É., 2011. Scikit-learn: machine learning in Python. Journal of Machine Learning Research 12, 2825–2830.
 
-Virtanen, P., Gommers, R., Oliphant, T. E., Haberland, M., Reddy, T., Cournapeau, D., Burovski, E., Peterson, P., Weckesser, W., Bright, J., van der Walt, S. J., Brett, M., Wilson, J., Millman, K. J., Mayorov, N., Nelson, A. R. J., Jones, E., Kern, R., Larson, E., Carey, C. J., Polat, I., Feng, Y., Moore, E. W., VanderPlas, J., Laxalde, D., Perktold, J., Cimrman, R., Henriksen, I., Quintero, E. A., Harris, C. R., Archibald, A. M., Ribeiro, A. H., Pedregosa, F., van Mulbregt, P., SciPy 1.0 Contributors, 2020. SciPy 1.0: fundamental algorithms for scientific computing in Python. Nature Methods 17, 261–272. https://doi.org/10.1038/s41592-019-0686-5.
+Virtanen, P., Gommers, R., Oliphant, T. E., Haberland, M., Reddy, T., Cournapeau, D., Burovski, E., Peterson, P., Weckesser, W., Bright, J., van der Walt, S. J., Brett, M., Wilson, J., Millman, K. J., Mayorov, N., Nelson, A. R. J., Jones, E., Kern, R., Larson, E., Carey, C. J., Polat, I., Feng, Y., Moore, E. W., VanderPlas, J., Laxalde, D., Perktold, J., Cimrman, R., Henriksen, I., Quintero, E. A., Harris, C. R., Archibald, A. M., Ribeiro, A. H., Pedregosa, F., van Mulbregt, P., SciPy 1.0 Contributors, 2020. SciPy 1.0: fundamental algorithms for scientific computing in Python. Nature Methods 17, 261–272. https://doi.org/10.1038/s41592-019-0686-2.
