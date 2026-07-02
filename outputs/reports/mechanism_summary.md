@@ -1,17 +1,17 @@
 # Mechanism summary (ThermoRoute, seed 0)
 
-- Trained 3 epochs, params=33664, val median-RMSE=0.5045 °C
+- Trained 21 epochs, params=33664, val median-RMSE=0.5100 °C
 
 ## Dynamic relaxation rate κ (per-day memory)
 
 | station | mean κ | κ low-flow | κ high-flow | implied memory 1/κ (d) |
 |---|---|---|---|---|
-| b1 | 0.066 | 0.039 | 0.098 | 15.1 |
-| s2 | 0.052 | 0.031 | 0.076 | 19.4 |
-| p3 | 0.045 | 0.030 | 0.064 | 22.3 |
+| b1 | 0.157 | 0.117 | 0.207 | 6.4 |
+| s2 | 0.109 | 0.081 | 0.145 | 9.1 |
+| p3 | 0.055 | 0.040 | 0.073 | 18.1 |
 
 ## Top variable×lag drivers by horizon (router weight share)
 
-- **h=1d**: DH (46%), WLEVEL (21%), PRCP (20%); dominant WTEMP lag = 1 d
-- **h=3d**: TEMP (42%), PRCP (20%), WLEVEL (17%); dominant WTEMP lag = 2 d
-- **h=7d**: TEMP (37%), PRCP (24%), FLOW (14%); dominant WTEMP lag = 2 d
+- **h=1d**: WLEVEL (68%), FLOW (14%), TEMP (9%); dominant WTEMP lag = 0 d
+- **h=3d**: WLEVEL (51%), WTEMP (18%), FLOW (13%); dominant WTEMP lag = 11 d
+- **h=7d**: WLEVEL (67%), WDSP (26%), PRCP (7%); dominant WTEMP lag = 0 d

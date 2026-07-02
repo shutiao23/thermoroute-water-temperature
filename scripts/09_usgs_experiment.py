@@ -47,7 +47,9 @@ from thermoroute.train import fit_model
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")  # +gridMET wind
 CFG = C.TrainConfig(batch_size=1536)         # larger batch ⇒ fewer steps on 100k+ samples
-DELTA_SCALE = 1.5                            # loosened bound (selected by scripts/11_retune.py)
+DELTA_SCALE = 1.0    # selected by the val-only 3-seed sweep (scripts/11_retune.py;
+                     # outputs/tables/usgs_retune.csv). The earlier value 1.5 came
+                     # from a deprecated test-split sweep and was retired.
 _t0 = time.time()
 
 
@@ -319,7 +321,10 @@ def main():
         mp, md, mt = d.rmse_persist.median(), d.rmse_damped.median(), d.rmse_thermo.median()
         sk_p = 1 - (d.rmse_thermo / d.rmse_persist).median()
         sk_d = 1 - (d.rmse_thermo / d.rmse_damped).median()
-        win = float((d.rmse_thermo < d.rmse_damped).mean())
+        # win-rate over stations that actually have blind-test data for both
+        # models; stations with no test samples must not count as losses.
+        dv = d.dropna(subset=["rmse_thermo", "rmse_damped"])
+        win = float((dv.rmse_thermo < dv.rmse_damped).mean())
         L.append(f"| {h} | {mp:.3f} | {md:.3f} | {ma:.3f} | {ml:.3f} | {mt:.3f} | "
                  f"{sk_p:+.3f} | {sk_d:+.3f} | {win:.2f} |")
     # leave-group-out

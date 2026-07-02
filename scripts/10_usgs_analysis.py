@@ -42,11 +42,16 @@ from thermoroute.thermoroute import ThermoRoute
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 DELTA_SCALE = 1.5
-# Auto-pick the latest predictions+panel pair: prefer 120-station if present.
+# Auto-pick the latest predictions+panel pair (same precedence as scripts
+# 12/13): v2 -> 120 -> 40-station.  v2 is the sample-consistent current truth.
+_v2_pred = C.PREDICTIONS / "usgs_predictions_v2.parquet"
 _120_pred = C.PREDICTIONS / "usgs_predictions_120.parquet"
-PRED = _120_pred if _120_pred.exists() else C.PREDICTIONS / "usgs_predictions.parquet"
+PRED = (_v2_pred if _v2_pred.exists()
+        else (_120_pred if _120_pred.exists()
+              else C.PREDICTIONS / "usgs_predictions.parquet"))
 _panel_120 = ROOT / "data_usgs" / "panel_usgs_100.parquet"
-PANEL_PATH = _panel_120 if _120_pred.exists() else (ROOT / "data_usgs" / "panel_usgs_wind.parquet")
+PANEL_PATH = (_panel_120 if PRED != C.PREDICTIONS / "usgs_predictions.parquet"
+              else (ROOT / "data_usgs" / "panel_usgs_wind.parquet"))
 
 
 def prep():
@@ -170,7 +175,7 @@ def mechanism(panel, panel_imp, masks, clim, stations, thr):
     mk = [kappa[bi == b].mean() for b in range(len(bins) - 1)]
     a1.plot(mx, mk, "-o", color="#185FA5")
     a1.set_xlabel("z(log FLOW)"); a1.set_ylabel("relaxation rate κ"); a1.grid(alpha=0.25)
-    a1.set_title("a  κ rises with flow (shorter memory)")
+    a1.set_title("a  pooled κ vs flow (descriptive)")
     a2.hist(kdf["ratio"], bins=20, color="#1D9E75", alpha=0.8)
     a2.axvline(1.0, color="#993C1D", ls="--")
     a2.set_xlabel("κ_high / κ_low per station"); a2.set_ylabel("# stations")

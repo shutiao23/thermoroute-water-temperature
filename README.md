@@ -14,26 +14,32 @@ The study has two settings.
 
 * **Main analysis (large-sample, USGS).** 120 public USGS stream gages with
   Daymet meteorology and gridMET wind, 2006–2020, free-flowing and
-  dam-regulated. **5-seed ThermoRoute beats persistence by +0.21/+0.19/+0.25
-  skill (1/3/7 d) and damped persistence by +0.18/+0.08/+0.04** (median over 114
-  blind-test stations; significantly beats both at p≤10⁻⁶), beats canonical
-  Toffolon-Piccolroaz **air2stream-a8** at h7 (1.652 vs 1.695 °C), and in
-  4-fold leave-group-out transfers to basins it never trained on (+0.13–0.23
-  skill). Conformal calibration delivers near-nominal PICP (≈0.90).
+  dam-regulated. On the 114 blind-test stations, with the seed budget matched
+  (each seed scored as a single model), **ThermoRoute beats persistence by
+  +0.19/+0.18/+0.24 skill (1/3/7 d) and damped persistence by +0.16/+0.07/+0.03**
+  (per-station Wilcoxon, Holm-adjusted, p ≤ 3×10⁻¹⁶; robust to a HUC2 cluster
+  bootstrap), and beats an air2stream-style 8-parameter physical model (a
+  *variant* of Toffolon–Piccolroaz) at every lead (0.630/1.289/1.658 vs
+  0.797/1.464/1.809 °C). Against a strong gradient-boosting learner (LightGBM)
+  the honest result is **parity, not superiority**: LightGBM is significantly
+  better at 1 day and the two are statistically tied at 3–7 days. In 4-fold
+  leave-group-out transfer to basins it never trained on it beats persistence by
+  +0.17/+0.17/+0.24. Conformal calibration delivers near-nominal PICP (≈0.90).
 * **Case study (3-station cascade).** Three reservoir-cascade stations
   (`b1`→`s2`→`p3`), 2006–2020. The reservoir outlets are so heavily damped that
-  **no learned model improves on per-station damped persistence on point RMSE**
-  — an honest negative result that motivates the large-sample study and is
-  reported in full.
+  **no learned model consistently improves on per-station damped persistence on
+  point RMSE across horizons** — an honest negative result that motivates the
+  large-sample study and is reported in full.
 
-Three negative results are reported in full: no point gain on the cascade, the
-flow-dependent thermal memory does not generalise beyond it, and no robust
-cost–loss decision-value advantage over a (strong) deterministic persistence
-warning.
+Two negative results are reported in full: no point gain on the cascade, and a
+flow-dependent thermal memory that does not generalise beyond it (κ rises with
+flow at 0 % of large-sample stations).
 
-See `paper/ThermoRoute_paper.md` for the full manuscript and
-`outputs/reports/review_response.md` for the finding-by-finding response to a
-six-reviewer adversarial internal review (34 confirmed findings).
+See `paper/ThermoRoute_paper.md` for the full manuscript. Every headline number
+is traceable to a hashed artifact in `outputs/manifest.json` (`scripts/14`);
+`outputs/reports/adversarial_review_tri_persona.md` records the most recent
+three-expert adversarial review and `outputs/reports/review_response.md` an
+earlier six-lens one.
 
 ---
 
@@ -41,11 +47,12 @@ six-reviewer adversarial internal review (34 confirmed findings).
 
 Reservoir water temperature has lag-1 autocorrelation ≈ 0.998. **Persistence is a
 brutal baseline**, and only damped persistence toward climatology reliably beats
-it. A generic strong learner (LightGBM) is competitive — sometimes parity in
-median, but ThermoRoute wins the station-level head-to-head at 3–7 days. The
-contribution is therefore (i) beating the *physics* baselines robustly, (ii)
+it. A generic strong learner (LightGBM) is at least as accurate as ThermoRoute —
+better at 1 day, statistically tied at 3–7 days once the seed budget is matched.
+The contribution is therefore (i) beating the *physics* baselines robustly, (ii)
 spatial transfer, (iii) calibrated uncertainty — established on a large,
-hydrologically diverse sample rather than a single site.
+hydrologically diverse sample rather than a single site, **not** a claim of
+state-of-the-art point accuracy over all learners.
 
 ---
 

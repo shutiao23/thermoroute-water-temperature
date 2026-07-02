@@ -26,14 +26,20 @@ COMPARABLE_MODELS = ("Persistence", "Climatology", "DampedPersistence",
                      "Air2stream-a4", "Air2stream-a8", "LightGBM", "ThermoRoute")
 
 
-def _candidate_files():
-    return [
-        C.PREDICTIONS / "usgs_predictions_120.parquet",
-        C.PREDICTIONS / "usgs_predictions.parquet",
-    ]
+def _current_truth_file():
+    """The SAME precedence used by scripts 10/12/13: v2 -> 120 -> 40-station.
+    Retired generations are deliberately not tested — the invariant must hold
+    for the file the paper's numbers are computed from."""
+    for name in ("usgs_predictions_v2.parquet",
+                 "usgs_predictions_120.parquet",
+                 "usgs_predictions.parquet"):
+        p = C.PREDICTIONS / name
+        if p.exists():
+            return [p]
+    return [C.PREDICTIONS / "usgs_predictions_v2.parquet"]   # -> skip below
 
 
-@pytest.mark.parametrize("path", _candidate_files())
+@pytest.mark.parametrize("path", _current_truth_file())
 def test_test_split_keys_identical_across_models(path):
     if not path.exists():
         pytest.skip(f"{path} not found — run scripts/09_usgs_experiment.py to generate")

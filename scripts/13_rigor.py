@@ -16,6 +16,7 @@ import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
+import argparse
 import sys
 import time
 import warnings
@@ -30,7 +31,7 @@ import pandas as pd
 import torch
 from scipy.stats import wilcoxon
 
-torch.set_num_threads(8)
+torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "8")))
 
 from thermoroute import config as C
 from thermoroute import data as D
@@ -41,7 +42,7 @@ from thermoroute.train import fit_model
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 CFG = C.TrainConfig(batch_size=1536)
-DELTA = 1.5
+DELTA = 1.0   # val-only selected (scripts/11_retune.py); keep in sync with 09/13b
 N_FOLDS = 4
 CKPT = C.PREDICTIONS / "rigor_ckpt"
 CKPT.mkdir(exist_ok=True)
@@ -146,6 +147,13 @@ def ablation_seeds(wd, thr, stations):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--folds_only", action="store_true",
+                    help="train/checkpoint the LGO folds and exit (lets 13b "
+                         "ablation workers run concurrently without racing "
+                         "this script's own sequential ablation training)")
+    args = ap.parse_args()
+
     wd, thr, stations, phi = prep()
     log(f"prepared {len(stations)} stations, N={len(wd.X)}")
 
@@ -160,6 +168,10 @@ def main():
                  f"{d.skill_persist.std():.3f} | {d.skill_damped.mean():+.3f} ± "
                  f"{d.skill_damped.std():.3f} |")
     lgo.to_csv(C.TABLES / "claim2_kfold_lgo.csv", index=False)
+    if args.folds_only:
+        log("folds_only: LGO folds checkpointed, claim2 written — exiting "
+            "before ablations (run again without the flag to finish rigor.md)")
+        return
 
     # claim 4: ablations 3-seed mean per-station, paired vs full
     abl_new = ablation_seeds(wd, thr, stations)

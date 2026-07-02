@@ -37,7 +37,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-torch.set_num_threads(8)
+torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "8")))
 
 from thermoroute import config as C
 from thermoroute import data as D

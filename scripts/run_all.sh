@@ -34,15 +34,23 @@ python3 scripts/08_decision_value.py
 
 echo ""
 echo "================ TRACK B: USGS large-sample main analysis ================"
-echo "[8/11] USGS experiment (baselines + air2stream + ThermoRoute × seeds + LGO + ablations)"
+echo "[8/12] USGS experiment (baselines + air2stream + ThermoRoute × seeds + LGO + ablations)"
 echo "      using panel: ${USGS_PANEL}"
-python3 scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --air2stream --seeds 5
-echo "[9/11] USGS calibration, REV, mechanism (κ, router drivers)"
+# Output names are the *_v2 current-truth files that scripts 10/12/13 and the
+# sample-consistency test read first — a rerun updates the paper's tables
+# instead of writing to a retired generation's filename.
+python3 scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --air2stream --seeds 5 \
+    --out_predictions usgs_predictions_v2.parquet \
+    --out_report usgs_experiment_v2.md \
+    --out_scores usgs_scores_v2.csv
+echo "[9/12] USGS calibration, REV, mechanism (κ, router drivers)"
 python3 scripts/10_usgs_analysis.py
-echo "[10/11] per-station Wilcoxon + bootstrap CI (Claims 1, 3)"
+echo "[10/12] per-station Wilcoxon + bootstrap CI (Claims 1, 3)"
 python3 scripts/12_claim_stats.py
-echo "[11/11] K-fold leave-group-out + 3-seed ablations (Claims 2, 4)"
+echo "[11/12] K-fold leave-group-out + 3-seed ablations (Claims 2, 4)"
 python3 scripts/13_rigor.py
+echo "[12/12] artifact manifest (sha256 evidence chain)"
+python3 scripts/14_manifest.py
 
 echo ""
 echo "DONE — see outputs/{figures,tables,reports} and paper/ for the manuscript."

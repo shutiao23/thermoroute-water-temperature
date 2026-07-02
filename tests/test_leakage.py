@@ -68,12 +68,27 @@ def test_window_tail_equals_issue_value():
 
 
 def test_target_is_strictly_future():
+    """The stored target y[:, hi] must equal panel WTEMP at issue_date + h —
+    verified against the panel itself on a subsample, not just h > 0."""
     b, clim = _bundle()
     wd = DS.build_windows(b["panel"], b["masks"], clim)
-    issue = wd.issue_date
+    lookup = {(s, d): w for s, d, w in zip(
+        b["panel"].site_id, pd.to_datetime(b["panel"].DATE).to_numpy(),
+        b["panel"].WTEMP.to_numpy(float))}
+    rng = np.random.default_rng(0)
+    sample = rng.choice(len(wd.X), size=min(500, len(wd.X)), replace=False)
+    checked = 0
     for hi, h in enumerate(wd.horizons):
-        # the stored target must equal WTEMP at issue_date + h, never <= issue
         assert h > 0
+        for i in sample:
+            st = C.STATIONS[wd.station[i]]
+            tgt = lookup.get((st, wd.issue_date[i] + np.timedelta64(h, "D")))
+            if tgt is not None and np.isfinite(tgt) and np.isfinite(wd.y[i, hi]):
+                assert np.isclose(wd.y[i, hi], tgt, atol=1e-6), (
+                    f"window {i}: y[h={h}]={wd.y[i, hi]} != panel WTEMP "
+                    f"{tgt} at issue+{h}d for {st}")
+                checked += 1
+    assert checked > 500, "too few verifiable (window, horizon) pairs"
     # tabular path: target_date strictly after issue_date
     tab = F.attach_split(F.build_tabular(b["panel"], 3, C.FEATURE_SETS["V2"], clim))
     assert (pd.to_datetime(tab.target_date) > pd.to_datetime(tab.issue_date)).all()

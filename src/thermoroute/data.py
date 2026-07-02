@@ -142,7 +142,9 @@ class Imputer:
         for st in C.STATIONS:
             sel = (out.site_id == st).to_numpy()
             for var in C.ALL_VARS:
-                col = out[var].to_numpy(dtype=float)
+                # copy=True: newer pandas (copy-on-write) can return a
+                # read-only view here, and col[miss] = fill writes into it.
+                col = out[var].to_numpy(dtype=float, copy=True)
                 miss = sel & np.isnan(col)
                 if not miss.any():
                     continue
