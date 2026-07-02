@@ -2,6 +2,9 @@
 
 > **STATUS 2026-07-01: ALL 9 must-fix + 4 minor APPLIED** to `paper/ThermoRoute_paper.md` and re-rendered to PDF/DOCX. Line 572 resolved to Weierbach et al. 2022 (Water 14, 1032). This report is retained as the evidence trail.
 
+> **UPDATE 2026-07-01: reference count is now 41.** Three foundational hydrological-uncertainty references were added after the audit — Beven & Binley 1992 (GLUE) and Kavetski et al. 2006 Theory + Application (BATEA) — all web-verified against Crossref. A machine-readable `paper/references.bib` (41 entries, parses cleanly in pandoc/biblatex) is now the single source of truth for citations.
+
+
 Date: 2026-07-01
 Auditor: 6 parallel verification agents, 102 web calls (Crossref REST API,
 DataCite REST API, publisher landing pages, arXiv, DBLP, official USGS/ORNL
