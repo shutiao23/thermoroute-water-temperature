@@ -90,6 +90,24 @@ not reproducible operationally. The 2025 systematic review of machine learning f
 stream temperature [F1] makes the same point: the field needs unified evaluation,
 physical interpretation, generalisation tests and management relevance.
 
+Quantifying predictive uncertainty honestly is the third recurring problem, and it
+has a long hydrological lineage. Generalised Likelihood Uncertainty Estimation
+(GLUE) [G1] rejected the notion of a single optimal parameter set — accepting
+*equifinality* among many acceptable simulators — and lumped predictive uncertainty
+onto the parameters through an informal likelihood. Bayesian Total Error Analysis
+(BATEA) [G2, G3] replied that this conflates distinct error sources, and instead
+requires the modeller to *explicitly* specify separate input, output and structural
+error models (e.g. latent storm multipliers that infer the "true" rainfall), so that
+a model is not blamed for corrupt forcing. Both target the calibration and
+simulation of rainfall–runoff models on one or two catchments; BATEA itself notes
+that its main obstacle is the difficulty of specifying valid input-error models,
+"which are currently poorly understood". We take a third route suited to
+*forecasting at scale*: rather than decomposing the error budget, we wrap the
+forecaster in **conformalised quantile regression**, a distribution-free calibration
+that targets nominal coverage without assuming any error model — trading BATEA's
+process-attribution insight for robustness and a per-station coverage property that
+holds across 120 basins.
+
 We make three commitments and turn them into a testable design. (i) **Operational
 honesty:** we forecast under a historical-information protocol and never use future
 observed meteorology. (ii) **A physics prior that contains the strong baseline:**
@@ -481,9 +499,35 @@ better than ThermoRoute at 3–7 days — so we claim a robust improvement over 
 seeds. The dynamic-κ thermal-memory modulation does **not** generalise: the
 flow-dependence seen on three stations vanishes on the large sample, and freezing
 κ's modulators does not worsen RMSE, so we retract the mechanism claim and keep only
-the router's interpretable, horizon-dependent driver shares. We forecast under
-historical information; an operational-forcing track with archived weather forecasts
-would sharpen multi-day skill.
+the router's interpretable, horizon-dependent driver shares.
+
+**Input uncertainty.** Our forcings are gridded reanalysis (Daymet, gridMET), which
+we treat as exact inputs — the very assumption that BATEA [G2, G3] warns against for
+rainfall–runoff, where forcing error can dominate and, if ignored, biases the
+calibrated parameters. Two points make this less acute here than in the
+rainfall–runoff setting BATEA addresses. First, water temperature is far smoother
+and more strongly autocorrelated than discharge, so short-horizon skill is carried
+by the persistent state (`WTEMP` history) rather than by the noisy meteorological
+forcing, limiting the leverage of input error. Second, we do not need the input-error
+model that BATEA requires and that it concedes is "poorly understood": the conformal
+layer calibrates the predictive intervals *empirically* on held-out years, absorbing
+residual forcing error into the coverage rather than attributing it. The cost, in
+BATEA's terms, is that we cannot separate forcing error from model error — a
+deliberate trade of process attribution for distribution-free coverage at scale.
+A fully operational system would additionally replace our reanalysis forcings with
+archived numerical weather-prediction forecasts, whose own error would degrade
+multi-day skill and could be handled either by a BATEA-style latent input model or
+by re-calibrating the conformal intervals on forecast-driven residuals; we leave this
+operational-forcing track to future work.
+
+**Equifinality.** The near-identical validation loss across our five seeds
+(1.339–1.343) is a learned-model echo of the parameter equifinality that motivated
+GLUE [G1]: many weight configurations simulate the calibration data almost equally
+well. Where GLUE embraces this and propagates it into the prediction limits, our
+bounded physics prior instead *reduces* it — constraining the residual so the
+admissible solutions cluster near damped persistence — which is philosophically
+closer to BATEA's add-structure stance than to GLUE's accept-equifinality one, and is
+consistent with the low across-seed spread we observe.
 
 ## 6. Conclusions
 
@@ -586,6 +630,14 @@ Piccolroaz, S., Calamita, E., Majone, B., Gallice, A., Siviglia, A., Toffolon, M
 Mohseni, O., Stefan, H. G., Erickson, T. R., 1998. A nonlinear regression model for weekly stream temperatures. Water Resources Research 34, 2685–2692. https://doi.org/10.1029/98WR01877.
 
 Caissie, D., 2006. The thermal regime of rivers: a review. Freshwater Biology 51, 1389–1406. https://doi.org/10.1111/j.1365-2427.2006.01597.x.
+
+### Uncertainty estimation in hydrological modelling
+
+Beven, K., Binley, A., 1992. The future of distributed models: model calibration and uncertainty prediction. Hydrological Processes 6 (3), 279–298. https://doi.org/10.1002/hyp.3360060305. [G1]
+
+Kavetski, D., Kuczera, G., Franks, S. W., 2006a. Bayesian analysis of input uncertainty in hydrological modeling: 1. Theory. Water Resources Research 42, W03407. https://doi.org/10.1029/2005WR004368. [G2]
+
+Kavetski, D., Kuczera, G., Franks, S. W., 2006b. Bayesian analysis of input uncertainty in hydrological modeling: 2. Application. Water Resources Research 42, W03408. https://doi.org/10.1029/2005WR004376. [G3]
 
 ### Methods — machine learning, calibration, statistics
 
