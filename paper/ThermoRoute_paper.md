@@ -65,7 +65,8 @@ nearest training gage) both ThermoRoute and a global LightGBM transfer far beyon
 persistence, and between them the result is a horizon-conditional tie (LightGBM
 better at 1 day, tied at 3 days, ThermoRoute better at 7 days, p = 1×10⁻³). Against
 the field-standard deep baseline — a top-down global LSTM — ThermoRoute is more
-accurate at every lead, in-sample and out-of-region (p ≤ 5×10⁻¹⁶), consistent with
+accurate at every lead, in-sample and out-of-region (paired p < 3×10⁻⁵ throughout),
+consistent with
 the repeated finding that gradient boosting matches or beats deep sequence models on
 strongly-autocorrelated daily hydrology. ThermoRoute thus matches the strongest
 learner in point accuracy while adding three things a pure or hybrid learner does
@@ -402,7 +403,7 @@ beats persistence at every lead but sits behind both the global LightGBM and
 ThermoRoute — consistent with the repeated finding that gradient boosting matches
 or beats deep sequence models on strongly-autocorrelated tabular hydrology (Feigl
 et al. 2021; Grinsztajn et al. 2022). ThermoRoute is more accurate than the LSTM at
-every lead (per-station Wilcoxon p ≤ 5×10⁻¹⁶; better at 88 / 93 / 91 % of stations).
+every lead (per-station Wilcoxon p ≤ 2×10⁻¹⁵; better at 88 / 93 / 91 % of stations).
 air2stream is the fair *variant* of §3.5, calibrated on observed-target days with
 the observed air temperature driving the first step.)
 
@@ -480,8 +481,9 @@ a wide margin. Between ThermoRoute and the strong GBDT the result is a
 **horizon-conditional tie** — LightGBM is better at 1 day, the two are
 indistinguishable at 3 days, and ThermoRoute is better at 7 days (the same ordering
 as in-sample, §4.2). The **global LSTM transfers as well as the others but stays
-behind both** at every lead (0.671 / 1.393 / 1.825; ThermoRoute better with paired
-p ≤ 6×10⁻²⁰), so the deep baseline does not close the gap out of region either. We
+behind both** at every lead (0.671 / 1.393 / 1.825; ThermoRoute better, paired
+p = 2×10⁻⁵ / 1×10⁻¹⁸ / 6×10⁻²⁰ at 1 / 3 / 7 d), so the deep baseline does not close
+the gap out of region either. We
 therefore do **not** claim that ThermoRoute generalises to ungauged basins *better
 than* the strong learned baseline; we claim that a physics-biased, station-agnostic
 model transfers *as well as* a global GBDT and better than a top-down LSTM, while
