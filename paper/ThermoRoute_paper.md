@@ -519,7 +519,7 @@ strictly satisfied — we therefore report *empirical* coverage rather than a
 guarantee. ThermoRoute's 90 % intervals achieve **PICP 0.904 / 0.909 / 0.911**
 at 1 / 3 / 7 days, with **96 / 88 / 86 %** of the n=114 blind-test stations
 falling within ±0.05 of nominal (Wilson 95 % CIs: 91–99 %, 80–93 %, 78–91 %;
-Figure 3). Applying the *identical* split-conformal wrapper to the two learned
+Figure 6). Applying the *identical* split-conformal wrapper to the two learned
 baselines, both are calibrated to the same level (LightGBM PICP 0.906 / 0.906 /
 0.907; LSTM 0.905 / 0.912 / 0.912), so calibrated coverage is a property any of the
 models can be given and is **not** by itself ThermoRoute's differentiator; its
@@ -537,28 +537,28 @@ residual is `tanh`-bounded to ±δ around the physics prior, per sample
 |median−y| ≤ |prior−y|+δ, hence per station RMSE(model) ≤ RMSE(prior)+δ — a
 worst-case deployment floor. We verify it on the blind test: the pointwise bound
 holds on **100.0 %** of predictions and the per-station RMSE ceiling holds on
-**100 %** of station×horizon cells (Figure 4a). The bound is not decorative — the
+**100 %** of station×horizon cells (Figure 3a). The bound is not decorative — the
 residual is engaged (non-zero) on **81 %** of samples — yet the ±δ cap only has to
 bind on **3 %** of them, so δ = 1 °C is a hard ceiling the working residual rarely
-touches (Figure 4b). The floor is not an in-sample artifact: on the
+touches (Figure 3b). The floor is not an in-sample artifact: on the
 leave-HUC2-region-out held-out stations, ThermoRoute still beats persistence at
 **91 %** of station×horizon cells, i.e. the guarantee survives 358 km of spatial
 extrapolation. Neither the LightGBM nor the LSTM — nor differentiable-hybrid stream
 temperature models (Rahmani et al., 2023) — can state a comparable per-station
 worst-case bound.
 
-![**Figure 4.** Proposition 1 verified on the blind test. (a) Per-station RMSE of ThermoRoute versus its internal physics prior; every point lies under the y = x + δ ceiling (δ = 1 °C). (b) Distribution of the bounded neural residual: engaged on 81 % of days, but the ±δ cap binds on only 3 % — a hard floor the working residual rarely reaches.](outputs/figures/fig_prop1_binding.png){width=90%}
+![**Figure 3.** Proposition 1 verified on the blind test. (a) Per-station RMSE of ThermoRoute versus its internal physics prior; every point lies under the y = x + δ ceiling (δ = 1 °C). (b) Distribution of the bounded neural residual: engaged on 81 % of days, but the ±δ cap binds on only 3 % — a hard floor the working residual rarely reaches.](outputs/figures/fig_prop1_binding.png){width=90%}
 
 **High-temperature exceedance warnings** have clear positive skill on the
 120-station panel. ThermoRoute leads both learned baselines on the calibrated
 warning: Brier skill **+0.74 / +0.60 / +0.51** and AUROC 0.989 / 0.975 / 0.963 at
 1 / 3 / 7 d, ahead of LightGBM (+0.73 / +0.57 / +0.49) and the LSTM
 (+0.68 / +0.56 / +0.48), and its reliability curve tracks the diagonal most closely
-(Figure 5). The exceedance threshold is **statistical**, set as the station-specific
+(Figure 4). The exceedance threshold is **statistical**, set as the station-specific
 train-period 90th percentile of WTEMP — it is not a biological or regulatory limit
 and the skill numbers should be read accordingly.
 
-![**Figure 5.** Reliability of the high-temperature exceedance warning (all leads pooled). Forecast probability versus observed exceedance frequency; ThermoRoute's calibrated warning tracks the diagonal most closely, ahead of the LightGBM and LSTM.](outputs/figures/fig_reliability.png){width=55%}
+![**Figure 4.** Reliability of the high-temperature exceedance warning (all leads pooled). Forecast probability versus observed exceedance frequency; ThermoRoute's calibrated warning tracks the diagonal most closely, ahead of the LightGBM and LSTM.](outputs/figures/fig_reliability.png){width=55%}
 
 **Decision value.** On a generic cost–loss decision model (Wilks 2011), we score
 the exceedance decision "protect iff p > α" over the full cost–loss ratio grid
@@ -567,7 +567,7 @@ follow RMSE *skill*. Across the operationally relevant low-α range (cheap prote
 relative to loss), ThermoRoute's calibrated warning has the highest relative
 economic value at every lead: REV at α = 0.1 is **0.90 / 0.85 / 0.81** for
 ThermoRoute versus 0.89 / 0.84 / 0.81 (LightGBM), 0.87 / 0.83 / 0.80 (LSTM) and
-0.81 / 0.65 / 0.51 (persistence); peak REV is 0.91 / 0.85 / 0.82 (Figure 6). This is
+0.81 / 0.65 / 0.51 (persistence); peak REV is 0.91 / 0.85 / 0.82 (Figure 5). This is
 the axis on which the RMSE tie with LightGBM does *not* translate to a value tie: a
 calibrated probability dominates a deterministic threshold warning where protection
 is cheap. Honesty requires the caveat at the *other* end of the grid: at α = 0.5
@@ -580,6 +580,8 @@ require biological/regulatory thresholds and station-specific cost ratios, so we
 read this as a rigorous *decision-relevance* result rather than a demonstrated
 dollar value.
 
+![**Figure 5.** Relative economic value (REV) of the exceedance warning over the full cost–loss ratio grid α (one panel per lead). ThermoRoute's calibrated warning (solid) dominates LightGBM, the LSTM and the deterministic persistence warning (dashed) across the operational cheap-protection range; the deterministic persistence warning becomes competitive only at high α.](outputs/figures/fig_rev_curve.png){width=95%}
+
 **Multi-metric reporting.** The 2025 review [F1] asks that regression, dimensionless
 and error-index statistics be reported together rather than RMSE alone. On the
 pooled blind test ThermoRoute scores NSE 0.992 / 0.970 / 0.954, KGE 0.993 / 0.974 /
@@ -591,7 +593,7 @@ Region-weighted RMSE (mean of per-HUC2 medians, so no single over-represented re
 carries the headline) is 0.66 / 1.37 / 1.69 °C, within 0.01–0.04 °C of the pooled
 medians, confirming the result is not driven by one region.
 
-![**Figure 3.** Conformal calibration on n=114 USGS blind-test stations. (a) Per-station coverage (PICP) distribution against the 0.90 target; (b) mean coverage versus lead time; (c) interval sharpness. Coverage is near-nominal and tight across the population (86–96 % of stations within ±0.05 of 0.90).](outputs/figures/fig_usgs_calibration.png){width=95%}
+![**Figure 6.** Conformal calibration on n=114 USGS blind-test stations. (a) Per-station coverage (PICP) distribution against the 0.90 target; (b) mean coverage versus lead time; (c) interval sharpness. Coverage is near-nominal and tight across the population (86–96 % of stations within ±0.05 of 0.90).](outputs/figures/fig_usgs_calibration.png){width=95%}
 
 ### 4.5 Mechanism: interpretable drivers, but no generalisable κ–flow dependence
 
@@ -617,9 +619,9 @@ days incident solar radiation (`DH`) grows to the single largest share
 (RHMEAN 15 % / 17 %), consistent with the surface energy budget — radiative
 heating and evaporative exchange — mattering more as the persistent thermal
 state decays at longer leads. This is an interpretive read-out, not a causal
-mechanism (Figure 4).
+mechanism (Figure 7).
 
-![**Figure 4.** Dynamic relaxation rate κ on the 120-station USGS panel. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at **0 % of stations** on the 120-station panel (and 24 % on the 40-station pilot), median ratio 0.87 — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
+![**Figure 7.** Dynamic relaxation rate κ on the 120-station USGS panel. (a) κ binned by standardised log-flow (pooled); (b) per-station ratio κ(high flow)/κ(low flow). The flow dependence seen on the three reservoir stations does not generalise — κ rises with flow at **0 % of stations** on the 120-station panel (and 24 % on the 40-station pilot), median ratio 0.87 — so we retract the flow-dependent thermal-memory claim.](outputs/figures/fig_usgs_kappa.png){width=85%}
 
 ### 4.6 Module ablations on the large sample
 
