@@ -30,3 +30,6 @@ data_usgs/n*.csv
 *.blg
 *.out
 *.synctex.gz
+
+# Zenodo release archive (regenerable via scripts/make_release_archive.sh)
+dist/

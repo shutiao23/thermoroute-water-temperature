@@ -96,7 +96,8 @@ body_tex = re.sub(r"\\includegraphics\[[^\]]*\]", r"\\includegraphics[width=\\te
 # ---- copy figures locally ---------------------------------------------------
 figdir = HERE / "figures"; figdir.mkdir(exist_ok=True)
 for f in ["fig3_results_heatmap.png", "fig_usgs_perstation.png",
-          "fig_usgs_calibration.png", "fig_usgs_kappa.png"]:
+          "fig_usgs_calibration.png", "fig_usgs_kappa.png",
+          "fig_prop1_binding.png", "fig_reliability.png", "fig_rev_curve.png"]:
     src = ROOT / "outputs" / "figures" / f
     if src.exists():
         shutil.copy(src, figdir / f)
@@ -117,10 +118,14 @@ UNI = r"""
 \newunicodechar{Δ}{\ensuremath{\Delta}}
 \newunicodechar{α}{\ensuremath{\alpha}}
 \newunicodechar{β}{\ensuremath{\beta}}
+\newunicodechar{δ}{\ensuremath{\delta}}
 \newunicodechar{θ}{\ensuremath{\theta}}
 \newunicodechar{κ}{\ensuremath{\kappa}}
 \newunicodechar{σ}{\ensuremath{\sigma}}
 \newunicodechar{φ}{\ensuremath{\varphi}}
+\newunicodechar{∎}{\ensuremath{\blacksquare}}
+\newunicodechar{≪}{\ensuremath{\ll}}
+\newunicodechar{≫}{\ensuremath{\gg}}
 \newunicodechar{–}{--}
 \newunicodechar{—}{---}
 \newunicodechar{…}{\ldots}
@@ -128,6 +133,7 @@ UNI = r"""
 \newunicodechar{⁴}{\textsuperscript{4}}
 \newunicodechar{⁵}{\textsuperscript{5}}
 \newunicodechar{⁶}{\textsuperscript{6}}
+\newunicodechar{⁷}{\textsuperscript{7}}
 \newunicodechar{⁸}{\textsuperscript{8}}
 \newunicodechar{⁹}{\textsuperscript{9}}
 \newunicodechar{⁻}{\textsuperscript{$-$}}
@@ -144,11 +150,22 @@ UNI = r"""
 
 PREAMBLE = r"""\documentclass{agujournal2019}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{url}
 \usepackage{graphicx}
 \graphicspath{{figures/}}
+\usepackage{calc}
 \usepackage{longtable,booktabs,array}
+\providecommand{\real}[1]{#1}
 \providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+% agujournal2019 leaves \@captype = none for pandoc's inline \begin{figure};
+% route that caption type to the real figure counter so figures number as
+% "Figure N" instead of erroring on an undefined 'none' counter.
+\makeatletter
+\@ifundefined{c@none}{\newcounter{none}}{}
+\renewcommand\thenone{\arabic{none}}
+\newcommand\fnum@none{Figure~\thenone}
+\makeatother
 """ + UNI + r"""
 \journalname{Water Resources Research}
 \begin{document}

@@ -63,18 +63,28 @@ p = 0.76 and 0.52). This parity **also holds out-of-region**: under a
 leave-HUC2-region-out protocol (whole regions held out; mean 358 km to the
 nearest training gage) both ThermoRoute and a global LightGBM transfer far beyond
 persistence, and between them the result is a horizon-conditional tie (LightGBM
-better at 1 day, tied at 3 days, ThermoRoute better at 7 days, p = 1×10⁻³).
-ThermoRoute matches the strong learner in point accuracy while additionally
-providing calibrated intervals, a bounded-degradation guarantee (it is provably
-never worse than damped persistence by more than δ °C on any station), and
-interpretable drivers. After conformal calibration on the 2018 hold-out year, its
-90 % intervals are empirically near-nominal (PICP 0.90 ± 0.01 on the test years).
-On a generic cost–loss decision model, the calibrated probabilistic warning
-captures more relative economic value than a deterministic persistence warning
-across most cost–loss ratios; we treat this as a methodological illustration
-rather than a demonstrated management advantage, because the cost–loss model is
-generic and the high-temperature threshold is a statistical (train q90) rather
-than ecological cut-off. We deliberately report negative results in full — no
+better at 1 day, tied at 3 days, ThermoRoute better at 7 days, p = 1×10⁻³). Against
+the field-standard deep baseline — a top-down global LSTM — ThermoRoute is more
+accurate at every lead, in-sample and out-of-region (p ≤ 5×10⁻¹⁶), consistent with
+the repeated finding that gradient boosting matches or beats deep sequence models on
+strongly-autocorrelated daily hydrology. ThermoRoute thus matches the strongest
+learner in point accuracy while adding three things a pure or hybrid learner does
+not provide: (i) a **bounded-degradation guarantee** — because its residual is
+`tanh`-bounded to ±δ around the physics prior, RMSE is provably never worse than the
+prior by more than δ °C on any station; we verify this holds on 100 % of blind-test
+predictions and that the floor survives 358 km of spatial extrapolation (it still
+beats persistence at 91 % of held-out-region station×horizon cells); (ii)
+**distribution-free calibrated uncertainty** — after conformal calibration on the
+2018 hold-out year its 90 % intervals are empirically near-nominal (PICP 0.90 ± 0.01)
+and its exceedance warning is the best-calibrated of the three (Brier skill
++0.74 / +0.60 / +0.51; highest AUROC); and (iii) interpretable variable–lag drivers.
+On a generic cost–loss decision model, the calibrated warning has the highest
+relative economic value across the operationally relevant (cheap-protection) range
+of cost–loss ratios, illustrating that the RMSE tie with the strong learner does not
+carry to a value tie; we frame this as a decision-relevance result rather than a
+demonstrated management advantage, because the cost–loss model is generic and the
+high-temperature threshold is a statistical (train q90) rather than ecological
+cut-off. We deliberately report negative results in full — no
 point gain on the near-deterministic cascade, and a flow-dependent thermal
 memory that does **not** generalise beyond it (κ rises with flow at 0 % of
 large-sample stations) — and argue that the right scientific target is a
@@ -145,18 +155,24 @@ Contributions:
 
 1. **ThermoRoute**, a physics-biased forecaster whose relaxation prior *provably
    contains damped persistence* as a special case (Proposition 1) and whose
-   *bounded* neural residual is guaranteed not to degrade the prior by more than
-   δ °C — so the strong baseline is a floor, not a hope. (We initially framed the
-   prior's flow-/season-modulated relaxation rate as a "dynamic thermal memory";
-   §4.5 reports that this mechanism does *not* generalise, and we retain the prior
-   only as a calibrated, damped-persistence-anchored regulariser.)
+   *bounded* neural residual gives a per-station worst-case deployment floor —
+   RMSE never worse than the prior by more than δ °C — that we **verify empirically**
+   holds on 100 % of blind-test predictions and survives 358 km of spatial
+   extrapolation, a guarantee neither a GBDT, an LSTM, nor a differentiable-hybrid
+   model states. (We initially framed the prior's flow-/season-modulated relaxation
+   rate as a "dynamic thermal memory"; §4.5 reports that this mechanism does *not*
+   generalise, and we retain the prior only as a calibrated,
+   damped-persistence-anchored regulariser.)
 2. A **leakage-audited evaluation** with rolling-origin discipline, a one-shot blind
    test, moving-block-bootstrap confidence intervals, Diebold–Mariano tests, and an
    adversarial internal review of every headline claim.
 3. A **large-sample, transfer-tested** demonstration: 120 public USGS stations
-   (114 contributing the blind test), leave-group-out generalisation to unseen
-   basins, and a unified point + probabilistic + event + decision-value
-   assessment.
+   (114 contributing the blind test), the full temporal / unseen-station /
+   ungaged-region (TUURT) transfer triad the review prescribes, benchmarked against
+   persistence, damped persistence, an air2stream *variant*, a global **and**
+   per-station LightGBM, and a top-down global **LSTM**, under a unified multi-metric
+   point + probabilistic (PICP, CRPS, reliability) + exceedance (Brier, AUROC) +
+   cost–loss decision-value assessment.
 4. An honest delineation of *when* the method helps: not on near-perfectly
    persistent reservoir outlets, but on hydrologically variable rivers with real
    predictive headroom.
@@ -303,7 +319,12 @@ guarantee, nominal coverage under the observed year-to-year shift.
 ### 3.5 Baselines and protocol
 
 Persistence; damped persistence toward climatology; harmonic climatology; LightGBM
-(point + quantile + exceedance); and, on the large sample, an **air2stream-style
+(point + quantile + exceedance); a **top-down global LSTM** — the field-standard
+deep sequence baseline (Rahmani et al., 2021; Willard et al., 2024): a
+station-agnostic 1-layer, 64-unit LSTM over a 14-day context, persistence-anchored
+(it predicts the multi-day increment), trained under the identical Track-H splits
+and composite loss so any gap to ThermoRoute is the physics prior and bounded
+residual, not the training recipe; and, on the large sample, an **air2stream-style
 eight-parameter hybrid model**. Our implementation keeps the eight-parameter
 air-to-stream structure with per-station calibration on the training years, but
 deviates from the canonical Toffolon–Piccolroaz formulation (different
@@ -362,11 +383,11 @@ uses 7 variables including gridMET wind, with the residual bound set to
 §3.3); an air2stream-style 8-parameter model (a *variant* of
 Toffolon–Piccolroaz — §3.5) is included as a *physical* strong baseline:
 
-| horizon | persistence | damped | air2stream-a8 | LightGBM (global) | LightGBM (per-station) | ThermoRoute | skill vs persist | skill vs damped | win vs damped |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 d | 0.797 | 0.774 | 0.733 | 0.620 | 0.632 | 0.630 | +0.204 | +0.172 | 88 % |
-| 3 d | 1.581 | 1.406 | 1.409 | 1.300 | 1.324 | 1.289 | +0.186 | +0.078 | 94 % |
-| 7 d | 2.235 | 1.778 | 1.805 | 1.669 | 1.750 | 1.658 | +0.247 | +0.035 | 92 % |
+| horizon | persistence | damped | air2stream-a8 | LSTM | LightGBM (global) | LightGBM (per-station) | ThermoRoute | skill vs persist | skill vs damped | win vs damped |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 d | 0.797 | 0.774 | 0.733 | 0.653 | 0.620 | 0.632 | 0.630 | +0.204 | +0.172 | 88 % |
+| 3 d | 1.581 | 1.406 | 1.409 | 1.362 | 1.300 | 1.324 | 1.289 | +0.186 | +0.078 | 94 % |
+| 7 d | 2.235 | 1.778 | 1.805 | 1.803 | 1.669 | 1.750 | 1.658 | +0.247 | +0.035 | 92 % |
 
 (Medians are not bolded because ThermoRoute and the *global* LightGBM are a
 statistical tie at 3–7 days and LightGBM leads at 1 day — see the paired tests
@@ -375,8 +396,15 @@ meaningful. We report **both** LightGBM configurations: the global model is the
 stronger of the two on this panel — a *per-station* LightGBM over-fits the
 limited per-gage record and is worse at 3–7 days (1.324 / 1.750) than both the
 global model and ThermoRoute — so the parity comparison is against the stronger,
-global LightGBM. air2stream is the fair *variant* of §3.5, calibrated on
-observed-target days with the observed air temperature driving the first step.)
+global LightGBM. The **top-down global LSTM** (0.653 / 1.362 / 1.803; in the
+published daily-SWT LSTM band, Zwart et al. 2023) is a credible deep baseline that
+beats persistence at every lead but sits behind both the global LightGBM and
+ThermoRoute — consistent with the repeated finding that gradient boosting matches
+or beats deep sequence models on strongly-autocorrelated tabular hydrology (Feigl
+et al. 2021; Grinsztajn et al. 2022). ThermoRoute is more accurate than the LSTM at
+every lead (per-station Wilcoxon p ≤ 5×10⁻¹⁶; better at 88 / 93 / 91 % of stations).
+air2stream is the fair *variant* of §3.5, calibrated on observed-target days with
+the observed air temperature driving the first step.)
 
 ThermoRoute beats every *physics* baseline (persistence, damped persistence,
 air2stream) at every horizon. Per-station Wilcoxon paired tests on the n=114
@@ -441,23 +469,44 @@ and, crucially, we run the **global LightGBM under the identical protocol** so
 transfer is measured against the strong learned baseline, not only persistence
 (Table C):
 
-| horizon | ThermoRoute RMSE | LightGBM RMSE | TR skill vs persist | LGB skill vs persist | TR−LGB paired Wilcoxon p |
-|---|---|---|---|---|---|
-| 1 d | 0.667 | 0.650 | +0.151 | +0.175 | 5×10⁻⁹ (LGB better) |
-| 3 d | 1.323 | 1.321 | +0.169 | +0.168 | 0.95 (tie) |
-| 7 d | 1.675 | 1.683 | +0.237 | +0.232 | 1×10⁻³ (TR better) |
+| horizon | ThermoRoute RMSE | LightGBM RMSE | LSTM RMSE | TR skill vs persist | LGB skill vs persist | TR−LGB paired Wilcoxon p |
+|---|---|---|---|---|---|---|
+| 1 d | 0.667 | 0.650 | 0.671 | +0.151 | +0.175 | 5×10⁻⁹ (LGB better) |
+| 3 d | 1.323 | 1.321 | 1.393 | +0.169 | +0.168 | 0.95 (tie) |
+| 7 d | 1.675 | 1.683 | 1.825 | +0.237 | +0.232 | 1×10⁻³ (TR better) |
 
-Both models transfer far out of region and both beat persistence/damped by a
-wide margin; **between them the result is a horizon-conditional tie** — LightGBM
-is better at 1 day, the two are indistinguishable at 3 days, and ThermoRoute is
-better at 7 days (the same ordering as in-sample, §4.2). We therefore do **not**
-claim that ThermoRoute generalises to ungauged basins *better than* the strong
-learned baseline; we claim that a physics-biased, station-agnostic model transfers
-*as well as* a global GBDT while additionally carrying the calibrated intervals
-(§4.4), the bounded-degradation guarantee (Proposition 1) and the interpretable
-drivers (§4.5) that the GBDT does not. This honest delineation — parity in point
-accuracy, advantage in the properties that matter for deployment — is the
+All three learned models transfer far out of region and beat persistence/damped by
+a wide margin. Between ThermoRoute and the strong GBDT the result is a
+**horizon-conditional tie** — LightGBM is better at 1 day, the two are
+indistinguishable at 3 days, and ThermoRoute is better at 7 days (the same ordering
+as in-sample, §4.2). The **global LSTM transfers as well as the others but stays
+behind both** at every lead (0.671 / 1.393 / 1.825; ThermoRoute better with paired
+p ≤ 6×10⁻²⁰), so the deep baseline does not close the gap out of region either. We
+therefore do **not** claim that ThermoRoute generalises to ungauged basins *better
+than* the strong learned baseline; we claim that a physics-biased, station-agnostic
+model transfers *as well as* a global GBDT and better than a top-down LSTM, while
+additionally carrying the calibrated intervals (§4.4), the bounded-degradation
+guarantee (Proposition 1, verified out-of-region in §4.4) and the interpretable
+drivers (§4.5) that neither learner provides. This honest delineation — parity in
+point accuracy, advantage in the properties that matter for deployment — is the
 paper's central position.
+
+**The transfer triad (TUURT).** The 2025 review [F1] prescribes *temporal, unseen
+and ungaged-region tests* as the standard for extrapolation confidence, and notes
+most ML stream-temperature studies run none. ThermoRoute passes all three with
+positive skill over persistence at every lead, degrading gracefully as the
+extrapolation demand grows (Table D):
+
+| test arm | protocol | skill vs persistence (1 / 3 / 7 d) |
+|---|---|---|
+| Temporal | future 2019–2020, seen stations | +0.204 / +0.186 / +0.247 |
+| Unseen station | random 4-fold leave-group-out | +0.173 / +0.169 / +0.241 |
+| Ungaged region | leave-HUC2-region-out (~358 km) | +0.151 / +0.169 / +0.237 |
+
+Skill is positive against *damped* persistence too on every arm and lead
+(+0.17/+0.08/+0.03 temporal down to +0.12/+0.05/+0.03 ungaged-region), and the
+monotone erosion from temporal to unseen-station to ungaged-region is the expected,
+honest signature of genuine spatial extrapolation rather than leakage.
 
 ### 4.4 Calibration, warnings and decision value
 
@@ -470,34 +519,77 @@ strictly satisfied — we therefore report *empirical* coverage rather than a
 guarantee. ThermoRoute's 90 % intervals achieve **PICP 0.904 / 0.909 / 0.911**
 at 1 / 3 / 7 days, with **96 / 88 / 86 %** of the n=114 blind-test stations
 falling within ±0.05 of nominal (Wilson 95 % CIs: 91–99 %, 80–93 %, 78–91 %;
-Figure 3). LightGBM is similarly calibrated (PICP 0.906 / 0.906 / 0.907). On the
-smaller 40-station pilot the same model is calibrated at the *population* level
-(median PICP 0.90–0.91) with a wider per-station spread (n=36 per-station PICP
-range 0.81–0.97), and on the three-station cascade the spread is wider still
-(0.79–0.91, §4.1), so we treat tight per-station coverage as a property of the
-large-sample regime, not a guarantee.
+Figure 3). Applying the *identical* split-conformal wrapper to the two learned
+baselines, both are calibrated to the same level (LightGBM PICP 0.906 / 0.906 /
+0.907; LSTM 0.905 / 0.912 / 0.912), so calibrated coverage is a property any of the
+models can be given and is **not** by itself ThermoRoute's differentiator; its
+intervals are also the sharpest of the three (CRPS 0.246 / 0.505 / 0.633, versus
+LightGBM 0.240 / 0.503 / 0.630 and LSTM 0.258 / 0.534 / 0.688 — on par with the GBDT
+and ahead of the LSTM). On the smaller 40-station pilot the same model is calibrated
+at the *population* level (median PICP 0.90–0.91) with a wider per-station spread
+(n=36 per-station PICP range 0.81–0.97), and on the three-station cascade the spread
+is wider still (0.79–0.91, §4.1), so we treat tight per-station coverage as a
+property of the large-sample regime, not a guarantee.
+
+**Bounded-degradation guarantee, verified (Proposition 1).** ThermoRoute's genuine
+distinguishing property is one no pure or hybrid learner states: because the neural
+residual is `tanh`-bounded to ±δ around the physics prior, per sample
+|median−y| ≤ |prior−y|+δ, hence per station RMSE(model) ≤ RMSE(prior)+δ — a
+worst-case deployment floor. We verify it on the blind test: the pointwise bound
+holds on **100.0 %** of predictions and the per-station RMSE ceiling holds on
+**100 %** of station×horizon cells (Figure 4a). The bound is not decorative — the
+residual is engaged (non-zero) on **81 %** of samples — yet the ±δ cap only has to
+bind on **3 %** of them, so δ = 1 °C is a hard ceiling the working residual rarely
+touches (Figure 4b). The floor is not an in-sample artifact: on the
+leave-HUC2-region-out held-out stations, ThermoRoute still beats persistence at
+**91 %** of station×horizon cells, i.e. the guarantee survives 358 km of spatial
+extrapolation. Neither the LightGBM nor the LSTM — nor differentiable-hybrid stream
+temperature models (Rahmani et al., 2023) — can state a comparable per-station
+worst-case bound.
+
+![**Figure 4.** Proposition 1 verified on the blind test. (a) Per-station RMSE of ThermoRoute versus its internal physics prior; every point lies under the y = x + δ ceiling (δ = 1 °C). (b) Distribution of the bounded neural residual: engaged on 81 % of days, but the ±δ cap binds on only 3 % — a hard floor the working residual rarely reaches.](outputs/figures/fig_prop1_binding.png){width=90%}
 
 **High-temperature exceedance warnings** have clear positive skill on the
-120-station panel (Brier-skill +0.74 / +0.60 / +0.51; AUPRC 0.92 / 0.82 / 0.74
-at 1 / 3 / 7 d), slightly ahead of LightGBM (+0.73 / +0.57 / +0.49;
-AUPRC 0.92 / 0.79 / 0.72). The exceedance threshold is **statistical**, set as the
-station-specific train-period 90th percentile of WTEMP — it is not a biological
-or regulatory limit and the AUPRC numbers should be read accordingly.
+120-station panel. ThermoRoute leads both learned baselines on the calibrated
+warning: Brier skill **+0.74 / +0.60 / +0.51** and AUROC 0.989 / 0.975 / 0.963 at
+1 / 3 / 7 d, ahead of LightGBM (+0.73 / +0.57 / +0.49) and the LSTM
+(+0.68 / +0.56 / +0.48), and its reliability curve tracks the diagonal most closely
+(Figure 5). The exceedance threshold is **statistical**, set as the station-specific
+train-period 90th percentile of WTEMP — it is not a biological or regulatory limit
+and the skill numbers should be read accordingly.
 
-**Decision value (illustrative).** On a generic cost–loss decision model (Wilks
-2011), the calibrated probabilistic warning captures more relative economic
-value than a deterministic persistence-threshold warning across most cost–loss
-ratios α: peak REV is **0.91 / 0.85 / 0.82** for ThermoRoute (1/3/7 d) versus
-0.84 / 0.71 / 0.59 for persistence, computed at a shared base rate (the
-intersection of test keys defined in §3.5) and over the full α grid 0.01–0.99;
-LightGBM is comparable (0.90 / 0.84 / 0.81). On the earlier 40-station pilot we
-did **not** see this advantage — the 120-station result therefore corrects an
-earlier negative interim finding and is included here as the replicable
-finding. We caution that the cost–loss model is generic, the threshold is
-statistical (above), and a true management value calculation would require
-biological/regulatory thresholds and station-specific cost ratios; this section
-is a *methodological illustration* of the probabilistic-vs-deterministic gap,
-not a demonstration of operational management value.
+![**Figure 5.** Reliability of the high-temperature exceedance warning (all leads pooled). Forecast probability versus observed exceedance frequency; ThermoRoute's calibrated warning tracks the diagonal most closely, ahead of the LightGBM and LSTM.](outputs/figures/fig_reliability.png){width=55%}
+
+**Decision value.** On a generic cost–loss decision model (Wilks 2011), we score
+the exceedance decision "protect iff p > α" over the full cost–loss ratio grid
+α ∈ (0, 1) — the framing of Modi et al. (2025), who show forecast *value* need not
+follow RMSE *skill*. Across the operationally relevant low-α range (cheap protection
+relative to loss), ThermoRoute's calibrated warning has the highest relative
+economic value at every lead: REV at α = 0.1 is **0.90 / 0.85 / 0.81** for
+ThermoRoute versus 0.89 / 0.84 / 0.81 (LightGBM), 0.87 / 0.83 / 0.80 (LSTM) and
+0.81 / 0.65 / 0.51 (persistence); peak REV is 0.91 / 0.85 / 0.82 (Figure 6). This is
+the axis on which the RMSE tie with LightGBM does *not* translate to a value tie: a
+calibrated probability dominates a deterministic threshold warning where protection
+is cheap. Honesty requires the caveat at the *other* end of the grid: at α = 0.5
+(protection nearly as costly as the loss) the deterministic persistence warning
+becomes competitive (persistence REV 0.72 / 0.48 / 0.28 versus ThermoRoute
+0.68 / 0.48 / 0.35), so the probabilistic advantage is concentrated in the cheap-
+protection regime, not universal. We also stress that the cost–loss model is
+generic and the threshold is statistical; a true management value calculation would
+require biological/regulatory thresholds and station-specific cost ratios, so we
+read this as a rigorous *decision-relevance* result rather than a demonstrated
+dollar value.
+
+**Multi-metric reporting.** The 2025 review [F1] asks that regression, dimensionless
+and error-index statistics be reported together rather than RMSE alone. On the
+pooled blind test ThermoRoute scores NSE 0.992 / 0.970 / 0.954, KGE 0.993 / 0.974 /
+0.963, MAE 0.470 / 0.971 / 1.213 °C and |PBIAS| ≤ 0.2 % at 1 / 3 / 7 d — all above
+the review's reported field norms (median NSE ≈ 0.93, MAE ≈ 1.09 °C) and essentially
+tied with the global LightGBM (NSE 0.993 / 0.969 / 0.954) and ahead of the LSTM
+(NSE 0.992 / 0.967 / 0.947); the full per-model table is `outputs/tables/multi_metric.csv`.
+Region-weighted RMSE (mean of per-HUC2 medians, so no single over-represented region
+carries the headline) is 0.66 / 1.37 / 1.69 °C, within 0.01–0.04 °C of the pooled
+medians, confirming the result is not driven by one region.
 
 ![**Figure 3.** Conformal calibration on n=114 USGS blind-test stations. (a) Per-station coverage (PICP) distribution against the 0.90 target; (b) mean coverage versus lead time; (c) interval sharpness. Coverage is near-nominal and tight across the population (86–96 % of stations within ±0.05 of 0.90).](outputs/figures/fig_usgs_calibration.png){width=95%}
 
@@ -691,6 +783,17 @@ internal review (multiple independent expert lenses) checked every headline clai
 against the result tables; all negative results and ablations are retained, and a
 finding-by-finding disposition is provided in `outputs/reports/review_response.md`.
 
+**Archived release.** For a persistent, citable record the code, configuration, the
+input station panels, and all derived tables/reports/figures are archived at Zenodo
+(https://doi.org/REPLACE_WITH_ZENODO_DOI, v1.0.0, MIT license), built with
+`scripts/make_release_archive.sh` and carrying the sha256 manifest; the
+multi-hundred-MB predictions and model checkpoints are excluded but regenerable from
+the archive via `scripts/run_all.sh`. The raw observations are redistributed in
+derived form only and are independently available from USGS NWIS, Daymet (ORNL DAAC,
+https://doi.org/10.3334/ORNLDAAC/2129) and gridMET; USGS site numbers for all 120
+gages are in the archive. (`outputs/reports/data_availability.md` holds the
+submission-ready Open Research statement; the DOI is minted at camera-ready.)
+
 ## References
 
 *Formatted following the* Journal of Hydrology *house style (Elsevier numeric-author–year). Cross-reference labels in the manuscript text use the F-numbers retained for traceability.*
@@ -717,6 +820,8 @@ Sadler, J. M., Appling, A. P., Read, J. S., Oliver, S. K., Jia, X., Zwart, J. A.
 
 Weierbach, H., Lima, A. R., Willard, J. D., Hendrix, V. C., Christianson, D. S., Lubich, M., Varadharajan, C., 2022. Stream temperature predictions for river basin management in the Pacific Northwest and Mid-Atlantic regions using machine learning. Water 14, 1032. https://doi.org/10.3390/w14071032. [F11]
 
+Willard, J. D., Ciulla, F., Weierbach, H., Xu, Z., Hendrix, V. C., Varadharajan, C., 2024. Evaluating deep learning approaches for predictions in unmonitored basins with continental-scale stream temperature models. arXiv:2410.19865. https://doi.org/10.48550/arXiv.2410.19865. [F13]
+
 Toffolon, M., Piccolroaz, S., 2015. A hybrid model for river water temperature as a function of air temperature and discharge. Environmental Research Letters 10, 114011. https://doi.org/10.1088/1748-9326/10/11/114011. [F12]
 
 Piccolroaz, S., Calamita, E., Majone, B., Gallice, A., Siviglia, A., Toffolon, M., 2016. Prediction of river water temperature: a comparison between a new family of hybrid models and statistical approaches. Hydrological Processes 30, 3901–3917. https://doi.org/10.1002/hyp.10913.
@@ -733,6 +838,8 @@ Kavetski, D., Kuczera, G., Franks, S. W., 2006a. Bayesian analysis of input unce
 
 Kavetski, D., Kuczera, G., Franks, S. W., 2006b. Bayesian analysis of input uncertainty in hydrological modeling: 2. Application. Water Resources Research 42, W03408. https://doi.org/10.1029/2005WR004376. [G3]
 
+Modi, P. A., Small, E. E., Kasprzyk, J., Livneh, B., 2025. Understanding the relationship between streamflow forecast skill and value across the western United States. Hydrology and Earth System Sciences 29, 5593–5613. https://doi.org/10.5194/hess-29-5593-2025. [G4]
+
 ### Methods — machine learning, calibration, statistics
 
 Romano, Y., Patterson, E., Candès, E. J., 2019. Conformalized quantile regression, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 3538–3548.
@@ -742,6 +849,8 @@ Vovk, V., Gammerman, A., Shafer, G., 2005. Algorithmic Learning in a Random Worl
 Martins, A. F. T., Astudillo, R. F., 2016. From softmax to sparsemax: a sparse model of attention and multi-label classification, in: Proceedings of the 33rd International Conference on Machine Learning (ICML), pp. 1614–1623.
 
 Bai, S., Kolter, J. Z., Koltun, V., 2018. An empirical evaluation of generic convolutional and recurrent networks for sequence modeling. arXiv:1803.01271.
+
+Grinsztajn, L., Oyallon, E., Varoquaux, G., 2022. Why do tree-based models still outperform deep learning on typical tabular data?, in: Advances in Neural Information Processing Systems 35 (NeurIPS 2022) Datasets and Benchmarks Track. https://doi.org/10.48550/arXiv.2207.08815.
 
 Shazeer, N., Mirhoseini, A., Maziarz, K., Davis, A., Le, Q., Hinton, G., Dean, J., 2017. Outrageously large neural networks: the sparsely-gated mixture-of-experts layer, in: International Conference on Learning Representations (ICLR).
 

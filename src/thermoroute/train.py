@@ -75,6 +75,51 @@ class GRUForecaster(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
+# LSTM reference deep model — the field-standard "top-down global LSTM" foil.
+# Station-agnostic (no learned per-station embedding) so the SAME network can be
+# trained in-sample AND transferred to held-out HUC2 regions (the entity-aware
+# variant cannot embed an unseen gage). It has the exact same heads / climatology
+# anchor / composite loss as ThermoRoute, so any difference is the physics prior +
+# bounded residual, not the training recipe. This is the deep baseline the
+# stream-temperature-ML literature (Rahmani 2021; Willard 2024) benchmarks against.
+# --------------------------------------------------------------------------- #
+class LSTMForecaster(nn.Module):
+    # 1 layer, hidden 64, over a 14-day context window — the standard modest LSTM
+    # sizing for daily stream-temperature (Feigl 2021; Rahmani 2021), and what
+    # keeps the sequential CPU cost tractable on a 527k-window panel. The 14-day
+    # window is sliced from the shared 32-day windows so every model sees an
+    # identical sample set / split.
+    def __init__(self, n_vars: int, horizons=C.HORIZONS, d: int = 64, layers: int = 1,
+                 dropout: float = 0.0, context: int = 14):
+        super().__init__()
+        self.H = len(horizons)
+        self.context = context
+        self.rnn = nn.LSTM(n_vars, d, layers, batch_first=True, dropout=dropout)
+        self.head_med = nn.Linear(d, self.H)
+        self.head_lo = nn.Linear(d, self.H)
+        self.head_hi = nn.Linear(d, self.H)
+        self.head_evt = nn.Linear(d, self.H)
+
+    def forward(self, batch):
+        h, _ = self.rnn(batch["X"][:, -self.context:, :])
+        z = h[:, -1, :]
+        # Anchor on PERSISTENCE (last observed WTEMP), i.e. predict the multi-day
+        # increment. This is the standard strong short-horizon parameterisation and
+        # makes the LSTM persistence-competitive at h1; climatology is a poor h1
+        # anchor. Persistence is the trivial baseline available to every model, so
+        # this gives the LSTM no physics prior — the contrast with ThermoRoute's
+        # damped-relaxation prior + bounded residual + calibration is preserved.
+        med = self.head_med(z) + batch["wtemp_t"][:, None]
+        lo = torch.nn.functional.softplus(self.head_lo(z))
+        hi = torch.nn.functional.softplus(self.head_hi(z))
+        from .thermoroute import ThermoRouteOutputs
+        return ThermoRouteOutputs(med, med - lo, med, med + hi, self.head_evt(z),
+                                  batch["clim_tgt"], torch.zeros(med.shape[0]),
+                                  batch["clim_t"], torch.zeros(med.shape[0], self.H, 1, 1),
+                                  torch.zeros(med.shape[0], 1))
+
+
+# --------------------------------------------------------------------------- #
 # Training
 # --------------------------------------------------------------------------- #
 @dataclass
