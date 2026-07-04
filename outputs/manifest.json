@@ -1,10 +1,10 @@
 {
- "generated_utc": "2026-07-02T22:50:45.182075+00:00",
+ "generated_utc": "2026-07-04T01:18:14.182436+00:00",
  "git": {
-  "commit": "41a255a25c883e50c4f39cc7ea09c4d4df8d6ef8",
-  "dirty": true
+  "commit": "80aa276ed5b7f47012f8251e06ce5d2b2ff405ea",
+  "dirty": false
  },
- "n_files": 166,
+ "n_files": 171,
  "current_truth": {
   "usgs_predictions": "outputs/predictions/usgs_predictions_v2.parquet",
   "usgs_panel": "data_usgs/panel_usgs_100.parquet",
@@ -203,6 +203,46 @@
    "bytes": 16767109,
    "mtime": "2026-07-02T09:49:41.175483+00:00"
   },
+  "outputs/predictions/region_ckpt/lgb_fold0.parquet": {
+   "sha256": "23c7c6544bb2fc95761ec8951c6952c5281fdf4758473b983a9975b6546781c2",
+   "bytes": 661347,
+   "mtime": "2026-07-04T01:04:11.782581+00:00"
+  },
+  "outputs/predictions/region_ckpt/lgb_fold1.parquet": {
+   "sha256": "831e4fefbb1a64212ced4aea6b9d6ef966f22d0a89b30e55a0769665294c6539",
+   "bytes": 681565,
+   "mtime": "2026-07-04T01:06:05.676940+00:00"
+  },
+  "outputs/predictions/region_ckpt/lgb_fold2.parquet": {
+   "sha256": "2e21342ae4c823ede578b28fecab29eba4cf678d8e3615563c6352420ba53bed",
+   "bytes": 628935,
+   "mtime": "2026-07-04T01:08:05.400149+00:00"
+  },
+  "outputs/predictions/region_ckpt/lgb_fold3.parquet": {
+   "sha256": "96ac67d7db5c932e8433bcb77b9b239c3236ca46319512a01fde5653c683533c",
+   "bytes": 729978,
+   "mtime": "2026-07-04T01:09:51.008853+00:00"
+  },
+  "outputs/predictions/region_ckpt/tr_fold0.parquet": {
+   "sha256": "f5c4d225984896875ab40bf047431db68eae98c85b64b6c3fae3f3e7a59de6a6",
+   "bytes": 2143362,
+   "mtime": "2026-07-04T00:36:52.643798+00:00"
+  },
+  "outputs/predictions/region_ckpt/tr_fold1.parquet": {
+   "sha256": "71cb17592263fdc07b8ec481aee06666076d75ef3fd72dd5821606fe2fb02ba8",
+   "bytes": 2164425,
+   "mtime": "2026-07-04T00:33:54.734518+00:00"
+  },
+  "outputs/predictions/region_ckpt/tr_fold2.parquet": {
+   "sha256": "6aaf48dd27c743f01da6742f101a559a012fcf5177042a2466c51bfcf399dc92",
+   "bytes": 1998961,
+   "mtime": "2026-07-04T00:38:03.678664+00:00"
+  },
+  "outputs/predictions/region_ckpt/tr_fold3.parquet": {
+   "sha256": "09a36e6d360612e2e9fef339b133ba320afd9c3de2de87595b940ae9e36b89aa",
+   "bytes": 2327793,
+   "mtime": "2026-07-04T00:34:07.503992+00:00"
+  },
   "outputs/predictions/rigor_ckpt/TR-fixedKappa_seed1.parquet": {
    "sha256": "dd48160664037ea7fad16aaf63bdeb3e9faaed77d9e61a47c1f7cc2afd79ed64",
    "bytes": 8591300,
@@ -334,9 +374,9 @@
    "mtime": "2026-06-28T20:32:03.724198+00:00"
   },
   "outputs/predictions/usgs_predictions_v2.parquet": {
-   "sha256": "e54d62100e1be381be41723be4fbd83b352334eab41fe2a9762a3ae575002535",
-   "bytes": 252866351,
-   "mtime": "2026-07-02T19:00:26.896600+00:00"
+   "sha256": "4a1c486e25bf754d1d8c4e516276518cc2b1007206e5339e36ab311d74d600d5",
+   "bytes": 252021428,
+   "mtime": "2026-07-04T00:58:45.595273+00:00"
   },
   "outputs/predictions/usgs_seed_ckpt/TR-fixedKappa.parquet": {
    "sha256": "c0ecc88291167c93bf37d5ee9aa5d10713e4253364f46dc6b3a154603d54b18a",
@@ -526,17 +566,22 @@
   "outputs/tables/claim2_kfold_lgo.csv": {
    "sha256": "be277deebd8f699f3a5732ed601c9c78f69e6e7cf04ea45764dc3ab3524eced2",
    "bytes": 794,
-   "mtime": "2026-07-02T22:38:54.200797+00:00"
+   "mtime": "2026-07-04T01:11:30.658907+00:00"
   },
   "outputs/tables/claim3_calibration.csv": {
    "sha256": "3b38b42ba6ac21e5748daccd83c9c84c032864644febbd45685baf2283111e23",
    "bytes": 224,
-   "mtime": "2026-07-02T22:50:18.415143+00:00"
+   "mtime": "2026-07-04T01:11:01.375976+00:00"
   },
   "outputs/tables/decision_value.csv": {
    "sha256": "a14f0876b73aec4e36b66c4bc0baf77841d3a94cc542a967cde62b22b170a690",
    "bytes": 1854,
    "mtime": "2026-07-02T09:53:40.437591+00:00"
+  },
+  "outputs/tables/region_transfer.csv": {
+   "sha256": "9b96005add0a3c3ce69440be14a98b974257021894e474a9392dc42703970dd6",
+   "bytes": 521,
+   "mtime": "2026-07-04T01:09:52.738869+00:00"
   },
   "outputs/tables/scores_all.csv": {
    "sha256": "fa175eb2bec7dcd91d0948ea075db67cb6325bec5b6e39d2d2a7f6acbe67e4b8",
@@ -546,62 +591,22 @@
   "outputs/tables/usgs_calibration.csv": {
    "sha256": "a9812ef72f221bc0e596bd8ae95d1181fb69f26e95355226ac86d3e150b531da",
    "bytes": 690,
-   "mtime": "2026-07-02T22:39:42.520386+00:00"
+   "mtime": "2026-07-04T01:10:43.565434+00:00"
   },
   "outputs/tables/usgs_kappa.csv": {
    "sha256": "bc95f4642c6f842a8dfc977ea5cc40b87c4c98d3d12166759c82b5b9e5df05b0",
    "bytes": 4234,
-   "mtime": "2026-07-02T22:39:42.522084+00:00"
+   "mtime": "2026-07-04T01:10:43.566977+00:00"
   },
   "outputs/tables/usgs_retune.csv": {
    "sha256": "1c8623409faf8a751aa235dd0a105380751c1a9ca8cd5d2144792cbb572c4d42",
    "bytes": 899,
    "mtime": "2026-07-02T11:42:25.940424+00:00"
   },
-  "outputs/tables/usgs_retune_val_a.csv": {
-   "sha256": "353bc8d545cdb29441c4b91f848e40f0ea9d432beb7eb52cd9c6173ff28382ef",
-   "bytes": 212,
-   "mtime": "2026-07-02T10:53:03.595556+00:00"
-  },
-  "outputs/tables/usgs_retune_val_b.csv": {
-   "sha256": "194086bfe3233106c72514a4cacb5e470477da2fbe2949ccc4bbfe7cefcbb534",
-   "bytes": 214,
-   "mtime": "2026-07-02T10:33:22.764652+00:00"
-  },
-  "outputs/tables/usgs_retune_val_s1.0_seed1.csv": {
-   "sha256": "aa4667aae4c29075270f99a8478c93012f4a767c88bf3bd78eb4d50a88492f87",
-   "bytes": 139,
-   "mtime": "2026-07-02T11:42:20.424840+00:00"
-  },
-  "outputs/tables/usgs_retune_val_s1.0_seed2.csv": {
-   "sha256": "a78899cd14caef55d43b4458d4b4e63aa96c28f9539435aa79b8078b25ebd337",
-   "bytes": 137,
-   "mtime": "2026-07-02T11:42:24.599349+00:00"
-  },
-  "outputs/tables/usgs_retune_val_s1.5_seed1.csv": {
-   "sha256": "36e92058100c242c6cff4c62f3b6965c4d85593c0c0ac6e0dccc49ddf3487e45",
-   "bytes": 139,
-   "mtime": "2026-07-02T11:35:33.948595+00:00"
-  },
-  "outputs/tables/usgs_retune_val_s1.5_seed2.csv": {
-   "sha256": "0e6f7828f1ef1ef4d8bdb6da7a93ed2c19d60d91b5ba6871fe1d9571dae54ba4",
-   "bytes": 137,
-   "mtime": "2026-07-02T11:40:46.533520+00:00"
-  },
-  "outputs/tables/usgs_retune_val_s2.0_seed1.csv": {
-   "sha256": "dd6552108bb129110d2c53016b745128665a98a230f61a088d05bb64b729c519",
-   "bytes": 139,
-   "mtime": "2026-07-02T11:34:51.482915+00:00"
-  },
-  "outputs/tables/usgs_retune_val_s2.0_seed2.csv": {
-   "sha256": "7eab758007aec989d4149c482e4e39a46813c70c1ebc71226408e03ab8f6cebc",
-   "bytes": 139,
-   "mtime": "2026-07-02T11:40:10.775331+00:00"
-  },
   "outputs/tables/usgs_rev.csv": {
    "sha256": "d33b9faec3167b0c9134885e20d505d28be29e7bf64312b407ae04a01dcc7581",
    "bytes": 1700,
-   "mtime": "2026-07-02T22:39:42.521527+00:00"
+   "mtime": "2026-07-04T01:10:43.566364+00:00"
   },
   "outputs/tables/usgs_scores.csv": {
    "sha256": "d34b15e4ae703ba6d446e6b7c43fcc4423884e3729de570cf0d610eba205629d",
@@ -626,7 +631,7 @@
   "outputs/tables/claim1_significance.md": {
    "sha256": "9bce79d8eb57e2b5856d814bcc913853da9b748ce8363ecf76d274d35323ae58",
    "bytes": 3856,
-   "mtime": "2026-07-02T22:50:17.063567+00:00"
+   "mtime": "2026-07-04T01:11:00.066504+00:00"
   },
   "outputs/tables/decision_value.md": {
    "sha256": "e3858d41dd7d52005fdb1490e5e045e6154bada3e0bba8b80a11bcb3127d489d",
@@ -653,6 +658,11 @@
    "bytes": 169869,
    "mtime": "2026-07-02T12:38:17.605887+00:00"
   },
+  "outputs/reports/adversarial_review_strong_accept.md": {
+   "sha256": "d24510f8d9c1abf221493dd80dbb9b4d82d80ecee75d9efd4a7a5322470c3c78",
+   "bytes": 29517,
+   "mtime": "2026-07-03T23:08:04.965536+00:00"
+  },
   "outputs/reports/adversarial_review_tri_persona.md": {
    "sha256": "a5fb3e0355f85c6c7a8669df5ea34cd57f7c13ab00c0c82fcb7865119bf1208d",
    "bytes": 68838,
@@ -678,15 +688,25 @@
    "bytes": 10983,
    "mtime": "2026-07-02T22:02:22.667012+00:00"
   },
+  "outputs/reports/region_transfer.md": {
+   "sha256": "127ac1f44410cf8cf0a38fae60e467c66f2e9e3371f0eb32285ae53e77f5ae15",
+   "bytes": 1260,
+   "mtime": "2026-07-04T01:09:52.737028+00:00"
+  },
   "outputs/reports/review_response.md": {
    "sha256": "171e5c2b2c2888a6c1d13562dd7964891e1ab3c9527ea5de62083a3b671f5783",
    "bytes": 7927,
    "mtime": "2026-06-28T00:45:47.458004+00:00"
   },
   "outputs/reports/rigor.md": {
-   "sha256": "558f06dbb10b4d50f5aec7547bdf89aaea117dddf94afba48ff64706ebd4a87d",
-   "bytes": 766,
-   "mtime": "2026-07-02T22:38:58.910106+00:00"
+   "sha256": "85fa8e0b30e48878ca579a1264fe15b4fb8bb8577a7b2c874e215527113cce80",
+   "bytes": 765,
+   "mtime": "2026-07-04T01:11:34.443389+00:00"
+  },
+  "outputs/reports/stratified.md": {
+   "sha256": "7a447670a1f638e4417fc5461bb220a84990947de4538616045006702afbcb10",
+   "bytes": 3968,
+   "mtime": "2026-07-04T01:11:40.822055+00:00"
   },
   "outputs/reports/usgs_acquisition.md": {
    "sha256": "75bad2e3d542fc079efa173cb66ade53017038d3cd195df0f9dc03043e0cc2bc",
@@ -696,7 +716,7 @@
   "outputs/reports/usgs_analysis.md": {
    "sha256": "346d47dc90c5500ca97140ab5f80b2a238d1598e10bfe258c3211f959da095f7",
    "bytes": 1533,
-   "mtime": "2026-07-02T22:39:42.522205+00:00"
+   "mtime": "2026-07-04T01:10:43.567210+00:00"
   },
   "outputs/reports/usgs_experiment.md": {
    "sha256": "a7c2811c635c092a072d2227cc1dc10054387b798e5e3b840b0e674ab2ab6975",
@@ -768,25 +788,30 @@
    "bytes": 58613,
    "mtime": "2026-07-02T09:53:34.947608+00:00"
   },
+  "outputs/figures/fig_region_transfer.png": {
+   "sha256": "3a75b3971564f2c9e0155c20b059ab97a971d28ab552d864b21b6c8c2f4567ac",
+   "bytes": 137163,
+   "mtime": "2026-07-04T01:09:52.735606+00:00"
+  },
   "outputs/figures/fig_usgs_calibration.png": {
    "sha256": "6c54290ee245f56005504a699687b00c1215f9f7ec3f29f880cbab6a547b3795",
    "bytes": 201366,
-   "mtime": "2026-07-02T22:50:18.412809+00:00"
+   "mtime": "2026-07-04T01:11:01.374212+00:00"
   },
   "outputs/figures/fig_usgs_kappa.png": {
    "sha256": "819b51efd25f540a87b4966216a26e800d545aecc4f0a53bf65954fa12a1b48b",
    "bytes": 130009,
-   "mtime": "2026-07-02T22:39:42.415427+00:00"
+   "mtime": "2026-07-04T01:10:43.461188+00:00"
   },
   "outputs/figures/fig_usgs_perstation.png": {
    "sha256": "44ba1073eeae9ba3192dd9bf61982f483ec5bcd55638a828e0cfc63a48e8659e",
    "bytes": 360098,
-   "mtime": "2026-07-02T22:50:21.889566+00:00"
+   "mtime": "2026-07-04T01:11:04.762750+00:00"
   },
   "outputs/figures/fig_usgs_rev.png": {
    "sha256": "1d9b67aba8c3dd6870189c067d0ee635150d271afa090141a08a18ef82d19957",
    "bytes": 276122,
-   "mtime": "2026-07-02T22:39:15.394310+00:00"
+   "mtime": "2026-07-04T01:10:13.866886+00:00"
   },
   "outputs/figures/fig10_flow_lagmaps.pdf": {
    "sha256": "d289c00f143ac0602c99574ada49c4238eab1d4d3ccd4bfcea5afd7bfd1550ce",
