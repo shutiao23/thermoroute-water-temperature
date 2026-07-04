@@ -362,18 +362,21 @@ uses 7 variables including gridMET wind, with the residual bound set to
 §3.3); an air2stream-style 8-parameter model (a *variant* of
 Toffolon–Piccolroaz — §3.5) is included as a *physical* strong baseline:
 
-| horizon | persistence | damped | air2stream-a8 | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
-|---|---|---|---|---|---|---|---|---|
-| 1 d | 0.797 | 0.774 | 0.733 | 0.620 | 0.630 | +0.204 | +0.172 | 88 % |
-| 3 d | 1.581 | 1.406 | 1.409 | 1.300 | 1.289 | +0.186 | +0.078 | 94 % |
-| 7 d | 2.235 | 1.778 | 1.805 | 1.669 | 1.658 | +0.247 | +0.035 | 92 % |
+| horizon | persistence | damped | air2stream-a8 | LightGBM (global) | LightGBM (per-station) | ThermoRoute | skill vs persist | skill vs damped | win vs damped |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 d | 0.797 | 0.774 | 0.733 | 0.620 | 0.632 | 0.630 | +0.204 | +0.172 | 88 % |
+| 3 d | 1.581 | 1.406 | 1.409 | 1.300 | 1.324 | 1.289 | +0.186 | +0.078 | 94 % |
+| 7 d | 2.235 | 1.778 | 1.805 | 1.669 | 1.750 | 1.658 | +0.247 | +0.035 | 92 % |
 
-(Medians are not bolded because ThermoRoute and LightGBM are a statistical tie at
-3–7 days and LightGBM leads at 1 day — see the paired tests below and
-`claim1_significance`; the sub-0.02 °C median gaps are not individually
-meaningful. air2stream here is the fair *variant* of §3.5, calibrated on
-observed-target days and forecast with the observed air temperature driving the
-first step.)
+(Medians are not bolded because ThermoRoute and the *global* LightGBM are a
+statistical tie at 3–7 days and LightGBM leads at 1 day — see the paired tests
+below and `claim1_significance`; the sub-0.02 °C median gaps are not individually
+meaningful. We report **both** LightGBM configurations: the global model is the
+stronger of the two on this panel — a *per-station* LightGBM over-fits the
+limited per-gage record and is worse at 3–7 days (1.324 / 1.750) than both the
+global model and ThermoRoute — so the parity comparison is against the stronger,
+global LightGBM. air2stream is the fair *variant* of §3.5, calibrated on
+observed-target days with the observed air temperature driving the first step.)
 
 ThermoRoute beats every *physics* baseline (persistence, damped persistence,
 air2stream) at every horizon. Per-station Wilcoxon paired tests on the n=114

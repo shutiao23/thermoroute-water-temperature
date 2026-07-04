@@ -1,8 +1,8 @@
 {
- "generated_utc": "2026-07-04T01:18:14.182436+00:00",
+ "generated_utc": "2026-07-04T09:36:47.334318+00:00",
  "git": {
-  "commit": "80aa276ed5b7f47012f8251e06ce5d2b2ff405ea",
-  "dirty": false
+  "commit": "284d481afb3af2fa09af96eae9bab774513b5183",
+  "dirty": true
  },
  "n_files": 171,
  "current_truth": {
@@ -374,9 +374,9 @@
    "mtime": "2026-06-28T20:32:03.724198+00:00"
   },
   "outputs/predictions/usgs_predictions_v2.parquet": {
-   "sha256": "4a1c486e25bf754d1d8c4e516276518cc2b1007206e5339e36ab311d74d600d5",
-   "bytes": 252021428,
-   "mtime": "2026-07-04T00:58:45.595273+00:00"
+   "sha256": "c7f68a874819682b513503b2b0ff909b858d1dda32583d10b56ec6dff8c9a3fe",
+   "bytes": 262648096,
+   "mtime": "2026-07-04T01:39:53.728400+00:00"
   },
   "outputs/predictions/usgs_seed_ckpt/TR-fixedKappa.parquet": {
    "sha256": "c0ecc88291167c93bf37d5ee9aa5d10713e4253364f46dc6b3a154603d54b18a",

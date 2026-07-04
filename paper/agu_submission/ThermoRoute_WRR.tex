@@ -427,15 +427,16 @@ Toffolon--Piccolroaz --- §3.5) is included as a \emph{physical} strong baseline
 
 {\def\LTcaptype{none} % do not increment counter
 \begin{longtable}[]{@{}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 16\tabcolsep) * \real{0.1111}}@{}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 18\tabcolsep) * \real{0.1000}}@{}}
 \toprule\noalign{}
 \begin{minipage}[b]{\linewidth}\raggedright
 horizon
@@ -446,7 +447,9 @@ damped
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
 air2stream-a8
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
-LightGBM
+LightGBM (global)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+LightGBM (per-station)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
 ThermoRoute
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
@@ -454,24 +457,27 @@ skill vs persist
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
 skill vs damped
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
-win-rate vs damped
+win vs damped
 \end{minipage} \\
 \midrule\noalign{}
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-1 d & 0.797 & 0.774 & 0.733 & 0.620 & 0.630 & +0.204 & +0.172 & 88 \% \\
-3 d & 1.581 & 1.406 & 1.409 & 1.300 & 1.289 & +0.186 & +0.078 & 94 \% \\
-7 d & 2.235 & 1.778 & 1.805 & 1.669 & 1.658 & +0.247 & +0.035 & 92 \% \\
+1 d & 0.797 & 0.774 & 0.733 & 0.620 & 0.632 & 0.630 & +0.204 & +0.172 & 88 \% \\
+3 d & 1.581 & 1.406 & 1.409 & 1.300 & 1.324 & 1.289 & +0.186 & +0.078 & 94 \% \\
+7 d & 2.235 & 1.778 & 1.805 & 1.669 & 1.750 & 1.658 & +0.247 & +0.035 & 92 \% \\
 \end{longtable}
 }
 
-(Medians are not bolded because ThermoRoute and LightGBM are a statistical tie at
-3--7 days and LightGBM leads at 1 day --- see the paired tests below and
-\texttt{claim1\_significance}; the sub-0.02 °C median gaps are not individually
-meaningful. air2stream here is the fair \emph{variant} of §3.5, calibrated on
-observed-target days and forecast with the observed air temperature driving the
-first step.)
+(Medians are not bolded because ThermoRoute and the \emph{global} LightGBM are a
+statistical tie at 3--7 days and LightGBM leads at 1 day --- see the paired tests
+below and \texttt{claim1\_significance}; the sub-0.02 °C median gaps are not individually
+meaningful. We report \textbf{both} LightGBM configurations: the global model is the
+stronger of the two on this panel --- a \emph{per-station} LightGBM over-fits the
+limited per-gage record and is worse at 3--7 days (1.324 / 1.750) than both the
+global model and ThermoRoute --- so the parity comparison is against the stronger,
+global LightGBM. air2stream is the fair \emph{variant} of §3.5, calibrated on
+observed-target days with the observed air temperature driving the first step.)
 
 ThermoRoute beats every \emph{physics} baseline (persistence, damped persistence,
 air2stream) at every horizon. Per-station Wilcoxon paired tests on the n=114
