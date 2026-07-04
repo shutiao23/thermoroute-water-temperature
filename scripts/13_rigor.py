@@ -181,7 +181,13 @@ def main():
     pred_path = _v2 if _v2.exists() else (_120 if _120.exists() else _40)
     log(f"using predictions {pred_path.name}")
     allp = pd.read_parquet(pred_path)
-    full = allp[(allp.model == "ThermoRoute") & (allp.split == "test")]
+    # MATCHED SEED BUDGET: ablations are 3-seed (seed 0 from the main run + seeds
+    # 1,2 here), so the full model must also be scored on seeds {0,1,2} — never
+    # compare a 5-seed ensemble to a 3-seed one (the very matched-budget flaw the
+    # LightGBM comparison was corrected for).
+    ABL_SEEDS = [0, 1, 2]
+    full = allp[(allp.model == "ThermoRoute") & (allp.split == "test")
+                & (allp.seed.isin(ABL_SEEDS))]
     abl_seed0 = allp[allp.model.str.startswith("TR-") & (allp.split == "test")]
     abl_all = pd.concat([abl_seed0, abl_new], ignore_index=True)
 
