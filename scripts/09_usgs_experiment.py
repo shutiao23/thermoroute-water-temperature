@@ -47,9 +47,7 @@ from thermoroute.train import fit_model
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")  # +gridMET wind
 CFG = C.TrainConfig(batch_size=1536)         # larger batch ⇒ fewer steps on 100k+ samples
-DELTA_SCALE = 1.0    # selected by the val-only 3-seed sweep (scripts/11_retune.py;
-                     # outputs/tables/usgs_retune.csv). The earlier value 1.5 came
-                     # from a deprecated test-split sweep and was retired.
+DELTA_SCALE = C.DELTA_SCALE   # single source (config.py); val-selected (11_retune)
 _t0 = time.time()
 
 
@@ -145,7 +143,7 @@ def main():
     ap.add_argument("--delta_scale", type=float, default=DELTA_SCALE)
     ap.add_argument("--ablations", action="store_true", default=True)
     ap.add_argument("--air2stream", action="store_true", default=False,
-                    help="add canonical air2stream a4+a8 baselines (slower)")
+                    help="add air2stream-variant a4+a8 physical reference baselines (slower)")
     ap.add_argument("--out_predictions", default="usgs_predictions.parquet")
     ap.add_argument("--out_report", default="usgs_experiment.md")
     ap.add_argument("--out_scores", default="usgs_scores.csv")

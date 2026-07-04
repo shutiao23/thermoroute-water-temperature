@@ -74,6 +74,14 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
     only if the issue-day and every target WTEMP are genuinely observed (used for
     gappy large-sample panels, where history may be imputed but labels must be
     real). Missing WLEVEL (all-NaN channel) is handled by zeroing its z-score."""
+    # Guard the global C.STATIONS aliasing hazard: every station↔index decode
+    # downstream assumes C.STATIONS holds exactly this panel's stations (order is
+    # cascade for 3-station, sorted for USGS — so we check SET membership, not
+    # order).
+    assert set(panel.site_id.unique()) == set(C.STATIONS), (
+        "C.STATIONS is out of sync with the panel passed to build_windows — call "
+        "data.prepare_dataset_from_panel(...) first (it sets C.STATIONS). "
+        f"C.STATIONS has {len(C.STATIONS)} sites, panel has {panel.site_id.nunique()}.")
     scaler = D.StandardScalerPerStation.fit(panel, masks.train, variables=C.ALL_VARS)
     max_h = max(horizons)
     V = len(variables)

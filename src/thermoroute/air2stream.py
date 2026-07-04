@@ -1,16 +1,25 @@
-"""Air2stream — canonical Toffolon & Piccolroaz (2015) hybrid water-temperature model.
+"""Air2stream-style hybrid water-temperature baseline (a *variant* of Toffolon &
+Piccolroaz, 2015 — NOT the official implementation; see the caveat below).
 
 The original *air2stream-lite* in ``baselines.py`` was a one-parameter relaxation
-prior. This module implements the full canonical model in two standard variants:
+prior. This module implements a fuller discrete-time thermal model in two variants:
 
 * **4-parameter (a1..a4)** — minimal version (no seasonal forcing, no discharge
-  modulation of the relaxation time-constant); a fair physical baseline when
-  discharge is absent or noisy.
-* **8-parameter (a1..a8)** — the complete formulation with a discharge-dependent
-  thermal capacity (1/(θ^a4)), a sinusoidal seasonal forcing (a5 amplitude, a6
-  phase), and a discharge-modulated daily lower-bound (a7,a8) that prevents
-  unphysical drift in cold seasons. This is the *standard hydrology baseline* in
-  the stream-temperature literature.
+  modulation of the relaxation time-constant).
+* **8-parameter (a1..a8)** — adds a discharge-dependent thermal capacity
+  (θ^a4), a sinusoidal seasonal forcing (a5 amplitude, a6 phase), and a
+  discharge-modulated daily lower-bound (a7,a8) that limits cold-season drift.
+
+**Caveat (fair-baseline disclosure).** This is a *variant*, not the published
+air2stream: the parameter semantics differ from Toffolon & Piccolroaz (2015)
+(θ enters as θ^{+a4}; a7/a8 act as a low-temperature clamp not present in the
+original), and calibration is a single-start bounded least-squares rather than
+the official particle-swarm global search. It is calibrated on observed-target
+training days only and forecast under Track-H with the observed air temperature
+driving the first step. It is offered as a *physical reference point*, and any
+comparison against it is stated as such — not as a claim against the official
+air2stream. To claim superiority over the published model one must run the
+official code (a documented future-work item).
 
 Daily discrete-time form (e.g. Piccolroaz et al. 2016, eq. 5; cf. Toffolon &
 Piccolroaz 2015):
@@ -25,10 +34,11 @@ The 4-parameter version sets a5=a6=a7=a8=0. Calibration is per-station, on the
 training-fold day-of-year–air-temperature–discharge–water-temperature record,
 minimising 1-step-ahead squared error with bounded least-squares.
 
-For multi-step forecasts under the Track-H (no future observed weather)
-protocol, we roll the recursion forward using the *climatological* air
-temperature and a flat discharge persistence (Q_{t+h} ≈ Q_t), which is what an
-operationally-fair air2stream comparison requires.
+For multi-step forecasts under Track-H, the FIRST step is driven by the air
+temperature observed at issue time (Ta_t, available under Track-H); steps t+2…t+h
+fall back to climatology, and discharge is held flat (Q_{t+h} ≈ Q_t). This gives
+the physical baseline the same observed-at-issue forcing the learned baselines
+receive, rather than starving its first step of information.
 """
 
 from __future__ import annotations
@@ -66,15 +76,18 @@ def _step(T: float, Ta: float, theta: float, doy: int, params: np.ndarray,
     return T_next
 
 
-def _residual(params, Ta, Q, T, doy, Qbar, variant):
+def _residual(params, Ta, Q, T, doy, Qbar, variant, obs=None):
     th = Q / Qbar
     pred = np.empty_like(T)
     pred[0] = T[0]
     for t in range(len(T) - 1):
         pred[t + 1] = _step(T[t], Ta[t], th[t], doy[t], params, variant)
-    # mask away the implausibly far excursions to keep the optimiser stable
-    e = pred[1:] - T[1:]
-    return np.clip(e, -25.0, 25.0)
+    e = np.clip(pred[1:] - T[1:], -25.0, 25.0)
+    # only penalise days whose target WTEMP was actually observed (never fit the
+    # loss to imputed labels — matches ThermoRoute's require_observed_target)
+    if obs is not None:
+        e = e * obs[1:]
+    return e
 
 
 @dataclass
@@ -85,9 +98,15 @@ class Air2streamFit:
 
 
 def fit(Ta: np.ndarray, Q: np.ndarray, T: np.ndarray, doy: np.ndarray,
-        variant: str = "a8") -> Air2streamFit:
-    """Calibrate a4 (4-param) or a8 (8-param) by bounded least squares."""
+        variant: str = "a8", obs: np.ndarray = None) -> Air2streamFit:
+    """Calibrate a4 (4-param) or a8 (8-param) by bounded least squares.
+
+    ``obs`` (optional bool mask over the training days) restricts the calibration
+    LOSS to days whose target WTEMP was genuinely observed; the recursion still
+    uses the full consecutive-day state so the ODE stepping stays valid.
+    """
     m = (~np.isnan(Ta)) & (~np.isnan(Q)) & (~np.isnan(T))
+    obs = (np.ones(len(T), bool) if obs is None else obs.astype(bool))[m]
     Ta, Q, T, doy = Ta[m], Q[m], T[m], doy[m]
     Qbar = float(np.nanmean(Q)) if np.nanmean(Q) > 0 else 1.0
     if variant == "a4":
@@ -99,7 +118,7 @@ def fit(Ta: np.ndarray, Q: np.ndarray, T: np.ndarray, doy: np.ndarray,
         lb = np.array([-50.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -10.0])
         ub = np.array([+50.0, 2.0, 2.0, 3.0, 30.0, 1.0, 5.0, 30.0])
     sol = least_squares(_residual, p0, bounds=(lb, ub), max_nfev=6000,
-                        args=(Ta, Q, T, doy, Qbar, variant))
+                        args=(Ta, Q, T, doy, Qbar, variant, obs))
     return Air2streamFit(params=sol.x, Qbar=Qbar, variant=variant)
 
 
@@ -119,7 +138,7 @@ def forecast_horizon(fit_obj: Air2streamFit, T0: float, Q0: float, doy0: int,
 
 
 # --------------------------------------------------------------------------- #
-# Run on a panel — returns canonical predictions
+# Run on a panel — returns predictions in the canonical schema
 # --------------------------------------------------------------------------- #
 def run_air2stream(panel: pd.DataFrame, masks, clim_air: F.HarmonicClimatology,
                    stations: tuple[str, ...] = None,
@@ -135,21 +154,31 @@ def run_air2stream(panel: pd.DataFrame, masks, clim_air: F.HarmonicClimatology,
         Q = sub["FLOW"].to_numpy(float)
         T = sub["WTEMP"].to_numpy(float)
         doy = pd.to_datetime(sub["DATE"]).dt.dayofyear.to_numpy()
+        # observed-target mask (never calibrate on imputed WTEMP)
+        wt_obs = (sub["WTEMP_observed"].to_numpy(bool) if "WTEMP_observed" in sub
+                  else ~np.isnan(T))
         # train mask aligned to this site's rows
         train_rows = masks.train[(panel.site_id == st).to_numpy()]
         try:
             fit_obj = fit(Ta[train_rows], Q[train_rows], T[train_rows],
-                          doy[train_rows], variant=variant)
+                          doy[train_rows], variant=variant, obs=wt_obs[train_rows])
         except Exception:
             continue
 
-        # climatological air temperature (used to roll forward)
+        # climatological air temperature for FUTURE (unobserved) days
         Ta_clim = clim_air.predict(st, doy)
         n = len(sub)
         for h in C.HORIZONS:
             yhat = np.full(n, np.nan)
             for t in range(n - h):
-                Ta_future = Ta_clim[t + 1: t + 1 + h]
+                # Track-H forcing: the FIRST step (t->t+1) is driven by the
+                # air temperature OBSERVED at issue time (Ta_t, available under
+                # Track-H); subsequent steps fall back to climatology. Previously
+                # every step used climatology, which starved air2stream of the
+                # observed forcing the learned baselines get and pushed its 1-day
+                # RMSE to raw persistence.
+                ta_step1 = Ta[t] if np.isfinite(Ta[t]) else Ta_clim[t + 1]
+                Ta_future = np.concatenate([[ta_step1], Ta_clim[t + 2: t + 1 + h]])
                 doy_future = doy[t + 1: t + 1 + h]
                 yhat[t] = forecast_horizon(fit_obj, T[t], Q[t], int(doy[t]),
                                            Ta_future, doy_future)

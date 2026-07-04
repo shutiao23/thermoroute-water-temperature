@@ -51,3 +51,15 @@ jobs:
           PYTHONPATH: src
         run: |
           python -c "from thermoroute.usgs import build_station, fetch_nwis_daily, fetch_daymet, fetch_gridmet_wind; print('usgs module OK')"
+      - name: Smoke experiment (3-station, 1 seed, asserts on numbers)
+        if: ${{ matrix.deps == 'locked' }}
+        env:
+          PYTHONPATH: src
+          KMP_DUPLICATE_LIB_OK: "TRUE"
+        run: |
+          # A tiny end-to-end run that trains ThermoRoute for a few epochs on the
+          # shipped 3-station data and asserts the pipeline produces sane numbers:
+          # persistence-beating skill sign is NOT required on the near-deterministic
+          # cascade, but conformal coverage must be in a sane band and the
+          # identical-keys invariant must hold. Guards against silent pipeline rot.
+          python scripts/ci_smoke.py

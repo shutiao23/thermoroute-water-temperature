@@ -149,3 +149,15 @@ TRAIN = TrainConfig()
 def horizon_weights(horizons: Sequence[int] = HORIZONS) -> dict[int, float]:
     """Equal weight per horizon in the multi-task loss (documented, not tuned)."""
     return {h: 1.0 for h in horizons}
+
+
+# Residual bound δ (large-sample). SINGLE SOURCE OF TRUTH — imported by
+# scripts 09/10/13/13b/13c. Selected by the validation-only 3-seed sweep
+# (scripts/11_retune.py -> outputs/tables/usgs_retune.csv); the earlier value
+# 1.5 came from a deprecated test-split sweep and is retired. Do NOT hard-code δ
+# anywhere else.
+DELTA_SCALE: float = 1.0
+
+# Exact seed set used for the large-sample deep models (scripts 09/13). The
+# 3-station track uses SEEDS above; USGS uses these five.
+USGS_SEEDS: tuple[int, ...] = (0, 1, 2, 3, 4)

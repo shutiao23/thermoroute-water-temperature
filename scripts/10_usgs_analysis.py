@@ -41,7 +41,7 @@ from thermoroute.conformal import cqr_offsets, apply_cqr
 from thermoroute.thermoroute import ThermoRoute
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
-DELTA_SCALE = 1.5
+DELTA_SCALE = C.DELTA_SCALE   # single source (config.py) — was a stale 1.5
 # Auto-pick the latest predictions+panel pair (same precedence as scripts
 # 12/13): v2 -> 120 -> 40-station.  v2 is the sample-consistent current truth.
 _v2_pred = C.PREDICTIONS / "usgs_predictions_v2.parquet"

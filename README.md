@@ -69,7 +69,7 @@ project1/
 │   ├── features.py             harmonic climatology, tabular lag features
 │   ├── datasets.py             windowed tensors + leakage guard (NaN-safe)
 │   ├── baselines.py            persistence … LightGBM (3-station baselines)
-│   ├── air2stream.py           canonical Toffolon–Piccolroaz hybrid (a4 + a8)
+│   ├── air2stream.py           air2stream-*variant* physical baseline (a4 + a8; see caveat)
 │   ├── thermoroute.py          the model (prior + router + TCN + MoE + heads)
 │   ├── train.py                training loop, composite loss, GRU reference
 │   ├── conformal.py            conformalised quantile regression (CQR)
@@ -89,10 +89,13 @@ project1/
 │   ├── 10_usgs_analysis.py      USGS calibration, REV, mechanism (κ, router drivers)
 │   ├── 11_retune.py             residual-bound (delta_scale) tuning
 │   ├── 12_claim_stats.py        per-station Wilcoxon + bootstrap CI (Claims 1, 3)
-│   ├── 13_rigor.py              K-fold leave-group-out + 3-seed ablations (Claims 2, 4)
+│   ├── 13_rigor.py              random K-fold LGO + 3-seed ablations (Claims 2, 4)
+│   ├── 13b_ablation_worker.py   parallel ablation-seed worker
+│   ├── 13c_region_transfer.py   leave-HUC2-region-out transfer vs LightGBM (Claim 2, strengthened)
+│   ├── 14_manifest.py           sha256 artifact manifest + --check drift detector
 │   ├── data_usgs/build_usgs_stations.py   acquisition driver
 │   └── run_all.sh                     one-command reproduction (both tracks)
-├── tests/                              leakage / split / metric unit tests (13 tests)
+├── tests/                              leakage / split / metric / sample-consistency unit tests (14 tests)
 ├── paper/
 │   ├── ThermoRoute_paper.md            manuscript
 │   ├── ThermoRoute_paper.pdf|.docx     rendered
@@ -114,7 +117,7 @@ second batch is the USGS large-sample main analysis):
 ```bash
 # --- 3-station case study (~30 minutes on CPU) ---
 python3 scripts/01_prepare_data.py        # audit + processed panel
-python3 -m pytest tests/ -q               # leakage / metric tests (13 pass)
+python3 -m pytest tests/ -q               # leakage / metric / consistency tests (14 pass)
 python3 scripts/04_run_experiments.py     # 3-station experiment matrix
 python3 scripts/05_explain.py             # 3-station mechanism extraction
 python3 scripts/06_make_figures.py        # 3-station figures
@@ -126,12 +129,19 @@ python3 scripts/08_decision_value.py      # REV analysis
 python3 scripts/data_usgs/build_usgs_stations.py --target 120 --max-probe 1500 \
     --out panel_usgs_100.parquet --states CO OR WA PA NY MN WI CA ID MT [...]
 # main experiment (5 seeds + air2stream + LGO + ablations)
+# IMPORTANT: write to the *_v2 "current-truth" filenames that 10/12/13 read first,
+# otherwise the downstream stages compute on a stale file (see scripts/run_all.sh).
 python3 scripts/09_usgs_experiment.py --panel data_usgs/panel_usgs_100.parquet \
-    --air2stream --seeds 5
-# downstream: calibration / REV / mechanism + significance + rigor
+    --air2stream --seeds 5 \
+    --out_predictions usgs_predictions_v2.parquet \
+    --out_report usgs_experiment_v2.md --out_scores usgs_scores_v2.csv
+# downstream: calibration / REV / mechanism + significance + rigor + region transfer
 python3 scripts/10_usgs_analysis.py
 python3 scripts/12_claim_stats.py
 python3 scripts/13_rigor.py
+python3 scripts/13c_region_transfer.py --fold 0   # (repeat 0..3, or run in parallel)
+python3 scripts/13c_region_transfer.py --assemble
+python3 scripts/14_manifest.py                    # sha256 evidence chain
 ```
 
 ## The model in one screen

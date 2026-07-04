@@ -42,7 +42,7 @@ from thermoroute.train import fit_model
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 CFG = C.TrainConfig(batch_size=1536)
-DELTA = 1.0   # val-only selected (scripts/11_retune.py); keep in sync with 09/13b
+DELTA = C.DELTA_SCALE   # single source (config.py)
 N_FOLDS = 4
 CKPT = C.PREDICTIONS / "rigor_ckpt"
 CKPT.mkdir(exist_ok=True)
