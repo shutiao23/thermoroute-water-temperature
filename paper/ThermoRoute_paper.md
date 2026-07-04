@@ -79,7 +79,8 @@ calibrated, transferable forecaster whose advantage must be established on a
 large, hydrologically diverse sample, not a single cascade.
 
 **Keywords:** river water temperature; probabilistic forecasting; physics-guided
-machine learning; spatial transfer; conformal prediction; thermal inertia.
+machine learning; large-sample hydrology; spatial transfer; conformal prediction;
+calibrated uncertainty.
 
 ---
 
@@ -139,10 +140,13 @@ and we retract that mechanism claim.
 
 Contributions:
 
-1. **ThermoRoute**, whose dynamic thermal-relaxation prior is a flow- and
-   season-modulated generalisation of damped persistence, with a horizon-conditioned
-   sparse variable–lag router and a *bounded* neural residual that cannot override
-   the prior.
+1. **ThermoRoute**, a physics-biased forecaster whose relaxation prior *provably
+   contains damped persistence* as a special case (Proposition 1) and whose
+   *bounded* neural residual is guaranteed not to degrade the prior by more than
+   δ °C — so the strong baseline is a floor, not a hope. (We initially framed the
+   prior's flow-/season-modulated relaxation rate as a "dynamic thermal memory";
+   §4.5 reports that this mechanism does *not* generalise, and we retain the prior
+   only as a calibrated, damped-persistence-anchored regulariser.)
 2. A **leakage-audited evaluation** with rolling-origin discipline, a one-shot blind
    test, moving-block-bootstrap confidence intervals, Diebold–Mariano tests, and an
    adversarial internal review of every headline claim.
@@ -255,6 +259,27 @@ large sample where headroom exists. The large-sample bound was selected by a
 per value, minimising the mean over horizons of the median per-station RMSE on
 2016–2017 (`scripts/11_retune.py`, `outputs/tables/usgs_retune.csv`); ±1.0 was
 the winner (2016–2017 mean RMSE 1.227, versus 1.230 at ±1.5 and 1.233 at ±2.0).
+
+The clamp buys a worst-case safety guarantee that a free residual cannot:
+
+> **Proposition 1 (bounded degradation).** Let $W^{\mathrm{prior}}_{t+h}$ be the
+> prior forecast and $\hat W_{t+h} = W^{\mathrm{prior}}_{t+h} + \Delta_h$ with
+> $\Delta_h = \delta\,\tanh(u_h)$, so $|\Delta_h| < \delta$. Then for every
+> station, horizon and issue day,
+> $|\hat W_{t+h} - W_{t+h}| < |W^{\mathrm{prior}}_{t+h} - W_{t+h}| + \delta$,
+> and hence per-station $\mathrm{RMSE}(\hat W) \le \mathrm{RMSE}(W^{\mathrm{prior}}) + \delta$.
+> Because the prior reduces to damped persistence when $e_t{=}0,\ \kappa{=}1{-}\varphi$
+> (the contained baseline), the learned model can never be worse than damped
+> persistence by more than $\delta$ °C on any station — a floor a generic
+> unconstrained learner (GBDT or free-headed net) does not provide.
+
+*Proof.* The first inequality is the triangle inequality on
+$\hat W = W^{\mathrm{prior}} + \Delta_h$ with $|\Delta_h| < \delta$; squaring,
+averaging over a station's days and taking the root (Minkowski) gives the RMSE
+bound. ∎  This is why we clamp rather than blend: it turns "the residual usually
+helps" into "the residual provably cannot hurt by more than δ" — the property
+that makes a physics-biased forecaster safe to deploy where a bare learner's tail
+behaviour is unbounded.
 *Disclosure:* an earlier version of this study fixed the bound at ±1.5 using a
 sweep that had read the blind-test years — a protocol violation; on discovering
 it we re-ran the sweep on the validation split only, which selected ±1.0, and
