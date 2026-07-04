@@ -52,20 +52,23 @@ lead (per-station Wilcoxon, Holm-adjusted, p ≤ 3×10⁻¹⁶), with median ski
 damped +0.16 / +0.07 / +0.03 at 1 / 3 / 7 days and better than damped at
 **85 / 89 / 89 %** of the n=114 blind-test stations (Wilson 95 % CIs all exclude
 50 %; robust to a HUC2 cluster bootstrap), and beats an air2stream-style
-8-parameter physical model (a *variant* of Toffolon–Piccolroaz) on median RMSE
-at every lead (0.630 / 1.289 / 1.658 vs 0.797 / 1.464 / 1.809). Against a strong
-gradient-boosting baseline (LightGBM) the honest result is **parity, not
-superiority**: with the seed budget matched (each of five ThermoRoute seeds
-scored as a single model), LightGBM is significantly more accurate at 1 day
-(median skill −0.044, p = 1×10⁻¹⁴) while the two are statistically
-indistinguishable at 3 and 7 days (median skill +0.002 and −0.002, p = 0.76 and
-0.52); the deployed 5-seed ensemble adds only a small edge at 3 days. We do not
-claim any advantage over LightGBM and report the unfavourable 1-day result
-openly. In 4-fold leave-group-out transfer (every station held out once), it
-beats persistence on unseen basins by +0.17 / +0.17 / +0.24 (across-fold
-std ≤ 0.023) and damped persistence by +0.14 / +0.06 / +0.03. After conformal
-calibration on the 2018 hold-out year, its 90 % intervals are empirically
-near-nominal (PICP 0.90 ± 0.01 on the test years).
+8-parameter physical model (a fairly-calibrated *variant* of Toffolon–Piccolroaz)
+on median RMSE at every lead (0.630 / 1.289 / 1.658 vs 0.733 / 1.409 / 1.805).
+Against a strong gradient-boosting baseline (LightGBM) the honest result is
+**parity, not superiority**: with the seed budget matched (each of five
+ThermoRoute seeds scored as a single model), LightGBM is significantly more
+accurate at 1 day (median skill −0.044, p = 1×10⁻¹⁴) while the two are
+statistically indistinguishable at 3 and 7 days (median skill +0.002 and −0.002,
+p = 0.76 and 0.52). This parity **also holds out-of-region**: under a
+leave-HUC2-region-out protocol (whole regions held out; mean 358 km to the
+nearest training gage) both ThermoRoute and a global LightGBM transfer far beyond
+persistence, and between them the result is a horizon-conditional tie (LightGBM
+better at 1 day, tied at 3 days, ThermoRoute better at 7 days, p = 1×10⁻³).
+ThermoRoute matches the strong learner in point accuracy while additionally
+providing calibrated intervals, a bounded-degradation guarantee (it is provably
+never worse than damped persistence by more than δ °C on any station), and
+interpretable drivers. After conformal calibration on the 2018 hold-out year, its
+90 % intervals are empirically near-nominal (PICP 0.90 ± 0.01 on the test years).
 On a generic cost–loss decision model, the calibrated probabilistic warning
 captures more relative economic value than a deterministic persistence warning
 across most cost–loss ratios; we treat this as a methodological illustration
@@ -361,9 +364,16 @@ Toffolon–Piccolroaz — §3.5) is included as a *physical* strong baseline:
 
 | horizon | persistence | damped | air2stream-a8 | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
 |---|---|---|---|---|---|---|---|---|
-| 1 d | 0.797 | 0.774 | 0.797 | **0.620** | 0.630 | +0.204 | +0.172 | 88 % |
-| 3 d | 1.581 | 1.406 | 1.464 | 1.300 | **1.289** | +0.186 | +0.078 | 94 % |
-| 7 d | 2.235 | 1.778 | 1.809 | 1.669 | **1.658** | +0.247 | +0.035 | 92 % |
+| 1 d | 0.797 | 0.774 | 0.733 | 0.620 | 0.630 | +0.204 | +0.172 | 88 % |
+| 3 d | 1.581 | 1.406 | 1.409 | 1.300 | 1.289 | +0.186 | +0.078 | 94 % |
+| 7 d | 2.235 | 1.778 | 1.805 | 1.669 | 1.658 | +0.247 | +0.035 | 92 % |
+
+(Medians are not bolded because ThermoRoute and LightGBM are a statistical tie at
+3–7 days and LightGBM leads at 1 day — see the paired tests below and
+`claim1_significance`; the sub-0.02 °C median gaps are not individually
+meaningful. air2stream here is the fair *variant* of §3.5, calibrated on
+observed-target days and forecast with the observed air temperature driving the
+first step.)
 
 ThermoRoute beats every *physics* baseline (persistence, damped persistence,
 air2stream) at every horizon. Per-station Wilcoxon paired tests on the n=114
@@ -416,9 +426,35 @@ ThermoRoute transfers to unseen basins with a skill over persistence of
 (std ≤ 0.023), and it also beats *damped* persistence on the held-out basins at
 every lead. The transfer skill is close to the in-sample skill of §4.2, i.e. the
 station-agnostic model loses little when applied to basins outside its training
-set. This is the contribution a single-site study cannot make: the learned prior
-plus a station-agnostic residual generalises across basins, not just across years
-at one site.
+set.
+
+**Leave-region-out, benchmarked against the strong learned baseline.** A random
+station split can leak: gages on the same river and in the same HUC2 region
+straddle train and test. We therefore also run a **leave-HUC2-region-out**
+protocol — the 16 regions are packed into four folds and *whole regions* are held
+out, so no held-out gage shares a river or region with training (mean distance
+from a held-out gage to its nearest training gage rises from ≈0 to **358 km**) —
+and, crucially, we run the **global LightGBM under the identical protocol** so
+transfer is measured against the strong learned baseline, not only persistence
+(Table C):
+
+| horizon | ThermoRoute RMSE | LightGBM RMSE | TR skill vs persist | LGB skill vs persist | TR−LGB paired Wilcoxon p |
+|---|---|---|---|---|---|
+| 1 d | 0.667 | 0.650 | +0.151 | +0.175 | 5×10⁻⁹ (LGB better) |
+| 3 d | 1.323 | 1.321 | +0.169 | +0.168 | 0.95 (tie) |
+| 7 d | 1.675 | 1.683 | +0.237 | +0.232 | 1×10⁻³ (TR better) |
+
+Both models transfer far out of region and both beat persistence/damped by a
+wide margin; **between them the result is a horizon-conditional tie** — LightGBM
+is better at 1 day, the two are indistinguishable at 3 days, and ThermoRoute is
+better at 7 days (the same ordering as in-sample, §4.2). We therefore do **not**
+claim that ThermoRoute generalises to ungauged basins *better than* the strong
+learned baseline; we claim that a physics-biased, station-agnostic model transfers
+*as well as* a global GBDT while additionally carrying the calibrated intervals
+(§4.4), the bounded-degradation guarantee (Proposition 1) and the interpretable
+drivers (§4.5) that the GBDT does not. This honest delineation — parity in point
+accuracy, advantage in the properties that matter for deployment — is the
+paper's central position.
 
 ### 4.4 Calibration, warnings and decision value
 
@@ -498,28 +534,30 @@ trained at **3 seeds** on the 120-station panel and compared to the full model b
 a per-station paired test (Wilcoxon signed-rank at h=3); 3-seed-mean per-station
 median RMSE (1 / 3 / 7 days):
 
+Each ablation and the full model are all scored on the **matched 3-seed budget**
+(seeds {0,1,2}); the paired test is a per-station Wilcoxon signed-rank at h=3:
+
 | variant | h1 | h3 | h7 | Wilcoxon p (h3 vs full) |
 |---|---|---|---|---|
-| **ThermoRoute (full)** | **0.630** | **1.289** | **1.658** | — |
-| TR-noPrior | 1.327 | 1.528 | 1.699 | 2.3×10⁻²⁰ * |
-| TR-noMoE | 0.733 | 1.343 | 1.699 | 5.1×10⁻¹⁸ * |
-| TR-noRouter | 0.639 | 1.302 | 1.662 | 5.9×10⁻¹³ * |
-| TR-fixedKappa | 0.642 | 1.294 | 1.658 | 7.1×10⁻⁴ * |
+| ThermoRoute (full) | 0.630 | 1.289 | 1.656 | — |
+| TR-noPrior | 1.327 | 1.528 | 1.699 | 2.2×10⁻²⁰ * |
+| TR-noMoE | 0.733 | 1.343 | 1.699 | 9.5×10⁻¹⁸ * |
+| TR-noRouter | 0.639 | 1.302 | 1.662 | 1.3×10⁻⁶ * |
+| TR-fixedKappa | 0.642 | 1.294 | 1.658 | 0.23 (n.s.) |
 
 Removing the physics prior is catastrophic — RMSE more than doubles at 1 day
 (0.630 → 1.327) and the per-station difference is significant at p ≈ 2×10⁻²⁰ —
 confirming that the prior carries the forecast. Removing the mixture-of-experts
-(+0.103 / +0.054 / +0.041 at 1 / 3 / 7 d, p ≈ 5×10⁻¹⁸) and the router
-(+0.009 / +0.013 / +0.004, p ≈ 6×10⁻¹³) both hurt significantly. Freezing the
-dynamic-κ modulators (TR-fixedKappa) leaves accuracy essentially unchanged
-(+0.012 / +0.005 / 0.000): although the paired test is *nominally* significant
-(p ≈ 7×10⁻⁴) because the tiny differences are consistent in sign across stations,
-the effect size is negligible — one to two orders of magnitude smaller than the
-prior, MoE or router effects. The honest reading is that the prior, experts and router
-contribute real accuracy while the dynamic-κ modulation is interpretive overhead,
-retained only because freezing it does not improve accuracy either (consistent
-with the §4.5 mechanism result). Note that unlike the 40-station pilot — where
-fixed-κ was marginally *better* at 7 days — the sign is now consistently (if
+(+0.103 / +0.054 / +0.043 at 1 / 3 / 7 d, p ≈ 1×10⁻¹⁷) and the router
+(+0.009 / +0.013 / +0.006, p ≈ 1×10⁻⁶) both hurt significantly. Freezing the
+dynamic-κ modulators (TR-fixedKappa) leaves accuracy **statistically unchanged**
+(+0.012 / +0.005 / +0.002, paired p = 0.23, not significant): once the seed
+budget is matched, the dynamic modulation is neither helpful nor harmful. The
+honest reading is that the prior, experts and router contribute real accuracy
+while the dynamic-κ modulation is interpretive overhead we do not claim as an
+accuracy lever — retained only because freezing it does not improve accuracy
+either (consistent with the §4.5 mechanism retraction). Unlike the 40-station
+pilot — where fixed-κ was marginally *better* at 7 days — the sign is now (if
 negligibly) in favour of the dynamic version, which we read as within-noise.
 
 ## 5. Discussion

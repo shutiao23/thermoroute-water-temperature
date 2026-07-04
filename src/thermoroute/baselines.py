@@ -176,6 +176,11 @@ def run_lightgbm(tabs, thresholds, feature_set: str = "V3",
         for st in C.STATIONS:
             sub = tab[tab.site_id == st]
             tr, va = sub[sub.split == "train"], sub[sub.split == "val"]
+            # a per-station model needs its own train+val rows; skip stations that
+            # have none for this horizon (sparse gappy USGS gages) rather than
+            # crashing LightGBM on an empty dataset.
+            if len(tr) < 20 or len(va) < 5 or sub.empty:
+                continue
             Xtr, ytr = tr[cols].to_numpy(float), tr["y"].to_numpy(float)
             Xva, yva = va[cols].to_numpy(float), va["y"].to_numpy(float)
             Xall = sub[cols].to_numpy(float)
