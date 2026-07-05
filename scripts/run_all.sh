@@ -66,10 +66,14 @@ echo "[17/20] full REV decision-value curve over cost-loss grid (Fig 5)"
 python3 scripts/18_rev_curve.py
 echo "[18/20] probabilistic (PICP/CRPS/reliability/Brier) + multi-metric (Fig 4)"
 python3 scripts/19_probabilistic.py
-echo "[19/20] TUURT transfer triad + stratified robustness"
+echo "[19/22] TUURT transfer triad + stratified robustness"
 python3 scripts/20_tuurt.py
 python3 scripts/15_stratified.py
-echo "[20/20] USGS calibration/REV/mechanism, claim stats, artifact manifest"
+echo "[20/22] exceedance warnings at fixed EPA ecological thresholds (18/20 °C)"
+python3 scripts/21_ecological_thresholds.py
+echo "[21/22] adaptive conformal (ACI) + conditional coverage"
+python3 scripts/22_adaptive_conformal.py
+echo "[22/22] USGS calibration/REV/mechanism, claim stats, artifact manifest"
 python3 scripts/10_usgs_analysis.py
 python3 scripts/12_claim_stats.py
 python3 scripts/14_manifest.py

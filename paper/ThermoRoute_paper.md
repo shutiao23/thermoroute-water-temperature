@@ -533,6 +533,22 @@ at the *population* level (median PICP 0.90–0.91) with a wider per-station spr
 is wider still (0.79–0.91, §4.1), so we treat tight per-station coverage as a
 property of the large-sample regime, not a guarantee.
 
+**Conditional coverage under non-exchangeability (ACI).** Split-CQR's formal
+guarantee assumes exchangeability, so a natural worry is that the near-nominal
+*marginal* PICP hides *conditional* under-coverage across regimes or regions. We
+test this with Adaptive Conformal Inference (Gibbs & Candès, 2021), which updates
+the miscoverage level α_t online along each station's 2019–2020 test sequence and
+therefore self-corrects under temporal drift without any exchangeability assumption.
+Both schemes are near-nominal marginally (split-CQR 0.908, ACI 0.901), but ACI's
+value is *cross-region uniformity*: it collapses the per-HUC2 coverage spread from a
+standard deviation of 0.014 (regions ranging 0.88–0.93) to 0.003 (0.90–0.91), so
+every region lands near nominal instead of some over- or under-covering — the
+spatial non-exchangeability most relevant to a large-sample study. The one slice ACI
+does not repair is the rare warm tail, where it under-covers (0.887 versus split-CQR
+0.911); adaptivity cannot fully correct a regime that is both rare and temporally
+clustered, and we report this openly. ACI thus buys conditional coverage uniformity
+on top of split-CQR's marginal coverage at essentially no cost.
+
 **Bounded-degradation guarantee, verified (Proposition 1).** ThermoRoute's genuine
 distinguishing property is one no pure or hybrid learner states: because the neural
 residual is `tanh`-bounded to ±δ around the physics prior, per sample
@@ -561,6 +577,18 @@ train-period 90th percentile of WTEMP — it is not a biological or regulatory l
 and the skill numbers should be read accordingly.
 
 ![**Figure 4.** Reliability of the high-temperature exceedance warning (all leads pooled). Forecast probability versus observed exceedance frequency; ThermoRoute's calibrated warning tracks the diagonal most closely, ahead of the LightGBM and LSTM.](outputs/figures/fig_reliability.png){width=55%}
+
+To show the warning does not hinge on the arbitrary 90th-percentile cut-off, we
+also score exceedance of the **fixed EPA 7-day-average-daily-maximum salmonid
+criteria** — 18 °C (rearing) and 20 °C (migration) — reading a calibrated exceedance
+probability at each absolute threshold off the conformalised predictive distribution
+(no retraining), on the free-flowing stations where the threshold is ecologically
+live (test base rate 0.05–0.60; n = 71 and 62). The calibrated warnings retain
+strong Brier skill (ThermoRoute +0.93 / +0.85 / +0.81 at 18 °C for 1 / 3 / 7 d;
+AUROC ≥ 0.99 / 0.99 / 0.99) and beat a deterministic persistence-threshold warning
+(+0.87 / +0.73 / +0.62) at every lead; ThermoRoute and the global LightGBM are again
+on par and both ahead of the LSTM. The exceedance contribution therefore carries
+regulatory meaning, not just a statistical convention.
 
 **Decision value.** On a generic cost–loss decision model (Wilks 2011), we score
 the exceedance decision "protect iff p > α" over the full cost–loss ratio grid
@@ -851,6 +879,10 @@ Modi, P. A., Small, E. E., Kasprzyk, J., Livneh, B., 2025. Understanding the rel
 ### Methods — machine learning, calibration, statistics
 
 Romano, Y., Patterson, E., Candès, E. J., 2019. Conformalized quantile regression, in: Advances in Neural Information Processing Systems 32 (NeurIPS 2019), pp. 3538–3548.
+
+Gibbs, I., Candès, E. J., 2021. Adaptive conformal inference under distribution shift, in: Advances in Neural Information Processing Systems 34 (NeurIPS 2021), pp. 1660–1672.
+
+U.S. Environmental Protection Agency, 2003. EPA Region 10 Guidance for Pacific Northwest State and Tribal Temperature Water Quality Standards. EPA 910-B-03-002, Region 10 Office of Water, Seattle, WA.
 
 Vovk, V., Gammerman, A., Shafer, G., 2005. Algorithmic Learning in a Random World. Springer, New York. https://doi.org/10.1007/b106715.
 

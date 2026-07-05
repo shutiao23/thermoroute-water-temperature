@@ -1,10 +1,10 @@
 {
- "generated_utc": "2026-07-05T11:40:45.897453+00:00",
+ "generated_utc": "2026-07-05T12:05:55.510301+00:00",
  "git": {
-  "commit": "b3e641a33b9e165c786de30092b4998f642f0033",
+  "commit": "0534e9aabe1151e23fb4876a6b5e2cd4b58e56cc",
   "dirty": true
  },
- "n_files": 190,
+ "n_files": 194,
  "current_truth": {
   "usgs_predictions": "outputs/predictions/usgs_predictions_v2.parquet",
   "usgs_panel": "data_usgs/panel_usgs_100.parquet",
@@ -598,6 +598,11 @@
    "bytes": 15746919,
    "mtime": "2026-06-28T17:17:50.081652+00:00"
   },
+  "outputs/tables/aci_coverage.csv": {
+   "sha256": "a28af84bbaf1babf7c0143dc303b3af90254dbb39c2bbcf55a9624d840f3d2ea",
+   "bytes": 6971295,
+   "mtime": "2026-07-05T12:03:43.258250+00:00"
+  },
   "outputs/tables/claim2_kfold_lgo.csv": {
    "sha256": "be277deebd8f699f3a5732ed601c9c78f69e6e7cf04ea45764dc3ab3524eced2",
    "bytes": 794,
@@ -612,6 +617,11 @@
    "sha256": "a14f0876b73aec4e36b66c4bc0baf77841d3a94cc542a967cde62b22b170a690",
    "bytes": 1854,
    "mtime": "2026-07-04T22:35:34.836248+00:00"
+  },
+  "outputs/tables/eco_thresholds.csv": {
+   "sha256": "22f428c3fc779586faeb24717748250d14d66ede1ceea10c959921d71ffb0fb1",
+   "bytes": 2635,
+   "mtime": "2026-07-05T12:01:18.713690+00:00"
   },
   "outputs/tables/multi_metric.csv": {
    "sha256": "ebc9682cf3410bcafee9421ea51543b7162abd0a063284aaeae2b9c4e2c5bf72",
@@ -708,6 +718,11 @@
    "bytes": 169869,
    "mtime": "2026-07-02T12:38:17.605887+00:00"
   },
+  "outputs/reports/adaptive_conformal.md": {
+   "sha256": "2986920c7001f44fbf9944ae260aa1ef5f11638c069a5dc84edaee547ad0519a",
+   "bytes": 1638,
+   "mtime": "2026-07-05T12:03:43.285273+00:00"
+  },
   "outputs/reports/adversarial_review_strong_accept.md": {
    "sha256": "d24510f8d9c1abf221493dd80dbb9b4d82d80ecee75d9efd4a7a5322470c3c78",
    "bytes": 29517,
@@ -727,6 +742,11 @@
    "sha256": "86d1458b94ca5c169f4c0696be037f98eac4a6dfb60f32cbadb28d7dcb7fa81d",
    "bytes": 1847,
    "mtime": "2026-07-04T22:49:43.247956+00:00"
+  },
+  "outputs/reports/ecological_thresholds.md": {
+   "sha256": "bb025f46509bdd0a98b58a02e4c69fe7d885a325850230db464ca2f5e77241d9",
+   "bytes": 2135,
+   "mtime": "2026-07-05T12:01:18.715179+00:00"
   },
   "outputs/reports/lstm_baseline.md": {
    "sha256": "c3c02009d9c7da3f45c10edf2064faf348cc3a303c82ee308b958491fa6a0203",
