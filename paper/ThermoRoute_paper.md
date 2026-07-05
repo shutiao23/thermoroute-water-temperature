@@ -777,7 +777,11 @@ All code, the fixed train/validation/calibration/blind-test boundaries, unit tes
 (leakage, splits, metrics, conformal, cross-model sample consistency), and
 one-command reproduction (`scripts/run_all.sh`) are in this repository. Per-day
 predictions, model weights and logs are regenerable by the staged scripts
-(`scripts/01`–`14`); `scripts/14_manifest.py` writes a sha256 manifest of every
+(`scripts/01`–`20`, orchestrated in order by `scripts/run_all.sh`: the 3-station
+track, the 120-station experiment, per-station LightGBM, K-fold and
+leave-HUC2-region-out transfer, the global-LSTM baseline, and the Proposition-1 /
+decision-value / probabilistic / TUURT analyses); `scripts/14_manifest.py` writes a
+sha256 manifest of every
 artifact the manuscript's numbers depend on (`outputs/manifest.json`), and
 `--check` verifies the recorded hashes so any drift between the manuscript and
 the artifacts is machine-detectable. Continuous integration runs the test suite
