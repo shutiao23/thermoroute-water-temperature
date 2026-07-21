@@ -21,13 +21,47 @@ as a blind or one-shot test.
   calibration 2018, and exploratory evaluation 2019--2020.  A sample is admitted
   only if its issue date and every target date remain inside the same partition.
 
-## 2. Untouched temporal confirmation set
+## 2. Untouched temporal confirmation set and input-availability audit
 
-- Confirmation period: 2021-01-01 through 2023-12-31 for the frozen 120-site
-  cohort.  These labels must not be read by model-selection, feature-selection,
-  threshold-selection, calibration, or station-inclusion code.
-- Inputs are restricted to information available through the issue date.  This is
-  a historical-information experiment, not an archived-NWP operational forecast.
+- The sealed outcome/history acquisition period remains 2021-01-01 through
+  2023-12-31 for the frozen 120-site cohort.  These labels must not be read by
+  model-selection, feature-selection, threshold-selection, calibration, or
+  station-inclusion code.
+- The primary target registry still starts on 2021-01-01.  Primary models use
+  only WTEMP/FLOW history and retrospective gridded TEMP/PRCP/RHMEAN/DH/
+  WDSP values dated on or before the issue date.  They do **not** consume a
+  horizon-specific future-NWP field.  NWIS gage height (`WLEVEL`) may be retained
+  in a raw acquisition response for provenance, but it is not in the frozen
+  seven-variable model feature order and may not enter a Route-A prediction.
+- The gridded meteorology is a retrospectively retrieved historical product.  Its
+  as-issued provisional vintage at each historical issue date cannot be
+  reconstructed.  Raw or normalized responses, retrieval times, request details,
+  and checksums freeze the one-shot dataset actually evaluated; they do not prove
+  that the same values were operationally available then.  Route A is therefore
+  a one-shot retrospective historical-information evaluation, not a complete
+  operational replay.
+- **Secondary pre-label availability audit (2026-07-21):** official source
+  documentation says the GFS 2-m temperature archive begins in March 2021.  The
+  archive-run start is 2021-03-23; consequently the first valid dates for 1-, 3-,
+  and 7-day offsets are 2021-03-24, 2021-03-26, and 2021-03-30.  This limits only
+  an optional NWP availability/sensitivity table to target dates from 2021-03-30;
+  it does not alter the primary registry or become a label-opening requirement.
+- If that secondary artifact is acquired, it uses the Open-Meteo Previous Runs
+  API with NOAA NCEP GFS global (`models=gfs_global`) and only
+  `temperature_2m_previous_day1`, `...day3`, and `...day7`, in GMT and Celsius.
+- A `previous_dayN` value is aligned separately at every valid hour to the value
+  forecast N x 24 hours earlier.  The daily predictor is the arithmetic mean of
+  exactly 24 such valid-hour values and is available by 23:59 UTC on the issue
+  date.  It is a rolling fixed-lead composite, **not** one identified model-run
+  initialization and not a complete operational forecast replay.
+- Secondary-NWP requests are partitioned by stable `site_no` and UTC calendar month.
+  Every raw JSON response is content-addressed; parsed blocks are create-only and
+  retain request/response checksums.  Incomplete 24-hour days remain explicitly
+  unavailable rather than being averaged from a partial day.
+- Before labels are opened, the mandatory input evidence is the resolved schema
+  and immutable provenance/snapshots for the retrospective meteorological fields
+  actually consumed by primary models.  The optional NWP artifact must merely be
+  resolved as either acquired-and-frozen or explicitly not used.
 - A station/horizon is reportable when it has at least 100 valid confirmation
   targets.  Availability is reported; it is not used to replace the frozen cohort.
 - The acquisition process records request parameters, retrieval UTC, response or
@@ -36,6 +70,13 @@ as a blind or one-shot test.
   data manifest hash, resolved configuration hash, and code-tree hash.  A second
   scoring run after model changes is exploratory and must use a new run identity.
 
+The external-site candidate universe is also frozen before labels.  Discovery
+queries only the USGS site-metadata endpoint for stream sites in the 34 states
+represented by the development cohort whose metadata advertises daily-value
+parameter 00010 capability.  It does not request values, a date range, holdout
+coverage, event rates, or model errors.  The exact state responses and the
+site-number-sorted candidate table precede deterministic selection of 30 sites.
+
 ## 3. Frozen models and information set
 
 Route A evaluates a physics-inspired statistical forecaster at historically
@@ -43,15 +84,27 @@ gauged sites.  It does not claim true ungauged prediction, river-network routing
 mechanistic parameter identification, regulatory compliance, or operational NWP
 skill.
 
-The confirmation comparison includes:
+The primary confirmation comparison includes:
 
 1. persistence;
 2. train-fitted damped persistence;
 3. seasonal climatology;
 4. a validation-tuned LightGBM with exactly the same available feature schema;
 5. a validation-tuned LSTM with the same seed and optimization budget;
-6. ThermoRoute and the predeclared nested variants `prior_only`, `plain_mlp`,
-   `plain_tcn`, `bounded_residual`, and `unbounded_residual`.
+6. the five-member ThermoRoute ensemble.
+
+The following single-seed architecture controls are mandatory but exploratory:
+`DampedPriorOnly`, `TR-noDynamicPrior`, `TR-fixedKappa`, `TR-noRouter`,
+`TR-noMoE`, `TR-noTCN`, and `TR-unbounded`.  These exact executable definitions
+must be recorded in the frozen model-suite registry.  They replace earlier draft
+labels such as `plain_mlp` that did not correspond to an implemented, one-factor
+control.
+
+The separately frozen 30-site external analysis uses station-agnostic models and
+only pooled transformations fitted on the 120-site development training period.
+Those sites still provide observed WTEMP through the issue date, so this is a
+history-dependent new-gage validation, not an ungauged forecast.  It is reported
+as external/exploratory evidence and is not added to the five-test primary family.
 
 All models are scored on an identical key registry
 `(site_no, horizon, issue_date, target_date)`.  No model-specific complete-case
@@ -72,6 +125,21 @@ RMSE difference `RMSE(ThermoRoute) - RMSE(reference)`.
 The confirmatory family is H1 at three horizons plus H2 at two horizons.  Holm
 correction is applied across these five tests.  All other subgroup, architecture,
 mechanism, event, and OOD analyses are exploratory and labelled as such.
+
+For every comparison, first compute RMSE on the common daily keys separately for
+each station, then form `RMSE(ThermoRoute) - RMSE(reference)`.  The primary effect
+is the median of those paired station-level differences.  Its 95% interval is the
+2.5th--97.5th percentile interval from 10,000 bootstrap draws of whole HUC2
+clusters: all station effects in a sampled HUC2 are retained together.  A station
+without verified HUC metadata is a stable singleton cluster.
+
+The one-sided p-value is not derived from the bootstrap.  It uses 50,000 whole-
+HUC2 sign-flip randomisations, applying one common sign to all station effects in
+each cluster.  This test explicitly assumes cluster-level sign symmetry around
+the tested margin; it uses the add-one Monte Carlo correction.  Seeds are fixed
+by horizon and reference in the machine-readable protocol.  Holm step-down
+adjustment covers exactly the three damped-persistence superiority tests and the
+two LightGBM non-inferiority tests at horizons 3 and 7.
 
 Failure to reject a difference is not evidence of equivalence.  The words
 `equivalent`, `parity`, or `non-inferior` are allowed only when the complete

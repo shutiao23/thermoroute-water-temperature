@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "protocol_id": "route-a-confirmatory-v1",
+  "status": "FROZEN_NOT_ACQUIRED",
+  "authoritative_protocol_commit": "6fce087d579d5730c1afb51a4c219e401237fc2b",
+  "purpose": "Confirmatory temporal evaluation on the frozen 120-site cohort, plus a separately sealed external new-site validation",
+  "development_evidence": {
+    "frozen_panel_spec": "../data_usgs/frozen_panel_v1.json",
+    "canonical_panel": "../data_usgs/panel_usgs_120v2.parquet",
+    "canonical_metadata": "../data_usgs/stations_meta_120v2.csv",
+    "years": [2006, 2020],
+    "existing_2019_2020_role": "EXPLORATORY_NOT_BLIND"
+  },
+  "primary_site_cohort": {
+    "rule": "the complete frozen 120-site development registry; no outcome-based replacement",
+    "primary_key": "site_no",
+    "required_new_relative_to_development": false
+  },
+  "new_site_external_validation": {
+    "status": "PLANNED_NOT_ACQUIRED",
+    "primary_key": "site_no",
+    "required_new_relative_to_development": true,
+    "metadata_only_before_label_seal": true,
+    "selection_seed": "route-a-confirmatory-v1-public-seed",
+    "planned_site_count": 30,
+    "forbidden_selection_information": [
+      "WTEMP values",
+      "2021-2025 target coverage",
+      "2021-2025 event rates",
+      "2021-2025 model errors"
+    ]
+  },
+  "time_holdout": {
+    "start": "2021-01-01",
+    "primary_target_start": "2021-01-01",
+    "end": "2023-12-31",
+    "issue_and_all_target_dates_must_remain_inside": true,
+    "secondary_nwp_common_lead_target_start": "2021-03-30",
+    "secondary_nwp_date_does_not_change_primary_registry": true
+  },
+  "primary_historical_input_contract": {
+    "evaluation_type": "ONE_SHOT_RETROSPECTIVE_HISTORICAL_INFORMATION",
+    "operational_replay_claim_allowed": false,
+    "horizon_specific_future_nwp_consumed": false,
+    "information_cutoff": "issue_date_end; no target-date or post-issue values",
+    "autoregressive_inputs": ["WTEMP", "FLOW"],
+    "retrospective_meteorological_inputs": [
+      "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+    ],
+    "meteorological_time_support": "issue_date and earlier only",
+    "provisional_vintage_limitation": "The as-issued provisional vintage that would have existed on each historical issue date cannot be reconstructed from the retrospective gridded products. Frozen retrieval responses prove the one-shot retrospective dataset, not an operationally available vintage.",
+    "required_evidence_before_label_opening": [
+      "resolved feature schema showing every predictor and lag",
+      "raw or normalized immutable snapshots for every non-outcome retrospective input actually consumed",
+      "request/retrieval/checksum provenance for those snapshots",
+      "explicit statement that provisional as-issued vintages are unavailable"
+    ],
+    "required_at_single_label_opening": [
+      "immutable raw response and provenance for post-2020 WTEMP/FLOW history and outcomes; WLEVEL may be retained in the same raw response but is not consumed",
+      "one-time opening record"
+    ]
+  },
+  "secondary_archived_nwp_contract": {
+    "status": "IMPLEMENTED_NOT_ACQUIRED",
+    "role": "OPTIONAL_SECONDARY_AVAILABILITY_SENSITIVITY_NOT_PRIMARY_INPUT",
+    "contains_outcome_labels": false,
+    "consumed_by_primary_models": false,
+    "primary_evaluation_dependency": false,
+    "provider": "Open-Meteo Previous Runs API",
+    "provider_documentation": "https://open-meteo.com/en/docs/previous-runs-api",
+    "api_endpoint": "https://previous-runs-api.open-meteo.com/v1/forecast",
+    "upstream_model": "NOAA NCEP GFS global",
+    "open_meteo_model_parameter": "gfs_global",
+    "variable": "temperature_2m",
+    "unit": "degrees_C",
+    "lead_days": [1, 3, 7],
+    "lead_fields": [
+      "temperature_2m_previous_day1",
+      "temperature_2m_previous_day3",
+      "temperature_2m_previous_day7"
+    ],
+    "lead_semantics": "For each valid hour, previous_dayN is the forecast value aligned N times 24 hours before that valid hour. A UTC daily mean is therefore a rolling fixed-lead composite available by the end of issue_date, not the output of one identified model initialization.",
+    "timezone": "GMT_UTC_PLUS_00",
+    "daily_aggregation": "arithmetic mean only when all 24 valid-hour values are finite; otherwise retain an unavailable row and hour count",
+    "provider_documented_gfs_availability": "from March 2021",
+    "archive_run_start": "2021-03-23",
+    "first_valid_dates_by_lead": {
+      "1": "2021-03-24",
+      "3": "2021-03-26",
+      "7": "2021-03-30"
+    },
+    "secondary_common_lead_target_start": "2021-03-30",
+    "request_partition": "one stable site_no and one UTC calendar month per immutable raw snapshot",
+    "raw_snapshot_required": true,
+    "derived_blocks_may_be_overwritten": false,
+    "selection_or_tuning_from_predictor_availability": false
+  },
+  "pre_label_amendments": [
+    {
+      "amendment_id": "route-a-prelabel-availability-001",
+      "recorded_date": "2026-07-21",
+      "trigger": "official source availability and lead-semantics audit",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "limit only the optional secondary GFS 1/3/7-day sensitivity registry to targets on or after 2021-03-30; leave the primary confirmation start unchanged at 2021-01-01",
+      "rationale": "the documented GFS archive begins in March 2021 and a 7-day fixed-offset target cannot exist until seven days after the first archived run; primary models do not consume this artifact",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-model-input-002",
+      "recorded_date": "2026-07-21",
+      "trigger": "executable feature-schema and ablation audit",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "bind the primary model to the actual seven-variable feature order WTEMP/FLOW/TEMP/PRCP/RHMEAN/DH/WDSP, remove WLEVEL as a consumed predictor, and replace non-executable draft variant labels with the exact one-factor controls implemented by Stage 9",
+      "rationale": "the frozen implementation never exposes WLEVEL to the Route-A sequence or tabular models, and confirmatory labels must name executable interventions rather than conceptual placeholders",
+      "outcome_independent": true
+    }
+  ],
+  "metadata_candidate_contract": {
+    "status": "IMPLEMENTED_NOT_ACQUIRED",
+    "endpoint": "https://waterservices.usgs.gov/nwis/site/",
+    "state_universe_rule": "the 34 states represented by the frozen development cohort",
+    "state_universe": [
+      "AL", "AR", "AZ", "CA", "CO", "FL", "GA", "IA", "ID", "IN", "KY",
+      "MA", "MI", "MN", "MO", "MS", "MT", "NC", "ND", "NH", "NJ", "NV",
+      "NY", "OH", "OK", "OR", "PA", "SC", "TX", "UT", "WA", "WI", "WV",
+      "WY"
+    ],
+    "site_query": "USGS stream sites, siteStatus=all, whose metadata advertises daily-value parameter 00010 capability",
+    "requested_information": [
+      "site_no",
+      "station_name",
+      "coordinates",
+      "site_type",
+      "HUC",
+      "drainage_area_if_present"
+    ],
+    "forbidden_information": [
+      "WTEMP values",
+      "date-range probes",
+      "2021-2023 coverage",
+      "event rates",
+      "model errors"
+    ],
+    "one_raw_snapshot_per_state": true,
+    "stable_sort": ["site_no", "state"]
+  },
+  "primary_inference_contract": {
+    "feature_order": [
+      "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+    ],
+    "wlevel_consumed": false,
+    "primary_models": [
+      "Persistence", "DampedPersistence", "Climatology", "LightGBM",
+      "LSTM", "ThermoRoute"
+    ],
+    "mandatory_exploratory_architecture_controls": [
+      "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
+      "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded"
+    ],
+    "forecast_key": ["site_no", "horizon", "issue_date", "target_date"],
+    "common_keys_required_across_models": true,
+    "station_metric": "RMSE on common daily forecast keys",
+    "paired_effect_convention": "station_RMSE_ThermoRoute minus station_RMSE_reference; negative is better",
+    "primary_effect": "median of paired station-level RMSE differences",
+    "confidence_interval": {
+      "method": "whole-HUC2 cluster percentile bootstrap",
+      "resampling_unit": "HUC2 cluster",
+      "within_cluster_rule": "retain all station effects together whenever a sampled HUC2 cluster is drawn",
+      "unverified_huc_rule": "each station lacking verified HUC metadata is a stable singleton cluster",
+      "draws": 10000,
+      "percentiles": [2.5, 97.5],
+      "seed_rule": "1000 + horizon + (100 when reference is LightGBM, else 0)"
+    },
+    "one_sided_p_value": {
+      "method": "whole-HUC2 cluster sign-flip randomisation",
+      "null_assumption": "cluster-level sign symmetry of the paired station effects around the tested margin",
+      "alternative": "median paired effect is lower than the tested margin",
+      "within_cluster_rule": "apply one common random sign to every station effect in the HUC2 cluster",
+      "unverified_huc_rule": "each station lacking verified HUC metadata is a stable singleton cluster",
+      "randomisation_draws": 50000,
+      "monte_carlo_correction": "add one to numerator and denominator",
+      "seed_rule": "5000 + horizon + (100 when reference is LightGBM, else 0)"
+    },
+    "confirmatory_family": [
+      "ThermoRoute vs damped persistence superiority at horizon 1, margin 0.00 C",
+      "ThermoRoute vs damped persistence superiority at horizon 3, margin 0.00 C",
+      "ThermoRoute vs damped persistence superiority at horizon 7, margin 0.00 C",
+      "ThermoRoute vs LightGBM non-inferiority at horizon 3, margin +0.05 C",
+      "ThermoRoute vs LightGBM non-inferiority at horizon 7, margin +0.05 C"
+    ],
+    "multiplicity": "Holm step-down adjustment across exactly the five confirmatory one-sided tests",
+    "failure_to_reject_is_equivalence": false
+  },
+  "availability_contract": {
+    "required_before_opening_labels": [
+      "candidate discovery raw snapshot and checksum",
+      "frozen disjoint site registry",
+      "resolved feature schema",
+      "frozen preprocessing and model bundle",
+      "frozen primary metrics and hypothesis tests",
+      "frozen provenance and snapshots for every retrospective input actually consumed by the primary models"
+    ],
+    "secondary_nwp_resolution_before_opening": "either ACQUIRED_AND_FROZEN or EXPLICITLY_NOT_USED; acquisition is not a primary-label-opening gate",
+    "labels_default_state": "SEALED_NOT_ACQUIRED",
+    "maximum_openings": 1
+  },
+  "external_new_gage_inference_contract": {
+    "role": "EXTERNAL_EXPLORATORY_NOT_IN_PRIMARY_FIVE_TEST_FAMILY",
+    "observed_wtemp_history_through_issue_date": true,
+    "ungauged_claim_allowed": false,
+    "station_identity_embedding_allowed": false,
+    "preprocessing": "pooled transformations fitted only on the frozen 120-site development training partition",
+    "model_suite": "station-agnostic ThermoRoute, LSTM, and LightGBM plus persistence, pooled damped persistence, and pooled seasonal climatology",
+    "availability_rule": "report all frozen sites and attrition; do not replace a site using post-2020 availability or outcomes"
+  },
+  "honesty_guard": "The protocol is frozen, but no post-2020 outcome data or new-site external cohort is bundled here. Do not report confirmatory results until verified acquisition artifacts and a one-time opening record exist."
+}
