@@ -113,6 +113,15 @@
       "change": "bind the primary model to the actual seven-variable feature order WTEMP/FLOW/TEMP/PRCP/RHMEAN/DH/WDSP, remove WLEVEL as a consumed predictor, and replace non-executable draft variant labels with the exact one-factor controls implemented by Stage 9",
       "rationale": "the frozen implementation never exposes WLEVEL to the Route-A sequence or tabular models, and confirmatory labels must name executable interventions rather than conceptual placeholders",
       "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-reportability-003",
+      "recorded_date": "2026-07-21",
+      "trigger": "machine-readable protocol and trusted-scorer consistency audit",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "make the already-declared threshold of 100 valid confirmation targets per frozen station and horizon explicit in the machine-readable availability contract",
+      "rationale": "the prose protocol already fixed this threshold, but relying on an implementation default would leave the scoring contract under-specified",
+      "outcome_independent": true
     }
   ],
   "metadata_candidate_contract": {
@@ -200,6 +209,7 @@
       "frozen primary metrics and hypothesis tests",
       "frozen provenance and snapshots for every retrospective input actually consumed by the primary models"
     ],
+    "minimum_valid_targets_per_station_horizon": 100,
     "secondary_nwp_resolution_before_opening": "either ACQUIRED_AND_FROZEN or EXPLICITLY_NOT_USED; acquisition is not a primary-label-opening gate",
     "labels_default_state": "SEALED_NOT_ACQUIRED",
     "maximum_openings": 1
