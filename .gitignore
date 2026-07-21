@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+build/
 .pytest_cache/
 .ipynb_checkpoints/
 
@@ -19,6 +20,20 @@ data/processed/
 
 # Per-station intermediate downloads (the combined panels are committed instead)
 data_usgs/n*.csv
+data_usgs/site_*.csv
+
+# Route-A acquired predictors are immutable release data, not source files.
+data_usgs/confirmatory_predictors/
+data_usgs/confirmatory_candidate_sites_v1.csv
+data_usgs/confirmatory_candidate_sites_v1.provenance.json
+data_usgs/confirmatory_site_registry_v1.csv
+data_usgs/confirmatory_site_registry_v1.lock.json
+
+# Versioned raw API bytes are archived with the data release rather than Git.
+data_usgs/raw_snapshots/*
+!data_usgs/raw_snapshots/README.md
+!data_usgs/raw_snapshots/huc-v1/
+!data_usgs/raw_snapshots/huc-v1/**
 
 # Stray run checkpoints
 *_ckpt/

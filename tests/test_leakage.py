@@ -67,6 +67,26 @@ def test_window_tail_equals_issue_value():
     assert len(wd.X) > 10000
 
 
+def test_window_splits_are_target_closed():
+    """No horizon target may cross train/val/calib/test boundaries."""
+    b, clim = _bundle()
+    wd = DS.build_windows(b["panel"], b["masks"], clim)
+    expected = (wd.issue_date[:, None]
+                + np.asarray(wd.horizons)[None, :] * np.timedelta64(1, "D"))
+    assert np.array_equal(wd.target_date, expected)
+    for name, (lo, hi) in C.SPLIT.as_dict().items():
+        sel = wd.split == name
+        assert sel.any()
+        assert (wd.issue_date[sel] >= np.datetime64(lo)).all()
+        assert (wd.issue_date[sel] <= np.datetime64(hi)).all()
+        assert (wd.target_date[sel] >= np.datetime64(lo)).all()
+        assert (wd.target_date[sel] <= np.datetime64(hi)).all()
+        # Multi-horizon windows share one sample registry, so max(horizon) days
+        # at the end of each partition are embargoed.
+        assert wd.issue_date[sel].max() <= (
+            np.datetime64(hi) - np.timedelta64(max(wd.horizons), "D"))
+
+
 def test_target_is_strictly_future():
     """The stored target y[:, hi] must equal panel WTEMP at issue_date + h —
     verified against the panel itself on a subsample, not just h > 0."""
@@ -94,10 +114,81 @@ def test_target_is_strictly_future():
     assert (pd.to_datetime(tab.target_date) > pd.to_datetime(tab.issue_date)).all()
 
 
-def test_tabular_split_uses_issue_date():
+def test_tabular_split_is_target_closed():
     b, clim = _bundle()
     tab = F.attach_split(F.build_tabular(b["panel"], 7, C.FEATURE_SETS["V3"], clim))
-    test_rows = tab[tab.split == "test"]
-    assert pd.to_datetime(test_rows.issue_date).min() >= pd.Timestamp(C.SPLIT.test[0])
-    train_rows = tab[tab.split == "train"]
-    assert pd.to_datetime(train_rows.issue_date).max() <= pd.Timestamp(C.SPLIT.train[1])
+    for name, (lo, hi) in C.SPLIT.as_dict().items():
+        rows = tab[tab.split == name]
+        assert not rows.empty
+        assert pd.to_datetime(rows.issue_date).min() >= pd.Timestamp(lo)
+        assert pd.to_datetime(rows.issue_date).max() <= pd.Timestamp(hi) - pd.Timedelta(days=7)
+        assert pd.to_datetime(rows.target_date).min() >= pd.Timestamp(lo)
+        assert pd.to_datetime(rows.target_date).max() <= pd.Timestamp(hi)
+
+    # Boundary rows still exist for traceability but are explicitly excluded.
+    train_end_issue = tab[
+        pd.to_datetime(tab.issue_date).between("2015-12-25", "2015-12-31")
+    ]
+    assert not train_end_issue.empty
+    assert set(train_end_issue["split"]) == {"none"}
+
+
+def test_feature_schema_blocks_hidden_forcing_paths():
+    """V1 must be invariant to forcings, including physics/gate side paths."""
+    b, clim = _bundle()
+    v1 = C.FEATURE_SETS["V1"]
+    first = DS.build_windows(b["panel"], b["masks"], clim, variables=v1)
+    perturbed = b["panel"].copy()
+    rng = np.random.default_rng(41)
+    for var in C.FORCINGS:
+        perturbed[var] = rng.normal(1000.0, 500.0, len(perturbed))
+    second = DS.build_windows(perturbed, b["masks"], clim, variables=v1)
+
+    assert first.feature_schema.variables == ("WTEMP",)
+    assert first.phys_vars == () and first.phys_std.shape[1] == 0
+    assert np.array_equal(first.X, second.X)
+    assert np.array_equal(first.damped_prior, second.damped_prior)
+    assert np.count_nonzero(first.logflowz) == 0
+    assert np.count_nonzero(first.wlevelz) == 0
+    # Gate layout: sin, cos, TEMP, FLOW, PRCP, WTEMP tendency.
+    assert np.count_nonzero(first.gate[:, 2:5]) == 0
+    assert np.array_equal(first.gate, second.gate)
+
+
+def test_damped_anchor_is_immune_to_post_train_targets():
+    b, clim = _bundle()
+    original = F.DampedPersistenceAnchor.fit(b["panel"], b["masks"].train, clim)
+    altered = b["panel"].copy()
+    altered.loc[~b["masks"].train, "WTEMP"] += 1000.0
+    refit = F.DampedPersistenceAnchor.fit(altered, b["masks"].train, clim)
+    assert original.phi == refit.phi
+
+
+def test_zero_shot_preprocessors_ignore_held_station_history():
+    b, _ = _bundle()
+    train_stations = tuple(s for s in C.STATIONS if s != "p3")
+    clim1 = F.HarmonicClimatology.fit(
+        b["panel"], b["masks"].train, fit_stations=train_stations, pooled=True)
+    scale1 = D.StandardScalerPerStation.fit(
+        b["panel"], b["masks"].train, variables=("WTEMP",),
+        fit_stations=train_stations, pooled=True)
+    damp1 = F.DampedPersistenceAnchor.fit(
+        b["panel"], b["masks"].train, clim1,
+        fit_stations=train_stations, pooled=True)
+
+    altered = b["panel"].copy()
+    held_train = b["masks"].train & altered.site_id.eq("p3").to_numpy()
+    altered.loc[held_train, "WTEMP"] += 500.0
+    clim2 = F.HarmonicClimatology.fit(
+        altered, b["masks"].train, fit_stations=train_stations, pooled=True)
+    scale2 = D.StandardScalerPerStation.fit(
+        altered, b["masks"].train, variables=("WTEMP",),
+        fit_stations=train_stations, pooled=True)
+    damp2 = F.DampedPersistenceAnchor.fit(
+        altered, b["masks"].train, clim2,
+        fit_stations=train_stations, pooled=True)
+
+    assert np.array_equal(clim1.coef["p3"], clim2.coef["p3"])
+    assert scale1.mean[("p3", "WTEMP")] == scale2.mean[("p3", "WTEMP")]
+    assert scale1.std[("p3", "WTEMP")] == scale2.std[("p3", "WTEMP")]
+    assert damp1.phi == damp2.phi

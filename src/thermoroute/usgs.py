@@ -17,13 +17,17 @@ All sources are public domain (USGS) / open (Daymet, ORNL DAAC).
 from __future__ import annotations
 
 import io
+import re
 import time
 import urllib.request
+from urllib.parse import urlencode
 
 import numpy as np
 import pandas as pd
 
 import dataretrieval.nwis as nwis
+
+from .provenance import SnapshotStore
 
 NWIS_PARAMS = {"00010": "WTEMP", "00060": "FLOW", "00065": "WLEVEL"}
 
@@ -31,11 +35,47 @@ NWIS_PARAMS = {"00010": "WTEMP", "00060": "FLOW", "00065": "WLEVEL"}
 # --------------------------------------------------------------------------- #
 # Discovery
 # --------------------------------------------------------------------------- #
-def discover_sites(state: str, param: str = "00010") -> pd.DataFrame:
+def _parse_nwis_rdb(payload: bytes) -> pd.DataFrame:
+    """Parse a raw NWIS RDB response while retaining site_no as text."""
+    text = payload.decode("utf-8", errors="strict")
+    rows = [line for line in text.splitlines() if line and not line.startswith("#")]
+    if not rows:
+        return pd.DataFrame()
+    df = pd.read_csv(io.StringIO("\n".join(rows)), sep="\t", dtype=str)
+    # RDB places a field-width/type declaration (for example ``5s``) directly
+    # below the header.  It is metadata, not an observation.
+    if len(df) and all(
+        pd.isna(value) or re.fullmatch(r"\d+[a-z]", str(value).strip())
+        for value in df.iloc[0]
+    ):
+        df = df.iloc[1:].reset_index(drop=True)
+    return df
+
+
+def discover_sites(
+    state: str,
+    param: str = "00010",
+    snapshot_store: SnapshotStore | None = None,
+) -> pd.DataFrame:
     """Return stream ('ST') sites in a state that have daily values for ``param``."""
-    out = nwis.what_sites(stateCd=state, parameterCd=param, siteType="ST",
-                          hasDataTypeCd="dv")
-    df = out[0] if isinstance(out, tuple) else out
+    if snapshot_store is None:
+        out = nwis.what_sites(stateCd=state, parameterCd=param, siteType="ST",
+                              hasDataTypeCd="dv")
+        df = out[0] if isinstance(out, tuple) else out
+    else:
+        url = "https://waterservices.usgs.gov/nwis/site/?" + urlencode({
+            "format": "rdb",
+            "stateCd": state,
+            "parameterCd": param,
+            "siteType": "ST",
+            "hasDataTypeCd": "dv",
+            "siteStatus": "all",
+        })
+        payload, _ = snapshot_store.fetch(provider="usgs-nwis-site", url=url)
+        df = _parse_nwis_rdb(payload)
+        for col in ("dec_lat_va", "dec_long_va", "alt_va"):
+            if col in df:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
     keep = ["site_no", "station_nm", "dec_lat_va", "dec_long_va", "alt_va", "huc_cd"]
     df = df[[c for c in keep if c in df.columns]].copy()
     df["state"] = state
@@ -47,18 +87,39 @@ def discover_sites(state: str, param: str = "00010") -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 def _pick_mean_col(df: pd.DataFrame, pcode: str) -> str | None:
     cands = [c for c in df.columns
-             if pcode in c and c.endswith("Mean") and not c.endswith("_cd")]
+             if pcode in c
+             and (c.endswith("Mean") or c.endswith("_00003"))
+             and not c.endswith("_cd")]
     return cands[0] if cands else None
 
 
-def fetch_nwis_daily(site: str, start: str, end: str) -> pd.DataFrame | None:
+def fetch_nwis_daily(
+    site: str,
+    start: str,
+    end: str,
+    snapshot_store: SnapshotStore | None = None,
+) -> pd.DataFrame | None:
     """Daily WTEMP/FLOW/WLEVEL for one site, reindexed to a gap-free calendar."""
-    try:
-        out = nwis.get_record(sites=site, service="dv", start=start, end=end,
-                              parameterCd=list(NWIS_PARAMS))
-        raw = out[0] if isinstance(out, tuple) else out
-    except Exception:
-        return None
+    if snapshot_store is None:
+        try:
+            out = nwis.get_record(sites=site, service="dv", start=start, end=end,
+                                  parameterCd=list(NWIS_PARAMS))
+            raw = out[0] if isinstance(out, tuple) else out
+        except Exception:
+            return None
+    else:
+        url = "https://waterservices.usgs.gov/nwis/dv/?" + urlencode({
+            "format": "rdb",
+            "sites": site,
+            "startDT": start,
+            "endDT": end,
+            "parameterCd": ",".join(NWIS_PARAMS),
+            "siteStatus": "all",
+        })
+        payload, _ = snapshot_store.fetch(provider="usgs-nwis-dv", url=url)
+        raw = _parse_nwis_rdb(payload)
+        if len(raw) and "datetime" in raw:
+            raw = raw.set_index("datetime")
     if raw is None or len(raw) == 0:
         return None
     raw = raw.copy()
@@ -87,7 +148,8 @@ def _svp(temp_c: np.ndarray) -> np.ndarray:
 
 
 def fetch_daymet(lat: float, lon: float, start: str, end: str,
-                 retries: int = 3) -> pd.DataFrame | None:
+                 retries: int = 3,
+                 snapshot_store: SnapshotStore | None = None) -> pd.DataFrame | None:
     """Daily TEMP/PRCP/DH(=solar radiation)/RHMEAN at a point from Daymet.
 
     Daymet covers 1980–present and excludes leap day 12-31 in some years; we
@@ -97,16 +159,21 @@ def fetch_daymet(lat: float, lon: float, start: str, end: str,
     url = (f"https://daymet.ornl.gov/single-pixel/api/data?lat={lat}&lon={lon}"
            f"&vars=tmax,tmin,prcp,srad,vp&start={s_year}-01-01&end={e_year}-12-31")
     raw = None
-    for _ in range(retries):
-        try:
-            raw = urllib.request.urlopen(url, timeout=60).read().decode()
-            break
-        except Exception:
-            time.sleep(1.0)
+    if snapshot_store is not None:
+        payload, _ = snapshot_store.fetch(
+            provider="ornl-daymet-single-pixel", url=url, retries=retries)
+        raw = payload.decode("utf-8")
+    else:
+        for _ in range(retries):
+            try:
+                raw = urllib.request.urlopen(url, timeout=60).read().decode()
+                break
+            except Exception:
+                time.sleep(1.0)
     if raw is None:
         return None
     lines = raw.splitlines()
-    hdr = next((i for i, l in enumerate(lines) if l.startswith("year,")), None)
+    hdr = next((i for i, line in enumerate(lines) if line.startswith("year,")), None)
     if hdr is None:
         return None
     d = pd.read_csv(io.StringIO("\n".join(lines[hdr:])))
@@ -129,7 +196,8 @@ def fetch_daymet(lat: float, lon: float, start: str, end: str,
 # gridMET wind speed (point, via NWK THREDDS NetCDF Subset Service)
 # --------------------------------------------------------------------------- #
 def fetch_gridmet_wind(lat: float, lon: float, start: str, end: str,
-                       retries: int = 3) -> pd.Series | None:
+                       retries: int = 3,
+                       snapshot_store: SnapshotStore | None = None) -> pd.Series | None:
     """Daily mean wind speed at a point from gridMET (CONUS, 1979–present).
 
     Returned as a wind *index* — gridMET NCSS returns packed values, but the
@@ -141,12 +209,17 @@ def fetch_gridmet_wind(lat: float, lon: float, start: str, end: str,
            f"&latitude={lat}&longitude={lon}"
            f"&time_start={start}T00:00:00Z&time_end={end}T00:00:00Z&accept=csv")
     raw = None
-    for _ in range(retries):
-        try:
-            raw = urllib.request.urlopen(url, timeout=60).read().decode()
-            break
-        except Exception:
-            time.sleep(1.0)
+    if snapshot_store is not None:
+        payload, _ = snapshot_store.fetch(
+            provider="gridmet-ncss", url=url, retries=retries)
+        raw = payload.decode("utf-8")
+    else:
+        for _ in range(retries):
+            try:
+                raw = urllib.request.urlopen(url, timeout=60).read().decode()
+                break
+            except Exception:
+                time.sleep(1.0)
     if raw is None:
         return None
     try:
@@ -168,7 +241,8 @@ def build_station(site: str, lat: float, lon: float, site_id: str,
                   min_flow_cov: float = 0.0,
                   min_wtemp_cov_test: float = 0.0,
                   min_flow_cov_test: float = 0.0,
-                  test_start: str = "2019-01-01"
+                  test_start: str = "2019-01-01",
+                  snapshot_store: SnapshotStore | None = None,
                   ) -> tuple[pd.DataFrame | None, dict]:
     """Acquire one station and apply the inclusion thresholds.
 
@@ -177,13 +251,12 @@ def build_station(site: str, lat: float, lon: float, site_id: str,
 
     * **Full-period** (``min_wtemp_cov`` / ``min_flow_cov``): observation
       density across the whole 2006–2020 record.
-    * **Blind-test-period** (``min_wtemp_cov_test`` / ``min_flow_cov_test``):
-      observation density inside the held-out years (default 2019 onward).
-      This second gate stops a station from sneaking into the panel on its
-      pre-2019 record only to vanish from the actual blind-test evaluation
-      (the 39→36 shrinkage in the original 40-station panel).
+    * **Development-evaluation period** (legacy argument names
+      ``min_wtemp_cov_test`` / ``min_flow_cov_test``): observation density from
+      2019 onward.  Because this gate looked at 2019--2020 availability, those
+      years are exploratory development evidence, not a blind/untouched test.
     """
-    nwis_df = fetch_nwis_daily(site, start, end)
+    nwis_df = fetch_nwis_daily(site, start, end, snapshot_store=snapshot_store)
     if nwis_df is None:
         return None, {"site": site, "ok": False, "reason": "no NWIS WTEMP+FLOW"}
     wt_cov = nwis_df["WTEMP"].notna().mean()
@@ -201,14 +274,15 @@ def build_station(site: str, lat: float, lon: float, site_id: str,
                       **cov_info}
     if (wt_cov_test < min_wtemp_cov_test) or (fl_cov_test < min_flow_cov_test):
         return None, {"site": site, "ok": False,
-                      "reason": "low blind-test-period coverage", **cov_info}
-    met = fetch_daymet(lat, lon, start, end)
+                      "reason": "low development-evaluation-period coverage", **cov_info}
+    met = fetch_daymet(lat, lon, start, end, snapshot_store=snapshot_store)
     if met is None:
         return None, {"site": site, "ok": False, "reason": "no Daymet"}
     df = nwis_df.join(met, how="left")
     if "WLEVEL" not in df:
         df["WLEVEL"] = np.nan
-    wind = fetch_gridmet_wind(lat, lon, start, end)   # gridMET wind index
+    wind = fetch_gridmet_wind(
+        lat, lon, start, end, snapshot_store=snapshot_store)  # gridMET wind index
     df["WDSP"] = wind.reindex(df.index).to_numpy() if wind is not None else np.nan
     df = df.reset_index().rename(columns={"index": "DATE"})
     df.insert(1, "site_id", site_id)

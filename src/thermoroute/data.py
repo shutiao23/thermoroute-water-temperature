@@ -4,7 +4,7 @@ Design rules enforced here (the things reviewers actually check):
 
 * Sentinel codes (WDSP 999.9, PRCP 99.99) are masked to NaN, never used as
   extremes.
-* The time split is by calendar date; the blind-test years are isolated.
+* The time split is by calendar date; development partitions are isolated.
 * Imputation statistics and any per-station scaling are fit on the **training
   fold only** and then applied forward — no future information leaks back.
 """
@@ -13,12 +13,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
-
 import numpy as np
 import pandas as pd
 
 from . import config as C
+from .evidence import DEFAULT_FROZEN_PANEL_SPEC, EvidenceError, FrozenPanelSpec
 
 
 # --------------------------------------------------------------------------- #
@@ -109,6 +108,28 @@ def assert_split_disjoint(split: C.TimeSplit = C.SPLIT) -> None:
         assert a_hi < b_lo, f"split overlap / disorder: {a_hi} !< {b_lo}"
 
 
+def split_for_forecast_interval(
+    issue_date: object,
+    target_dates: object,
+    split: C.TimeSplit = C.SPLIT,
+) -> str:
+    """Return a split only when issue *and every target* stay inside it.
+
+    Assigning a sample by issue date alone lets the last training issues consume
+    validation labels (and similarly at every later boundary).  Returning
+    ``"none"`` for such rows implements the required horizon-sized embargo.
+    """
+    issue = np.datetime64(pd.Timestamp(issue_date).to_datetime64(), "ns")
+    targets = np.asarray(pd.to_datetime(target_dates), dtype="datetime64[ns]").reshape(-1)
+    if targets.size == 0:
+        raise ValueError("a forecast sample must have at least one target date")
+    for name, (lo, hi) in split.as_dict().items():
+        lower, upper = np.datetime64(lo), np.datetime64(hi)
+        if lower <= issue <= upper and np.all((targets >= lower) & (targets <= upper)):
+            return name
+    return "none"
+
+
 # --------------------------------------------------------------------------- #
 # Fold-safe imputation
 # --------------------------------------------------------------------------- #
@@ -163,19 +184,56 @@ class Imputer:
 class StandardScalerPerStation:
     mean: dict[tuple[str, str], float]
     std: dict[tuple[str, str], float]
+    fit_stations: tuple[str, ...] = ()
+    pooled: bool = False
 
     @classmethod
     def fit(cls, panel: pd.DataFrame, train_mask: np.ndarray,
-            variables: tuple[str, ...] = C.ALL_VARS) -> "StandardScalerPerStation":
-        tr = panel.loc[train_mask]
+            variables: tuple[str, ...] = C.ALL_VARS,
+            fit_stations: tuple[str, ...] | None = None,
+            pooled: bool = False) -> "StandardScalerPerStation":
+        """Fit scaling statistics without using validation/test observations.
+
+        ``fit_stations`` and ``pooled`` support true spatial holdout.  In pooled
+        mode one train-station statistic per variable is assigned to *every*
+        station, so a held-out station's historical targets cannot leak through
+        a station-specific mean or variance.
+        """
+        fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
+        allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()
+        tr = panel.loc[allowed]
         mean, std = {}, {}
+        pooled_stats: dict[str, tuple[float, float]] = {}
+        for var in variables:
+            values = pd.to_numeric(tr[var], errors="coerce").to_numpy(float)
+            if var in C.LOG1P_VARS:
+                values = np.log1p(np.clip(values, 0, None))
+            finite = values[np.isfinite(values)]
+            mu = float(np.mean(finite)) if len(finite) else 0.0
+            sigma = float(np.std(finite, ddof=1)) if len(finite) > 1 else 1.0
+            if not np.isfinite(sigma) or sigma < 1e-8:
+                sigma = 1.0
+            pooled_stats[var] = (mu, sigma)
         for st in C.STATIONS:
             sub = tr[tr.site_id == st]
             for var in variables:
-                series = np.log1p(sub[var]) if var in C.LOG1P_VARS else sub[var]
-                mean[(st, var)] = float(series.mean())
-                std[(st, var)] = float(series.std() + 1e-8)
-        return cls(mean=mean, std=std)
+                if pooled or st not in fitted:
+                    mu, sigma = pooled_stats[var]
+                else:
+                    values = pd.to_numeric(sub[var], errors="coerce").to_numpy(float)
+                    if var in C.LOG1P_VARS:
+                        values = np.log1p(np.clip(values, 0, None))
+                    finite = values[np.isfinite(values)]
+                    if len(finite):
+                        mu = float(np.mean(finite))
+                        sigma = float(np.std(finite, ddof=1)) if len(finite) > 1 else 1.0
+                    else:
+                        mu, sigma = pooled_stats[var]
+                    if not np.isfinite(sigma) or sigma < 1e-8:
+                        sigma = 1.0
+                mean[(st, var)] = mu
+                std[(st, var)] = sigma
+        return cls(mean=mean, std=std, fit_stations=fitted, pooled=pooled)
 
     def transform_value(self, station: str, var: str, x: np.ndarray) -> np.ndarray:
         if var in C.LOG1P_VARS:
@@ -194,11 +252,20 @@ def prepare_dataset() -> dict[str, object]:
     return {"panel_raw": panel, "panel": panel_imp, "masks": masks, "imputer": imputer}
 
 
-def prepare_dataset_from_panel(panel_path: str, set_global_stations: bool = True) -> dict[str, object]:
+def prepare_dataset_from_panel(
+    panel_path: str,
+    set_global_stations: bool = True,
+    *,
+    frozen_spec: str | Path | None = None,
+    stable_site_ids: bool = True,
+    allow_noncanonical_usgs: bool = False,
+) -> dict[str, object]:
     """Same fold-safe pipeline applied to an externally-acquired panel
-    (e.g. ``data_usgs/panel_usgs_100.parquet``).
+    (canonically ``data_usgs/panel_usgs_120v2.parquet``).
 
-    Reads the panel, registers its station list as ``C.STATIONS`` (so the rest of
+    Verifies the frozen panel/registry when applicable, maps legacy ``nXX``
+    aliases to stable USGS site numbers, and registers that station list as
+    ``C.STATIONS`` (so the rest of
     the code — scalers, climatology, ThermoRoute n_stations — sees the right
     dimension), masks observed flags, builds time-split masks, fits the imputer
     on the training fold and returns the imputed panel.
@@ -207,9 +274,47 @@ def prepare_dataset_from_panel(panel_path: str, set_global_stations: bool = True
     superseded by this single entry point; both 3-station and USGS pipelines now
     share one fold-safe preparation step.
     """
-    panel = pd.read_parquet(panel_path)
+    panel_file = Path(panel_path).resolve()
+    evidence: dict[str, object] | None = None
+    registry: pd.DataFrame | None = None
+
+    # The main USGS panel is a frozen legacy artifact whose internal nXX aliases
+    # are not stable scientific identifiers.  Verify the exact bytes and map the
+    # panel to USGS site_no before any split, scaling or prediction is performed.
+    # Non-canonical/temporary panels remain supported, but callers can bind them
+    # explicitly by passing their own frozen_spec.
+    spec: FrozenPanelSpec | None = None
+    if frozen_spec is not None:
+        spec = FrozenPanelSpec.load(frozen_spec)
+        if spec.panel_path != panel_file:
+            raise ValueError(
+                f"frozen spec binds {spec.panel_path}, not requested panel {panel_file}")
+    elif DEFAULT_FROZEN_PANEL_SPEC.exists():
+        candidate = FrozenPanelSpec.load(DEFAULT_FROZEN_PANEL_SPEC)
+        if candidate.panel_path == panel_file:
+            spec = candidate
+
+    if (
+        spec is None
+        and DEFAULT_FROZEN_PANEL_SPEC.exists()
+        and panel_file.parent == DEFAULT_FROZEN_PANEL_SPEC.parent
+        and panel_file.name.startswith("panel_usgs")
+        and not allow_noncanonical_usgs
+    ):
+        canonical = FrozenPanelSpec.load(DEFAULT_FROZEN_PANEL_SPEC).panel_path
+        raise EvidenceError(
+            f"{panel_file.name} is a non-canonical USGS panel. Route-A runs are "
+            f"bound to {canonical.name}; pass allow_noncanonical_usgs=True only "
+            "for an explicitly labelled legacy/pilot analysis.")
+
+    if spec is not None:
+        panel = spec.load_panel(stable_site_ids=stable_site_ids)
+        registry = spec.load_registry()
+        evidence = spec.verify()
+    else:
+        panel = pd.read_parquet(panel_file)
     panel["DATE"] = pd.to_datetime(panel["DATE"])
-    stations = tuple(sorted(panel.site_id.unique()))
+    stations = tuple(sorted(str(s) for s in panel.site_id.unique()))
     if set_global_stations:
         C.STATIONS = stations
         C.UPSTREAM = {s: None for s in stations}
@@ -222,4 +327,5 @@ def prepare_dataset_from_panel(panel_path: str, set_global_stations: bool = True
     return {
         "panel_raw": panel, "panel": panel_imp, "masks": masks,
         "imputer": imputer, "stations": stations,
+        "station_registry": registry, "evidence": evidence,
     }

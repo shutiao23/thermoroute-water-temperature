@@ -33,21 +33,44 @@ class HarmonicClimatology:
     """
     coef: dict[str, np.ndarray]      # station -> regression coefficients
     k: int = C.SEASONAL_HARMONICS
+    fit_stations: tuple[str, ...] = ()
+    pooled: bool = False
 
     @classmethod
     def fit(cls, panel: pd.DataFrame, train_mask: np.ndarray,
-            target: str = C.TARGET, k: int = C.SEASONAL_HARMONICS) -> "HarmonicClimatology":
-        tr = panel.loc[train_mask]
+            target: str = C.TARGET, k: int = C.SEASONAL_HARMONICS,
+            fit_stations: tuple[str, ...] | None = None,
+            pooled: bool = False) -> "HarmonicClimatology":
+        """Fit train-only seasonal coefficients.
+
+        For zero-shot spatial transfer, pass the in-fold ``fit_stations`` and
+        ``pooled=True``.  The same pooled coefficient vector is then used for
+        both training and held-out stations, preventing held-out WTEMP history
+        from entering through a nominally "deterministic" climatology.
+        """
+        fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
+        allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()
+        tr = panel.loc[allowed]
         coef: dict[str, np.ndarray] = {}
-        for st in C.STATIONS:
-            sub = tr[tr.site_id == st]
+
+        def regress(sub: pd.DataFrame) -> np.ndarray | None:
             doy = pd.to_datetime(sub["DATE"]).dt.dayofyear.to_numpy()
             X = np.concatenate([np.ones((len(doy), 1)), doy_harmonics(doy, k)], axis=1)
-            y = sub[target].to_numpy(dtype=float)
-            m = ~np.isnan(y)                       # NaN-safe for gappy large-sample data
+            y = pd.to_numeric(sub[target], errors="coerce").to_numpy(dtype=float)
+            m = np.isfinite(y)
+            if m.sum() < X.shape[1]:
+                return None
             beta, *_ = np.linalg.lstsq(X[m], y[m], rcond=None)
-            coef[st] = beta
-        return cls(coef=coef, k=k)
+            return beta
+
+        pooled_beta = regress(tr)
+        if pooled_beta is None:
+            raise ValueError("not enough finite train-station data to fit climatology")
+        for st in C.STATIONS:
+            sub = tr[tr.site_id == st]
+            station_beta = None if pooled or st not in fitted else regress(sub)
+            coef[st] = pooled_beta.copy() if station_beta is None else station_beta
+        return cls(coef=coef, k=k, fit_stations=fitted, pooled=pooled)
 
     def predict(self, station: str, doy: np.ndarray) -> np.ndarray:
         X = np.concatenate([np.ones((len(doy), 1)), doy_harmonics(doy, self.k)], axis=1)
@@ -55,6 +78,84 @@ class HarmonicClimatology:
 
     def predict_dates(self, station: str, dates: pd.Series) -> np.ndarray:
         return self.predict(station, pd.to_datetime(dates).dt.dayofyear.to_numpy())
+
+
+@dataclass(frozen=True)
+class DampedPersistenceAnchor:
+    """Frozen, train-fit AR(1) anomaly anchor used by the safety contract."""
+
+    phi: dict[str, float]
+    fit_stations: tuple[str, ...]
+    pooled: bool = False
+    fallback: float = 0.9
+
+    @classmethod
+    def fit(
+        cls,
+        panel: pd.DataFrame,
+        train_mask: np.ndarray,
+        clim: HarmonicClimatology,
+        *,
+        fit_stations: tuple[str, ...] | None = None,
+        pooled: bool = False,
+        fallback: float = 0.9,
+        min_pairs: int = 30,
+    ) -> "DampedPersistenceAnchor":
+        """Estimate anomaly lag-1 correlation using observed train pairs only."""
+        fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
+        allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()
+        tr = panel.loc[allowed]
+
+        def pairs(station: str) -> tuple[np.ndarray, np.ndarray]:
+            sub = tr[tr.site_id == station].sort_values("DATE")
+            if len(sub) < 2:
+                return np.empty(0), np.empty(0)
+            anomaly = (pd.to_numeric(sub["WTEMP"], errors="coerce").to_numpy(float)
+                       - clim.predict_dates(station, sub["DATE"]))
+            observed = (sub["WTEMP_observed"].to_numpy(bool)
+                        if "WTEMP_observed" in sub else np.isfinite(anomaly))
+            dates = pd.to_datetime(sub["DATE"]).to_numpy(dtype="datetime64[D]")
+            valid = (observed[1:] & observed[:-1]
+                     & np.isfinite(anomaly[1:]) & np.isfinite(anomaly[:-1])
+                     & ((dates[1:] - dates[:-1]) == np.timedelta64(1, "D")))
+            return anomaly[:-1][valid], anomaly[1:][valid]
+
+        all_x, all_y = [], []
+        per_station: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for station in fitted:
+            x, y = pairs(station)
+            per_station[station] = (x, y)
+            all_x.append(x)
+            all_y.append(y)
+        px = np.concatenate(all_x) if all_x else np.empty(0)
+        py = np.concatenate(all_y) if all_y else np.empty(0)
+
+        def estimate(x: np.ndarray, y: np.ndarray, default: float) -> float:
+            if len(x) < min_pairs or np.std(x) < 1e-12 or np.std(y) < 1e-12:
+                return float(default)
+            value = float(np.corrcoef(x, y)[0, 1])
+            return float(np.clip(value, 0.0, 0.999)) if np.isfinite(value) else float(default)
+
+        pooled_phi = estimate(px, py, fallback)
+        phi: dict[str, float] = {}
+        for station in C.STATIONS:
+            if pooled or station not in fitted:
+                phi[station] = pooled_phi
+            else:
+                x, y = per_station[station]
+                phi[station] = estimate(x, y, pooled_phi)
+        return cls(phi=phi, fit_stations=fitted, pooled=pooled, fallback=fallback)
+
+    def predict(
+        self,
+        station: str,
+        horizons: tuple[int, ...],
+        wtemp_t: float,
+        clim_t: float,
+        clim_tgt: np.ndarray,
+    ) -> np.ndarray:
+        h = np.asarray(horizons, dtype=float)
+        return np.asarray(clim_tgt, dtype=float) + self.phi[station] ** h * (wtemp_t - clim_t)
 
 
 # --------------------------------------------------------------------------- #
@@ -113,7 +214,7 @@ def build_tabular(
         # when the input panel has been imputed.
         if f"{C.TARGET}_observed" in sub.columns:
             target_obs = sub[f"{C.TARGET}_observed"].astype(bool).shift(-horizon)
-            feat["y_observed"] = target_obs.fillna(False).to_numpy()
+            feat["y_observed"] = target_obs.eq(True).to_numpy()
         else:
             feat["y_observed"] = feat["y"].notna().to_numpy()
         out_frames.append(feat)
@@ -136,11 +237,18 @@ def build_tabular(
 
 
 def attach_split(tab: pd.DataFrame, split: C.TimeSplit = C.SPLIT) -> pd.DataFrame:
-    """Tag each row with its split partition using the *issue_date*."""
-    d = pd.to_datetime(tab["issue_date"]).to_numpy()
+    """Tag rows only when both issue and target stay in one partition.
+
+    Rows whose target crosses a boundary receive ``none`` and are excluded by
+    training/evaluation callers.  This is a horizon-sized temporal embargo.
+    """
+    issue = pd.to_datetime(tab["issue_date"]).to_numpy()
+    target = pd.to_datetime(tab["target_date"]).to_numpy()
     tag = np.full(len(tab), "none", dtype=object)
     for name, (lo, hi) in split.as_dict().items():
-        m = (d >= np.datetime64(lo)) & (d <= np.datetime64(hi))
+        lower, upper = np.datetime64(lo), np.datetime64(hi)
+        m = ((issue >= lower) & (issue <= upper)
+             & (target >= lower) & (target <= upper))
         tag[m] = name
     out = tab.copy()
     out["split"] = tag
