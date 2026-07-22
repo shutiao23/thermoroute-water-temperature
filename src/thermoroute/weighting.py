@@ -13,6 +13,7 @@ import pandas as pd
 
 
 STATION_EQUAL_WEIGHTING = "equal_total_weight_per_station"
+STATION_SUMMARY_EQUAL_WEIGHTING = "equal_weight_per_finite_station_summary"
 ROW_EQUAL_WEIGHTING = "equal_weight_per_finite_training_row"
 
 

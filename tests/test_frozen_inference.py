@@ -22,8 +22,8 @@ from thermoroute.frozen_inference import (  # noqa: E402
     thermoroute_factory_from_metadata,
 )
 from thermoroute.weighting import (  # noqa: E402
-    ROW_EQUAL_WEIGHTING,
     STATION_EQUAL_WEIGHTING,
+    STATION_SUMMARY_EQUAL_WEIGHTING,
 )
 
 
@@ -75,11 +75,13 @@ def _metadata(*, pooled: bool = False, station_agnostic: bool = False):
             },
             "imputer": {
                 "method": (
-                    D.POOLED_ROW_IMPUTER_METHOD if pooled
+                    D.POOLED_STATION_BALANCED_IMPUTER_METHOD if pooled
                     else D.PER_STATION_IMPUTER_METHOD
                 ),
                 "pooled": pooled,
-                "pool_weighting": ROW_EQUAL_WEIGHTING if pooled else None,
+                "pool_weighting": (
+                    STATION_SUMMARY_EQUAL_WEIGHTING if pooled else None
+                ),
                 "fit_stations": list(training_sites),
                 "seasonal_medians": seasonal,
                 "global_medians": global_medians,

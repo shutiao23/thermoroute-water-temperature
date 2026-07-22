@@ -25,7 +25,9 @@ PER_STATION_SCALER_METHOD = "per_station_train_only_sample_standardization_v1"
 POOLED_SCALER_METHOD = "pooled_station_balanced_population_standardization_v1"
 POOLED_SCALER_VARIANCE = "station_weighted_population_second_central_moment"
 PER_STATION_IMPUTER_METHOD = "station_day_of_year_median_fit_on_train_v1"
-POOLED_ROW_IMPUTER_METHOD = "pooled_row_weighted_day_of_year_median_fit_on_train_v1"
+POOLED_STATION_BALANCED_IMPUTER_METHOD = (
+    "pooled_median_of_station_day_of_year_medians_fit_on_train_v1"
+)
 
 
 def stabilising_transform(variable: str, values: np.ndarray) -> np.ndarray:

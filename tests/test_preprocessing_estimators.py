@@ -14,8 +14,11 @@ from thermoroute.frozen_inference import (
     FrozenInferenceError,
     reconstruct_frozen_transforms,
 )
-from thermoroute.model_suite import serialise_preprocessing
-from thermoroute.weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
+from thermoroute.model_suite import fit_pooled_imputer, serialise_preprocessing
+from thermoroute.weighting import (
+    STATION_EQUAL_WEIGHTING,
+    STATION_SUMMARY_EQUAL_WEIGHTING,
+)
 
 
 def _zero_climatology(stations: tuple[str, ...]) -> F.HarmonicClimatology:
@@ -274,6 +277,55 @@ def test_nonpooled_scaler_retains_station_sample_statistics(
     assert fitted.std[("b", "WTEMP")] == pytest.approx(4.0)
 
 
+def _pooled_imputer_panel(*, a_years: int) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for year in range(2001, 2001 + a_years):
+        row: dict[str, object] = {
+            "site_id": "a", "DATE": pd.Timestamp(year=year, month=1, day=1),
+        }
+        row.update({variable: 0.0 for variable in C.ALL_VARS})
+        rows.append(row)
+    row = {"site_id": "b", "DATE": pd.Timestamp("2001-01-01")}
+    row.update({variable: 10.0 for variable in C.ALL_VARS})
+    rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_pooled_imputer_uses_equal_station_summaries_and_is_duplication_invariant(
+) -> None:
+    original_panel = _pooled_imputer_panel(a_years=1)
+    duplicated_panel = _pooled_imputer_panel(a_years=9)
+    original = fit_pooled_imputer(
+        original_panel,
+        np.ones(len(original_panel), dtype=bool),
+        fit_stations=("a", "b"),
+    )
+    duplicated = fit_pooled_imputer(
+        duplicated_panel,
+        np.ones(len(duplicated_panel), dtype=bool),
+        fit_stations=("a", "b"),
+    )
+
+    for variable in C.ALL_VARS:
+        assert original.medians[("a", variable)].loc[1] == pytest.approx(5.0)
+        assert duplicated.medians[("a", variable)].loc[1] == pytest.approx(5.0)
+        assert original.global_median[("b", variable)] == pytest.approx(5.0)
+        assert duplicated.global_median[("b", variable)] == pytest.approx(5.0)
+        assert original.medians[("a", variable)].equals(
+            original.medians[("b", variable)]
+        )
+
+
+def test_pooled_imputer_rejects_missing_fit_station_rows() -> None:
+    panel = _pooled_imputer_panel(a_years=1)
+    with pytest.raises(ValueError, match="lacks train rows"):
+        fit_pooled_imputer(
+            panel[panel.site_id.eq("a")].copy(),
+            np.ones(1, dtype=bool),
+            fit_stations=("a", "b"),
+        )
+
+
 def test_serialised_pooled_transforms_replay_exactly_and_freeze_methods(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -309,7 +361,10 @@ def test_serialised_pooled_transforms_replay_exactly_and_freeze_methods(
         pooled=True,
     )
     preprocessing = serialise_preprocessing(wd, climatology, imputer)
-    assert preprocessing["imputer"]["pool_weighting"] == ROW_EQUAL_WEIGHTING
+    assert (
+        preprocessing["imputer"]["pool_weighting"]
+        == STATION_SUMMARY_EQUAL_WEIGHTING
+    )
     assert preprocessing["scaler"]["pool_weighting"] == STATION_EQUAL_WEIGHTING
     assert preprocessing["climatology"]["pool_weighting"] == STATION_EQUAL_WEIGHTING
     assert preprocessing["damped_anchor"]["pool_weighting"] == STATION_EQUAL_WEIGHTING
@@ -331,6 +386,14 @@ def test_serialised_pooled_transforms_replay_exactly_and_freeze_methods(
     assert np.array_equal(replayed.climatology.coef["new-a"], climatology.coef["a"])
     assert replayed.damped_anchor.phi["new-b"] == 0.4
     assert replayed.damped_anchor.min_pairs == F.DAMPED_MIN_PAIRS
+
+    seasonal_key = next(iter(preprocessing["imputer"]["seasonal_medians"]))
+    removed_seasonal = preprocessing["imputer"]["seasonal_medians"].pop(
+        seasonal_key
+    )
+    with pytest.raises(FrozenInferenceError, match="exact training station-variable"):
+        reconstruct_frozen_transforms(metadata, ("new-a",), external=True)
+    preprocessing["imputer"]["seasonal_medians"][seasonal_key] = removed_seasonal
 
     preprocessing["scaler"]["method"] = "legacy_row_pooled_scaler"
     with pytest.raises(FrozenInferenceError, match="scaler method"):

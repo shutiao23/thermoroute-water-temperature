@@ -49,7 +49,7 @@ from .repro import (
     source_tree_hash,
     validate_artifact_sidecar,
 )
-from .weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
+from .weighting import STATION_EQUAL_WEIGHTING, STATION_SUMMARY_EQUAL_WEIGHTING
 
 
 LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v1"
@@ -872,25 +872,49 @@ def fit_pooled_imputer(
     *,
     fit_stations: Sequence[str],
 ) -> D.Imputer:
-    """Fit one development-only imputer and replicate it across training sites.
+    """Fit one station-balanced development-only imputer.
 
-    Replication makes the station-agnostic contract machine-checkable: every
-    stored station/variable statistic is byte-for-byte the same and can later be
-    expanded to new site identifiers without observing their confirmation data.
+    Each station is first reduced to one median per day-of-year (and one global
+    median), then those station summaries receive equal weight through a second
+    median.  A station with a longer or more complete record therefore cannot
+    dominate the pooled fill value.  Replication makes the station-agnostic
+    contract machine-checkable and allows expansion to new site identifiers
+    without observing their confirmation data.
     """
     sites = tuple(str(site) for site in fit_stations)
+    if not sites or len(sites) != len(set(sites)):
+        raise ValueError("pooled imputer fit stations are empty or duplicated")
     selected = np.asarray(train_mask, dtype=bool) & panel.site_id.astype(str).isin(sites).to_numpy()
     training = panel.loc[selected].copy()
     if training.empty:
         raise ValueError("pooled imputer training partition is empty")
+    represented = set(training.site_id.astype(str))
+    missing_sites = sorted(set(sites) - represented)
+    if missing_sites:
+        raise ValueError(
+            "pooled imputer lacks train rows for fit stations: "
+            f"{missing_sites[:5]}"
+        )
     training["doy"] = pd.to_datetime(training["DATE"]).dt.dayofyear
     medians: dict[tuple[str, str], pd.Series] = {}
     global_median: dict[tuple[str, str], float] = {}
     for variable in C.ALL_VARS:
-        seasonal = training.groupby("doy")[variable].median()
-        fallback = float(training[variable].median())
+        station_seasonal = (
+            training.groupby(["site_id", "doy"], sort=True)[variable]
+            .median()
+            .dropna()
+            .rename("station_median")
+            .reset_index()
+        )
+        seasonal = station_seasonal.groupby("doy", sort=True)[
+            "station_median"
+        ].median()
+        station_global = training.groupby("site_id", sort=True)[variable].median()
+        fallback = float(station_global.median())
         if not np.isfinite(fallback):
-            raise ValueError(f"pooled imputer cannot fit finite {variable} median")
+            raise ValueError(
+                f"pooled imputer cannot fit a finite station-summary {variable} median"
+            )
         for site in sites:
             medians[(site, variable)] = seasonal.copy()
             global_median[(site, variable)] = fallback
@@ -938,10 +962,12 @@ def serialise_preprocessing(wd: Any, climatology: Any, imputer: D.Imputer) -> di
             "missingness_mask": True,
         },
         "imputer": {
-            "method": D.POOLED_ROW_IMPUTER_METHOD if imputer_pooled
+            "method": D.POOLED_STATION_BALANCED_IMPUTER_METHOD if imputer_pooled
                       else D.PER_STATION_IMPUTER_METHOD,
             "pooled": imputer_pooled,
-            "pool_weighting": ROW_EQUAL_WEIGHTING if imputer_pooled else None,
+            "pool_weighting": (
+                STATION_SUMMARY_EQUAL_WEIGHTING if imputer_pooled else None
+            ),
             "fit_stations": list(getattr(imputer, "fit_stations", C.STATIONS)),
             "seasonal_medians": seasonal,
             "global_medians": _tuple_map(imputer.global_median, variables),

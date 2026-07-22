@@ -24,7 +24,7 @@ from . import features as F
 from .checkpoint import neural_output_head_schema
 from .thermoroute import ThermoRoute
 from .train import LSTMForecaster
-from .weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
+from .weighting import STATION_EQUAL_WEIGHTING, STATION_SUMMARY_EQUAL_WEIGHTING
 
 
 class FrozenInferenceError(RuntimeError):
@@ -333,11 +333,13 @@ def reconstruct_frozen_transforms(
     anchor_pooled = bool(anchor_block["pooled"])
     _require_method(
         imputer,
-        D.POOLED_ROW_IMPUTER_METHOD if imputer_pooled
+        D.POOLED_STATION_BALANCED_IMPUTER_METHOD if imputer_pooled
         else D.PER_STATION_IMPUTER_METHOD,
         label="imputer",
     )
-    expected_imputer_weighting = ROW_EQUAL_WEIGHTING if imputer_pooled else None
+    expected_imputer_weighting = (
+        STATION_SUMMARY_EQUAL_WEIGHTING if imputer_pooled else None
+    )
     if imputer.get("pool_weighting") != expected_imputer_weighting:
         raise FrozenInferenceError("bundle imputer pool weighting is not explicit")
     _require_method(
@@ -397,6 +399,29 @@ def reconstruct_frozen_transforms(
 
     kwargs = _architecture_kwargs(metadata)
     station_agnostic = bool(kwargs.get("station_agnostic", False))
+    expected_training_pairs = {
+        (site, variable)
+        for site in training_stations
+        for variable in feature_order
+    }
+    for label, stored in (
+        ("imputer seasonal medians", seasonal),
+        ("imputer global medians", global_medians),
+        ("scaler means", means),
+        ("scaler standard deviations", stds),
+    ):
+        if set(stored) != expected_training_pairs:
+            raise FrozenInferenceError(
+                f"bundle {label} do not cover the exact training station-variable registry"
+            )
+    if set(coefficients) != set(training_stations):
+        raise FrozenInferenceError(
+            "bundle climatology coefficients do not cover the exact training stations"
+        )
+    if set(phi) != set(training_stations):
+        raise FrozenInferenceError(
+            "bundle damped phi does not cover the exact training stations"
+        )
     if external:
         if not station_agnostic:
             raise FrozenInferenceError(
