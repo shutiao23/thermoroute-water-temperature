@@ -68,6 +68,24 @@ OUTCOME_QC_AMENDMENT_ROLE = (
     "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_"
     "directional_reporting_gate_not_complete_outcome_quality_certification"
 )
+TEMPORAL_COVERAGE_POLICY_PATH = (
+    "protocols/route_a_temporal_coverage_policy_v1.json"
+)
+TEMPORAL_COVERAGE_POLICY_SHA256 = (
+    "6b08850ced16de6f97ceda8b16ce89b301d5c5cccb794a4427da0a3e39e211ad"
+)
+TEMPORAL_COVERAGE_POLICY_FORMAT = (
+    "thermoroute.route-a-temporal-coverage-policy.v1"
+)
+TEMPORAL_COVERAGE_POLICY_ID = "route-a-temporal-coverage-audit-001"
+TEMPORAL_COVERAGE_AUDIT_FORMAT = (
+    "thermoroute.route-a-temporal-coverage-audit.v1"
+)
+TEMPORAL_COVERAGE_CORE_STATUS = "DERIVED_CORE_REQUIRES_RECEIPT_BINDING"
+TEMPORAL_COVERAGE_AMENDMENT_ROLE = (
+    "predeclared_nonfiltering_temporal_coverage_and_equal_cell_descriptive_"
+    "sensitivity_never_changes_formal_result_or_decision"
+)
 
 # The outer verifier treats a release ZIP as hostile input.  These limits are
 # deliberately far above the canonical release footprint while bounding disk,
@@ -197,6 +215,7 @@ REQUIRED_STATE_PATHS = {
     "temporal_predictions",
     "external_predictions",
     "statistics",
+    "temporal_coverage_audit",
     "report",
     "receipt",
     "receipt_sha256",
@@ -217,6 +236,7 @@ REQUIRED_RECEIPT_ARTIFACTS = {
     "temporal_predictions",
     "external_predictions",
     "statistics",
+    "temporal_coverage_audit",
     "report",
 }
 
@@ -240,6 +260,7 @@ REQUIRED_POSTOPEN_CATEGORIES = {
     "outcome_qc",
     "probabilistic_evaluation",
     "statistics",
+    "temporal_coverage",
     "report",
     "receipt",
     "environment_attestations",
@@ -835,6 +856,57 @@ def _load_canonical_outcome_qc_module(root: Path) -> Any:
     return module
 
 
+def _load_canonical_coverage_bridge_module(root: Path) -> Any:
+    """Load the Git-verified archive bridge under an isolated package name.
+
+    ``verify_release_profile`` must establish the archive's compute-commit and
+    fixed-code byte identity before this function is reachable.  The private
+    package prevents ambient ``thermoroute`` modules from satisfying relative
+    imports of the coverage core or reproducibility helpers.
+    """
+    source_dir = (root / "src" / "thermoroute").resolve()
+    source = source_dir / "coverage_bridge.py"
+    if not source.is_file() or source.is_symlink():
+        raise ValueError("canonical temporal-coverage bridge source is absent")
+    fingerprint = hashlib.sha256(
+        str(root).encode("utf-8") + b"\0coverage\0" + source.read_bytes()
+    ).hexdigest()[:20]
+    package_name = f"_thermoroute_coverage_release_{fingerprint}"
+    module_name = f"{package_name}.coverage_bridge"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        if Path(getattr(existing, "__file__", "")).resolve() != source:
+            raise ValueError("cached temporal-coverage bridge is noncanonical")
+        return existing
+
+    package = types.ModuleType(package_name)
+    package.__package__ = package_name
+    package.__path__ = [str(source_dir)]
+    sys.modules[package_name] = package
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise ValueError("cannot construct canonical temporal-coverage import")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        sys.modules.pop(module_name, None)
+        sys.modules.pop(package_name, None)
+        raise ValueError("cannot load canonical temporal-coverage bridge") from exc
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    if Path(getattr(module, "__file__", "")).resolve() != source:
+        raise ValueError("imported temporal-coverage bridge is noncanonical")
+    if not callable(
+        getattr(module, "replay_temporal_coverage_from_physical_files", None)
+    ):
+        raise ValueError("canonical temporal-coverage bridge API is incomplete")
+    return module
+
+
 def _load_protocol_seal(
     root: Path, protocol: Mapping[str, Any]
 ) -> tuple[Path, dict[str, Any]]:
@@ -1254,9 +1326,15 @@ def _validate_authorization_structure(
     ):
         raise ValueError("authorization source policy names another authorization path")
     state = authorization.get("state_paths")
-    if not isinstance(state, Mapping) or not REQUIRED_STATE_PATHS <= set(state):
-        missing = sorted(REQUIRED_STATE_PATHS - set(state or {}))
-        raise ValueError(f"authorization lacks canonical state paths: {missing}")
+    if not isinstance(state, Mapping):
+        raise ValueError("authorization canonical state-path registry is malformed")
+    if set(state) != REQUIRED_STATE_PATHS:
+        missing = sorted(REQUIRED_STATE_PATHS - set(state))
+        extra = sorted(set(state) - REQUIRED_STATE_PATHS)
+        raise ValueError(
+            "authorization canonical state-path registry changed: "
+            f"missing={missing}, extra={extra}"
+        )
     if any(not isinstance(value, str) or not value for value in state.values()):
         raise ValueError("authorization contains a malformed canonical state path")
     namespace = str(state["namespace"])
@@ -1281,6 +1359,9 @@ def _validate_authorization_structure(
         "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
         "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "temporal_coverage_audit": (
+            f"{base}/trusted/temporal_coverage_audit_v1.json"
+        ),
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
         "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
@@ -1298,6 +1379,21 @@ def _validate_authorization_structure(
         or qc_policy.get("required") is not True
     ):
         raise ValueError("authorization lacks the canonical required outcome-QC policy")
+    coverage_policy = authorization.get("temporal_coverage_policy")
+    if (
+        not isinstance(coverage_policy, Mapping)
+        or set(coverage_policy)
+        != {"path", "sha256", "format", "policy_id", "status", "required"}
+        or coverage_policy.get("path") != TEMPORAL_COVERAGE_POLICY_PATH
+        or coverage_policy.get("sha256") != TEMPORAL_COVERAGE_POLICY_SHA256
+        or coverage_policy.get("format") != TEMPORAL_COVERAGE_POLICY_FORMAT
+        or coverage_policy.get("policy_id") != TEMPORAL_COVERAGE_POLICY_ID
+        or coverage_policy.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or coverage_policy.get("required") is not True
+    ):
+        raise ValueError(
+            "authorization lacks the canonical temporal-coverage policy"
+        )
     amendment = authorization.get("inference_amendment")
     if (
         not isinstance(amendment, Mapping)
@@ -3471,6 +3567,7 @@ def _validate_inference_closure(
     protocol_document: Mapping[str, Any],
     protocol_seal_path: Path,
     outcome_qc_policy: Mapping[str, Any],
+    temporal_coverage_policy: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Independently validate the prelabel amendment, seal, and fail-closed gate."""
     def exact_binding(path: Path) -> dict[str, str]:
@@ -3549,12 +3646,13 @@ def _validate_inference_closure(
         is not True
     ):
         raise ValueError("inference amendment decision overlay is not fail-closed")
-    policy_overlay = amendment.get("additional_preopen_gates")
-    policy_overlay = (
-        policy_overlay.get("outcome_qc_policy")
-        if isinstance(policy_overlay, Mapping)
-        else None
-    )
+    policy_overlays = amendment.get("additional_preopen_gates")
+    if not isinstance(policy_overlays, Mapping) or set(policy_overlays) != {
+        "outcome_qc_policy",
+        "temporal_coverage_policy",
+    }:
+        raise ValueError("inference amendment preopen-gate registry changed")
+    policy_overlay = policy_overlays.get("outcome_qc_policy")
     expected_policy_overlay = {
         "path": authorization["outcome_qc_policy"]["path"],
         "sha256": authorization["outcome_qc_policy"]["sha256"],
@@ -3563,6 +3661,25 @@ def _validate_inference_closure(
     }
     if policy_overlay != expected_policy_overlay:
         raise ValueError("inference amendment binds another outcome-QC policy")
+    expected_coverage_overlay = {
+        "path": authorization["temporal_coverage_policy"]["path"],
+        "sha256": authorization["temporal_coverage_policy"]["sha256"],
+        "required": True,
+        "role": TEMPORAL_COVERAGE_AMENDMENT_ROLE,
+    }
+    if (
+        policy_overlays.get("temporal_coverage_policy")
+        != expected_coverage_overlay
+        or temporal_coverage_policy.get("format")
+        != TEMPORAL_COVERAGE_POLICY_FORMAT
+        or temporal_coverage_policy.get("policy_id")
+        != TEMPORAL_COVERAGE_POLICY_ID
+        or temporal_coverage_policy.get("status")
+        != "FROZEN_PRELABEL_OUTCOME_FREE"
+    ):
+        raise ValueError(
+            "inference amendment binds another temporal-coverage policy"
+        )
     if amendment.get("lineage_contract") != {
         "base_v1_files_remain_immutable": True,
         "separate_amendment_seal_required": True,
@@ -3755,6 +3872,28 @@ def _gather_postopen_categories(
     outcome_qc_policy = _load_json(
         outcome_qc_policy_path, label="authorized outcome-QC policy",
     )
+    temporal_coverage_policy_path = _add_binding(
+        root,
+        categories,
+        "authorization",
+        authorization.get("temporal_coverage_policy"),
+        label="authorized temporal-coverage policy",
+    )
+    temporal_coverage_policy = _load_json(
+        temporal_coverage_policy_path,
+        label="authorized temporal-coverage policy",
+    )
+    if (
+        _relative(
+            root,
+            temporal_coverage_policy_path,
+            label="temporal-coverage policy",
+        )
+        != TEMPORAL_COVERAGE_POLICY_PATH
+        or sha256_file(temporal_coverage_policy_path)
+        != TEMPORAL_COVERAGE_POLICY_SHA256
+    ):
+        raise ValueError("authorized temporal-coverage policy bytes changed")
     outcome_qc_module = _load_canonical_outcome_qc_module(root)
     try:
         validated_outcome_qc_policy = outcome_qc_module.validate_outcome_qc_policy(
@@ -3811,6 +3950,7 @@ def _gather_postopen_categories(
         protocol_document=protocol_document,
         protocol_seal_path=seal_path,
         outcome_qc_policy=outcome_qc_policy,
+        temporal_coverage_policy=temporal_coverage_policy,
     )
 
     registries = authorization.get("registries")
@@ -4196,6 +4336,7 @@ def _gather_postopen_categories(
         "temporal_predictions": "trusted_predictions",
         "external_predictions": "trusted_predictions",
         "statistics": "statistics",
+        "temporal_coverage_audit": "temporal_coverage",
         "report": "report",
     }
     resolved_receipt_artifacts: dict[str, Path] = {}
@@ -4249,6 +4390,7 @@ def _gather_postopen_categories(
         "temporal_predictions": state["temporal_predictions"],
         "external_predictions": state["external_predictions"],
         "statistics": state["statistics"],
+        "temporal_coverage_audit": state["temporal_coverage_audit"],
         "report": state["report"],
     }
     for key, relative in expected_paths.items():
@@ -4263,6 +4405,45 @@ def _gather_postopen_categories(
         or receipt.get("formal_tests") != tests
     ):
         raise ValueError("receipt/statistics do not contain the exact five-test family")
+    coverage_binding = receipt_artifacts["temporal_coverage_audit"]
+    if (
+        released["temporal_coverage_audit"].get("format")
+        != TEMPORAL_COVERAGE_AUDIT_FORMAT
+    ):
+        raise ValueError("release binding temporal-coverage format changed")
+    expected_coverage_receipt = {
+        **dict(coverage_binding),
+        "format": TEMPORAL_COVERAGE_AUDIT_FORMAT,
+        "core_status": TEMPORAL_COVERAGE_CORE_STATUS,
+        "physical_replay_verified": True,
+        "source_binding_count": 11,
+    }
+    if receipt.get("temporal_coverage_audit") != expected_coverage_receipt:
+        raise ValueError(
+            "opening receipt temporal-coverage replay attestation changed"
+        )
+    coverage_audit = _load_json(
+        resolved_receipt_artifacts["temporal_coverage_audit"],
+        label="temporal-coverage audit",
+    )
+    coverage_module = _load_canonical_coverage_bridge_module(root)
+    try:
+        replayed_coverage = (
+            coverage_module.replay_temporal_coverage_from_physical_files(
+                root=root,
+                authorization=authorization,
+                receipt_artifacts=receipt_artifacts,
+                expected_audit=coverage_audit,
+            )
+        )
+    except Exception as exc:
+        raise ValueError(
+            "temporal-coverage audit cannot be replayed from physical evidence"
+        ) from exc
+    if replayed_coverage != coverage_audit:
+        raise ValueError(
+            "temporal-coverage audit differs from independent physical replay"
+        )
     outcome_qc_gate = _load_json(
         resolved_receipt_artifacts["outcome_qc_gate"], label="outcome-QC gate",
     )
@@ -5027,6 +5208,13 @@ def _verify_authorized_compute_tree_from_bundle(
             "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
             "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
             "thermoroute.quantiles": "src/thermoroute/quantiles.py",
+            "thermoroute.coverage_audit": (
+                "src/thermoroute/coverage_audit.py"
+            ),
+            "thermoroute.coverage_bridge": (
+                "src/thermoroute/coverage_bridge.py"
+            ),
+            "thermoroute.repro": "src/thermoroute/repro.py",
         },
         "files": {
             "src/thermoroute/opening_contract.py": (
@@ -6959,6 +7147,11 @@ def verify_release_profile(
         root, {}, "authorization", authorization_binding,
         label="release authorization",
     )
+    # The release root is hostile input.  Establish the compute Git tree,
+    # source inventory and fixed-code bytes before importing any Python module
+    # from that root.  This is mandatory even when the expensive model replay
+    # is disabled; coverage replay remains an evidence-validation requirement.
+    _verify_git_history_evidence(root, marker, profile)
     categories, document, state = _gather_postopen_categories(root, authorization)
     expected_claim_status = _derive_release_claim_status(root, document, state)
     if (
@@ -6989,8 +7182,6 @@ def verify_release_profile(
             "opened release contains scientific artifacts outside the authorization closure: "
             + ", ".join(unexplained_scientific[:10])
         )
-    if run_trusted_replay:
-        _verify_git_history_evidence(root, marker, profile)
     _verify_claim_audit(
         root,
         marker,

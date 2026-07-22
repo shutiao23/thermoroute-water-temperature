@@ -375,7 +375,11 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     )
     _write_bytes(root, "requirements-lock.txt", b"numpy==1.0\n")
     _write_protocol_seal_fixture(verifier, root)
-    _write_bytes(root, "data_usgs/external.csv")
+    _write_bytes(
+        root,
+        "data_usgs/external.csv",
+        b"site_no,huc2\n02000001,02\n",
+    )
     _write_bytes(root, "data_usgs/external.lock.json", b"{}\n")
     _write_bytes(root, "data_usgs/candidates.csv")
     _write_bytes(root, "data_usgs/candidates.provenance.json", b"{}\n")
@@ -385,11 +389,17 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(root, "src/thermoroute/chronology.py", b"# chronology gate\n")
     for relative in (
         "src/thermoroute/outcome_qc.py",
+        "src/thermoroute/coverage_audit.py",
+        "src/thermoroute/coverage_bridge.py",
         "src/thermoroute/repro.py",
     ):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative, destination)
+    coverage_policy_path = verifier.TEMPORAL_COVERAGE_POLICY_PATH
+    coverage_policy_destination = root / coverage_policy_path
+    coverage_policy_destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / coverage_policy_path, coverage_policy_destination)
     _write_bytes(
         root, "scripts/28_freeze_prelabel_chronology.py", b"# chronology gate\n"
     )
@@ -418,6 +428,14 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "required": True,
         "role": verifier.OUTCOME_QC_AMENDMENT_ROLE,
     }
+    coverage_policy = json.loads(
+        coverage_policy_destination.read_text(encoding="utf-8")
+    )
+    coverage_policy_overlay = {
+        **_binding(verifier, root, coverage_policy_path),
+        "required": True,
+        "role": verifier.TEMPORAL_COVERAGE_AMENDMENT_ROLE,
+    }
     amendment = {
         "format": "thermoroute.route-a-inference-amendment.v1",
         "status": "FROZEN_PRELABEL_OUTCOME_FREE",
@@ -444,7 +462,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "strong_p_value_or_favorable_interval_cannot_override_gate": True,
             "all_five_comparisons_must_still_be_rendered_exactly_once": True,
         },
-        "additional_preopen_gates": {"outcome_qc_policy": policy_overlay},
+        "additional_preopen_gates": {
+            "outcome_qc_policy": policy_overlay,
+            "temporal_coverage_policy": coverage_policy_overlay,
+        },
         "lineage_contract": {
             "base_v1_files_remain_immutable": True,
             "separate_amendment_seal_required": True,
@@ -1321,6 +1342,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
         "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "temporal_coverage_audit": (
+            f"{base}/trusted/temporal_coverage_audit_v1.json"
+        ),
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
         "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
@@ -1395,6 +1419,18 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "policy_id": outcome_qc_policy["policy_id"],
             "required": True,
         },
+        "temporal_coverage_policy": {
+            **_binding(verifier, root, coverage_policy_path),
+            "format": coverage_policy["format"],
+            "policy_id": coverage_policy["policy_id"],
+            "status": coverage_policy["status"],
+            "required": True,
+        },
+        "acquisition_plan": {
+            "history_start": "2020-11-30",
+            "target_start": "2021-01-01",
+            "target_end": "2023-12-31",
+        },
         "actual_inputs": _binding(
             verifier, root, "data_usgs/confirmatory_actual_inputs_v1.json"
         ),
@@ -1416,8 +1452,29 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "deterministic_child_policy": {"device": "cpu"},
         },
         "required_models": {
-            cohort: sorted(verifier._required_model_ids(cohort))
-            for cohort in ("temporal", "external")
+            "temporal": [
+                "Persistence",
+                "DampedPersistence",
+                "Climatology",
+                "LightGBM",
+                "LSTM",
+                "ThermoRoute",
+                "DampedPriorOnly",
+                "TR-noDynamicPrior",
+                "TR-fixedKappa",
+                "TR-noRouter",
+                "TR-noMoE",
+                "TR-noTCN",
+                "TR-unbounded",
+            ],
+            "external": [
+                "Persistence",
+                "DampedPersistence",
+                "Climatology",
+                "LightGBM",
+                "LSTM",
+                "ThermoRoute",
+            ],
         },
         "fixed_code": {
             "modules": {"opening": fixed_binding},
@@ -1470,8 +1527,22 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(root, request_ledger, b"{}\n")
     _write_bytes(root, attempt_index, b"{}\n")
     _write_bytes(root, state["acquisition_request_map"], b"{}\n")
-    _write_bytes(root, state["temporal_outcomes"])
-    _write_bytes(root, state["external_outcomes"])
+    outcome_dates = pd.date_range("2020-11-30", "2023-12-31", freq="D")
+    for cohort, site in (
+        ("temporal", "01073319"),
+        ("external", "02000001"),
+    ):
+        outcome_path = root / state[f"{cohort}_outcomes"]
+        outcome_path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            {
+                "site_no": [site] * len(outcome_dates),
+                "DATE": outcome_dates,
+                "WTEMP": 10.0 + outcome_dates.dayofyear / 1000.0,
+                "WTEMP_value_status": ["RETAINED_FINITE_VALUE"]
+                * len(outcome_dates),
+            }
+        ).to_parquet(outcome_path, index=False)
     acquisition = {
         "opening_id": authorization["opening_id"],
         "authorization_sha256": authorization_sha,
@@ -1501,7 +1572,64 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     (root / state["acquisition_manifest"]).write_text(
         json.dumps(acquisition), encoding="utf-8"
     )
-    _write_bytes(root, state["availability_registry"])
+    availability_rows: list[dict[str, object]] = []
+    for cohort, site in (
+        ("temporal", "01073319"),
+        ("external", "02000001"),
+    ):
+        rows: list[dict[str, object]] = []
+        for model_index, model in enumerate(
+            authorization["required_models"][cohort]
+        ):
+            for horizon in (1, 3, 7):
+                issue_dates = pd.date_range(
+                    "2021-01-01",
+                    pd.Timestamp("2023-12-31") - pd.Timedelta(days=horizon),
+                    freq="D",
+                )
+                for issue in issue_dates:
+                    target = issue + pd.Timedelta(days=horizon)
+                    truth = 10.0 + target.dayofyear / 1000.0
+                    rows.append(
+                        {
+                            "model": model,
+                            "site_id": site,
+                            "horizon": horizon,
+                            "issue_date": issue,
+                            "target_date": target,
+                            "y_true": float(truth),
+                            "y_pred": float(truth + (model_index + 1) / 100.0),
+                        }
+                    )
+        frame = pd.DataFrame.from_records(rows).sort_values(
+            ["model", "site_id", "horizon", "issue_date", "target_date"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        prediction_path = root / state[f"{cohort}_predictions"]
+        prediction_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(prediction_path, index=False)
+        for horizon in (1, 3, 7):
+            count = len(
+                pd.date_range(
+                    "2021-01-01",
+                    pd.Timestamp("2023-12-31") - pd.Timedelta(days=horizon),
+                    freq="D",
+                )
+            )
+            availability_rows.append(
+                {
+                    "cohort": cohort,
+                    "site_no": site,
+                    "horizon": horizon,
+                    "n_valid_targets": count,
+                    "reportable": True,
+                }
+            )
+    availability_path = root / state["availability_registry"]
+    availability_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame.from_records(availability_rows).to_csv(
+        availability_path, index=False, lineterminator="\n"
+    )
     _write_bytes(root, state["outcome_quality_audit"], b"{}\n")
     prediction_rows = []
     models_by_horizon = {
@@ -1561,14 +1689,15 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(root, state["approved_target_sensitivity"], b"{}\n")
     _write_bytes(root, state["spatial_sensitivity"], b"{}\n")
     _write_bytes(root, state["probabilistic_evaluation"], b"{}\n")
-    _write_bytes(root, state["temporal_predictions"])
-    _write_bytes(root, state["external_predictions"])
     tests = [
         {
             "test_id": row["test_id"],
-            "status": "ESTIMABLE",
-            "reject_at_0_05": True,
-            "confidence_bound_supports_margin": True,
+            "status": "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS",
+            "median_effect_c": None,
+            "n_stations": 1,
+            "n_clusters": 1,
+            "reject_at_0_05": False,
+            "confidence_bound_supports_margin": False,
         }
         for row in family
     ]
@@ -1583,6 +1712,23 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "directional_claims_allowed": True,
         },
     }), encoding="utf-8")
+    coverage_module = verifier._load_canonical_coverage_bridge_module(root)
+    temporal_coverage_audit = (
+        coverage_module.replay_temporal_coverage_from_physical_files(
+            root=root,
+            authorization=authorization,
+        )
+    )
+    _write_bytes(
+        root,
+        state["temporal_coverage_audit"],
+        json.dumps(
+            temporal_coverage_audit,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        + b"\n",
+    )
     _write_bytes(root, state["report"], b"# trusted report\n")
     receipt_artifacts = {
         "acquisition_manifest": _binding(verifier, root, state["acquisition_manifest"]),
@@ -1603,10 +1749,20 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "temporal_predictions": _binding(verifier, root, state["temporal_predictions"]),
         "external_predictions": _binding(verifier, root, state["external_predictions"]),
         "statistics": _binding(verifier, root, state["statistics"]),
+        "temporal_coverage_audit": _binding(
+            verifier, root, state["temporal_coverage_audit"]
+        ),
         "report": _binding(verifier, root, state["report"]),
     }
     release_artifacts = {
-        key: {"format": "fixture-format", **binding}
+        key: {
+            "format": (
+                verifier.TEMPORAL_COVERAGE_AUDIT_FORMAT
+                if key == "temporal_coverage_audit"
+                else "fixture-format"
+            ),
+            **binding,
+        }
         for key, binding in receipt_artifacts.items()
     }
     release_bindings = {
@@ -1652,6 +1808,13 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "trusted_validator": trusted_validator,
         "artifacts": receipt_artifacts,
         "formal_tests": tests,
+        "temporal_coverage_audit": {
+            **receipt_artifacts["temporal_coverage_audit"],
+            "format": verifier.TEMPORAL_COVERAGE_AUDIT_FORMAT,
+            "core_status": verifier.TEMPORAL_COVERAGE_CORE_STATUS,
+            "physical_replay_verified": True,
+            "source_binding_count": 11,
+        },
         "state_paths": state,
         "release_bindings": release_bindings,
         "intent_self_sha256": intent["intent_self_sha256"],
@@ -1684,12 +1847,66 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "outcome_qc": state["outcome_qc_gate"],
         "probabilistic_evaluation": state["probabilistic_evaluation"],
         "statistics": state["statistics"],
+        "temporal_coverage": state["temporal_coverage_audit"],
         "report": state["report"],
         "receipt": state["receipt_sha256"],
         "environment_attestations": "requirements-lock.txt",
         "reproducibility_lock": verifier.REPRODUCIBILITY_LOCK,
     }
     return authorization_path, representatives
+
+
+def _refresh_postopen_coverage_evidence(
+    verifier, root: Path, authorization_path: Path
+) -> None:
+    """Rebuild the fixture audit after a deliberately self-consistent mutation."""
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    coverage_module = verifier._load_canonical_coverage_bridge_module(root)
+    audit = coverage_module.replay_temporal_coverage_from_physical_files(
+        root=root,
+        authorization=authorization,
+    )
+    audit_path = root / state["temporal_coverage_audit"]
+    audit_path.write_text(
+        json.dumps(audit, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    receipt_path = root / state["receipt"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    binding = _binding(verifier, root, state["temporal_coverage_audit"])
+    receipt["artifacts"]["temporal_coverage_audit"] = binding
+    released = receipt["release_bindings"]["artifacts"][
+        "temporal_coverage_audit"
+    ]
+    released.update(binding)
+    receipt["temporal_coverage_audit"] = {
+        **binding,
+        "format": verifier.TEMPORAL_COVERAGE_AUDIT_FORMAT,
+        "core_status": verifier.TEMPORAL_COVERAGE_CORE_STATUS,
+        "physical_replay_verified": True,
+        "source_binding_count": 11,
+    }
+    receipt.pop("receipt_self_sha256", None)
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    receipt_digest = verifier.sha256_file(receipt_path)
+    (root / state["receipt_sha256"]).write_text(
+        f"{receipt_digest}  opening_receipt_v1.json\n", encoding="utf-8"
+    )
+
+
+def _reseal_postopen_fixture_receipt(
+    verifier, root: Path, state: dict[str, str], receipt: dict[str, object]
+) -> None:
+    receipt.pop("receipt_self_sha256", None)
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    receipt_path = root / state["receipt"]
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    (root / state["receipt_sha256"]).write_text(
+        f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
+        encoding="utf-8",
+    )
 
 
 def _manifest_command(root: Path, manifest: Path, *extra: str):
@@ -2103,6 +2320,249 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     stale.unlink()
 
 
+def test_postopen_coverage_replays_even_when_full_trusted_replay_is_disabled(
+    tmp_path, monkeypatch
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_mandatory_coverage_replay_test"
+    )
+    source, stage = tmp_path / "source", tmp_path / "stage"
+    source.mkdir()
+    stage.mkdir()
+    authorization, _ = _write_postopen_fixture(verifier, source)
+    verifier.materialize_release_profile(
+        source,
+        stage,
+        verifier.POSTOPEN_PROFILE,
+        authorization_path=authorization,
+    )
+    _materialize_claim_fixture(verifier, stage, verifier.POSTOPEN_PROFILE)
+
+    real_module = verifier._load_canonical_coverage_bridge_module(stage)
+    calls: list[str] = []
+
+    class ReplayProxy:
+        @staticmethod
+        def replay_temporal_coverage_from_physical_files(**kwargs):
+            calls.append("coverage")
+            return real_module.replay_temporal_coverage_from_physical_files(
+                **kwargs
+            )
+
+    monkeypatch.setattr(
+        verifier,
+        "_verify_git_history_evidence",
+        lambda *_args, **_kwargs: calls.append("git"),
+    )
+    monkeypatch.setattr(
+        verifier,
+        "_load_canonical_coverage_bridge_module",
+        lambda _root: ReplayProxy,
+    )
+    monkeypatch.setattr(
+        verifier, "_verify_claim_audit", lambda *_args, **_kwargs: None
+    )
+
+    def forbidden_trusted_replay(*_args, **_kwargs):
+        raise AssertionError("full trusted replay must remain disabled")
+
+    monkeypatch.setattr(verifier, "_run_trusted_replay", forbidden_trusted_replay)
+    assert (
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+        == verifier.POSTOPEN_PROFILE
+    )
+    assert calls == ["git", "coverage"]
+
+
+def test_postopen_archive_code_cannot_execute_before_git_identity_check(
+    tmp_path, monkeypatch
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_postopen_preexec_gate_test"
+    )
+    source, stage = tmp_path / "source", tmp_path / "stage"
+    source.mkdir()
+    stage.mkdir()
+    authorization, _ = _write_postopen_fixture(verifier, source)
+    verifier.materialize_release_profile(
+        source,
+        stage,
+        verifier.POSTOPEN_PROFILE,
+        authorization_path=authorization,
+    )
+    _materialize_claim_fixture(verifier, stage, verifier.POSTOPEN_PROFILE)
+    sentinel = tmp_path / "ARCHIVE_COVERAGE_PYTHON_EXECUTED"
+    (stage / "src/thermoroute/coverage_bridge.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(sentinel)!r}).write_text('bad', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    def reject_git(*_args, **_kwargs):
+        raise ValueError("Git identity rejected before archive import")
+
+    monkeypatch.setattr(verifier, "_verify_git_history_evidence", reject_git)
+    with pytest.raises(ValueError, match="before archive import"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    assert not sentinel.exists()
+
+
+def test_postopen_authorization_requires_exact_coverage_state_registry(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_coverage_state_registry_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    for attack in ("missing", "extra"):
+        attacked = tmp_path / attack
+        shutil.copytree(source, attacked)
+        path = attacked / authorization_path.relative_to(source)
+        authorization = json.loads(path.read_text(encoding="utf-8"))
+        if attack == "missing":
+            authorization["state_paths"].pop("temporal_coverage_audit")
+        else:
+            authorization["state_paths"]["coverage_alias"] = (
+                authorization["state_paths"]["temporal_coverage_audit"]
+            )
+        authorization.pop("authorization_self_sha256")
+        authorization["authorization_self_sha256"] = verifier._sha256_json(
+            authorization
+        )
+        path.write_text(json.dumps(authorization), encoding="utf-8")
+        with pytest.raises(ValueError, match="state-path registry changed"):
+            verifier._validate_authorization_structure(attacked, path)
+
+
+def test_postopen_receipt_requires_exact_coverage_artifact_registry(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_coverage_receipt_registry_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    for attack in ("missing", "extra"):
+        attacked = tmp_path / f"receipt-{attack}"
+        shutil.copytree(source, attacked)
+        attacked_authorization = attacked / authorization_path.relative_to(source)
+        authorization = json.loads(
+            attacked_authorization.read_text(encoding="utf-8")
+        )
+        state = authorization["state_paths"]
+        receipt_path = attacked / state["receipt"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if attack == "missing":
+            receipt["artifacts"].pop("temporal_coverage_audit")
+            receipt["release_bindings"]["artifacts"].pop(
+                "temporal_coverage_audit"
+            )
+        else:
+            receipt["artifacts"]["coverage_alias"] = dict(
+                receipt["artifacts"]["temporal_coverage_audit"]
+            )
+            receipt["release_bindings"]["artifacts"]["coverage_alias"] = {
+                "format": verifier.TEMPORAL_COVERAGE_AUDIT_FORMAT,
+                **receipt["artifacts"]["coverage_alias"],
+            }
+        _reseal_postopen_fixture_receipt(
+            verifier, attacked, state, receipt
+        )
+        with pytest.raises(ValueError, match="artifact registry"):
+            verifier.build_release_profile(
+                attacked,
+                verifier.POSTOPEN_PROFILE,
+                authorization_path=attacked_authorization,
+            )
+
+
+def test_postopen_coverage_replay_rejects_tamper_and_path_topology_attacks(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_coverage_physical_attacks_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    for attack in (
+        "audit_tamper",
+        "prediction_tamper",
+        "receipt_path_alias",
+        "prediction_symlink",
+        "prediction_hardlink",
+    ):
+        attacked = tmp_path / attack
+        shutil.copytree(source, attacked)
+        attacked_authorization = attacked / authorization_path.relative_to(source)
+        authorization = json.loads(
+            attacked_authorization.read_text(encoding="utf-8")
+        )
+        state = authorization["state_paths"]
+        receipt_path = attacked / state["receipt"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if attack == "audit_tamper":
+            audit_path = attacked / state["temporal_coverage_audit"]
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+            audit["status"] = "FORGED_PASS"
+            audit.pop("audit_self_sha256")
+            audit["audit_self_sha256"] = verifier._sha256_json(audit)
+            audit_path.write_text(json.dumps(audit), encoding="utf-8")
+            binding = _binding(
+                verifier, attacked, state["temporal_coverage_audit"]
+            )
+            receipt["artifacts"]["temporal_coverage_audit"] = binding
+            receipt["release_bindings"]["artifacts"][
+                "temporal_coverage_audit"
+            ].update(binding)
+            receipt["temporal_coverage_audit"].update(binding)
+        elif attack == "prediction_tamper":
+            prediction_path = attacked / state["temporal_predictions"]
+            frame = pd.read_parquet(prediction_path)
+            frame.loc[0, "y_pred"] = float(frame.loc[0, "y_pred"]) + 0.5
+            frame.to_parquet(prediction_path, index=False)
+            binding = _binding(
+                verifier, attacked, state["temporal_predictions"]
+            )
+            receipt["artifacts"]["temporal_predictions"] = binding
+            receipt["release_bindings"]["artifacts"][
+                "temporal_predictions"
+            ].update(binding)
+        elif attack == "receipt_path_alias":
+            binding = dict(receipt["artifacts"]["external_predictions"])
+            receipt["artifacts"]["temporal_predictions"] = binding
+            receipt["release_bindings"]["artifacts"][
+                "temporal_predictions"
+            ].update(binding)
+        else:
+            prediction_path = attacked / state["temporal_predictions"]
+            backup = tmp_path / f"{attack}-target.parquet"
+            shutil.copy2(prediction_path, backup)
+            prediction_path.unlink()
+            if attack == "prediction_symlink":
+                prediction_path.symlink_to(backup)
+            else:
+                os.link(backup, prediction_path)
+        _reseal_postopen_fixture_receipt(
+            verifier, attacked, state, receipt
+        )
+        with pytest.raises(
+            ValueError,
+            match=(
+                "temporal-coverage|coverage|canonical|leaves|escapes|"
+                "regular|unsafe|hard-linked"
+            ),
+        ):
+            verifier.build_release_profile(
+                attacked,
+                verifier.POSTOPEN_PROFILE,
+                authorization_path=attacked_authorization,
+            )
+
+
 def test_postopen_release_rejects_self_consistent_nested_outcome_gate_forgery(
     tmp_path,
 ):
@@ -2142,6 +2602,9 @@ def test_postopen_release_rejects_self_consistent_nested_outcome_gate_forgery(
     receipt_digest = verifier.sha256_file(receipt_path)
     (source / state["receipt_sha256"]).write_text(
         f"{receipt_digest}  opening_receipt_v1.json\n", encoding="utf-8"
+    )
+    _refresh_postopen_coverage_evidence(
+        verifier, source, authorization_path
     )
 
     with pytest.raises(ValueError, match="outcome-QC gate semantics changed"):
@@ -2184,6 +2647,9 @@ def test_postopen_release_distinguishes_transport_resume_from_second_opening(
         (source / state["receipt_sha256"]).write_text(
             f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
             encoding="utf-8",
+        )
+        _refresh_postopen_coverage_evidence(
+            verifier, source, authorization_path
         )
 
     resumed_transport = {
@@ -2981,6 +3447,9 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
         "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
         "thermoroute.quantiles": "src/thermoroute/quantiles.py",
+        "thermoroute.coverage_audit": "src/thermoroute/coverage_audit.py",
+        "thermoroute.coverage_bridge": "src/thermoroute/coverage_bridge.py",
+        "thermoroute.repro": "src/thermoroute/repro.py",
     }
     fixed_files = {
         relative: relative
@@ -4215,6 +4684,9 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
         "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
         "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "temporal_coverage_audit": (
+            f"{base}/trusted/temporal_coverage_audit_v1.json"
+        ),
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
         "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
@@ -4233,6 +4705,14 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             "sha256": "7" * 64,
             "format": "thermoroute.route-a-outcome-qc-policy.v1",
             "policy_id": "route-a-outcome-qc-and-influence-001",
+            "required": True,
+        },
+        "temporal_coverage_policy": {
+            "path": verifier.TEMPORAL_COVERAGE_POLICY_PATH,
+            "sha256": verifier.TEMPORAL_COVERAGE_POLICY_SHA256,
+            "format": verifier.TEMPORAL_COVERAGE_POLICY_FORMAT,
+            "policy_id": verifier.TEMPORAL_COVERAGE_POLICY_ID,
+            "status": "FROZEN_PRELABEL_OUTCOME_FREE",
             "required": True,
         },
         "inference_amendment": {
@@ -4255,20 +4735,23 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
             "policy_sha256": "b" * 64,
         },
-            "runtime": {
-                "format": "thermoroute.route-a-runtime.v1",
-                "requirements_lock": {"path": "requirements-lock.txt", "sha256": "3" * 64},
-                "hashed_requirements_lock": {
-                    "path": verifier.REPRODUCIBILITY_LOCK,
-                    "sha256": "6" * 64,
-                },
-                "installed_version_validation": {},
-                "numerical_runtime_contract": {},
-                "runtime_sha256": "4" * 64,
-                "python_executable": {},
-                "golden_inference_sha256": "5" * 64,
-                "formal_numerical_policy": {},
-                "deterministic_child_policy": {},
+        "runtime": {
+            "format": "thermoroute.route-a-runtime.v1",
+            "requirements_lock": {
+                "path": "requirements-lock.txt",
+                "sha256": "3" * 64,
+            },
+            "hashed_requirements_lock": {
+                "path": verifier.REPRODUCIBILITY_LOCK,
+                "sha256": "6" * 64,
+            },
+            "installed_version_validation": {},
+            "numerical_runtime_contract": {},
+            "runtime_sha256": "4" * 64,
+            "python_executable": {},
+            "golden_inference_sha256": "5" * 64,
+            "formal_numerical_policy": {},
+            "deterministic_child_policy": {},
         },
         "state_paths": state,
     }
