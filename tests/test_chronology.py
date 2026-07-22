@@ -667,6 +667,7 @@ def _repository(
     *,
     leak_before_model: bool = False,
     source_change: bool = False,
+    creation_base: bool = True,
     lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
@@ -689,8 +690,10 @@ def _repository(
     evidence = _seed_evidence_commit(
         root, candidate_already_exists=leak_before_model
     )
-    _write(root, "notes/chronology-marker.txt", "evidence committed\n")
-    marker = _commit(root, "mark evidence ready for chronology receipt")
+    marker = evidence
+    if creation_base:
+        _write(root, "notes/chronology-marker.txt", "evidence committed\n")
+        marker = _commit(root, "mark evidence ready for chronology receipt")
     if source_change:
         _write(root, "src/thermoroute/post_freeze_change.py", "changed = True\n")
         marker = _commit(root, "forbidden post-freeze source change")
@@ -728,6 +731,37 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     assert len(document["model_freeze_artifacts"]) >= 10
     assert len(document["input_evidence_artifacts"]) >= 15
     assert document["external_timestamp_or_public_preregistration"] is False
+    assert validate_prelabel_chronology(
+        state["receipt"], root=state["root"]
+    ) == document
+
+
+def test_chronology_requires_post_evidence_outcome_free_creation_base(tmp_path):
+    state = _repository(tmp_path, creation_base=False)
+    assert _run(state["root"], "rev-parse", "HEAD") == state["evidence"]
+    with pytest.raises(
+        ChronologyError,
+        match="input evidence < chronology receipt creation base",
+    ):
+        _freeze(state)
+
+    gate = {
+        "format": "thermoroute.route-a-inference-gate.v1",
+        "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
+        "contains_confirmation_outcomes": False,
+        "post_2020_outcomes_requested_or_inspected": False,
+    }
+    _write(
+        state["root"],
+        "outputs/prelabel/route_a_inference_gate_v1.json",
+        _json_bytes(gate),
+    )
+    gate_commit = _commit(
+        state["root"], "freeze outcome-free inference gate as receipt base"
+    )
+    document = _freeze(state)
+    assert document["order"]["receipt_creation_base_commit"] == gate_commit
+    _publish_receipt(state)
     assert validate_prelabel_chronology(
         state["receipt"], root=state["root"]
     ) == document

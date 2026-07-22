@@ -153,6 +153,27 @@ def _write_bytes(root: Path, relative: str, payload: bytes = b"fixture\n") -> Pa
     return path
 
 
+def _commit_git_fixture(root: Path, message: str) -> str:
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c", "user.name=Fixture",
+            "-c", "user.email=fixture@example.invalid",
+            "commit", "-q", "-m", message,
+        ],
+        cwd=root,
+        check=True,
+    )
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+
 def _binding(verifier, root: Path, relative: str) -> dict[str, str]:
     path = root / relative
     return {"path": relative, "sha256": verifier.sha256_file(path)}
@@ -2548,6 +2569,92 @@ def test_git_path_lifetime_walk_sees_add_delete_on_merged_side_branch(tmp_path):
     }
 
 
+def test_release_replay_accepts_one_strict_immutable_seal_birth(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_seal_lineage_valid_test"
+    )
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    _write_bytes(root, "base.txt")
+    _commit_git_fixture(root, "base")
+    relative = "protocols/route_a_inference_amendment_seal_v1.json"
+    _write_bytes(root, "protocols/route_a_inference_amendment_v1.json", b"{}\n")
+    amendment_commit = _commit_git_fixture(root, "amendment")
+    payload = b'{"seal":"canonical"}\n'
+    _write_bytes(root, relative, payload)
+    creation = _commit_git_fixture(root, "seal")
+
+    assert verifier._verify_unique_immutable_path_creation(
+        root,
+        tip="HEAD",
+        predecessor=amendment_commit,
+        relative=relative,
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+        label="inference amendment seal",
+    ) == creation
+
+
+@pytest.mark.parametrize(
+    ("attack", "error"),
+    (
+        ("same_commit", "existed at its required predecessor commit"),
+        ("preexisting", "existed at its required predecessor commit"),
+        ("add_delete_readd", "exactly one reachable Git creation"),
+        ("post_create_modify", "deleted or changed after creation"),
+    ),
+)
+def test_release_replay_rejects_adversarial_seal_histories(
+    tmp_path, attack, error,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_seal_lineage_{attack}_test"
+    )
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    _write_bytes(root, "base.txt")
+    _commit_git_fixture(root, "base")
+    amendment = "protocols/route_a_inference_amendment_v1.json"
+    relative = "protocols/route_a_inference_amendment_seal_v1.json"
+    payload = b'{"seal":"canonical"}\n'
+
+    if attack == "same_commit":
+        _write_bytes(root, amendment, b"{}\n")
+        _write_bytes(root, relative, payload)
+        amendment_commit = _commit_git_fixture(root, "amendment and seal")
+    elif attack == "preexisting":
+        _write_bytes(root, relative, payload)
+        _commit_git_fixture(root, "premature seal")
+        _write_bytes(root, amendment, b"{}\n")
+        amendment_commit = _commit_git_fixture(root, "later amendment")
+    else:
+        _write_bytes(root, amendment, b"{}\n")
+        amendment_commit = _commit_git_fixture(root, "amendment")
+        _write_bytes(root, relative, payload)
+        _commit_git_fixture(root, "seal")
+        if attack == "add_delete_readd":
+            (root / relative).unlink()
+            _commit_git_fixture(root, "delete seal")
+            _write_bytes(root, relative, payload)
+            _commit_git_fixture(root, "re-add seal")
+        else:
+            _write_bytes(root, relative, b'{"seal":"changed"}\n')
+            _commit_git_fixture(root, "modify seal")
+            _write_bytes(root, relative, payload)
+            _commit_git_fixture(root, "restore seal")
+
+    with pytest.raises(ValueError, match=error):
+        verifier._verify_unique_immutable_path_creation(
+            root,
+            tip="HEAD",
+            predecessor=amendment_commit,
+            relative=relative,
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+            label="inference amendment seal",
+        )
+
+
 def test_manifest_refuses_unsealed_canonical_stage09_current_truth(tmp_path):
     manifest_path = _write_fixture(tmp_path)
     prediction = (
@@ -4218,7 +4325,9 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     inference_gate_path = "outputs/prelabel/route_a_inference_gate_v1.json"
     write_json(inference_amendment_path, {"fixture": "outcome-free amendment"})
+    amendment_commit = commit("freeze outcome-free inference amendment")
     write_json(inference_amendment_seal_path, {"fixture": "amendment seal"})
+    seal_commit = commit("seal outcome-free inference amendment")
     write_json(inference_gate_path, {"fixture": "fail-closed inference gate"})
     frozen_source_inventory = {
         relative: verifier.sha256_file(source / relative)
@@ -4904,7 +5013,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "inference_amendment": {
             **_binding(verifier, source, inference_amendment_path),
             "seal": _binding(verifier, source, inference_amendment_seal_path),
-            "final_prelabel_commit": model_commit,
+            "final_prelabel_commit": amendment_commit,
         },
         "inference_gate": _binding(verifier, source, inference_gate_path),
         "runtime": {
@@ -4940,12 +5049,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     assert len({
         original_commit,
         final_commit,
+        amendment_commit,
+        seal_commit,
         model_commit,
         input_commit,
         receipt_base_commit,
         compute_commit,
         manuscript_commit,
-    }) == 7
+    }) == 9
 
     stage = tmp_path / "chronology-stage"
     shutil.copytree(source, stage, ignore=shutil.ignore_patterns(".git"))

@@ -581,6 +581,61 @@ def _git_path_creation_commits(
     return created
 
 
+def _git_ancestry_path_commits(
+    repository: Path, start_exclusive: str, end_inclusive: str,
+) -> list[str]:
+    """Enumerate every descendant on an ancestry path between two commits."""
+    result = _run_git(
+        repository,
+        "rev-list",
+        "--reverse",
+        "--ancestry-path",
+        f"{start_exclusive}..{end_inclusive}",
+        text=True,
+    )
+    if result.returncode:
+        raise ValueError("cannot enumerate immutable-path descendant history")
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def _verify_unique_immutable_path_creation(
+    repository: Path,
+    *,
+    tip: str,
+    predecessor: str,
+    relative: str,
+    expected_sha256: str,
+    label: str,
+) -> str:
+    """Independently prove a unique post-predecessor birth with no later drift."""
+    if _git_path_exists(repository, predecessor, relative):
+        raise ValueError(f"{label} existed at its required predecessor commit")
+    creations = _git_path_creation_commits(repository, tip, relative)
+    if len(creations) != 1:
+        raise ValueError(f"{label} does not have exactly one reachable Git creation")
+    creation = creations[0]
+    strict = _run_git(
+        repository,
+        "merge-base",
+        "--is-ancestor",
+        predecessor,
+        creation,
+    )
+    if creation == predecessor or strict.returncode:
+        raise ValueError(f"{label} creation does not strictly follow its predecessor")
+    for commit in [
+        creation,
+        *_git_ancestry_path_commits(repository, creation, tip),
+    ]:
+        blob = _run_git(repository, "show", f"{commit}:{relative}")
+        if (
+            blob.returncode
+            or hashlib.sha256(blob.stdout).hexdigest() != expected_sha256
+        ):
+            raise ValueError(f"{label} was deleted or changed after creation")
+    return creation
+
+
 def _git_commit_name_status(repository: Path, commit: str) -> list[tuple[str, str]]:
     result = _run_git(
         repository,
@@ -6185,10 +6240,11 @@ def _verify_authorized_compute_tree_from_bundle(
         amendment,
         label="authorized inference amendment",
     )
+    seal_binding = amendment.get("seal")
     seal_relative = _git_declared_binding_path(
         bare,
         compute_commit,
-        amendment.get("seal"),
+        seal_binding,
         label="authorized inference amendment seal",
     )
     gate_relative = _git_declared_binding_path(
@@ -6237,6 +6293,16 @@ def _verify_authorized_compute_tree_from_bundle(
         or hashlib.sha256(sealed_blob.stdout).hexdigest() != amendment.get("sha256")
     ):
         raise ValueError("sealed inference-amendment Git blob changed")
+    if not isinstance(seal_binding, Mapping):
+        raise ValueError("authorized inference amendment seal binding is malformed")
+    _verify_unique_immutable_path_creation(
+        bare,
+        tip=compute_commit,
+        predecessor=amendment_commit,
+        relative=seal_relative,
+        expected_sha256=str(seal_binding.get("sha256", "")),
+        label="inference amendment seal",
+    )
 
 
 def _normalise_git_relative(value: object, *, label: str) -> str:

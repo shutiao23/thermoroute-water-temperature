@@ -633,6 +633,116 @@ def _git(root: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
     )
 
 
+def _git_path_exists(root: Path, commit: str, relative: str) -> bool:
+    """Return whether ``relative`` exists in ``commit``, failing on Git errors."""
+    result = _git(root, "cat-file", "-e", f"{commit}:{relative}")
+    if result.returncode not in {0, 1, 128}:
+        raise InferenceGateError("cannot inspect inference-amendment seal lifetime")
+    return result.returncode == 0
+
+
+def _git_path_creation_commits(
+    root: Path, tip: str, relative: str,
+) -> list[str]:
+    """Find every logical path birth in the complete DAG reachable from ``tip``."""
+    history = _git(root, "rev-list", "--reverse", "--parents", tip)
+    if history.returncode:
+        raise InferenceGateError(
+            "cannot enumerate inference-amendment seal history"
+        )
+    creations: list[str] = []
+    try:
+        lines = history.stdout.decode("ascii", errors="strict").splitlines()
+    except UnicodeDecodeError as exc:
+        raise InferenceGateError(
+            "inference-amendment seal history contains a malformed commit"
+        ) from exc
+    for line in lines:
+        fields = line.split()
+        if not fields:
+            continue
+        commit, parents = fields[0], fields[1:]
+        if not _git_path_exists(root, commit, relative):
+            continue
+        if not parents or all(
+            not _git_path_exists(root, parent, relative) for parent in parents
+        ):
+            creations.append(commit)
+    return creations
+
+
+def _git_ancestry_path_commits(
+    root: Path, start_exclusive: str, end_inclusive: str,
+) -> list[str]:
+    """Return every descendant on a DAG ancestry path from start to end."""
+    history = _git(
+        root,
+        "rev-list",
+        "--reverse",
+        "--ancestry-path",
+        f"{start_exclusive}..{end_inclusive}",
+    )
+    if history.returncode:
+        raise InferenceGateError(
+            "cannot replay inference-amendment seal descendants"
+        )
+    try:
+        return [
+            line
+            for line in history.stdout.decode("ascii", errors="strict").splitlines()
+            if line
+        ]
+    except UnicodeDecodeError as exc:
+        raise InferenceGateError(
+            "inference-amendment seal history contains a malformed commit"
+        ) from exc
+
+
+def _validate_inference_amendment_seal_git_lineage(
+    *,
+    root: Path,
+    final_prelabel_commit: str,
+    tip: str,
+    expected_sha256: str,
+) -> str:
+    """Prove one post-amendment seal birth and immutable descendant history."""
+    if _git_path_exists(root, final_prelabel_commit, AMENDMENT_SEAL_RELATIVE):
+        raise InferenceGateError(
+            "inference amendment seal existed at its amendment commit"
+        )
+    creations = _git_path_creation_commits(
+        root, tip, AMENDMENT_SEAL_RELATIVE
+    )
+    if len(creations) != 1:
+        raise InferenceGateError(
+            "inference amendment seal must have exactly one reachable Git creation"
+        )
+    creation = creations[0]
+    if creation == final_prelabel_commit or _git(
+        root,
+        "merge-base",
+        "--is-ancestor",
+        final_prelabel_commit,
+        creation,
+    ).returncode:
+        raise InferenceGateError(
+            "inference amendment seal creation must strictly follow the amendment commit"
+        )
+    for commit in [
+        creation,
+        *_git_ancestry_path_commits(root, creation, tip),
+    ]:
+        blob = _git(root, "show", f"{commit}:{AMENDMENT_SEAL_RELATIVE}")
+        if (
+            blob.returncode
+            or hashlib.sha256(blob.stdout).hexdigest() != expected_sha256
+        ):
+            raise InferenceGateError(
+                "inference amendment seal was deleted or changed after creation"
+            )
+    return creation
+
+
 def build_inference_amendment_seal_document(
     *,
     root: str | Path,
@@ -659,6 +769,14 @@ def build_inference_amendment_seal_document(
         amendment_file
     ):
         raise InferenceGateError("amendment commit does not contain the current bytes")
+    if _git_path_exists(
+        root_path, final_prelabel_commit, AMENDMENT_SEAL_RELATIVE
+    ) or _git_path_creation_commits(
+        root_path, final_prelabel_commit, AMENDMENT_SEAL_RELATIVE
+    ):
+        raise InferenceGateError(
+            "amendment commit history already contains the separate seal"
+        )
     base_seal = _load_json(base_seal_file, label="base protocol seal")
     base_commit = str(base_seal.get("final_prelabel_protocol", {}).get("commit", ""))
     ancestor = _git(root_path, "merge-base", "--is-ancestor", base_commit, final_prelabel_commit)
@@ -745,6 +863,12 @@ def validate_inference_amendment_seal(
             raise InferenceGateError("sealed amendment Git blob changed")
         if _git(root_path, "merge-base", "--is-ancestor", commit, "HEAD").returncode:
             raise InferenceGateError("amendment commit is not an authorization ancestor")
+        _validate_inference_amendment_seal_git_lineage(
+            root=root_path,
+            final_prelabel_commit=commit,
+            tip="HEAD",
+            expected_sha256=_sha256_file(seal_file),
+        )
         base_seal = _load_json(base_seal_file, label="base protocol seal")
         final_protocol = base_seal.get("final_prelabel_protocol")
         base_commit = str(

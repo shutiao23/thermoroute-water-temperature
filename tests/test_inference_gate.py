@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 import socket
+import subprocess
 
 import pytest
 
 from thermoroute.inference_gate import (
     AMENDMENT_RELATIVE,
+    AMENDMENT_SEAL_RELATIVE,
     BASE_PROTOCOL_RELATIVE,
     BASE_PROTOCOL_SEAL_RELATIVE,
     InferenceGateError,
@@ -16,6 +19,7 @@ from thermoroute.inference_gate import (
     build_inference_gate_document,
     cluster_geometry,
     exclusive_create_json,
+    _validate_inference_amendment_seal_git_lineage,
     validate_inference_amendment,
     validate_inference_gate_document,
 )
@@ -39,6 +43,42 @@ def _copy_gate_inputs(tmp_path: Path) -> None:
     source = tmp_path / "src" / "fixture.py"
     source.parent.mkdir(parents=True)
     source.write_text("VALUE = 1\n", encoding="utf-8")
+
+
+def _git_commit(root: Path, message: str) -> str:
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c", "user.name=Fixture",
+            "-c", "user.email=fixture@example.invalid",
+            "commit", "-q", "-m", message,
+        ],
+        cwd=root,
+        check=True,
+    )
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _seal_lineage_repository(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / "base.txt").write_text("base\n", encoding="utf-8")
+    _git_commit(root, "base")
+    return root
+
+
+def _write_seal(root: Path, payload: bytes) -> None:
+    path = root / "protocols" / "route_a_inference_amendment_seal_v1.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
 
 
 def test_production_registry_geometry_is_exact_and_row_order_invariant() -> None:
@@ -186,3 +226,74 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
     )
     assert recovery["external_sha256_sidecar_without_receipt"] == "FAIL_CLOSED"
     assert amendment["lineage_contract"]["base_v1_files_remain_immutable"] is True
+
+
+def test_amendment_seal_lineage_accepts_one_strict_immutable_birth(
+    tmp_path: Path,
+) -> None:
+    root = _seal_lineage_repository(tmp_path)
+    amendment = root / "protocols" / "route_a_inference_amendment_v1.json"
+    amendment.parent.mkdir(parents=True, exist_ok=True)
+    amendment.write_text("{}\n", encoding="utf-8")
+    final_prelabel_commit = _git_commit(root, "amendment")
+    payload = b'{"seal":"canonical"}\n'
+    _write_seal(root, payload)
+    creation = _git_commit(root, "seal")
+
+    assert _validate_inference_amendment_seal_git_lineage(
+        root=root,
+        final_prelabel_commit=final_prelabel_commit,
+        tip="HEAD",
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+    ) == creation
+
+
+@pytest.mark.parametrize(
+    ("attack", "error"),
+    (
+        ("same_commit", "existed at its amendment commit"),
+        ("preexisting", "existed at its amendment commit"),
+        ("add_delete_readd", "exactly one reachable Git creation"),
+        ("post_create_modify", "deleted or changed after creation"),
+    ),
+)
+def test_amendment_seal_lineage_rejects_adversarial_histories(
+    tmp_path: Path, attack: str, error: str,
+) -> None:
+    root = _seal_lineage_repository(tmp_path)
+    amendment = root / "protocols" / "route_a_inference_amendment_v1.json"
+    amendment.parent.mkdir(parents=True, exist_ok=True)
+    payload = b'{"seal":"canonical"}\n'
+
+    if attack == "same_commit":
+        amendment.write_text("{}\n", encoding="utf-8")
+        _write_seal(root, payload)
+        final_prelabel_commit = _git_commit(root, "amendment and seal")
+    elif attack == "preexisting":
+        _write_seal(root, payload)
+        _git_commit(root, "premature seal")
+        amendment.write_text("{}\n", encoding="utf-8")
+        final_prelabel_commit = _git_commit(root, "later amendment")
+    else:
+        amendment.write_text("{}\n", encoding="utf-8")
+        final_prelabel_commit = _git_commit(root, "amendment")
+        _write_seal(root, payload)
+        _git_commit(root, "seal")
+        if attack == "add_delete_readd":
+            (root / AMENDMENT_SEAL_RELATIVE).unlink()
+            _git_commit(root, "delete seal")
+            _write_seal(root, payload)
+            _git_commit(root, "re-add seal")
+        else:
+            _write_seal(root, b'{"seal":"changed"}\n')
+            _git_commit(root, "modify seal")
+            _write_seal(root, payload)
+            _git_commit(root, "restore seal")
+
+    with pytest.raises(InferenceGateError, match=error):
+        _validate_inference_amendment_seal_git_lineage(
+            root=root,
+            final_prelabel_commit=final_prelabel_commit,
+            tip="HEAD",
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
