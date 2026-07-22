@@ -22,6 +22,7 @@ def test_legacy_monitoring_sites_do_not_encode_a_network() -> None:
 
 def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
     paths = (
+        ROOT / ".github/workflows/ci.yml",
         ROOT / "scripts/01_prepare_data.py",
         ROOT / "outputs/reports/data_audit.md",
         ROOT / "outputs/reports/review_response.md",
@@ -34,6 +35,7 @@ def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
         r"s2\s*(?:→|->)\s*p3",
         r"confirms?\s+b1",
         r"station topology\s*\(directed cascade",
+        r"near[- ]deterministic\s+cascade",
         r"b1\s+is\s+more\s+regulated",
     )
     for pattern in forbidden:

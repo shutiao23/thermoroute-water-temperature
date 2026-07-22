@@ -98,7 +98,8 @@ jobs:
           # A tiny end-to-end run that trains ThermoRoute for a few epochs on the
           # shipped 3-station data and asserts the pipeline produces sane numbers:
           # persistence-beating skill sign is NOT required on the near-deterministic
-          # cascade, but conformal coverage must be in a sane band and the
+          # legacy three-monitoring-site series, but conformal coverage must be in a
+          # sane band and the
           # identical-keys invariant must hold. Guards against silent pipeline rot.
           python scripts/ci_smoke.py
       - name: Build and verify clean-room release
