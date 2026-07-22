@@ -513,15 +513,34 @@ def validate_inference_amendment(
         raise InferenceGateError("outcome-QC policy amendment binding changed")
     recovery = amendment.get("trusted_scoring_recovery_contract")
     expected_recovery = {
-        "maximum_raw_label_acquisitions": 1,
-        "second_label_acquisition_allowed": False,
+        "maximum_logical_openings": 1,
+        "maximum_frozen_request_ledgers_per_opening": 1,
+        "second_logical_opening_allowed": False,
+        "http_retries_within_or_across_transport_processes_allowed": True,
+        "http_delivery_semantics": (
+            "at_least_once_until_the_response_transaction_directory_is_complete_"
+            "and_durably_published"
+        ),
+        "response_received_but_transaction_not_durable_may_be_requested_again": (
+            True
+        ),
+        "exactly_once_http_delivery_claimed": False,
+        "durable_canonical_response_replacement_allowed": False,
         "raw_transport_resume_before_acquisition_manifest": (
             "same_opening_identifier_and_exact_frozen_request_ledger_only; "
-            "fetch_only_wholly_absent_transactions; normalized_derived_and_"
-            "trusted_outputs_must_all_be_absent"
+            "refetch_only_when_no_complete_durable_verifiable_canonical_"
+            "transaction_exists; partial_invalid_or_noncanonical_canonical_"
+            "transactions_fail_closed_without_overwrite; only_unpublished_"
+            "owner_private_temporary_or_pending_state_may_be_cleaned; "
+            "normalized_derived_and_trusted_outputs_must_all_be_absent"
         ),
         "raw_transport_resume_after_acquisition_manifest_allowed": False,
         "raw_acquisition_child_after_acquisition_manifest_allowed": False,
+        "acquisition_bundle_publication": (
+            "request_map_two_normalized_tables_and_manifest_are_generated_and_"
+            "validated_in_one_private_same_filesystem_stage_then_published_by_one_"
+            "directory_rename"
+        ),
         "trusted_completion_after_acquisition_manifest": (
             "network_free_deterministic_replay_under_the_same_opening_identifier"
         ),
@@ -530,8 +549,9 @@ def validate_inference_amendment(
             "then_publish_by_one_directory_rename"
         ),
         "absent_canonical_trusted_directory": (
-            "discard_or_ignore_noncanonical_staging_directories_and_recompute_a_"
-            "complete_generation"
+            "delete_only_strictly_validated_canonical_named_owner_private_same_"
+            "device_read_only_regular_file_stages_without_external_hardlinks_"
+            "then_recompute_a_complete_generation; any_unsafe_stage_fails_closed"
         ),
         "complete_canonical_trusted_directory_without_receipt": (
             "fully_replay_and_validate_all_trusted_artifacts_then_create_the_"

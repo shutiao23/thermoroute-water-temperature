@@ -2,9 +2,10 @@
 
 The first process freezes the complete request ledger before its first HTTPS
 request.  A later process may continue the *same* irreversible opening, but it
-can only reuse byte-verified complete transactions and fetch ledger entries
-whose canonical transaction directory is wholly absent.  No outcome is parsed
-until every raw transaction is complete.
+can only reuse byte-verified, durably published canonical transactions and
+retry ledger entries for which no such transaction exists.  HTTP delivery is
+therefore at least once, not exactly once.  No outcome is parsed until every
+raw transaction is complete.
 """
 
 from __future__ import annotations
@@ -16,10 +17,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import secrets
 import stat
 import tempfile
 import time
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 import urllib.request
 
 import pandas as pd
@@ -32,6 +35,8 @@ from .opening_contract import (
     ACQUISITION_REQUEST_LEDGER_FORMAT,
     ACQUISITION_REQUEST_MAP_FORMAT,
     MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES,
+    RAW_ACQUISITION_FORBIDDEN_STATE_KEYS,
+    TRUSTED_STATE_KEYS,
     assert_no_symlink_components,
     validate_acquisition_work_order,
     validate_frozen_source_identity,
@@ -50,6 +55,7 @@ class OutcomeAcquisitionError(RuntimeError):
 
 
 _RESPONSE_CHUNK_BYTES = 1024 * 1024
+_ACQUISITION_STAGE_PREFIX = ".acquisition-stage-v1-"
 _DIRECTORY_OPEN_FLAGS = (
     os.O_RDONLY
     | getattr(os, "O_DIRECTORY", 0)
@@ -67,6 +73,7 @@ def _open_directory_chain(path: Path, *, create: bool) -> Iterator[int]:
     descriptor = os.open(os.path.sep, _DIRECTORY_OPEN_FLAGS)
     try:
         for component in absolute.parts[1:]:
+            created = False
             try:
                 child = os.open(
                     component,
@@ -78,6 +85,7 @@ def _open_directory_chain(path: Path, *, create: bool) -> Iterator[int]:
                     raise
                 try:
                     os.mkdir(component, 0o755, dir_fd=descriptor)
+                    created = True
                 except FileExistsError:
                     pass
                 child = os.open(
@@ -85,6 +93,9 @@ def _open_directory_chain(path: Path, *, create: bool) -> Iterator[int]:
                     _DIRECTORY_OPEN_FLAGS,
                     dir_fd=descriptor,
                 )
+            if created:
+                os.fsync(child)
+                os.fsync(descriptor)
             os.close(descriptor)
             descriptor = child
         yield descriptor
@@ -104,7 +115,7 @@ def _secure_mkdirs(path: Path) -> None:
 def _secure_create_directory(path: Path) -> None:
     with _open_directory_chain(path.parent, create=True) as parent_descriptor:
         try:
-            os.mkdir(path.name, 0o755, dir_fd=parent_descriptor)
+            os.mkdir(path.name, 0o700, dir_fd=parent_descriptor)
         except FileExistsError as exc:
             raise OutcomeAcquisitionError(
                 f"refusing to replace immutable directory: {path}"
@@ -141,49 +152,297 @@ def _read_regular_file_no_follow(path: Path) -> bytes:
             os.close(descriptor)
 
 
+def _require_immutable_atomic_final(path: Path, *, label: str) -> None:
+    """Require one immutable final inode or its sole known post-link temp."""
+    path = Path(os.path.abspath(os.fspath(path)))
+    with _open_directory_chain(path.parent, create=False) as parent_descriptor:
+        parent = os.fstat(parent_descriptor)
+        descriptor = os.open(
+            path.name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_dev != parent.st_dev
+                or metadata.st_mode & 0o222
+                or metadata.st_nlink not in {1, 2}
+            ):
+                raise OutcomeAcquisitionError(
+                    f"{label} is not one immutable atomic final file"
+                )
+            linked_temps = 0
+            temporary_pattern = re.compile(
+                rf"\.{re.escape(path.name)}\.[a-z0-9_]{{8}}\.tmp"
+            )
+            for name in os.listdir(parent_descriptor):
+                if temporary_pattern.fullmatch(name) is None:
+                    continue
+                temporary = os.stat(
+                    name, dir_fd=parent_descriptor, follow_symlinks=False
+                )
+                if (
+                    stat.S_ISREG(temporary.st_mode)
+                    and temporary.st_dev == metadata.st_dev
+                    and temporary.st_ino == metadata.st_ino
+                ):
+                    linked_temps += 1
+            if (
+                metadata.st_nlink == 2 and linked_temps != 1
+            ) or (metadata.st_nlink == 1 and linked_temps != 0):
+                raise OutcomeAcquisitionError(
+                    f"{label} has an unknown hard link"
+                )
+        finally:
+            os.close(descriptor)
+
+
 def _fsync_directory(path: Path) -> None:
     with _open_directory_chain(path, create=False) as descriptor:
         os.fsync(descriptor)
 
 
+def _atomic_create_fault(_point: str, _path: Path) -> None:
+    """No-op hook replaced only by atomic-publication crash tests."""
+
+
+def _acquisition_transport_fault(_point: str) -> None:
+    """No-op hook replaced only by transport-boundary crash tests."""
+
+
+def _cleanup_atomic_create_temps(
+    parent_descriptor: int,
+    *,
+    final_name: str,
+    expected_payload: bytes,
+) -> None:
+    """Remove only safe temp remnants created for this exact final name."""
+    parent = os.fstat(parent_descriptor)
+    if (
+        not stat.S_ISDIR(parent.st_mode)
+        or parent.st_uid != os.geteuid()
+        or parent.st_mode & 0o022
+    ):
+        raise OutcomeAcquisitionError(
+            "atomic-create parent is not owner-controlled"
+        )
+    try:
+        final_metadata = os.stat(
+            final_name, dir_fd=parent_descriptor, follow_symlinks=False
+        )
+    except FileNotFoundError:
+        final_metadata = None
+    temporary_pattern = re.compile(
+        rf"\.{re.escape(final_name)}\.[a-z0-9_]{{8}}\.tmp"
+    )
+    for name in os.listdir(parent_descriptor):
+        if temporary_pattern.fullmatch(name) is None:
+            continue
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                payload = handle.read()
+            published_link = bool(
+                final_metadata is not None
+                and stat.S_ISREG(final_metadata.st_mode)
+                and metadata.st_dev == final_metadata.st_dev
+                and metadata.st_ino == final_metadata.st_ino
+                and metadata.st_nlink == 2
+            )
+            safe_owner_file = bool(
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_uid == os.geteuid()
+                and metadata.st_dev == parent.st_dev
+                and not metadata.st_mode & 0o022
+                and (metadata.st_nlink == 1 or published_link)
+            )
+            if not safe_owner_file:
+                raise OutcomeAcquisitionError(
+                    "atomic-create temporary artifact has unsafe metadata"
+                )
+            # A prefix left before link is not authoritative.  A complete temp
+            # hard-linked to the final is redundant.  Both may be unlinked
+            # without changing a published final name.
+            if payload != expected_payload and published_link:
+                raise OutcomeAcquisitionError(
+                    "published atomic-create temp differs from final payload"
+                )
+            os.unlink(name, dir_fd=parent_descriptor)
+        finally:
+            os.close(descriptor)
+    os.fsync(parent_descriptor)
+
+
 def _create_bytes(path: Path, payload: bytes) -> None:
     path = Path(os.path.abspath(os.fspath(path)))
     with _open_directory_chain(path.parent, create=True) as parent_descriptor:
-        flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_CLOEXEC", 0)
+        _cleanup_atomic_create_temps(
+            parent_descriptor,
+            final_name=path.name,
+            expected_payload=payload,
         )
         try:
-            descriptor = os.open(
-                path.name,
-                flags,
-                0o444,
-                dir_fd=parent_descriptor,
-            )
-        except FileExistsError as exc:
+            os.stat(path.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
             raise OutcomeAcquisitionError(
                 f"refusing to replace immutable artifact: {path}"
-            ) from exc
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.fsync(parent_descriptor)
+            )
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                split = max(1, len(payload) // 2) if payload else 0
+                handle.write(payload[:split])
+                handle.flush()
+                _atomic_create_fault("after_temporary_prefix_write", path)
+                handle.write(payload[split:])
+                handle.flush()
+                os.fchmod(handle.fileno(), 0o444)
+                _atomic_create_fault(
+                    "after_final_mode_before_inode_fsync", path
+                )
+                os.fsync(handle.fileno())
+            _atomic_create_fault("before_no_replace_link", path)
+            try:
+                os.link(
+                    temporary.name,
+                    path.name,
+                    src_dir_fd=parent_descriptor,
+                    dst_dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileExistsError as exc:
+                raise OutcomeAcquisitionError(
+                    f"refusing to replace immutable artifact: {path}"
+                ) from exc
+            os.fsync(parent_descriptor)
+            _atomic_create_fault("after_no_replace_link", path)
+        finally:
+            try:
+                os.unlink(temporary.name, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except FileNotFoundError:
+                pass
 
 
 def _create_or_validate_bytes(path: Path, payload: bytes, *, label: str) -> None:
-    if path.exists():
+    if os.path.lexists(path):
         if (
             not path.is_file()
             or path.is_symlink()
             or _read_regular_file_no_follow(path) != payload
         ):
             raise OutcomeAcquisitionError(f"existing {label} differs from replay")
+        _require_immutable_atomic_final(path, label=label)
         return
     _create_bytes(path, payload)
+
+
+def _safe_atomic_temp_names(
+    directory: Path,
+    *,
+    allowed_final: Callable[[str], str | None],
+    remove: bool,
+) -> set[str]:
+    """Validate, optionally remove, and return recognized SIGKILL remnants."""
+    if not os.path.lexists(directory):
+        return set()
+    safe: set[str] = set()
+    with _open_directory_chain(directory, create=False) as parent_descriptor:
+        parent = _assert_owner_controlled_directory(parent_descriptor)
+        for name in os.listdir(parent_descriptor):
+            if not name.startswith(".") or not name.endswith(".tmp"):
+                continue
+            final_name = allowed_final(name)
+            if final_name is None:
+                continue
+            descriptor = os.open(
+                name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=parent_descriptor,
+            )
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_dev != parent.st_dev
+                    or metadata.st_mode & 0o022
+                ):
+                    raise OutcomeAcquisitionError(
+                        "atomic temporary artifact has unsafe metadata"
+                    )
+                try:
+                    final = os.stat(
+                        final_name,
+                        dir_fd=parent_descriptor,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError:
+                    if metadata.st_nlink != 1:
+                        raise OutcomeAcquisitionError(
+                            "unpublished atomic temp has an external hard link"
+                        )
+                else:
+                    if (
+                        not stat.S_ISREG(final.st_mode)
+                        or final.st_dev != metadata.st_dev
+                        or final.st_ino != metadata.st_ino
+                        or metadata.st_nlink != 2
+                    ):
+                        raise OutcomeAcquisitionError(
+                            "published atomic temp does not bind its final file"
+                        )
+                safe.add(name)
+            finally:
+                os.close(descriptor)
+        if remove:
+            for name in safe:
+                os.unlink(name, dir_fd=parent_descriptor)
+            os.fsync(parent_descriptor)
+    return safe
+
+
+def _named_atomic_temp_parser(final_names: set[str]):
+    ordered = tuple(sorted(final_names, key=len, reverse=True))
+
+    def parse(name: str) -> str | None:
+        for final_name in ordered:
+            if re.fullmatch(
+                rf"\.{re.escape(final_name)}\.[a-z0-9_]{{8}}\.tmp",
+                name,
+            ) is not None:
+                return final_name
+        return None
+
+    return parse
+
+
+def _attempt_atomic_temp_parser(name: str) -> str | None:
+    match = re.fullmatch(
+        r"\.(attempt_[0-9]{6}_(?:start|result)\.json)\."
+        r"[a-z0-9_]{8}\.tmp",
+        name,
+    )
+    return None if match is None else match.group(1)
 
 
 def _create_parquet(path: Path, frame: pd.DataFrame) -> None:
@@ -215,8 +474,8 @@ def _create_parquet(path: Path, frame: pd.DataFrame) -> None:
                     raise OutcomeAcquisitionError(
                         "temporary parquet output is not a regular file"
                     )
-                os.fsync(temporary_descriptor)
                 os.fchmod(temporary_descriptor, 0o444)
+                os.fsync(temporary_descriptor)
             finally:
                 os.close(temporary_descriptor)
             try:
@@ -235,6 +494,7 @@ def _create_parquet(path: Path, frame: pd.DataFrame) -> None:
         finally:
             try:
                 os.unlink(temporary_name_only, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
             except FileNotFoundError:
                 pass
 
@@ -257,6 +517,7 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
 def _self_hashed_document(
     path: Path, *, label: str, self_field: str, format_name: str
 ) -> dict[str, Any]:
+    _require_immutable_atomic_final(path, label=label)
     document = _read_json(path, label=label)
     stable = dict(document)
     claimed = stable.pop(self_field, None)
@@ -278,6 +539,7 @@ def _binding(root: Path, path: Path) -> dict[str, str]:
         )
     except Exception as exc:
         raise OutcomeAcquisitionError("cannot bind acquisition artifact") from exc
+    _require_immutable_atomic_final(resolved, label="bound acquisition artifact")
     return {
         "path": resolved.relative_to(root).as_posix(),
         "sha256": sha256_file(resolved),
@@ -285,13 +547,21 @@ def _binding(root: Path, path: Path) -> dict[str, str]:
 
 
 def _evidence_paths(state: Mapping[str, Path]) -> dict[str, Path]:
-    acquisition_root = state["raw_nwis_root"].parent
+    transport_root = state["transport_root"]
+    if state["raw_nwis_root"].parent != transport_root:
+        raise OutcomeAcquisitionError(
+            "raw NWIS root is outside the canonical transport namespace"
+        )
+    if state["raw_nwis_snapshot_index"].parent != state["raw_nwis_root"]:
+        raise OutcomeAcquisitionError(
+            "raw snapshot index is outside the canonical raw namespace"
+        )
     return {
-        "root": acquisition_root,
-        "request_ledger": acquisition_root / "request_ledger_v1.json",
-        "attempts_root": acquisition_root / "transport_attempts_v1",
-        "attempt_index": acquisition_root / "transport_attempt_index_v1.json",
-        "lock": acquisition_root / ".transport_resume.lock",
+        "root": transport_root,
+        "request_ledger": transport_root / "request_ledger_v1.json",
+        "attempts_root": transport_root / "transport_attempts_v1",
+        "attempt_index": transport_root / "transport_attempt_index_v1.json",
+        "lock": transport_root / ".transport_resume.lock",
     }
 
 
@@ -309,9 +579,17 @@ def _exclusive_transport_lock(path: Path) -> Iterator[None]:
             dir_fd=parent_descriptor,
         )
         try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            parent = os.fstat(parent_descriptor)
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_dev != parent.st_dev
+                or metadata.st_nlink != 1
+                or metadata.st_mode & 0o077
+            ):
                 raise OutcomeAcquisitionError(
-                    "transport lock is not a regular file"
+                    "transport lock has unsafe metadata"
                 )
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -393,7 +671,7 @@ def _load_or_create_request_ledger(
     raw_root: Path,
     resume: bool,
 ) -> dict[str, Any]:
-    if path.exists():
+    if os.path.lexists(path):
         if not resume:
             raise OutcomeAcquisitionError(
                 "initial acquisition refuses a preexisting request ledger"
@@ -409,7 +687,7 @@ def _load_or_create_request_ledger(
                 "acquisition request ledger differs from the fixed work order"
             )
         return actual
-    if raw_root.exists() and any(raw_root.iterdir()):
+    if os.path.lexists(raw_root) and any(raw_root.iterdir()):
         raise OutcomeAcquisitionError(
             "raw acquisition evidence exists without its frozen request ledger"
         )
@@ -436,13 +714,20 @@ def _load_attempt_history(
     request_ledger_sha256: str,
     request_ids: set[str],
 ) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
-    if not attempts_root.exists():
+    if not os.path.lexists(attempts_root):
         return {}, {}
     if not attempts_root.is_dir() or attempts_root.is_symlink():
         raise OutcomeAcquisitionError("transport-attempt root is malformed")
+    safe_temps = _safe_atomic_temp_names(
+        attempts_root,
+        allowed_final=_attempt_atomic_temp_parser,
+        remove=False,
+    )
     starts: dict[int, dict[str, Any]] = {}
     results: dict[int, dict[str, Any]] = {}
     for path in sorted(attempts_root.iterdir()):
+        if path.name in safe_temps:
+            continue
         if not path.is_file() or path.is_symlink():
             raise OutcomeAcquisitionError("transport-attempt evidence contains extras")
         if path.name.endswith("_start.json"):
@@ -483,6 +768,13 @@ def _load_attempt_history(
         raise OutcomeAcquisitionError("transport-attempt starts are not contiguous")
     if not set(results) <= set(starts):
         raise OutcomeAcquisitionError("transport result lacks its start evidence")
+    open_attempts = set(starts) - set(results)
+    if len(open_attempts) > 1 or (
+        open_attempts and open_attempts != {max(starts)}
+    ):
+        raise OutcomeAcquisitionError(
+            "only the latest transport attempt may lack a result"
+        )
     for number, start in starts.items():
         start_fields = {
             "format", "status", "opening_id", "authorization_sha256",
@@ -502,6 +794,8 @@ def _load_attempt_history(
             or not isinstance(missing, list)
             or len(completed) != len(set(completed))
             or len(missing) != len(set(missing))
+            or completed != sorted(completed)
+            or missing != sorted(missing)
             or set(completed) & set(missing)
             or set(completed) | set(missing) != request_ids
         ):
@@ -538,6 +832,8 @@ def _load_attempt_history(
             or not isinstance(final_missing, list)
             or len(final_completed) != len(set(final_completed))
             or len(final_missing) != len(set(final_missing))
+            or final_completed != sorted(final_completed)
+            or final_missing != sorted(final_missing)
             or set(final_completed) & set(final_missing)
             or set(final_completed) | set(final_missing) != request_ids
         ):
@@ -558,6 +854,53 @@ def _load_attempt_history(
         else:
             raise OutcomeAcquisitionError("transport-attempt result status changed")
         _validate_timestamp(result.get("completed_at_utc"))
+    if starts:
+        first = starts[1]
+        if (
+            first.get("mode") != "INITIAL_OPENING_TRANSPORT"
+            or first["completed_before_attempt_request_sha256"]
+            or set(first["missing_at_start_request_sha256"]) != request_ids
+        ):
+            raise OutcomeAcquisitionError(
+                "first transport attempt does not start from the full ledger"
+            )
+    for number in sorted(starts):
+        start = starts[number]
+        start_completed = set(
+            start["completed_before_attempt_request_sha256"]
+        )
+        start_missing = set(start["missing_at_start_request_sha256"])
+        if number > 1:
+            previous = results.get(number - 1)
+            if previous is None:
+                raise OutcomeAcquisitionError(
+                    "transport attempt follows an attempt without a result"
+                )
+            if previous.get("status") == "ALL_LEDGER_TRANSACTIONS_COMPLETE":
+                raise OutcomeAcquisitionError(
+                    "transport attempt exists after ledger completion"
+                )
+            if (
+                start["completed_before_attempt_request_sha256"]
+                != previous["completed_request_sha256"]
+                or start["missing_at_start_request_sha256"]
+                != previous["missing_request_sha256"]
+            ):
+                raise OutcomeAcquisitionError(
+                    "transport attempt does not continue the prior result partition"
+                )
+        result = results.get(number)
+        if result is None:
+            continue
+        result_completed = set(result["completed_request_sha256"])
+        result_missing = set(result["missing_request_sha256"])
+        if (
+            not start_completed <= result_completed
+            or not result_missing <= start_missing
+        ):
+            raise OutcomeAcquisitionError(
+                "transport attempt result rolls back completed requests"
+            )
     return starts, results
 
 
@@ -579,7 +922,14 @@ def _write_attempt_start(
         "work_order_self_sha256": work_order["work_order_self_sha256"],
         "request_ledger_sha256": request_ledger_sha256,
         "attempt_number": attempt_number,
-        "mode": "RESUME_SAME_OPENING" if resume else "INITIAL_OPENING_TRANSPORT",
+        # Attempt numbering is logical, not process-local.  A resume after a
+        # crash between ledger publication and the first start still creates
+        # logical attempt 1, which must remain the INITIAL transition.
+        "mode": (
+            "INITIAL_OPENING_TRANSPORT"
+            if attempt_number == 1
+            else "RESUME_SAME_OPENING"
+        ),
         "opening_count": 1,
         "completed_before_attempt_request_sha256": sorted(completed),
         "missing_at_start_request_sha256": sorted(missing),
@@ -648,9 +998,18 @@ def _validate_transaction(
     directory: Path,
     spec: Mapping[str, Any],
     starts: Mapping[int, Mapping[str, Any]],
+    results: Mapping[int, Mapping[str, Any]],
 ) -> tuple[bytes, dict[str, Any], Path, Path]:
     if not directory.is_dir() or directory.is_symlink():
         raise OutcomeAcquisitionError("NWIS transaction path is malformed")
+    directory_metadata = os.lstat(directory)
+    if (
+        directory_metadata.st_uid != os.geteuid()
+        or directory_metadata.st_mode & 0o077
+    ):
+        raise OutcomeAcquisitionError(
+            "NWIS transaction directory is not owner-private"
+        )
     response_path = directory / "response.bin"
     metadata_path = directory / "metadata.json"
     if set(path.name for path in directory.iterdir()) != {
@@ -710,8 +1069,26 @@ def _validate_transaction(
         != start.get("request_ledger_sha256")
     ):
         raise OutcomeAcquisitionError("NWIS transaction attempt identity changed")
-    if any(path.stat().st_mode & 0o222 for path in (response_path, metadata_path)):
-        raise OutcomeAcquisitionError("NWIS transaction is not immutable")
+    result = results.get(attempt_number)
+    if (
+        result is not None
+        and spec["request_sha256"]
+        not in result["completed_request_sha256"]
+    ):
+        raise OutcomeAcquisitionError(
+            "NWIS transaction is absent from its attempt result"
+        )
+    for path in (response_path, metadata_path):
+        metadata_status = os.lstat(path)
+        if (
+            metadata_status.st_uid != os.geteuid()
+            or metadata_status.st_dev != directory_metadata.st_dev
+            or metadata_status.st_nlink != 1
+            or metadata_status.st_mode & 0o222
+        ):
+            raise OutcomeAcquisitionError(
+                "NWIS transaction is linked, mutable, or has unsafe ownership"
+            )
     if _read_regular_file_no_follow(metadata_path) != canonical_json_bytes(metadata):
         raise OutcomeAcquisitionError("NWIS transaction metadata is noncanonical")
     return payload, metadata, response_path, metadata_path
@@ -722,10 +1099,11 @@ def _recover_complete_pending_transactions(
     raw_root: Path,
     specs_by_sha: Mapping[str, Mapping[str, Any]],
     starts: Mapping[int, Mapping[str, Any]],
+    results: Mapping[int, Mapping[str, Any]],
 ) -> None:
     provider_root = raw_root / CONFIRMATORY_NWIS_PROVIDER
     pending_root = provider_root / ".pending"
-    if not pending_root.exists():
+    if not os.path.lexists(pending_root):
         return
     if not pending_root.is_dir() or pending_root.is_symlink():
         raise OutcomeAcquisitionError("NWIS pending-transaction root is malformed")
@@ -733,11 +1111,20 @@ def _recover_complete_pending_transactions(
         request_sha = pending.name
         spec = specs_by_sha.get(request_sha)
         canonical = provider_root / request_sha
-        if spec is None or canonical.exists():
+        if spec is None or os.path.lexists(canonical):
             raise OutcomeAcquisitionError(
                 "pending NWIS transaction is unknown or duplicates canonical bytes"
             )
-        _validate_transaction(directory=pending, spec=spec, starts=starts)
+        try:
+            _validate_transaction(
+                directory=pending,
+                spec=spec,
+                starts=starts,
+                results=results,
+            )
+        except OutcomeAcquisitionError:
+            _remove_safe_pending_transaction(pending)
+            continue
         with _open_directory_chain(
             pending_root, create=False
         ) as pending_descriptor, _open_directory_chain(
@@ -749,7 +1136,79 @@ def _recover_complete_pending_transactions(
                 src_dir_fd=pending_descriptor,
                 dst_dir_fd=provider_descriptor,
             )
-        _fsync_directory(provider_root)
+            # A cross-directory rename mutates both directories.  Persist the
+            # source removal and destination addition before this transaction
+            # is considered canonical.
+            os.fsync(pending_descriptor)
+            os.fsync(provider_descriptor)
+
+
+def _remove_safe_pending_transaction(
+    directory: Path, *, remove: bool = True
+) -> None:
+    """Validate and optionally remove a crashed noncanonical transaction."""
+    with _open_directory_chain(
+        directory.parent, create=False
+    ) as parent_descriptor:
+        parent = os.fstat(parent_descriptor)
+        descriptor = os.open(
+            directory.name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_descriptor
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_dev != parent.st_dev
+                or metadata.st_mode & 0o077
+            ):
+                raise OutcomeAcquisitionError(
+                    "incomplete pending transaction is not owner-private"
+                )
+            entries = os.listdir(descriptor)
+            children: dict[str, os.stat_result] = {}
+            inode_counts: dict[tuple[int, int], int] = {}
+            for name in entries:
+                child = os.open(
+                    name,
+                    os.O_RDONLY
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_CLOEXEC", 0),
+                    dir_fd=descriptor,
+                )
+                try:
+                    child_metadata = os.fstat(child)
+                finally:
+                    os.close(child)
+                if (
+                    not stat.S_ISREG(child_metadata.st_mode)
+                    or child_metadata.st_uid != os.geteuid()
+                    or child_metadata.st_dev != metadata.st_dev
+                    or child_metadata.st_mode & 0o022
+                ):
+                    raise OutcomeAcquisitionError(
+                        "incomplete pending transaction has an unsafe entry"
+                    )
+                children[name] = child_metadata
+                inode = (child_metadata.st_dev, child_metadata.st_ino)
+                inode_counts[inode] = inode_counts.get(inode, 0) + 1
+            if any(
+                child.st_nlink
+                != inode_counts[(child.st_dev, child.st_ino)]
+                for child in children.values()
+            ):
+                raise OutcomeAcquisitionError(
+                    "incomplete pending transaction has an external hard link"
+                )
+            if remove:
+                for name in entries:
+                    os.unlink(name, dir_fd=descriptor)
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        if remove:
+            os.rmdir(directory.name, dir_fd=parent_descriptor)
+            os.fsync(parent_descriptor)
 
 
 def _scan_transactions(
@@ -757,19 +1216,27 @@ def _scan_transactions(
     raw_root: Path,
     specs: Sequence[Mapping[str, Any]],
     starts: Mapping[int, Mapping[str, Any]],
+    results: Mapping[int, Mapping[str, Any]],
 ) -> tuple[
     dict[str, tuple[bytes, dict[str, Any], Path, Path]], list[str]
 ]:
     specs_by_sha = {str(spec["request_sha256"]): spec for spec in specs}
     provider_root = raw_root / CONFIRMATORY_NWIS_PROVIDER
     allowed_raw_names = {CONFIRMATORY_NWIS_PROVIDER, "snapshot_index.json"}
-    if raw_root.exists():
-        extras = {path.name for path in raw_root.iterdir()} - allowed_raw_names
+    if os.path.lexists(raw_root):
+        safe_temps = _safe_atomic_temp_names(
+            raw_root,
+            allowed_final=_named_atomic_temp_parser({"snapshot_index.json"}),
+            remove=False,
+        )
+        extras = {
+            path.name for path in raw_root.iterdir()
+        } - allowed_raw_names - safe_temps
         if extras:
             raise OutcomeAcquisitionError(
                 f"raw NWIS root contains extraneous entries: {sorted(extras)}"
             )
-    if provider_root.exists():
+    if os.path.lexists(provider_root):
         if not provider_root.is_dir() or provider_root.is_symlink():
             raise OutcomeAcquisitionError("NWIS provider root is malformed")
         allowed_provider_names = {*specs_by_sha, ".pending"}
@@ -783,11 +1250,14 @@ def _scan_transactions(
     for spec in specs:
         request_sha = str(spec["request_sha256"])
         directory = provider_root / request_sha
-        if not directory.exists():
+        if not os.path.lexists(directory):
             missing.append(request_sha)
             continue
         complete[request_sha] = _validate_transaction(
-            directory=directory, spec=spec, starts=starts
+            directory=directory,
+            spec=spec,
+            starts=starts,
+            results=results,
         )
     return complete, missing
 
@@ -829,7 +1299,7 @@ def _fetch_create_only(
     provider_root = raw_root / CONFIRMATORY_NWIS_PROVIDER
     directory = provider_root / request_sha
     pending = provider_root / ".pending" / request_sha
-    if directory.exists() or pending.exists():
+    if os.path.lexists(directory) or os.path.lexists(pending):
         raise OutcomeAcquisitionError(
             "missing-request fetch found a preexisting transaction path"
         )
@@ -900,7 +1370,7 @@ def _fetch_create_only(
     _create_bytes(pending / "response.bin", payload)
     _create_bytes(pending / "metadata.json", canonical_json_bytes(metadata))
     _fsync_directory(pending)
-    if directory.exists():
+    if os.path.lexists(directory):
         raise OutcomeAcquisitionError(
             "refusing to replace an existing NWIS request transaction"
         )
@@ -915,7 +1385,11 @@ def _fetch_create_only(
             src_dir_fd=pending_descriptor,
             dst_dir_fd=provider_descriptor,
         )
-    _fsync_directory(provider_root)
+        # Durably record both halves of this cross-directory rename.  If the
+        # process dies earlier, the response is not claimed as durable and may
+        # be requested again under the frozen ledger.
+        os.fsync(pending_descriptor)
+        os.fsync(provider_descriptor)
     return payload, metadata, directory / "response.bin", directory / "metadata.json"
 
 
@@ -943,6 +1417,20 @@ def _attempt_index(
         != "ALL_LEDGER_TRANSACTIONS_COMPLETE"
     ):
         raise OutcomeAcquisitionError("final transport attempt evidence is incomplete")
+    for request_sha, transaction in transactions.items():
+        attempt_number = transaction[1].get("attempt_number")
+        if not isinstance(attempt_number, int):
+            raise OutcomeAcquisitionError(
+                "canonical transaction has a malformed attempt number"
+            )
+        result = results.get(attempt_number)
+        if (
+            result is None
+            or request_sha not in result["completed_request_sha256"]
+        ):
+            raise OutcomeAcquisitionError(
+                "canonical transaction is not closed by its attempt result"
+            )
     attempts = []
     for number in sorted(starts):
         start_path = attempts_root / f"attempt_{number:06d}_start.json"
@@ -995,39 +1483,470 @@ def _attempt_index(
     }
 
 
+def _acquisition_directory(state: Mapping[str, Path]) -> Path:
+    keys = (
+        "acquisition_request_map",
+        "temporal_outcomes",
+        "external_outcomes",
+        "acquisition_manifest",
+    )
+    if set(keys) - set(state):
+        raise OutcomeAcquisitionError("acquisition bundle state is incomplete")
+    parents = {state[key].parent for key in keys}
+    if len(parents) != 1:
+        raise OutcomeAcquisitionError(
+            "acquisition bundle paths do not share one canonical directory"
+        )
+    directory = next(iter(parents))
+    if directory.parent != state["run_directory"]:
+        raise OutcomeAcquisitionError(
+            "acquisition bundle is outside the canonical run directory"
+        )
+    return directory
+
+
+def _acquisition_state_at_directory(
+    state: Mapping[str, Path], directory: Path
+) -> dict[str, Path]:
+    canonical = _acquisition_directory(state)
+    directory = Path(os.path.abspath(os.fspath(directory)))
+    if directory.parent != canonical.parent:
+        raise OutcomeAcquisitionError(
+            "acquisition stage is not a same-filesystem sibling"
+        )
+    staged = dict(state)
+    for key in (
+        "acquisition_request_map",
+        "temporal_outcomes",
+        "external_outcomes",
+        "acquisition_manifest",
+    ):
+        staged[key] = directory / state[key].name
+    return staged
+
+
+def _assert_owner_controlled_directory(descriptor: int) -> os.stat_result:
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_mode & 0o022
+    ):
+        raise OutcomeAcquisitionError(
+            "acquisition publication parent is not owner-controlled"
+        )
+    return metadata
+
+
+def _remove_safe_abandoned_stage(
+    *,
+    parent_descriptor: int,
+    name: str,
+    parent_metadata: os.stat_result,
+    remove: bool,
+) -> None:
+    descriptor = os.open(
+        name,
+        _DIRECTORY_OPEN_FLAGS,
+        dir_fd=parent_descriptor,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_dev != parent_metadata.st_dev
+            or metadata.st_mode & 0o077
+        ):
+            raise OutcomeAcquisitionError(
+                "abandoned acquisition stage has unsafe metadata"
+            )
+        entries = os.listdir(descriptor)
+        file_metadata: dict[str, os.stat_result] = {}
+        inode_counts: dict[tuple[int, int], int] = {}
+        for entry in entries:
+            child = os.open(
+                entry,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                child_metadata = os.fstat(child)
+            finally:
+                os.close(child)
+            if (
+                not stat.S_ISREG(child_metadata.st_mode)
+                or child_metadata.st_uid != os.geteuid()
+                or child_metadata.st_dev != metadata.st_dev
+                or child_metadata.st_mode & 0o222
+            ):
+                raise OutcomeAcquisitionError(
+                    "abandoned acquisition stage contains an unsafe entry"
+                )
+            file_metadata[entry] = child_metadata
+            inode = (child_metadata.st_dev, child_metadata.st_ino)
+            inode_counts[inode] = inode_counts.get(inode, 0) + 1
+        if any(
+            child.st_nlink
+            != inode_counts[(child.st_dev, child.st_ino)]
+            for child in file_metadata.values()
+        ):
+            raise OutcomeAcquisitionError(
+                "abandoned acquisition stage contains an external hard link"
+            )
+        if remove:
+            for entry in entries:
+                os.unlink(entry, dir_fd=descriptor)
+            os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    if remove:
+        os.rmdir(name, dir_fd=parent_descriptor)
+        os.fsync(parent_descriptor)
+
+
+def _cleanup_abandoned_acquisition_stages(state: Mapping[str, Path]) -> None:
+    run_directory = state["run_directory"]
+    with _open_directory_chain(run_directory, create=True) as parent_descriptor:
+        parent_metadata = _assert_owner_controlled_directory(parent_descriptor)
+        for name in sorted(os.listdir(parent_descriptor)):
+            if not name.startswith(_ACQUISITION_STAGE_PREFIX):
+                continue
+            if not re.fullmatch(r"\.acquisition-stage-v1-[0-9a-f]{32}", name):
+                raise OutcomeAcquisitionError(
+                    "acquisition staging namespace contains a noncanonical entry"
+                )
+            _remove_safe_abandoned_stage(
+                parent_descriptor=parent_descriptor,
+                name=name,
+                parent_metadata=parent_metadata,
+                remove=True,
+            )
+
+
+def _validate_abandoned_acquisition_stages(
+    state: Mapping[str, Path]
+) -> None:
+    run_directory = state["run_directory"]
+    if not os.path.lexists(run_directory):
+        return
+    with _open_directory_chain(
+        run_directory, create=False
+    ) as parent_descriptor:
+        parent_metadata = _assert_owner_controlled_directory(parent_descriptor)
+        for name in sorted(os.listdir(parent_descriptor)):
+            if not name.startswith(_ACQUISITION_STAGE_PREFIX):
+                continue
+            if not re.fullmatch(r"\.acquisition-stage-v1-[0-9a-f]{32}", name):
+                raise OutcomeAcquisitionError(
+                    "acquisition staging namespace contains a noncanonical entry"
+                )
+            _remove_safe_abandoned_stage(
+                parent_descriptor=parent_descriptor,
+                name=name,
+                parent_metadata=parent_metadata,
+                remove=False,
+            )
+
+
+def _new_acquisition_stage_directory(state: Mapping[str, Path]) -> Path:
+    canonical = _acquisition_directory(state)
+    with _open_directory_chain(
+        state["run_directory"], create=True
+    ) as parent_descriptor:
+        parent_metadata = _assert_owner_controlled_directory(parent_descriptor)
+        for _attempt in range(128):
+            name = f"{_ACQUISITION_STAGE_PREFIX}{secrets.token_hex(16)}"
+            try:
+                os.mkdir(name, 0o700, dir_fd=parent_descriptor)
+            except FileExistsError:
+                continue
+            descriptor = os.open(
+                name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_descriptor
+            )
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISDIR(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_dev != parent_metadata.st_dev
+                    or metadata.st_mode & 0o077
+                ):
+                    raise OutcomeAcquisitionError(
+                        "new acquisition stage has unsafe metadata"
+                    )
+                os.fsync(descriptor)
+                os.fsync(parent_descriptor)
+            finally:
+                os.close(descriptor)
+            return canonical.parent / name
+    raise OutcomeAcquisitionError("cannot allocate an acquisition stage")
+
+
+def _assert_exact_acquisition_directory(
+    directory: Path,
+    state: Mapping[str, Path],
+    *,
+    allow_recoverable_canonical_mode: bool = False,
+) -> None:
+    canonical = _acquisition_directory(state)
+    expected = {
+        state[key].name
+        for key in (
+            "acquisition_request_map",
+            "temporal_outcomes",
+            "external_outcomes",
+            "acquisition_manifest",
+        )
+    }
+    directory = Path(os.path.abspath(os.fspath(directory)))
+    if directory != canonical and directory.parent != canonical.parent:
+        raise OutcomeAcquisitionError("acquisition directory is noncanonical")
+    is_canonical = directory == canonical
+    with _open_directory_chain(directory, create=False) as descriptor:
+        directory_metadata = os.fstat(descriptor)
+        actual_mode = stat.S_IMODE(directory_metadata.st_mode)
+        allowed_modes = (
+            {0o555, 0o700}
+            if is_canonical and allow_recoverable_canonical_mode
+            else {0o555}
+            if is_canonical
+            else {0o700}
+        )
+        if (
+            not stat.S_ISDIR(directory_metadata.st_mode)
+            or directory_metadata.st_uid != os.geteuid()
+            or actual_mode not in allowed_modes
+            or set(os.listdir(descriptor)) != expected
+        ):
+            raise OutcomeAcquisitionError(
+                "acquisition bundle layout or ownership changed"
+            )
+        for name in expected:
+            child = os.open(
+                name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                metadata = os.fstat(child)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_dev != directory_metadata.st_dev
+                    or metadata.st_nlink != 1
+                    or metadata.st_mode & 0o222
+                ):
+                    raise OutcomeAcquisitionError(
+                        "acquisition bundle contains an unsafe artifact"
+                    )
+            finally:
+                os.close(child)
+
+
+def _acquisition_directory_mode(state: Mapping[str, Path]) -> int:
+    canonical = _acquisition_directory(state)
+    with _open_directory_chain(canonical, create=False) as descriptor:
+        return stat.S_IMODE(os.fstat(descriptor).st_mode)
+
+
+def _harden_recoverable_acquisition_directory(
+    state: Mapping[str, Path],
+) -> None:
+    """Finish only the rename-before-chmod crash state after full replay."""
+    canonical = _acquisition_directory(state)
+    _assert_exact_acquisition_directory(
+        canonical, state, allow_recoverable_canonical_mode=True
+    )
+    if _acquisition_directory_mode(state) != 0o700:
+        raise OutcomeAcquisitionError(
+            "acquisition permission recovery requires exact mode 0700"
+        )
+    with _open_directory_chain(
+        state["run_directory"], create=False
+    ) as parent_descriptor:
+        descriptor = os.open(
+            canonical.name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_descriptor
+        )
+        try:
+            os.fchmod(descriptor, 0o555)
+            os.fsync(descriptor)
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(descriptor)
+    _assert_exact_acquisition_directory(canonical, state)
+
+
+def _logical_binding(
+    root: Path, *, physical_path: Path, canonical_path: Path
+) -> dict[str, str]:
+    physical = assert_no_symlink_components(
+        root, physical_path, require_file=True
+    )
+    _require_immutable_atomic_final(
+        physical, label="staged acquisition artifact"
+    )
+    canonical = assert_no_symlink_components(root, canonical_path)
+    return {
+        "path": canonical.relative_to(root).as_posix(),
+        "sha256": sha256_file(physical),
+    }
+
+
+def _acquisition_publication_fault(_point: str) -> None:
+    """No-op production hook replaced only by crash tests."""
+
+
+def _publish_acquisition_directory(
+    stage: Path, state: Mapping[str, Path]
+) -> Path:
+    canonical = _acquisition_directory(state)
+    if re.fullmatch(r"\.acquisition-stage-v1-[0-9a-f]{32}", stage.name) is None:
+        raise OutcomeAcquisitionError(
+            "acquisition staging directory name is noncanonical"
+        )
+    _assert_exact_acquisition_directory(stage, state)
+    with _open_directory_chain(
+        state["run_directory"], create=False
+    ) as parent_descriptor:
+        parent_metadata = _assert_owner_controlled_directory(parent_descriptor)
+        stage_descriptor = os.open(
+            stage.name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_descriptor
+        )
+        try:
+            stage_metadata = os.fstat(stage_descriptor)
+            if (
+                stage_metadata.st_dev != parent_metadata.st_dev
+                or stage_metadata.st_uid != os.geteuid()
+                or stage_metadata.st_mode & 0o077
+            ):
+                raise OutcomeAcquisitionError(
+                    "acquisition stage changed before publication"
+                )
+            try:
+                os.stat(
+                    canonical.name,
+                    dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                pass
+            else:
+                raise OutcomeAcquisitionError(
+                    "canonical acquisition bundle already exists"
+                )
+            os.fsync(stage_descriptor)
+            _acquisition_publication_fault("before_directory_rename")
+            os.rename(
+                stage.name,
+                canonical.name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+            )
+            _acquisition_publication_fault(
+                "after_directory_rename_before_hardening"
+            )
+            os.fchmod(stage_descriptor, 0o555)
+            os.fsync(stage_descriptor)
+            _acquisition_publication_fault(
+                "after_directory_hardening_before_parent_fsync"
+            )
+            os.fsync(parent_descriptor)
+            _acquisition_publication_fault("after_directory_rename")
+        finally:
+            os.close(stage_descriptor)
+    _assert_exact_acquisition_directory(canonical, state)
+    return canonical
+
+
 def _forbidden_resume_outputs(
     state: Mapping[str, Path]
 ) -> list[str]:
-    keys = (
-        "acquisition_manifest", "temporal_outcomes", "external_outcomes",
-        "availability_registry", "outcome_quality_audit",
-        "approved_target_sensitivity", "spatial_sensitivity",
-        "probabilistic_evaluation", "temporal_predictions",
-        "external_predictions", "statistics", "report", "receipt",
-        "receipt_sha256",
-    )
-    return sorted(key for key in keys if key in state and state[key].exists())
+    missing = set(RAW_ACQUISITION_FORBIDDEN_STATE_KEYS) - set(state)
+    if missing:
+        raise OutcomeAcquisitionError(
+            f"raw forbidden-state registry is incomplete: {sorted(missing)}"
+        )
+    forbidden = {
+        key
+        for key in RAW_ACQUISITION_FORBIDDEN_STATE_KEYS
+        if os.path.lexists(state[key])
+    }
+    trusted_parents = {state[key].parent for key in TRUSTED_STATE_KEYS}
+    if len(trusted_parents) != 1:
+        raise OutcomeAcquisitionError(
+            "trusted output paths do not share one canonical directory"
+        )
+    trusted_directory = next(iter(trusted_parents))
+    if os.path.lexists(trusted_directory):
+        forbidden.add("trusted_directory")
+    acquisition_parents = {
+        state[key].parent
+        for key in (
+            "acquisition_manifest",
+            "acquisition_request_map",
+            "temporal_outcomes",
+            "external_outcomes",
+        )
+    }
+    if len(acquisition_parents) != 1:
+        raise OutcomeAcquisitionError(
+            "acquisition outputs do not share one canonical directory"
+        )
+    acquisition_directory = next(iter(acquisition_parents))
+    if os.path.lexists(acquisition_directory):
+        forbidden.add("acquisition_directory")
+    return sorted(forbidden)
 
 
 def _unexpected_transport_namespace_entries(
     *, state: Mapping[str, Path], evidence: Mapping[str, Path]
 ) -> list[str]:
     acquisition_root = evidence["root"]
-    if not acquisition_root.exists():
+    if not os.path.lexists(acquisition_root):
         return []
+    if os.path.lexists(evidence["lock"]):
+        parent = os.lstat(acquisition_root)
+        lock = os.lstat(evidence["lock"])
+        if (
+            not stat.S_ISREG(lock.st_mode)
+            or lock.st_uid != os.geteuid()
+            or lock.st_dev != parent.st_dev
+            or lock.st_nlink != 1
+            or lock.st_mode & 0o077
+        ):
+            raise OutcomeAcquisitionError(
+                "raw transport lock has unsafe metadata"
+            )
     allowed = {
         state["raw_nwis_root"].name,
-        state["acquisition_request_map"].name,
         evidence["request_ledger"].name,
         evidence["attempts_root"].name,
         evidence["attempt_index"].name,
         evidence["lock"].name,
     }
-    return sorted(path.name for path in acquisition_root.iterdir() if path.name not in allowed)
+    safe_temps = _safe_atomic_temp_names(
+        acquisition_root,
+        allowed_final=_named_atomic_temp_parser({
+            evidence["request_ledger"].name,
+            evidence["attempt_index"].name,
+        }),
+        remove=False,
+    )
+    return sorted(
+        path.name
+        for path in acquisition_root.iterdir()
+        if path.name not in allowed and path.name not in safe_temps
+    )
 
 
 def inspect_transport_resume_state(
     *,
+    root: Path,
     work_order_path: Path,
     work_order: Mapping[str, Any],
     authorization: Mapping[str, Any],
@@ -1048,11 +1967,11 @@ def inspect_transport_resume_state(
         authorization=authorization,
         work_order_path=work_order_path,
     )
-    if not evidence["request_ledger"].exists():
+    if not os.path.lexists(evidence["request_ledger"]):
         if (
-            evidence["attempts_root"].exists()
-            or evidence["attempt_index"].exists()
-            or (raw_root.exists() and any(raw_root.iterdir()))
+            os.path.lexists(evidence["attempts_root"])
+            or os.path.lexists(evidence["attempt_index"])
+            or (os.path.lexists(raw_root) and any(raw_root.iterdir()))
         ):
             raise OutcomeAcquisitionError(
                 "raw evidence exists without the frozen request ledger"
@@ -1062,6 +1981,7 @@ def inspect_transport_resume_state(
             "completed_request_count": 0,
             "missing_request_count": int(expected_ledger["request_count"]),
             "recoverable_pending_request_count": 0,
+            "refetchable_nondurable_response_count": 0,
             "attempt_count": 0,
         }
     ledger = _self_hashed_document(
@@ -1077,7 +1997,7 @@ def inspect_transport_resume_state(
     specs = list(ledger["requests"])
     specs_by_sha = {str(spec["request_sha256"]): spec for spec in specs}
     request_ids = set(specs_by_sha)
-    starts, _results = _load_attempt_history(
+    starts, results = _load_attempt_history(
         attempts_root=evidence["attempts_root"],
         opening_id=str(work_order["opening_id"]),
         authorization_sha256=str(work_order["authorization_sha256"]),
@@ -1086,52 +2006,54 @@ def inspect_transport_resume_state(
         request_ids=request_ids,
     )
     pending_ids: list[str] = []
+    refetchable_pending_ids: list[str] = []
     pending_root = raw_root / CONFIRMATORY_NWIS_PROVIDER / ".pending"
-    if pending_root.exists():
+    if os.path.lexists(pending_root):
         if not pending_root.is_dir() or pending_root.is_symlink():
             raise OutcomeAcquisitionError("pending NWIS root is malformed")
         for pending in sorted(pending_root.iterdir()):
             request_sha = pending.name
             spec = specs_by_sha.get(request_sha)
             canonical = pending.parent.parent / request_sha
-            if spec is None or canonical.exists():
+            if spec is None or os.path.lexists(canonical):
                 raise OutcomeAcquisitionError(
                     "pending NWIS transaction is unknown or duplicated"
                 )
-            _validate_transaction(directory=pending, spec=spec, starts=starts)
-            pending_ids.append(request_sha)
+            try:
+                _validate_transaction(
+                    directory=pending,
+                    spec=spec,
+                    starts=starts,
+                    results=results,
+                )
+            except OutcomeAcquisitionError:
+                _remove_safe_pending_transaction(pending, remove=False)
+                refetchable_pending_ids.append(request_sha)
+            else:
+                pending_ids.append(request_sha)
     complete, missing = _scan_transactions(
-        raw_root=raw_root, specs=specs, starts=starts
+        raw_root=raw_root,
+        specs=specs,
+        starts=starts,
+        results=results,
     )
-    if not set(pending_ids) <= set(missing):
+    if not (set(pending_ids) | set(refetchable_pending_ids)) <= set(missing):
         raise OutcomeAcquisitionError("pending/canonical transaction registry changed")
-    snapshot_index = raw_root / "snapshot_index.json"
-    request_map_path = state["acquisition_request_map"]
-    if missing and (snapshot_index.exists() or request_map_path.exists()):
+    snapshot_index = state["raw_nwis_snapshot_index"]
+    if missing and os.path.lexists(snapshot_index):
         raise OutcomeAcquisitionError(
-            "derived raw index/request map appeared before every transaction"
+            "derived raw index appeared before every transaction"
         )
-    if evidence["attempt_index"].exists():
+    if missing and os.path.lexists(evidence["attempt_index"]):
         raise OutcomeAcquisitionError(
-            "final attempt index appeared before normalized outcome publication"
-        )
+            "final attempt index appeared before every raw transaction"
+    )
     if not missing:
         index_rows: list[dict[str, Any]] = []
-        request_rows: list[dict[str, Any]] = []
         for spec in specs:
             request_sha = str(spec["request_sha256"])
             payload, metadata, response_path, metadata_path = complete[request_sha]
             series_registry = nwis_confirmatory_series_registry(payload)
-            request_rows.append({
-                "cohort": spec["cohort"],
-                "site_no": spec["site_no"],
-                "request_sha256": request_sha,
-                "response_sha256": metadata["response_sha256"],
-                "retrieved_at_utc": metadata["retrieved_at_utc"],
-                "byte_count": metadata["byte_count"],
-                "attempt_number": metadata["attempt_number"],
-                "series_registry": series_registry,
-            })
             index_rows.append({
                 "provider": CONFIRMATORY_NWIS_PROVIDER,
                 "request_sha256": request_sha,
@@ -1146,33 +2068,32 @@ def inspect_transport_resume_state(
                 "series_registry": series_registry,
             })
         index_rows.sort(key=lambda row: str(row["request_sha256"]))
-        request_rows.sort(
-            key=lambda row: (str(row["cohort"]), str(row["site_no"]))
-        )
         expected_index = canonical_json_bytes({
             "schema_version": 1,
             "snapshot_count": len(index_rows),
             "records": index_rows,
         })
-        expected_map = canonical_json_bytes({
-            "format": ACQUISITION_REQUEST_MAP_FORMAT,
-            "opening_id": authorization["opening_id"],
-            "authorization_sha256": work_order["authorization_sha256"],
-            "provider": CONFIRMATORY_NWIS_PROVIDER,
-            "request_count": len(request_rows),
-            "requests": request_rows,
-        })
-        for path, payload, label in (
-            (snapshot_index, expected_index, "NWIS snapshot index"),
-            (request_map_path, expected_map, "NWIS request map"),
+        if os.path.lexists(snapshot_index) and (
+            not snapshot_index.is_file()
+            or snapshot_index.is_symlink()
+            or _read_regular_file_no_follow(snapshot_index) != expected_index
         ):
-            if path.exists() and (
-                not path.is_file()
-                or path.is_symlink()
-                or _read_regular_file_no_follow(path) != payload
-            ):
+            raise OutcomeAcquisitionError(
+                "existing NWIS snapshot index differs from raw replay"
+            )
+        if os.path.lexists(evidence["attempt_index"]):
+            expected_attempt_index = _attempt_index(
+                root=root,
+                attempts_root=evidence["attempts_root"],
+                work_order=work_order,
+                request_ledger_path=evidence["request_ledger"],
+                transactions=complete,
+            )
+            if _read_regular_file_no_follow(
+                evidence["attempt_index"]
+            ) != canonical_json_bytes(expected_attempt_index):
                 raise OutcomeAcquisitionError(
-                    f"existing {label} differs from raw replay"
+                    "existing transport-attempt index differs from raw replay"
                 )
     effective_missing = set(missing) - set(pending_ids)
     classification = (
@@ -1180,6 +2101,8 @@ def inspect_transport_resume_state(
         if not missing
         else "RESUMABLE_RECOVERABLE_PENDING_BYTES"
         if pending_ids
+        else "RESUMABLE_NON_DURABLE_RESPONSE_REFETCH"
+        if refetchable_pending_ids
         else "RESUMABLE_MISSING_REQUESTS"
     )
     return {
@@ -1187,6 +2110,9 @@ def inspect_transport_resume_state(
         "completed_request_count": len(complete),
         "missing_request_count": len(effective_missing),
         "recoverable_pending_request_count": len(pending_ids),
+        "refetchable_nondurable_response_count": len(
+            refetchable_pending_ids
+        ),
         "attempt_count": len(starts),
     }
 
@@ -1211,7 +2137,45 @@ def acquire_from_work_order(
     for path in (*state.values(), *evidence.values()):
         assert_no_symlink_components(root, path)
     raw_root = state["raw_nwis_root"]
+    forbidden = _forbidden_resume_outputs(state)
+    if forbidden:
+        raise OutcomeAcquisitionError(
+            "raw acquisition cannot continue after derived/trusted publication: "
+            f"{forbidden}"
+        )
     with _exclusive_transport_lock(evidence["lock"]):
+        forbidden = _forbidden_resume_outputs(state)
+        if forbidden:
+            raise OutcomeAcquisitionError(
+                "raw acquisition cannot continue after derived/trusted publication: "
+                f"{forbidden}"
+            )
+        _cleanup_abandoned_acquisition_stages(state)
+        _safe_atomic_temp_names(
+            evidence["root"],
+            allowed_final=_named_atomic_temp_parser({
+                evidence["request_ledger"].name,
+                evidence["attempt_index"].name,
+            }),
+            remove=True,
+        )
+        if os.path.lexists(evidence["attempts_root"]):
+            _safe_atomic_temp_names(
+                evidence["attempts_root"],
+                allowed_final=_attempt_atomic_temp_parser,
+                remove=True,
+            )
+        if os.path.lexists(raw_root):
+            _safe_atomic_temp_names(
+                raw_root,
+                allowed_final=_named_atomic_temp_parser({
+                    "snapshot_index.json"
+                }),
+                remove=True,
+            )
+        # Recheck after safe crash-remnant cleanup, immediately before reading
+        # or extending transport state.  The raw child never mutates transport
+        # after any canonical derived/trusted publication is visible.
         forbidden = _forbidden_resume_outputs(state)
         if forbidden:
             raise OutcomeAcquisitionError(
@@ -1225,7 +2189,7 @@ def acquire_from_work_order(
             raise OutcomeAcquisitionError(
                 f"raw transport namespace contains extraneous entries: {unexpected}"
             )
-        if not resume and raw_root.exists():
+        if not resume and os.path.lexists(raw_root):
             raise OutcomeAcquisitionError("production raw NWIS root already exists")
 
         expected_ledger = _expected_request_ledger(
@@ -1259,81 +2223,212 @@ def acquire_from_work_order(
             raw_root=raw_root,
             specs_by_sha={str(spec["request_sha256"]): spec for spec in specs},
             starts=starts,
+            results=results,
         )
+        provider_root = raw_root / CONFIRMATORY_NWIS_PROVIDER
+        if os.path.lexists(provider_root):
+            if not provider_root.is_dir() or provider_root.is_symlink():
+                raise OutcomeAcquisitionError("NWIS provider root is malformed")
+            _fsync_directory(provider_root)
+        pending_root = provider_root / ".pending"
+        if os.path.lexists(pending_root):
+            _fsync_directory(pending_root)
         complete, missing = _scan_transactions(
-            raw_root=raw_root, specs=specs, starts=starts
+            raw_root=raw_root,
+            specs=specs,
+            starts=starts,
+            results=results,
         )
-        attempt_number = len(starts) + 1
-        start_path, start_document = _write_attempt_start(
-            attempts_root=evidence["attempts_root"],
-            attempt_number=attempt_number,
-            resume=resume,
-            work_order=work_order,
-            request_ledger_sha256=request_ledger_sha256,
-            completed=complete,
-            missing=missing,
-        )
-        starts = {**starts, attempt_number: start_document}
-
-        try:
-            specs_by_sha = {
-                str(spec["request_sha256"]): spec for spec in specs
-            }
-            if missing:
-                # This second complete replay is deliberately adjacent to the
-                # first possible socket operation.  It catches source changes
-                # after the parent/orchestrator preflight but before transport.
-                validate_frozen_source_identity(
-                    root=root,
-                    authorization=authorization,
-                )
-            for request_sha in missing:
-                complete[request_sha] = _fetch_create_only(
-                    raw_root=raw_root,
-                    spec=specs_by_sha[request_sha],
-                    work_order=work_order,
-                    request_ledger_sha256=request_ledger_sha256,
-                    attempt_number=attempt_number,
-                )
-        except Exception as exc:
-            try:
-                completed_after, missing_after = _scan_transactions(
-                    raw_root=raw_root, specs=specs, starts=starts
-                )
-                _write_attempt_result(
-                    attempts_root=evidence["attempts_root"],
-                    attempt_number=attempt_number,
-                    attempt_start_path=start_path,
-                    work_order=work_order,
-                    request_ledger_sha256=request_ledger_sha256,
-                    completed=completed_after,
-                    missing=missing_after,
-                    status="TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING",
-                    failure_class=type(exc).__name__,
-                )
-            except Exception:
-                # A partial/corrupt transaction is deliberately left indeterminate.
-                pass
+        if missing and os.path.lexists(state["raw_nwis_snapshot_index"]):
             raise OutcomeAcquisitionError(
-                "fixed-ledger NWIS transport did not complete"
-            ) from exc
-
-        complete, missing = _scan_transactions(
-            raw_root=raw_root, specs=specs, starts=starts
-        )
-        if missing or set(complete) != request_ids:
+                "derived raw index appeared before every transaction"
+            )
+        if missing and os.path.lexists(evidence["attempt_index"]):
+            raise OutcomeAcquisitionError(
+                "final attempt index appeared before every raw transaction"
+            )
+        open_attempts = sorted(set(starts) - set(results))
+        if missing and open_attempts:
+            interrupted = open_attempts[0]
             _write_attempt_result(
                 attempts_root=evidence["attempts_root"],
-                attempt_number=attempt_number,
-                attempt_start_path=start_path,
+                attempt_number=interrupted,
+                attempt_start_path=(
+                    evidence["attempts_root"]
+                    / f"attempt_{interrupted:06d}_start.json"
+                ),
                 work_order=work_order,
                 request_ledger_sha256=request_ledger_sha256,
                 completed=complete,
                 missing=missing,
                 status="TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING",
-                failure_class="INCOMPLETE_LEDGER",
+                failure_class="PREVIOUS_PROCESS_TERMINATED",
             )
+            results[interrupted] = _self_hashed_document(
+                evidence["attempts_root"]
+                / f"attempt_{interrupted:06d}_result.json",
+                label="reconstructed interrupted transport result",
+                self_field="attempt_result_self_sha256",
+                format_name=ACQUISITION_ATTEMPT_RESULT_FORMAT,
+            )
+            open_attempts = []
+
+        active_attempt: int | None = None
+        active_start_path: Path | None = None
+        if missing:
+            active_attempt = len(starts) + 1
+            active_start_path, start_document = _write_attempt_start(
+                attempts_root=evidence["attempts_root"],
+                attempt_number=active_attempt,
+                resume=resume,
+                work_order=work_order,
+                request_ledger_sha256=request_ledger_sha256,
+                completed=complete,
+                missing=missing,
+            )
+            starts = {**starts, active_attempt: start_document}
+            try:
+                specs_by_sha = {
+                    str(spec["request_sha256"]): spec for spec in specs
+                }
+                # This complete replay is deliberately adjacent to the first
+                # possible socket operation.
+                validate_frozen_source_identity(
+                    root=root,
+                    authorization=authorization,
+                )
+                for request_sha in missing:
+                    complete[request_sha] = _fetch_create_only(
+                        raw_root=raw_root,
+                        spec=specs_by_sha[request_sha],
+                        work_order=work_order,
+                        request_ledger_sha256=request_ledger_sha256,
+                        attempt_number=active_attempt,
+                    )
+            except Exception as exc:
+                try:
+                    # If transport failed after both immutable pending files
+                    # were durable but before their directory rename, promote
+                    # them before sealing this result.  The next start can then
+                    # exactly equal this immutable result partition.
+                    _recover_complete_pending_transactions(
+                        raw_root=raw_root,
+                        specs_by_sha=specs_by_sha,
+                        starts=starts,
+                        results=results,
+                    )
+                    if os.path.lexists(provider_root):
+                        if (
+                            not provider_root.is_dir()
+                            or provider_root.is_symlink()
+                        ):
+                            raise OutcomeAcquisitionError(
+                                "NWIS provider root is malformed"
+                            )
+                        _fsync_directory(provider_root)
+                    if os.path.lexists(pending_root):
+                        _fsync_directory(pending_root)
+                    completed_after, missing_after = _scan_transactions(
+                        raw_root=raw_root,
+                        specs=specs,
+                        starts=starts,
+                        results=results,
+                    )
+                    transport_complete = not missing_after
+                    _write_attempt_result(
+                        attempts_root=evidence["attempts_root"],
+                        attempt_number=active_attempt,
+                        attempt_start_path=active_start_path,
+                        work_order=work_order,
+                        request_ledger_sha256=request_ledger_sha256,
+                        completed=completed_after,
+                        missing=missing_after,
+                        status=(
+                            "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+                            if transport_complete
+                            else "TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING"
+                        ),
+                        failure_class=(
+                            None if transport_complete else type(exc).__name__
+                        ),
+                    )
+                except Exception:
+                    # Unsafe/corrupt canonical evidence remains indeterminate.
+                    pass
+                raise OutcomeAcquisitionError(
+                    "fixed-ledger NWIS transport did not complete"
+                ) from exc
+
+        complete, missing = _scan_transactions(
+            raw_root=raw_root,
+            specs=specs,
+            starts=starts,
+            results=results,
+        )
+        if missing or set(complete) != request_ids:
+            if active_attempt is not None and active_start_path is not None:
+                _write_attempt_result(
+                    attempts_root=evidence["attempts_root"],
+                    attempt_number=active_attempt,
+                    attempt_start_path=active_start_path,
+                    work_order=work_order,
+                    request_ledger_sha256=request_ledger_sha256,
+                    completed=complete,
+                    missing=missing,
+                    status="TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING",
+                    failure_class="INCOMPLETE_LEDGER",
+                )
             raise OutcomeAcquisitionError("not every frozen request is complete")
+
+        # Complete a result only from the exact validated request-key set and
+        # exact immutable transactions.  No count-only repair is permitted.
+        _acquisition_transport_fault("after_complete_transaction_replay")
+        open_attempts = sorted(set(starts) - set(results))
+        if open_attempts:
+            completed_attempt = open_attempts[0]
+            completed_start = (
+                evidence["attempts_root"]
+                / f"attempt_{completed_attempt:06d}_start.json"
+            )
+        elif (
+            not results
+            or results[max(results)].get("status")
+            != "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+        ):
+            if results:
+                # An immutable prior result must be the exact partition for
+                # the next start.  Complete canonical transactions alongside
+                # a prior result that still calls them missing are therefore
+                # contradictory evidence, not grounds for a synthetic jump.
+                raise OutcomeAcquisitionError(
+                    "complete transactions contradict the latest attempt result"
+                )
+            completed_attempt = len(starts) + 1
+            completed_start, start_document = _write_attempt_start(
+                attempts_root=evidence["attempts_root"],
+                attempt_number=completed_attempt,
+                resume=True,
+                work_order=work_order,
+                request_ledger_sha256=request_ledger_sha256,
+                completed=complete,
+                missing=(),
+            )
+            starts[completed_attempt] = start_document
+        else:
+            completed_attempt = None
+            completed_start = None
+        if completed_attempt is not None and completed_start is not None:
+            _write_attempt_result(
+                attempts_root=evidence["attempts_root"],
+                attempt_number=completed_attempt,
+                attempt_start_path=completed_start,
+                work_order=work_order,
+                request_ledger_sha256=request_ledger_sha256,
+                completed=complete,
+                missing=(),
+                status="ALL_LEDGER_TRANSACTIONS_COMPLETE",
+                failure_class=None,
+            )
 
         # Only this point crosses the frozen pre-completion visibility boundary.
         frames: dict[str, list[pd.DataFrame]] = {"temporal": [], "external": []}
@@ -1375,7 +2470,7 @@ def acquire_from_work_order(
             })
 
         index_rows.sort(key=lambda row: str(row["request_sha256"]))
-        index_path = raw_root / "snapshot_index.json"
+        index_path = state["raw_nwis_snapshot_index"]
         _create_or_validate_bytes(
             index_path,
             canonical_json_bytes({
@@ -1386,45 +2481,25 @@ def acquire_from_work_order(
             label="NWIS snapshot index",
         )
         request_rows.sort(key=lambda row: (str(row["cohort"]), str(row["site_no"])))
-        request_map_path = state["acquisition_request_map"]
-        _create_or_validate_bytes(
-            request_map_path,
-            canonical_json_bytes({
-                "format": ACQUISITION_REQUEST_MAP_FORMAT,
-                "opening_id": authorization["opening_id"],
-                "authorization_sha256": work_order["authorization_sha256"],
-                "provider": CONFIRMATORY_NWIS_PROVIDER,
-                "request_count": len(request_rows),
-                "requests": request_rows,
-            }),
-            label="NWIS request map",
-        )
+        request_map_bytes = canonical_json_bytes({
+            "format": ACQUISITION_REQUEST_MAP_FORMAT,
+            "opening_id": authorization["opening_id"],
+            "authorization_sha256": work_order["authorization_sha256"],
+            "provider": CONFIRMATORY_NWIS_PROVIDER,
+            "request_count": len(request_rows),
+            "requests": request_rows,
+        })
 
-        outcome_paths = {
-            "temporal": state["temporal_outcomes"],
-            "external": state["external_outcomes"],
-        }
-        for cohort, output_path in outcome_paths.items():
+        normalized_frames: dict[str, pd.DataFrame] = {}
+        for cohort in ("temporal", "external"):
             combined = pd.concat(frames[cohort], ignore_index=True)
             combined["site_no"] = combined.site_no.astype("string")
             combined["DATE"] = pd.to_datetime(combined.DATE)
             combined = combined.sort_values(["site_no", "DATE"]).reset_index(
                 drop=True
             )
-            _create_parquet(output_path, combined)
+            normalized_frames[cohort] = combined
 
-        result_path = _write_attempt_result(
-            attempts_root=evidence["attempts_root"],
-            attempt_number=attempt_number,
-            attempt_start_path=start_path,
-            work_order=work_order,
-            request_ledger_sha256=request_ledger_sha256,
-            completed=complete,
-            missing=(),
-            status="ALL_LEDGER_TRANSACTIONS_COMPLETE",
-            failure_class=None,
-        )
-        del result_path
         attempt_index = _attempt_index(
             root=root,
             attempts_root=evidence["attempts_root"],
@@ -1438,8 +2513,17 @@ def acquire_from_work_order(
             label="transport-attempt index",
         )
 
-        manifest_path = state["acquisition_manifest"]
-        _create_bytes(manifest_path, canonical_json_bytes({
+        stage = _new_acquisition_stage_directory(state)
+        staged_state = _acquisition_state_at_directory(state, stage)
+        _create_bytes(
+            staged_state["acquisition_request_map"], request_map_bytes
+        )
+        for cohort, key in (
+            ("temporal", "temporal_outcomes"),
+            ("external", "external_outcomes"),
+        ):
+            _create_parquet(staged_state[key], normalized_frames[cohort])
+        manifest = {
             "format": ACQUISITION_MANIFEST_FORMAT,
             "opening_id": authorization["opening_id"],
             "authorization_sha256": work_order["authorization_sha256"],
@@ -1465,11 +2549,59 @@ def acquire_from_work_order(
                 "retrieval_span_utc": attempt_index["retrieval_span_utc"],
             },
             "raw_nwis_snapshot_index": _binding(root, index_path),
-            "request_map": _binding(root, request_map_path),
+            "request_map": _logical_binding(
+                root,
+                physical_path=staged_state["acquisition_request_map"],
+                canonical_path=state["acquisition_request_map"],
+            ),
             "normalized_outcome_tables": {
-                cohort: _binding(root, path)
-                for cohort, path in outcome_paths.items()
+                cohort: _logical_binding(
+                    root,
+                    physical_path=staged_state[key],
+                    canonical_path=state[key],
+                )
+                for cohort, key in (
+                    ("temporal", "temporal_outcomes"),
+                    ("external", "external_outcomes"),
+                )
             },
             "producer_role": "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS",
-        }))
-        return manifest_path
+        }
+        _create_bytes(
+            staged_state["acquisition_manifest"],
+            canonical_json_bytes(manifest),
+        )
+        _acquisition_publication_fault("after_stage_generation")
+        if (
+            _read_regular_file_no_follow(
+                staged_state["acquisition_request_map"]
+            )
+            != request_map_bytes
+            or _read_regular_file_no_follow(
+                staged_state["acquisition_manifest"]
+            )
+            != canonical_json_bytes(manifest)
+        ):
+            raise OutcomeAcquisitionError(
+                "staged acquisition JSON differs from deterministic replay"
+            )
+        for cohort, key in (
+            ("temporal", "temporal_outcomes"),
+            ("external", "external_outcomes"),
+        ):
+            try:
+                actual = pd.read_parquet(staged_state[key])
+                pd.testing.assert_frame_equal(
+                    actual,
+                    normalized_frames[cohort],
+                    check_dtype=False,
+                    check_exact=True,
+                )
+            except (OSError, ValueError, AssertionError) as exc:
+                raise OutcomeAcquisitionError(
+                    f"staged {cohort} normalized outcomes differ from raw replay"
+                ) from exc
+        _assert_exact_acquisition_directory(stage, state)
+        _acquisition_publication_fault("after_stage_validation")
+        _publish_acquisition_directory(stage, state)
+        return state["acquisition_manifest"]

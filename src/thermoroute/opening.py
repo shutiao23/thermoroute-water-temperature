@@ -84,6 +84,8 @@ from .model_suite import (
 from .opening_contract import (
     AcquisitionContractError,
     MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES,
+    RAW_ACQUISITION_FORBIDDEN_STATE_KEYS,
+    TRUSTED_STATE_KEYS,
     assert_no_symlink_components,
 )
 from .outcome_qc import (
@@ -172,18 +174,7 @@ _FIXED_ENTRYPOINTS = {
     "trusted_scorer": "scripts/route_a_trusted_scorer.py",
 }
 
-_TRUSTED_STATE_KEYS = (
-    "availability_registry",
-    "outcome_quality_audit",
-    "outcome_qc_gate",
-    "approved_target_sensitivity",
-    "spatial_sensitivity",
-    "probabilistic_evaluation",
-    "temporal_predictions",
-    "external_predictions",
-    "statistics",
-    "report",
-)
+_TRUSTED_STATE_KEYS = TRUSTED_STATE_KEYS
 _TRUSTED_STAGE_PREFIX = ".trusted-stage-v1-"
 _TRUSTED_PUBLICATION_LOCK = ".trusted-publication-v1.lock"
 
@@ -240,6 +231,7 @@ def _secure_directory_chain(path: Path, *, create: bool) -> Iterator[int]:
     descriptor = os.open(os.path.sep, flags)
     try:
         for component in absolute.parts[1:]:
+            created = False
             try:
                 child = os.open(component, flags, dir_fd=descriptor)
             except FileNotFoundError:
@@ -247,9 +239,13 @@ def _secure_directory_chain(path: Path, *, create: bool) -> Iterator[int]:
                     raise
                 try:
                     os.mkdir(component, 0o755, dir_fd=descriptor)
+                    created = True
                 except FileExistsError:
                     pass
                 child = os.open(component, flags, dir_fd=descriptor)
+            if created:
+                os.fsync(child)
+                os.fsync(descriptor)
             os.close(descriptor)
             descriptor = child
         yield descriptor
@@ -308,6 +304,21 @@ def _verify_file_binding(root: Path, binding: Mapping[str, Any], *, label: str) 
     return path
 
 
+def _verify_canonical_file_binding(
+    root: Path,
+    binding: Mapping[str, Any],
+    *,
+    expected_path: str | Path,
+    label: str,
+) -> Path:
+    """Verify bytes and require the binding to name its exact state path."""
+    path = _verify_file_binding(root, binding, label=label)
+    expected = Path(os.path.abspath(os.fspath(expected_path)))
+    if path != expected:
+        raise OpeningContractError(f"{label} path is noncanonical")
+    return path
+
+
 def _binding(root: Path, path: str | Path) -> dict[str, str]:
     resolved = Path(path).resolve()
     if not resolved.is_file():
@@ -335,7 +346,7 @@ def _logical_binding(
 
 def exclusive_create_json(path: str | Path, value: Mapping[str, Any]) -> None:
     """Create and fsync one immutable JSON file without replacement semantics."""
-    _exclusive_create_bytes(
+    _atomic_create_bytes(
         Path(os.path.abspath(os.fspath(path))),
         canonical_json_bytes(dict(value)),
     )
@@ -369,10 +380,180 @@ def _exclusive_create_bytes(path: Path, payload: bytes) -> None:
         os.fsync(parent_descriptor)
 
 
+def _atomic_create_fault(_point: str, _path: Path) -> None:
+    """No-op hook replaced only by atomic-publication crash tests."""
+
+
+def _cleanup_atomic_create_temps(
+    parent_descriptor: int,
+    *,
+    final_name: str,
+    expected_payload: bytes,
+    remove: bool = True,
+) -> set[str]:
+    """Validate and optionally remove safe temps from an interrupted create."""
+    parent = os.fstat(parent_descriptor)
+    if (
+        not stat.S_ISDIR(parent.st_mode)
+        or parent.st_uid != os.geteuid()
+        or parent.st_mode & 0o022
+    ):
+        raise OpeningContractError(
+            "atomic-create parent is not owner-controlled"
+        )
+    temporary_pattern = re.compile(
+        rf"\.{re.escape(final_name)}\.[a-z0-9_]{{8}}\.tmp"
+    )
+    try:
+        final_metadata = os.stat(
+            final_name, dir_fd=parent_descriptor, follow_symlinks=False
+        )
+    except FileNotFoundError:
+        final_metadata = None
+    safe: set[str] = set()
+    for name in os.listdir(parent_descriptor):
+        if temporary_pattern.fullmatch(name) is None:
+            continue
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                payload = handle.read()
+            published_link = bool(
+                final_metadata is not None
+                and stat.S_ISREG(final_metadata.st_mode)
+                and metadata.st_dev == final_metadata.st_dev
+                and metadata.st_ino == final_metadata.st_ino
+                and metadata.st_nlink == 2
+            )
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_dev != parent.st_dev
+                or metadata.st_mode & 0o022
+                or (metadata.st_nlink != 1 and not published_link)
+                or payload != expected_payload
+            ):
+                # A SIGKILL during the temporary write can leave an incomplete
+                # owner-only nlink=1 file.  It is safe to unlink because the
+                # final name was never linked; any other topology fails closed.
+                if (
+                    stat.S_ISREG(metadata.st_mode)
+                    and metadata.st_uid == os.geteuid()
+                    and metadata.st_dev == parent.st_dev
+                    and not metadata.st_mode & 0o022
+                    and metadata.st_nlink == 1
+                ):
+                    safe.add(name)
+                    if remove:
+                        os.unlink(name, dir_fd=parent_descriptor)
+                    continue
+                raise OpeningContractError(
+                    "atomic-create temporary artifact has unsafe metadata"
+                )
+            safe.add(name)
+            if remove:
+                os.unlink(name, dir_fd=parent_descriptor)
+        finally:
+            os.close(descriptor)
+    if remove:
+        os.fsync(parent_descriptor)
+    return safe
+
+
+def _cleanup_atomic_create_path_temps(path: Path, payload: bytes) -> None:
+    """Recover safe pre-link or post-link remnants for an existing state path."""
+    _validate_atomic_final_file(path, payload, cleanup_temps=True)
+
+
+def _validate_atomic_final_file(
+    path: Path, payload: bytes, *, cleanup_temps: bool
+) -> None:
+    """Require one immutable final inode or its one known post-link temp."""
+    path = Path(os.path.abspath(os.fspath(path)))
+    with _secure_directory_chain(path.parent, create=False) as parent_descriptor:
+        safe_temps = _cleanup_atomic_create_temps(
+            parent_descriptor,
+            final_name=path.name,
+            expected_payload=payload,
+            remove=False,
+        )
+        descriptor = os.open(
+            path.name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            parent = os.fstat(parent_descriptor)
+            metadata = os.fstat(descriptor)
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                actual_payload = handle.read()
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_dev != parent.st_dev
+                or metadata.st_mode & 0o222
+                or actual_payload != payload
+                or metadata.st_nlink not in {1, 2}
+            ):
+                raise OpeningContractError(
+                    "authoritative atomic final has unsafe metadata or bytes"
+                )
+            linked_temps = 0
+            for name in safe_temps:
+                temporary = os.stat(
+                    name, dir_fd=parent_descriptor, follow_symlinks=False
+                )
+                if (
+                    temporary.st_dev == metadata.st_dev
+                    and temporary.st_ino == metadata.st_ino
+                ):
+                    linked_temps += 1
+            if (
+                metadata.st_nlink == 2 and linked_temps != 1
+            ) or (metadata.st_nlink == 1 and linked_temps != 0):
+                raise OpeningContractError(
+                    "authoritative atomic final has an unknown hard link"
+                )
+        finally:
+            os.close(descriptor)
+        if cleanup_temps:
+            _cleanup_atomic_create_temps(
+                parent_descriptor,
+                final_name=path.name,
+                expected_payload=payload,
+                remove=True,
+            )
+            final = os.stat(
+                path.name, dir_fd=parent_descriptor, follow_symlinks=False
+            )
+            if final.st_nlink != 1:
+                raise OpeningContractError(
+                    "atomic final still has an unknown hard link after cleanup"
+                )
+
+
 def _atomic_create_bytes(path: Path, payload: bytes) -> None:
     """Create immutable bytes atomically; a writer crash cannot expose a prefix."""
     path = Path(os.path.abspath(os.fspath(path)))
     with _secure_directory_chain(path.parent, create=True) as parent_descriptor:
+        # The parent directory itself is durable state.  A process can die
+        # after mkdir/fsync in ``_secure_directory_chain`` but before mkstemp;
+        # expose that real crash window to subprocess tests and recovery.
+        _atomic_create_fault("after_parent_directory_create_before_temp", path)
+        _cleanup_atomic_create_temps(
+            parent_descriptor,
+            final_name=path.name,
+            expected_payload=payload,
+        )
         try:
             os.stat(path.name, dir_fd=parent_descriptor, follow_symlinks=False)
         except FileNotFoundError:
@@ -387,10 +568,18 @@ def _atomic_create_bytes(path: Path, payload: bytes) -> None:
         temporary = Path(temporary_name)
         try:
             with os.fdopen(descriptor, "wb") as handle:
-                handle.write(payload)
+                split = max(1, len(payload) // 2) if payload else 0
+                handle.write(payload[:split])
                 handle.flush()
-                os.fsync(handle.fileno())
+                _atomic_create_fault("after_temporary_prefix_write", path)
+                handle.write(payload[split:])
+                handle.flush()
                 os.fchmod(handle.fileno(), 0o444)
+                _atomic_create_fault(
+                    "after_final_mode_before_inode_fsync", path
+                )
+                os.fsync(handle.fileno())
+            _atomic_create_fault("before_no_replace_link", path)
             try:
                 os.link(
                     temporary.name,
@@ -404,6 +593,7 @@ def _atomic_create_bytes(path: Path, payload: bytes) -> None:
                     f"refusing to replace one-time artifact: {path}"
                 ) from exc
             os.fsync(parent_descriptor)
+            _atomic_create_fault("after_no_replace_link", path)
         finally:
             try:
                 os.unlink(temporary.name, dir_fd=parent_descriptor)
@@ -436,8 +626,8 @@ def _exclusive_create_parquet(path: Path, frame: pd.DataFrame) -> None:
                 dir_fd=parent_descriptor,
             )
             try:
-                os.fsync(temporary_descriptor)
                 os.fchmod(temporary_descriptor, 0o444)
+                os.fsync(temporary_descriptor)
             finally:
                 os.close(temporary_descriptor)
             try:
@@ -456,6 +646,7 @@ def _exclusive_create_parquet(path: Path, frame: pd.DataFrame) -> None:
         finally:
             try:
                 os.unlink(temporary.name, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
             except FileNotFoundError:
                 pass
 
@@ -846,7 +1037,11 @@ def _canonical_state_paths(
         "run_directory": base.as_posix(),
         "work_order": (base / "acquisition_work_order_v1.json").as_posix(),
         "intent": (base / "opening_intent_v1.json").as_posix(),
-        "raw_nwis_root": (base / "acquisition" / "raw_nwis_v1").as_posix(),
+        "transport_root": (base / "transport").as_posix(),
+        "raw_nwis_root": (base / "transport" / "raw_nwis_v1").as_posix(),
+        "raw_nwis_snapshot_index": (
+            base / "transport" / "raw_nwis_v1" / "snapshot_index.json"
+        ).as_posix(),
         "acquisition_request_map": (
             base / "acquisition" / "source_request_map_v1.json"
         ).as_posix(),
@@ -4292,8 +4487,10 @@ def validate_authorization(
 
 
 def opening_status(*, intent_path: str | Path, receipt_path: str | Path) -> str:
-    intent = Path(intent_path).exists()
-    receipt = Path(receipt_path).exists()
+    # A dangling symlink or other non-file node at either irreversible name is
+    # still state.  Treating it as absent could authorize a second opening.
+    intent = os.path.lexists(intent_path)
+    receipt = os.path.lexists(receipt_path)
     if receipt and not intent:
         return "CORRUPT_RECEIPT_WITHOUT_INTENT"
     if receipt:
@@ -4308,7 +4505,7 @@ def inspect_same_opening_transport_resume(
     *,
     root: str | Path,
 ) -> dict[str, Any]:
-    """Read-only classification for the explicit raw-transport resume command."""
+    """Classify every same-opening recovery checkpoint without changing it."""
     root = Path(root).resolve()
     authorization_path = Path(authorization_path).resolve()
     preflight = validate_authorization(
@@ -4320,63 +4517,126 @@ def inspect_same_opening_transport_resume(
     base_status = opening_status(
         intent_path=state["intent"], receipt_path=state["receipt"]
     )
-    if base_status != (
-        "OPENING_INCOMPLETE_SAME_OPENING_RESUME_REQUIRES_VALIDATION"
-    ):
+
+    def result(
+        status: str,
+        *,
+        phase: str,
+        raw: bool = False,
+        acquisition: bool = False,
+        trusted: bool = False,
+        transport: Mapping[str, Any] | None = None,
+        forbidden: Sequence[str] = (),
+    ) -> dict[str, Any]:
         return {
-            "status": base_status,
-            "raw_transport_resume_allowed": False,
-            "transport": None,
-            "forbidden_existing_outputs": [],
+            "status": status,
+            "resume_phase": phase,
+            "raw_transport_resume_allowed": raw,
+            "network_free_acquisition_finalization_allowed": acquisition,
+            "network_free_trusted_completion_allowed": trusted,
+            "transport": None if transport is None else dict(transport),
+            "forbidden_existing_outputs": list(forbidden),
         }
+
     work_order = _expected_acquisition_work_order(preflight, root=root)
+    if base_status == "SEALED_READY_OR_NOT_AUTHORIZED":
+        run_directory = Path(state["run_directory"])
+        preintent_existing = sorted(
+            key
+            for key, path in state.items()
+            if key not in {"namespace", "run_directory"}
+            and os.path.lexists(path)
+        )
+        if preintent_existing:
+            return result(
+                "OPENING_INDETERMINATE_STATE_WITHOUT_INTENT_NO_RESUME",
+                phase="FAIL_CLOSED",
+                forbidden=preintent_existing,
+            )
+        if os.path.lexists(run_directory):
+            try:
+                recovery, _document = _inspect_or_recover_preintent_temp(
+                    state=state,
+                    preflight=preflight,
+                    root=root,
+                    work_order=work_order,
+                    publish_or_remove=False,
+                )
+            except OpeningContractError:
+                return result(
+                    "OPENING_INDETERMINATE_UNSAFE_STATE_WITHOUT_INTENT_"
+                    "NO_RESUME",
+                    phase="FAIL_CLOSED",
+                )
+            return result(
+                "SEALED_READY_PRE_INTENT_ATOMIC_RECOVERY_ON_EXECUTE",
+                phase={
+                    "COMPLETE_VALID": (
+                        "PRE_INTENT_COMPLETE_PUBLICATION_ON_EXECUTE"
+                    ),
+                    "PARTIAL_SAFE": (
+                        "PRE_INTENT_PARTIAL_CLEANUP_ON_EXECUTE"
+                    ),
+                    "EMPTY_SAFE": (
+                        "PRE_INTENT_EMPTY_DIRECTORY_RECOVERY_ON_EXECUTE"
+                    ),
+                }[recovery],
+            )
+        return result(base_status, phase="TERMINAL_NOT_STARTED")
+    if base_status == "CORRUPT_RECEIPT_WITHOUT_INTENT":
+        return result(base_status, phase="FAIL_CLOSED")
     try:
-        _validated_intent(preflight=preflight, root=root, work_order=work_order)
+        validated_intent = _validated_intent(
+            preflight=preflight, root=root, work_order=work_order
+        )
     except OpeningContractError:
-        return {
-            "status": "OPENING_INDETERMINATE_INVALID_INTENT_NO_RAW_RESUME",
-            "raw_transport_resume_allowed": False,
-            "transport": None,
-            "forbidden_existing_outputs": [],
-        }
-    forbidden_keys = (
-        "acquisition_manifest", "temporal_outcomes", "external_outcomes",
-        "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
-        "approved_target_sensitivity", "spatial_sensitivity",
-        "probabilistic_evaluation", "temporal_predictions",
-        "external_predictions", "statistics", "report", "receipt",
-        "receipt_sha256",
-    )
-    forbidden_existing = sorted(
-        key for key in forbidden_keys if Path(state[key]).exists()
-    )
-    if forbidden_existing:
-        return {
-            "status": (
-                "OPENING_INDETERMINATE_DERIVED_OR_TRUSTED_OUTPUT_EXISTS_"
-                "NO_RAW_RESUME"
-            ),
-            "raw_transport_resume_allowed": False,
-            "transport": None,
-            "forbidden_existing_outputs": forbidden_existing,
-        }
+        return result(
+            "OPENING_INDETERMINATE_INVALID_INTENT_NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
     work_order_path = Path(state["work_order"])
-    if not work_order_path.exists():
-        acquisition_root = Path(state["raw_nwis_root"]).parent
-        if acquisition_root.exists() and any(acquisition_root.iterdir()):
-            return {
-                "status": (
-                    "OPENING_INDETERMINATE_RAW_EVIDENCE_WITHOUT_WORK_ORDER_"
-                    "NO_RAW_RESUME"
-                ),
-                "raw_transport_resume_allowed": False,
-                "transport": None,
-                "forbidden_existing_outputs": [],
-            }
-        return {
-            "status": "OPENING_INCOMPLETE_SAME_OPENING_RAW_RESUME_VALIDATED",
-            "raw_transport_resume_allowed": True,
-            "transport": {
+    if not os.path.lexists(work_order_path):
+        run_directory = Path(state["run_directory"])
+        try:
+            with _secure_directory_chain(
+                run_directory, create=False
+            ) as run_descriptor:
+                safe_intent_temps = _cleanup_atomic_create_temps(
+                    run_descriptor,
+                    final_name=Path(state["intent"]).name,
+                    expected_payload=canonical_json_bytes(validated_intent),
+                    remove=False,
+                )
+                safe_work_order_temps = _cleanup_atomic_create_temps(
+                    run_descriptor,
+                    final_name=work_order_path.name,
+                    expected_payload=canonical_json_bytes(work_order),
+                    remove=False,
+                )
+                actual = set(os.listdir(run_descriptor))
+        except OpeningContractError:
+            return result(
+                "OPENING_INDETERMINATE_UNSAFE_STATE_WITHOUT_WORK_ORDER_"
+                "NO_RESUME",
+                phase="FAIL_CLOSED",
+            )
+        allowed = {
+            Path(state["intent"]).name,
+            *safe_intent_temps,
+            *safe_work_order_temps,
+        }
+        unexpected = sorted(actual - allowed)
+        if unexpected:
+            return result(
+                "OPENING_INDETERMINATE_STATE_WITHOUT_WORK_ORDER_NO_RESUME",
+                phase="FAIL_CLOSED",
+                forbidden=unexpected,
+            )
+        return result(
+            "OPENING_INCOMPLETE_SAME_OPENING_RAW_TRANSPORT_VALIDATED",
+            phase="RAW_TRANSPORT",
+            raw=True,
+            transport={
                 "classification": "RESUMABLE_BEFORE_WORK_ORDER_PUBLICATION",
                 "completed_request_count": 0,
                 "missing_request_count": sum(
@@ -4384,49 +4644,220 @@ def inspect_same_opening_transport_resume(
                     for cohort in ("temporal", "external")
                 ),
                 "recoverable_pending_request_count": 0,
+                "refetchable_nondurable_response_count": 0,
                 "attempt_count": 0,
             },
-            "forbidden_existing_outputs": [],
-        }
+        )
     if (
         not work_order_path.is_file()
+        or work_order_path.is_symlink()
         or _load_json(work_order_path, label="acquisition work order")
         != work_order
     ):
-        return {
-            "status": "OPENING_INDETERMINATE_CHANGED_WORK_ORDER_NO_RAW_RESUME",
-            "raw_transport_resume_allowed": False,
-            "transport": None,
-            "forbidden_existing_outputs": [],
-        }
+        return result(
+            "OPENING_INDETERMINATE_CHANGED_WORK_ORDER_NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
+    try:
+        _validate_atomic_final_file(
+            work_order_path,
+            canonical_json_bytes(work_order),
+            cleanup_temps=False,
+        )
+    except OpeningContractError:
+        return result(
+            "OPENING_INDETERMINATE_CHANGED_WORK_ORDER_NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
+    try:
+        trusted_stage_count = _handle_abandoned_trusted_stages(
+            state, remove=False
+        )
+    except OpeningContractError:
+        return result(
+            "OPENING_INDETERMINATE_UNSAFE_TRUSTED_STAGE_NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
     from .outcome_acquisition import (  # local import avoids acquisition coupling
         OutcomeAcquisitionError,
+        _acquisition_directory_mode,
+        _assert_exact_acquisition_directory,
+        _validate_abandoned_acquisition_stages,
         inspect_transport_resume_state,
     )
 
     try:
+        _validate_abandoned_acquisition_stages(
+            {key: Path(value) for key, value in state.items()}
+        )
+    except OutcomeAcquisitionError:
+        return result(
+            "OPENING_INDETERMINATE_UNSAFE_ACQUISITION_STAGE_NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
+
+    manifest = Path(state["acquisition_manifest"])
+    acquisition_directory = manifest.parent
+    trusted_directory = _trusted_directory_from_state(state)
+    receipt = Path(state["receipt"])
+    sidecar = Path(state["receipt_sha256"])
+    manifest_exists = os.path.lexists(manifest)
+    acquisition_exists = os.path.lexists(acquisition_directory)
+    trusted_exists = os.path.lexists(trusted_directory)
+    receipt_exists = os.path.lexists(receipt)
+    sidecar_exists = os.path.lexists(sidecar)
+
+    if manifest_exists:
+        acquisition_permission_recovery = False
+        try:
+            _assert_exact_acquisition_directory(
+                acquisition_directory,
+                {key: Path(value) for key, value in state.items()},
+                allow_recoverable_canonical_mode=True,
+            )
+            acquisition_permission_recovery = (
+                _acquisition_directory_mode(
+                    {key: Path(value) for key, value in state.items()}
+                )
+                == 0o700
+            )
+        except OutcomeAcquisitionError:
+            return result(
+                "OPENING_INDETERMINATE_INVALID_ACQUISITION_BUNDLE_NO_RESUME",
+                phase="FAIL_CLOSED",
+            )
+        trusted_permission_recovery = False
+        if trusted_exists:
+            try:
+                _assert_exact_trusted_directory(
+                    trusted_directory,
+                    state,
+                    allow_recoverable_canonical_mode=True,
+                )
+                trusted_permission_recovery = (
+                    _trusted_directory_mode(state) == 0o700
+                )
+            except OpeningContractError:
+                return result(
+                    "OPENING_INDETERMINATE_INVALID_TRUSTED_DIRECTORY_NO_RESUME",
+                    phase="FAIL_CLOSED",
+                )
+        if acquisition_permission_recovery:
+            return result(
+                "OPENING_INCOMPLETE_ACQUISITION_PERMISSION_RECOVERY_"
+                "REQUIRES_FULL_REPLAY",
+                phase="ACQUISITION_PERMISSION_RECOVERY_BY_FULL_REPLAY",
+                trusted=True,
+            )
+        if trusted_permission_recovery:
+            return result(
+                "OPENING_INCOMPLETE_TRUSTED_PERMISSION_RECOVERY_"
+                "REQUIRES_FULL_REPLAY",
+                phase="TRUSTED_PERMISSION_RECOVERY_BY_FULL_REPLAY",
+                trusted=True,
+            )
+        if trusted_stage_count and trusted_exists:
+            return result(
+                "OPENING_INCOMPLETE_TRUSTED_STAGE_CLEANUP_REQUIRES_"
+                "FULL_VALIDATION",
+                phase="TRUSTED_STAGE_CLEANUP_AFTER_FULL_VALIDATION",
+                trusted=True,
+            )
+        if sidecar_exists and not receipt_exists:
+            return result(
+                "OPENING_INDETERMINATE_SIDECAR_WITHOUT_RECEIPT_NO_RESUME",
+                phase="FAIL_CLOSED",
+            )
+        if receipt_exists:
+            if not trusted_exists:
+                return result(
+                    "OPENING_INDETERMINATE_RECEIPT_WITHOUT_TRUSTED_NO_RESUME",
+                    phase="FAIL_CLOSED",
+                )
+            try:
+                _read_completed_receipt(
+                    authorization_path=authorization_path,
+                    root=root,
+                    require_sidecar=sidecar_exists,
+                )
+            except OpeningContractError:
+                return result(
+                    "OPENING_INDETERMINATE_INVALID_RECEIPT_NO_RESUME",
+                    phase="FAIL_CLOSED",
+                )
+            if sidecar_exists:
+                return result(
+                    "OPENED_AND_SCORED_ONCE",
+                    phase="TERMINAL_COMPLETE",
+                )
+            return result(
+                "OPENING_INCOMPLETE_SIDECAR_RECOVERY_VALIDATED",
+                phase="SIDECAR_RECOVERY_AFTER_FULL_VALIDATION",
+                trusted=True,
+            )
+        if trusted_exists:
+            return result(
+                "OPENING_INCOMPLETE_RECEIPT_COMPLETION_REQUIRES_FULL_REPLAY",
+                phase="RECEIPT_COMPLETION_AFTER_FULL_REPLAY",
+                trusted=True,
+            )
+        return result(
+            "OPENING_INCOMPLETE_TRUSTED_RECOMPUTE_VALIDATED",
+            phase="TRUSTED_RECOMPUTE_NETWORK_FREE",
+            trusted=True,
+        )
+
+    forbidden_existing = sorted(
+        key
+        for key in RAW_ACQUISITION_FORBIDDEN_STATE_KEYS
+        if os.path.lexists(state[key])
+    )
+    if acquisition_exists:
+        forbidden_existing.append("acquisition_directory")
+    if trusted_exists:
+        forbidden_existing.append("trusted_directory")
+    if forbidden_existing:
+        return result(
+            "OPENING_INDETERMINATE_DERIVED_OR_TRUSTED_OUTPUT_EXISTS_"
+            "NO_RESUME",
+            phase="FAIL_CLOSED",
+            forbidden=sorted(set(forbidden_existing)),
+        )
+    if trusted_stage_count:
+        return result(
+            "OPENING_INDETERMINATE_TRUSTED_STAGE_WITHOUT_ACQUISITION_"
+            "NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
+
+    try:
         transport = inspect_transport_resume_state(
+            root=root,
             work_order_path=work_order_path,
             work_order=work_order,
             authorization=preflight["authorization"],
             state=state,
         )
     except OutcomeAcquisitionError:
-        return {
-            "status": (
-                "OPENING_INDETERMINATE_CORRUPT_OR_PARTIAL_TRANSACTION_"
-                "NO_RAW_RESUME"
-            ),
-            "raw_transport_resume_allowed": False,
-            "transport": None,
-            "forbidden_existing_outputs": [],
-        }
-    return {
-        "status": "OPENING_INCOMPLETE_SAME_OPENING_RAW_RESUME_VALIDATED",
-        "raw_transport_resume_allowed": True,
-        "transport": transport,
-        "forbidden_existing_outputs": [],
-    }
+        return result(
+            "OPENING_INDETERMINATE_CORRUPT_OR_PARTIAL_TRANSACTION_NO_RESUME",
+            phase="FAIL_CLOSED",
+        )
+    if transport.get("classification") == (
+        "RESUMABLE_RAW_COMPLETE_DERIVATION_NOT_PUBLISHED"
+    ):
+        return result(
+            "OPENING_INCOMPLETE_ACQUISITION_FINALIZATION_VALIDATED",
+            phase="ACQUISITION_FINALIZATION_NETWORK_FREE",
+            acquisition=True,
+            transport=transport,
+        )
+    return result(
+        "OPENING_INCOMPLETE_SAME_OPENING_RAW_TRANSPORT_VALIDATED",
+        phase="RAW_TRANSPORT",
+        raw=True,
+        transport=transport,
+    )
 
 
 def _trusted_directory_from_state(state: Mapping[str, Any]) -> Path:
@@ -4578,14 +5009,119 @@ def _new_trusted_stage_directory(state: Mapping[str, Any]) -> Path:
     raise OpeningContractError("cannot allocate a trusted staging directory")
 
 
+def _remove_safe_abandoned_trusted_stage(
+    *,
+    parent_descriptor: int,
+    name: str,
+    parent_metadata: os.stat_result,
+    remove: bool,
+) -> None:
+    descriptor = os.open(
+        name,
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0),
+        dir_fd=parent_descriptor,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_dev != parent_metadata.st_dev
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+        ):
+            raise OpeningContractError(
+                "abandoned trusted stage has unsafe metadata"
+            )
+        entries = os.listdir(descriptor)
+        children: dict[str, os.stat_result] = {}
+        inode_counts: dict[tuple[int, int], int] = {}
+        for entry in entries:
+            child = os.open(
+                entry,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                child_metadata = os.fstat(child)
+            finally:
+                os.close(child)
+            if (
+                not stat.S_ISREG(child_metadata.st_mode)
+                or child_metadata.st_uid != os.geteuid()
+                or child_metadata.st_dev != metadata.st_dev
+                or child_metadata.st_mode & 0o222
+            ):
+                raise OpeningContractError(
+                    "abandoned trusted stage contains an unsafe entry"
+                )
+            children[entry] = child_metadata
+            inode = (child_metadata.st_dev, child_metadata.st_ino)
+            inode_counts[inode] = inode_counts.get(inode, 0) + 1
+        if any(
+            child.st_nlink
+            != inode_counts[(child.st_dev, child.st_ino)]
+            for child in children.values()
+        ):
+            raise OpeningContractError(
+                "abandoned trusted stage contains an external hard link"
+            )
+        if remove:
+            for entry in entries:
+                os.unlink(entry, dir_fd=descriptor)
+            os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    if remove:
+        os.rmdir(name, dir_fd=parent_descriptor)
+        os.fsync(parent_descriptor)
+
+
+def _handle_abandoned_trusted_stages(
+    state: Mapping[str, Any], *, remove: bool
+) -> int:
+    canonical = _trusted_directory_from_state(state)
+    run_directory = canonical.parent
+    if not os.path.lexists(run_directory):
+        return 0
+    count = 0
+    with _secure_directory_chain(
+        run_directory, create=False
+    ) as parent_descriptor:
+        parent_metadata = _assert_trusted_parent_metadata(parent_descriptor)
+        for name in sorted(os.listdir(parent_descriptor)):
+            if not name.startswith(_TRUSTED_STAGE_PREFIX):
+                continue
+            if re.fullmatch(r"\.trusted-stage-v1-[0-9a-f]{32}", name) is None:
+                raise OpeningContractError(
+                    "trusted staging namespace contains a noncanonical entry"
+                )
+            _remove_safe_abandoned_trusted_stage(
+                parent_descriptor=parent_descriptor,
+                name=name,
+                parent_metadata=parent_metadata,
+                remove=remove,
+            )
+            count += 1
+    return count
+
+
 def _assert_exact_trusted_directory(
-    directory: Path, state: Mapping[str, Any]
+    directory: Path,
+    state: Mapping[str, Any],
+    *,
+    allow_recoverable_canonical_mode: bool = False,
 ) -> None:
     """Reject missing, extra, linked, nested, or nonregular trusted artifacts."""
     canonical = _trusted_directory_from_state(state)
     directory = Path(os.path.abspath(os.fspath(directory)))
     if directory.parent != canonical.parent:
         raise OpeningContractError("trusted artifact directory is noncanonical")
+    is_canonical = directory == canonical
     expected = {Path(state[key]).name for key in _TRUSTED_STATE_KEYS}
     flags = (
         os.O_RDONLY
@@ -4601,7 +5137,19 @@ def _assert_exact_trusted_directory(
         ) from exc
     try:
         metadata = os.fstat(descriptor)
-        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
+        actual_mode = stat.S_IMODE(metadata.st_mode)
+        allowed_modes = (
+            {0o555, 0o700}
+            if is_canonical and allow_recoverable_canonical_mode
+            else {0o555}
+            if is_canonical
+            else {0o700}
+        )
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or actual_mode not in allowed_modes
+        ):
             raise OpeningContractError(
                 "trusted artifact directory metadata is unsafe"
             )
@@ -4616,12 +5164,59 @@ def _assert_exact_trusted_directory(
                 not stat.S_ISREG(item.st_mode)
                 or item.st_nlink != 1
                 or item.st_uid != os.geteuid()
+                or item.st_dev != metadata.st_dev
+                or item.st_mode & 0o222
             ):
                 raise OpeningContractError(
                     f"trusted artifact is linked or nonregular: {name}"
                 )
     finally:
         os.close(descriptor)
+
+
+def _trusted_directory_mode(state: Mapping[str, Any]) -> int:
+    canonical = _trusted_directory_from_state(state)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor = os.open(canonical, flags)
+    try:
+        return stat.S_IMODE(os.fstat(descriptor).st_mode)
+    finally:
+        os.close(descriptor)
+
+
+def _harden_recoverable_trusted_directory(state: Mapping[str, Any]) -> None:
+    """Finish only a fully replayed rename-before-chmod trusted publication."""
+    canonical = _trusted_directory_from_state(state)
+    _assert_exact_trusted_directory(
+        canonical, state, allow_recoverable_canonical_mode=True
+    )
+    if _trusted_directory_mode(state) != 0o700:
+        raise OpeningContractError(
+            "trusted permission recovery requires exact mode 0700"
+        )
+    with _secure_directory_chain(
+        canonical.parent, create=False
+    ) as parent_descriptor:
+        descriptor = os.open(
+            canonical.name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            os.fchmod(descriptor, 0o555)
+            os.fsync(descriptor)
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(descriptor)
+    _assert_exact_trusted_directory(canonical, state)
 
 
 def _atomic_publish_trusted_directory(
@@ -4634,6 +5229,8 @@ def _atomic_publish_trusted_directory(
         _TRUSTED_STAGE_PREFIX
     ):
         raise OpeningContractError("trusted staging path is noncanonical")
+    if re.fullmatch(r"\.trusted-stage-v1-[0-9a-f]{32}", stage.name) is None:
+        raise OpeningContractError("trusted staging name is noncanonical")
     _assert_exact_trusted_directory(stage, state)
     with _secure_directory_chain(canonical.parent, create=False) as parent_descriptor:
         _assert_trusted_parent_metadata(parent_descriptor)
@@ -4659,6 +5256,7 @@ def _atomic_publish_trusted_directory(
         )
         try:
             os.fsync(stage_descriptor)
+            _trusted_publication_fault("before_trusted_directory_rename")
             try:
                 os.rename(
                     stage.name,
@@ -4670,11 +5268,17 @@ def _atomic_publish_trusted_directory(
                 raise OpeningContractError(
                     "atomic trusted-directory publication failed"
                 ) from exc
+            _trusted_publication_fault(
+                "after_trusted_directory_rename_before_hardening"
+            )
             # Darwin prohibits renaming a non-writable directory.  Harden the
             # already-complete directory through the still-open descriptor
             # immediately after the one atomic namespace publication.
             os.fchmod(stage_descriptor, 0o555)
             os.fsync(stage_descriptor)
+            _trusted_publication_fault(
+                "after_trusted_directory_hardening_before_parent_fsync"
+            )
         finally:
             os.close(stage_descriptor)
         os.fsync(parent_descriptor)
@@ -6100,11 +6704,26 @@ def _assert_statistics_equal(
 
 
 def _verified_acquisition_for_scoring(
-    *, preflight: Mapping[str, Any], root: Path
+    *,
+    preflight: Mapping[str, Any],
+    root: Path,
+    allow_recoverable_publication_mode: bool = False,
 ) -> tuple[
     dict[str, pd.DataFrame], set[str], set[str], list[Mapping[str, Any]]
 ]:
     authorization = preflight["authorization"]
+    from .outcome_acquisition import _assert_exact_acquisition_directory
+
+    acquisition_state = {
+        key: Path(value) for key, value in preflight["state_paths"].items()
+    }
+    _assert_exact_acquisition_directory(
+        Path(preflight["state_paths"]["acquisition_manifest"]).parent,
+        acquisition_state,
+        allow_recoverable_canonical_mode=(
+            allow_recoverable_publication_mode
+        ),
+    )
     manifest_path = Path(preflight["state_paths"]["acquisition_manifest"])
     acquisition = _load_json(manifest_path, label="opened acquisition manifest")
     expected = {
@@ -6125,8 +6744,9 @@ def _verified_acquisition_for_scoring(
     }
     if any(acquisition.get(key) != value for key, value in expected.items()):
         raise OpeningContractError("raw acquisition manifest identity changed")
-    raw_index = _verify_file_binding(
+    raw_index = _verify_canonical_file_binding(
         root, acquisition.get("raw_nwis_snapshot_index", {}),
+        expected_path=preflight["state_paths"]["raw_nwis_snapshot_index"],
         label="opened NWIS snapshot index",
     )
     records = _verify_snapshot_index(root, raw_index, prelabel=False)
@@ -6138,8 +6758,11 @@ def _verified_acquisition_for_scoring(
         history_start=authorization["acquisition_plan"]["history_start"],
         target_end=authorization["acquisition_plan"]["target_end"],
     )
-    request_map = _verify_file_binding(
-        root, acquisition.get("request_map", {}), label="opened NWIS request map"
+    request_map = _verify_canonical_file_binding(
+        root,
+        acquisition.get("request_map", {}),
+        expected_path=preflight["state_paths"]["acquisition_request_map"],
+        label="opened NWIS request map",
     )
     _verify_opened_request_map(
         request_map,
@@ -6173,8 +6796,11 @@ def _verified_acquisition_for_scoring(
         raise OpeningContractError("raw acquisition lacks both normalized cohorts")
     normalized: dict[str, pd.DataFrame] = {}
     for cohort, sites in (("temporal", temporal_sites), ("external", external_sites)):
-        path = _verify_file_binding(
-            root, bindings[cohort], label=f"{cohort} normalized opened outcomes"
+        path = _verify_canonical_file_binding(
+            root,
+            bindings[cohort],
+            expected_path=preflight["state_paths"][f"{cohort}_outcomes"],
+            label=f"{cohort} normalized opened outcomes",
         )
         normalized[cohort] = _load_and_verify_normalized_outcomes(
             path, raw_rebuild=rebuilt, sites=sites
@@ -7953,13 +8579,25 @@ def validate_opening_products(
     preflight: Mapping[str, Any],
     root: str | Path,
     staged: bool = False,
+    allow_recoverable_trusted_mode: bool = False,
 ) -> dict[str, Any]:
     """Validate outcomes, exact keys, all models and recomputed formal tests."""
     root = Path(root).resolve()
     canonical_state = preflight["state_paths"]
+    from .outcome_acquisition import _assert_exact_acquisition_directory
+
+    _assert_exact_acquisition_directory(
+        Path(canonical_state["acquisition_manifest"]).parent,
+        {key: Path(value) for key, value in canonical_state.items()},
+    )
     if staged:
         stage_directory = Path(products.availability_registry).parent
-        if not stage_directory.name.startswith(_TRUSTED_STAGE_PREFIX):
+        if (
+            re.fullmatch(
+                r"\.trusted-stage-v1-[0-9a-f]{32}", stage_directory.name
+            )
+            is None
+        ):
             raise OpeningContractError("trusted validation stage is noncanonical")
         product_state = _trusted_state_at_directory(
             canonical_state, stage_directory
@@ -7968,7 +8606,11 @@ def validate_opening_products(
     else:
         product_state = canonical_state
         _assert_exact_trusted_directory(
-            _trusted_directory_from_state(canonical_state), canonical_state
+            _trusted_directory_from_state(canonical_state),
+            canonical_state,
+            allow_recoverable_canonical_mode=(
+                allow_recoverable_trusted_mode
+            ),
         )
     expected_product_paths = {
         "acquisition_manifest": canonical_state["acquisition_manifest"],
@@ -8003,8 +8645,9 @@ def validate_opening_products(
              if acquisition.get(key) != value}
     if wrong:
         raise OpeningContractError(f"opened acquisition manifest mismatch: {wrong}")
-    raw_index = _verify_file_binding(
+    raw_index = _verify_canonical_file_binding(
         root, acquisition.get("raw_nwis_snapshot_index", {}),
+        expected_path=canonical_state["raw_nwis_snapshot_index"],
         label="opened NWIS snapshot index",
     )
     records = _verify_snapshot_index(root, raw_index, prelabel=False)
@@ -8016,8 +8659,11 @@ def validate_opening_products(
         history_start=authorization["acquisition_plan"]["history_start"],
         target_end=authorization["acquisition_plan"]["target_end"],
     )
-    request_map_path = _verify_file_binding(
-        root, acquisition.get("request_map", {}), label="opened NWIS request map"
+    request_map_path = _verify_canonical_file_binding(
+        root,
+        acquisition.get("request_map", {}),
+        expected_path=canonical_state["acquisition_request_map"],
+        label="opened NWIS request map",
     )
     _verify_opened_request_map(
         request_map_path,
@@ -8056,9 +8702,10 @@ def validate_opening_products(
     normalized: dict[str, pd.DataFrame] = {}
     normalized_paths: dict[str, Path] = {}
     for cohort, sites in (("temporal", temporal_sites), ("external", external_sites)):
-        normalized_path = _verify_file_binding(
+        normalized_path = _verify_canonical_file_binding(
             root,
             normalized_bindings[cohort],
+            expected_path=canonical_state[f"{cohort}_outcomes"],
             label=f"{cohort} normalized opened outcomes",
         )
         normalized[cohort] = _load_and_verify_normalized_outcomes(
@@ -8378,6 +9025,25 @@ def _validated_intent(
 ) -> dict[str, Any]:
     intent_path = Path(preflight["state_paths"]["intent"])
     intent = _load_json(intent_path, label="one-time opening intent")
+    if intent_path.read_bytes() != canonical_json_bytes(intent):
+        raise OpeningContractError("one-time opening intent is noncanonical")
+    _validate_atomic_final_file(
+        intent_path, canonical_json_bytes(intent), cleanup_temps=False
+    )
+    _validate_intent_document(
+        intent, preflight=preflight, root=root, work_order=work_order
+    )
+    return intent
+
+
+def _validate_intent_document(
+    intent: Mapping[str, Any],
+    *,
+    preflight: Mapping[str, Any],
+    root: Path,
+    work_order: Mapping[str, Any],
+) -> None:
+    """Validate an intent document independently of its publication name."""
     self_hashed = dict(intent)
     self_digest = self_hashed.pop("intent_self_sha256", None)
     if not _is_sha256(self_digest) or sha256_json(self_hashed) != self_digest:
@@ -8402,9 +9068,148 @@ def _validated_intent(
     }
     if any(intent.get(key) != value for key, value in expected.items()):
         raise OpeningContractError("one-time opening intent identity changed")
+    expected_fields = {
+        *expected,
+        "trusted_validator",
+        "started_at_utc",
+        "intent_self_sha256",
+    }
+    if set(intent) != expected_fields:
+        raise OpeningContractError("one-time opening intent schema changed")
     if intent.get("trusted_validator") != _trusted_validator_identity(root):
         raise OpeningContractError("trusted validator differs from opening intent")
-    return intent
+    started = intent.get("started_at_utc")
+    try:
+        timestamp = datetime.fromisoformat(str(started))
+    except ValueError as exc:
+        raise OpeningContractError(
+            "one-time opening intent timestamp is malformed"
+        ) from exc
+    if (
+        timestamp.tzinfo is None
+        or timestamp.utcoffset() != timezone.utc.utcoffset(None)
+    ):
+        raise OpeningContractError(
+            "one-time opening intent timestamp is not UTC"
+        )
+
+
+def _inspect_or_recover_preintent_temp(
+    *,
+    state: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+    root: Path,
+    work_order: Mapping[str, Any],
+    publish_or_remove: bool,
+) -> tuple[str, dict[str, Any] | None]:
+    """Classify the sole legal pre-intent crash remnant, optionally recover it."""
+    run_directory = Path(state["run_directory"])
+    intent_path = Path(state["intent"])
+    if not os.path.lexists(run_directory):
+        return "ABSENT", None
+    with _secure_directory_chain(
+        run_directory, create=False
+    ) as run_descriptor:
+        run_metadata = os.fstat(run_descriptor)
+        if (
+            not stat.S_ISDIR(run_metadata.st_mode)
+            or run_metadata.st_uid != os.geteuid()
+            or run_metadata.st_mode & 0o022
+        ):
+            raise OpeningContractError(
+                "pre-intent run directory is not owner-controlled"
+            )
+        entries = os.listdir(run_descriptor)
+        if not entries:
+            # A kill can leave only the durable canonical parent directory,
+            # before the first atomic temporary file is allocated.  No intent
+            # was published, so this is a safe pre-opening recovery state.
+            return "EMPTY_SAFE", None
+        pattern = re.compile(
+            rf"\.{re.escape(intent_path.name)}\.[a-z0-9_]{{8}}\.tmp"
+        )
+        if len(entries) != 1 or pattern.fullmatch(entries[0]) is None:
+            raise OpeningContractError(
+                "pre-intent run directory is empty or contains unexpected state"
+            )
+        temporary_name = entries[0]
+        descriptor = os.open(
+            temporary_name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=run_descriptor,
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_dev != run_metadata.st_dev
+                or metadata.st_nlink != 1
+                or metadata.st_mode & 0o022
+            ):
+                raise OpeningContractError(
+                    "pre-intent temporary artifact has unsafe metadata"
+                )
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                payload = handle.read()
+            complete = not metadata.st_mode & 0o222
+            if complete:
+                try:
+                    document = json.loads(payload.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise OpeningContractError(
+                        "complete pre-intent temporary JSON is malformed"
+                    ) from exc
+                if (
+                    not isinstance(document, dict)
+                    or payload != canonical_json_bytes(document)
+                ):
+                    raise OpeningContractError(
+                        "complete pre-intent temporary JSON is noncanonical"
+                    )
+                _validate_intent_document(
+                    document,
+                    preflight=preflight,
+                    root=root,
+                    work_order=work_order,
+                )
+                if publish_or_remove:
+                    # A writer may have died after fchmod but before its inode
+                    # fsync.  Re-fsync the validated complete temp before
+                    # publishing its inode under the irreversible intent name.
+                    os.fsync(descriptor)
+                    _atomic_create_fault(
+                        "after_preintent_recovery_inode_fsync_before_link",
+                        intent_path,
+                    )
+                    try:
+                        os.link(
+                            temporary_name,
+                            intent_path.name,
+                            src_dir_fd=run_descriptor,
+                            dst_dir_fd=run_descriptor,
+                            follow_symlinks=False,
+                        )
+                    except FileExistsError as exc:
+                        raise OpeningAlreadyStarted(
+                            "one-time intent appeared during pre-intent recovery"
+                        ) from exc
+                    os.fsync(run_descriptor)
+                    os.unlink(temporary_name, dir_fd=run_descriptor)
+                    os.fsync(run_descriptor)
+                return "COMPLETE_VALID", document
+            if not metadata.st_mode & stat.S_IWUSR:
+                raise OpeningContractError(
+                    "partial pre-intent temporary artifact has unsafe mode"
+                )
+            if publish_or_remove:
+                os.unlink(temporary_name, dir_fd=run_descriptor)
+                os.fsync(run_descriptor)
+            return "PARTIAL_SAFE", None
+        finally:
+            os.close(descriptor)
 
 
 def isolated_orchestrate_opening(
@@ -8441,16 +9246,45 @@ def isolated_orchestrate_opening(
     validator = _trusted_validator_identity(root)
     run_acquisition = True
     if resume:
-        if status not in {
-            "OPENING_INCOMPLETE_SAME_OPENING_RESUME_REQUIRES_VALIDATION",
-            "OPENED_AND_SCORED_ONCE",
-        }:
-            raise OpeningAlreadyStarted(
-                f"Route-A opening is not same-opening resume eligible: {status}"
+        inspection = inspect_same_opening_transport_resume(
+            authorization_path, root=root
+        )
+        phase = inspection["resume_phase"]
+        if phase == "TERMINAL_COMPLETE":
+            _read_completed_receipt(
+                authorization_path=authorization_path, root=root
             )
-        _validated_intent(preflight=preflight, root=root, work_order=work_order)
+            for key in ("intent", "work_order", "receipt", "receipt_sha256"):
+                path = Path(state[key])
+                _cleanup_atomic_create_path_temps(path, path.read_bytes())
+            return
+        if phase in {
+            "RAW_TRANSPORT",
+            "ACQUISITION_FINALIZATION_NETWORK_FREE",
+        }:
+            run_acquisition = True
+        elif phase in {
+            "TRUSTED_RECOMPUTE_NETWORK_FREE",
+            "RECEIPT_COMPLETION_AFTER_FULL_REPLAY",
+            "SIDECAR_RECOVERY_AFTER_FULL_VALIDATION",
+            "ACQUISITION_PERMISSION_RECOVERY_BY_FULL_REPLAY",
+            "TRUSTED_PERMISSION_RECOVERY_BY_FULL_REPLAY",
+            "TRUSTED_STAGE_CLEANUP_AFTER_FULL_VALIDATION",
+        }:
+            run_acquisition = False
+        else:
+            raise OpeningAlreadyStarted(
+                "Route-A opening is not same-opening resume eligible: "
+                f"{inspection['status']}"
+            )
+        validated_intent = _validated_intent(
+            preflight=preflight, root=root, work_order=work_order
+        )
+        _cleanup_atomic_create_path_temps(
+            Path(state["intent"]), canonical_json_bytes(validated_intent)
+        )
         work_order_path = Path(state["work_order"])
-        if work_order_path.exists():
+        if os.path.lexists(work_order_path):
             if (
                 not work_order_path.is_file()
                 or _load_json(
@@ -8460,76 +9294,71 @@ def isolated_orchestrate_opening(
                 raise OpeningContractError(
                     "same-opening resume requires the exact original work order"
                 )
+            _cleanup_atomic_create_path_temps(
+                work_order_path, canonical_json_bytes(work_order)
+            )
         else:
             # The intent already binds both hashes of this deterministic work
             # order, so recreating a wholly absent file is not a second opening.
             exclusive_create_json(work_order_path, work_order)
-        receipt_exists = Path(state["receipt"]).exists()
-        sidecar_exists = Path(state["receipt_sha256"]).exists()
-        acquisition_complete = Path(state["acquisition_manifest"]).is_file()
-        trusted_exists = os.path.lexists(_trusted_directory_from_state(state))
-        if receipt_exists and sidecar_exists:
-            _read_completed_receipt(
-                authorization_path=authorization_path, root=root
-            )
-            return
-        if acquisition_complete:
-            # Raw acquisition is immutable and complete.  Never launch the
-            # network child again: only deterministic trusted completion is
-            # admissible from this point.
-            run_acquisition = False
-        forbidden_raw_resume = (
-            "temporal_outcomes", "external_outcomes",
-            "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
-            "approved_target_sensitivity", "spatial_sensitivity",
-            "probabilistic_evaluation", "temporal_predictions",
-            "external_predictions", "statistics", "report", "receipt",
-            "receipt_sha256",
-        )
-        existing = sorted(
-            key for key in forbidden_raw_resume if Path(state[key]).exists()
-        )
-        if run_acquisition and (existing or trusted_exists):
-            raise OpeningAlreadyStarted(
-                "raw transport resume is prohibited after derived/trusted "
-                f"publication: {existing or ['trusted_directory']}"
-            )
     else:
         if status != "SEALED_READY_OR_NOT_AUTHORIZED":
             raise OpeningAlreadyStarted(f"Route-A opening state is {status}")
+        recovery, recovered_intent = _inspect_or_recover_preintent_temp(
+            state=state,
+            preflight=preflight,
+            root=root,
+            work_order=work_order,
+            publish_or_remove=True,
+        )
+        recovered_complete = recovery == "COMPLETE_VALID"
+        if recovered_complete:
+            if recovered_intent is None:
+                raise OpeningContractError(
+                    "complete pre-intent recovery lost its validated document"
+                )
+            intent = recovered_intent
+        else:
+            intent_stable = {
+                "format": INTENT_FORMAT,
+                "status": "OPENING_STARTED_IRREVERSIBLE",
+                "opening_id": preflight["authorization"]["opening_id"],
+                "authorization_sha256": preflight["authorization_sha256"],
+                "preflight_attestation_sha256": sha256_json(attestation),
+                "work_order_self_sha256": work_order["work_order_self_sha256"],
+                "work_order_file_sha256": hashlib.sha256(
+                    canonical_json_bytes(dict(work_order))
+                ).hexdigest(),
+                "fixed_code_sha256": preflight["fixed_code"]["sha256"],
+                "runtime_sha256": preflight["runtime"]["runtime_sha256"],
+                "trusted_validator": validator,
+                "started_at_utc": datetime.now(timezone.utc).isoformat(),
+                "maximum_openings": 1,
+                "retry_after_failure_allowed": False,
+                "same_opening_transport_resume_allowed": True,
+            }
+            intent = {
+                **intent_stable,
+                "intent_self_sha256": sha256_json(intent_stable),
+            }
+        allowed_existing = {"namespace", "run_directory"}
+        if recovered_complete:
+            allowed_existing.add("intent")
         preexisting = sorted(
-            key for key, path in state.items() if Path(path).exists()
+            key
+            for key, path in state.items()
+            if key not in allowed_existing
+            and os.path.lexists(path)
         )
         if preexisting:
             raise OpeningAlreadyStarted(
                 "canonical Route-A state namespace is not empty: "
                 f"{preexisting}"
             )
-        intent_stable = {
-            "format": INTENT_FORMAT,
-            "status": "OPENING_STARTED_IRREVERSIBLE",
-            "opening_id": preflight["authorization"]["opening_id"],
-            "authorization_sha256": preflight["authorization_sha256"],
-            "preflight_attestation_sha256": sha256_json(attestation),
-            "work_order_self_sha256": work_order["work_order_self_sha256"],
-            "work_order_file_sha256": hashlib.sha256(
-                canonical_json_bytes(dict(work_order))
-            ).hexdigest(),
-            "fixed_code_sha256": preflight["fixed_code"]["sha256"],
-            "runtime_sha256": preflight["runtime"]["runtime_sha256"],
-            "trusted_validator": validator,
-            "started_at_utc": datetime.now(timezone.utc).isoformat(),
-            "maximum_openings": 1,
-            "retry_after_failure_allowed": False,
-            "same_opening_transport_resume_allowed": True,
-        }
-        intent = {
-            **intent_stable,
-            "intent_self_sha256": sha256_json(intent_stable),
-        }
         # This marker is the first state mutation and is never replaced.  A raw
         # continuation remains the same opening ID and the same intent.
-        exclusive_create_json(state["intent"], intent)
+        if not recovered_complete:
+            exclusive_create_json(state["intent"], intent)
         exclusive_create_json(state["work_order"], work_order)
     if run_acquisition:
         _run_fixed_isolated_child(
@@ -8665,6 +9494,11 @@ def isolated_score_and_receipt(
     expected_work_order = _expected_acquisition_work_order(preflight, root=root)
     if raw_work_order != expected_work_order:
         raise OpeningContractError("trusted scorer received a changed work order")
+    _validate_atomic_final_file(
+        work_order_path,
+        canonical_json_bytes(expected_work_order),
+        cleanup_temps=False,
+    )
     intent = _validated_intent(
         preflight=preflight, root=root, work_order=expected_work_order
     )
@@ -8675,8 +9509,41 @@ def isolated_score_and_receipt(
     receipt_path = Path(state["receipt"])
     sidecar_path = Path(state["receipt_sha256"])
     with _exclusive_trusted_publication_lock(state):
-        receipt_exists = receipt_path.exists()
-        sidecar_exists = sidecar_path.exists()
+        abandoned_stage_count = _handle_abandoned_trusted_stages(
+            state, remove=False
+        )
+        from .outcome_acquisition import (
+            OutcomeAcquisitionError,
+            _acquisition_directory_mode,
+            _assert_exact_acquisition_directory,
+            _harden_recoverable_acquisition_directory,
+        )
+
+        acquisition_state = {
+            key: Path(value) for key, value in state.items()
+        }
+        try:
+            _assert_exact_acquisition_directory(
+                Path(state["acquisition_manifest"]).parent,
+                acquisition_state,
+                allow_recoverable_canonical_mode=True,
+            )
+            acquisition_mode = _acquisition_directory_mode(acquisition_state)
+        except OutcomeAcquisitionError as exc:
+            raise OpeningContractError(
+                "acquisition publication mode/layout is not recoverable"
+            ) from exc
+        if acquisition_mode == 0o700:
+            # No permission is changed until the entire raw bundle has been
+            # independently replayed and every canonical binding has closed.
+            _verified_acquisition_for_scoring(
+                preflight=preflight,
+                root=root,
+                allow_recoverable_publication_mode=True,
+            )
+            _harden_recoverable_acquisition_directory(acquisition_state)
+        receipt_exists = os.path.lexists(receipt_path)
+        sidecar_exists = os.path.lexists(sidecar_path)
         if sidecar_exists and not receipt_exists:
             raise OpeningContractError(
                 "opening receipt digest exists without its authoritative receipt"
@@ -8696,10 +9563,28 @@ def isolated_score_and_receipt(
             )
         if canonical_exists:
             products = _opening_products_from_state(state)
-            validated = validate_opening_products(
-                products, preflight=preflight, root=root
+            trusted_permission_recovery = (
+                _trusted_directory_mode(state) == 0o700
             )
+            validated = validate_opening_products(
+                products,
+                preflight=preflight,
+                root=root,
+                allow_recoverable_trusted_mode=(
+                    trusted_permission_recovery
+                ),
+            )
+            if trusted_permission_recovery:
+                _harden_recoverable_trusted_directory(state)
+            if abandoned_stage_count:
+                # When an authoritative canonical generation exists, do not
+                # delete even a metadata-safe abandoned stage until the
+                # canonical acquisition and trusted products have both passed
+                # their complete deterministic replay.
+                _handle_abandoned_trusted_stages(state, remove=True)
         else:
+            if abandoned_stage_count:
+                _handle_abandoned_trusted_stages(state, remove=True)
             stage_directory = _new_trusted_stage_directory(state)
             staged_state = _trusted_state_at_directory(state, stage_directory)
             products = produce_trusted_opening_products(
@@ -8732,6 +9617,13 @@ def isolated_score_and_receipt(
                 require_sidecar=False,
             )
             _assert_receipt_matches_validation(receipt, validated)
+            _cleanup_atomic_create_path_temps(
+                receipt_path, receipt_path.read_bytes()
+            )
+            if sidecar_exists:
+                _cleanup_atomic_create_path_temps(
+                    sidecar_path, sidecar_path.read_bytes()
+                )
             if not sidecar_exists:
                 _atomic_create_bytes(
                     sidecar_path, _receipt_sidecar_bytes(receipt_path)
@@ -8834,6 +9726,27 @@ def _read_completed_receipt(
     state = authorization.get("state_paths")
     if not isinstance(state, Mapping):
         raise OpeningContractError("authorization lacks canonical state paths")
+    secured_state = _secure_canonical_state_paths(root, state)
+    from .outcome_acquisition import (
+        OutcomeAcquisitionError,
+        _assert_exact_acquisition_directory,
+    )
+
+    # Check the trusted publication first: a receipt is authoritative only for
+    # this exact immutable directory, and diagnostics must not be masked by an
+    # unrelated missing acquisition fixture.
+    _assert_exact_trusted_directory(
+        _trusted_directory_from_state(secured_state), secured_state
+    )
+    try:
+        _assert_exact_acquisition_directory(
+            Path(secured_state["acquisition_manifest"]).parent,
+            {key: Path(value) for key, value in secured_state.items()},
+        )
+    except OutcomeAcquisitionError as exc:
+        raise OpeningContractError(
+            "opening receipt acquisition bundle is not exact"
+        ) from exc
     receipt_path = _resolve_inside(root, state.get("receipt"))
     raw_sidecar = Path(str(state.get("receipt_sha256")))
     if raw_sidecar.is_absolute():
@@ -8847,6 +9760,11 @@ def _read_completed_receipt(
     if require_sidecar and not sidecar_path.is_file():
         raise OpeningContractError("external opening-receipt SHA-256 is absent")
     receipt = _load_json(receipt_path, label="opening receipt")
+    if receipt_path.read_bytes() != canonical_json_bytes(receipt):
+        raise OpeningContractError("opening receipt is noncanonical")
+    _validate_atomic_final_file(
+        receipt_path, canonical_json_bytes(receipt), cleanup_temps=False
+    )
     receipt_stable = dict(receipt)
     receipt_self = receipt_stable.pop("receipt_self_sha256", None)
     if not _is_sha256(receipt_self) or sha256_json(receipt_stable) != receipt_self:
@@ -8893,18 +9811,31 @@ def _read_completed_receipt(
     if receipt.get("intent_sha256") != sha256_file(intent_path):
         raise OpeningContractError("opening receipt does not bind its intent")
     work_order_path = _resolve_inside(root, state.get("work_order"))
+    expected_work_order = _expected_acquisition_work_order(preflight, root=root)
     if (
         receipt.get("work_order_sha256") != sha256_file(work_order_path)
         or _load_json(work_order_path, label="acquisition work order")
-        != _expected_acquisition_work_order(preflight, root=root)
+        != expected_work_order
     ):
         raise OpeningContractError("opening receipt does not bind its work order")
+    _validate_atomic_final_file(
+        work_order_path,
+        canonical_json_bytes(expected_work_order),
+        cleanup_temps=False,
+    )
+    _validated_intent(
+        preflight=preflight, root=root, work_order=expected_work_order
+    )
     expected_sidecar = (
         f"{sha256_file(receipt_path)}  {receipt_path.name}\n"
     ).encode("ascii")
-    if sidecar_path.exists() and sidecar_path.read_bytes() != expected_sidecar:
-        raise OpeningContractError("external opening-receipt SHA-256 is invalid")
-    if require_sidecar and not sidecar_path.exists():
+    if os.path.lexists(sidecar_path):
+        if not sidecar_path.is_file() or sidecar_path.read_bytes() != expected_sidecar:
+            raise OpeningContractError("external opening-receipt SHA-256 is invalid")
+        _validate_atomic_final_file(
+            sidecar_path, expected_sidecar, cleanup_temps=False
+        )
+    if require_sidecar and not os.path.lexists(sidecar_path):
         raise OpeningContractError("external opening-receipt SHA-256 is absent")
     bindings = receipt.get("release_bindings")
     if (
@@ -8934,6 +9865,7 @@ def _read_completed_receipt(
             raise OpeningContractError(f"release binding differs for {key}")
         canonical_key = {
             "acquisition_manifest": "acquisition_manifest",
+            "raw_nwis_snapshot_index": "raw_nwis_snapshot_index",
             "acquisition_request_map": "acquisition_request_map",
             "temporal_normalized_outcomes": "temporal_outcomes",
             "external_normalized_outcomes": "external_outcomes",
@@ -9067,7 +9999,7 @@ def resume_opening_once(
     *,
     root: str | Path,
 ) -> dict[str, Any]:
-    """Resume raw transport or deterministic trusted completion, never labels twice."""
+    """Resume one ledger or deterministic completion; HTTP is not exactly once."""
     root = Path(root).resolve()
     authorization_path = Path(authorization_path).resolve()
     if root not in authorization_path.parents or not authorization_path.is_file():

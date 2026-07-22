@@ -175,22 +175,36 @@ The intended order is strict:
 6. Replay Git ancestry and blob hashes, then create one immutable authorization.
 7. Execute the fixed raw-only acquisition child and trusted scorer. Before the
    acquisition manifest exists, network transport may resume only within the same
-   opening ID and exact request ledger, only for wholly absent transactions, and
-   only while normalized, derived, and trusted outputs are all absent. Once the
-   acquisition manifest exists, the raw child is permanently disabled; a resume
-   can only perform network-free deterministic trusted recomputation, atomic
-   trusted-directory publication, receipt completion, or validated sidecar repair.
+   opening ID and one exact frozen request ledger, only for requests without a
+   durably published canonical transaction, and only while normalized, derived,
+   and trusted outputs are all absent. HTTP delivery is not exactly once: retries
+   are allowed, and a response received before its transaction directory becomes
+   durable may be requested again. A complete, durable, verifiable canonical
+   response is never replaced. A partial, invalid, or noncanonical canonical
+   transaction fails closed without overwrite; cleanup is limited to unpublished,
+   owner-private temporary or pending state.
+   Once every raw transaction is complete, the request map, two normalized tables,
+   and manifest are generated and validated in one private same-filesystem stage
+   and published by one directory rename. Once that manifest exists, the raw child
+   is permanently disabled; a resume can only perform network-free deterministic
+   trusted recomputation, atomic trusted-directory publication, receipt completion,
+   or validated sidecar repair.
 8. Render all five statements atomically and idempotently from the verified receipt
    with `python scripts/26_validate_claims.py --root . --registry
    protocols/route_a_claim_registry_v1.json --write-generated-results
    --require-complete`, then build a completed release profile.
 
-Trusted recovery never means a second label acquisition. A wholly absent canonical
+There is one logical opening and one frozen request ledger, not a claim of
+exactly-once HTTP delivery. Trusted recovery never creates another logical opening
+or ledger. A wholly absent canonical
 `trusted/` directory is recomputed as a complete generation in a private
 same-filesystem staging directory and published by one directory rename. A complete
 canonical trusted generation without a receipt is fully replayed before receipt
-creation. Partial, invalid, extra, linked, or otherwise noncanonical trusted
-contents are not repaired or replaced. A valid receipt with only its digest sidecar
+creation. An abandoned stage is deleted only after its canonical name,
+owner-private mode, same-device read-only regular files, and absence of external
+hard links all validate; any unsafe stage fails closed. Partial, invalid, extra,
+linked, or otherwise noncanonical canonical trusted contents are not repaired or
+replaced. A valid receipt with only its digest sidecar
 missing may regenerate that sidecar after full validation; a sidecar without its
 receipt fails closed. These guards address honest-owner interruption and
 misoperation, not a malicious filesystem owner or same-UID adversary.

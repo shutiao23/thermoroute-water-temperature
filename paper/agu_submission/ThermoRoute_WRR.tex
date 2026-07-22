@@ -389,19 +389,29 @@ and source hashes without reading target-period outcomes. Git chronology must sh
 that the model-suite commit predates candidate metadata and target-period predictor
 artifacts. Any source change after the model freeze invalidates authorization.
 
-The opening creates one irreversible intent, one fixed request ledger, and at most
-one raw-label acquisition. Before the acquisition manifest exists, a network
-continuation may fetch only ledger entries whose transaction directory is wholly
-absent, under the same opening identifier, and only while normalized, derived, and
-trusted outputs are absent. Partial or inconsistent transactions are not replaced.
-After the acquisition manifest exists, raw-network continuation and relaunch of the
-raw child are prohibited, but network-free deterministic trusted completion under
+The opening creates one irreversible intent and one fixed request ledger. This is
+one logical opening, not exactly-once HTTP delivery. Before the acquisition manifest
+exists, a network continuation may fetch only ledger entries without a durably
+published canonical transaction, under the same opening identifier, and only while
+normalized, derived, and trusted outputs are absent. HTTP retries are allowed; a
+response received before its transaction directory is complete and durable may be
+requested again, whereas a complete, durable, verifiable canonical response is
+never replaced. A partial, invalid, or noncanonical canonical transaction fails
+closed without overwrite; cleanup is limited to unpublished owner-private
+temporary or pending state. Once all raw transactions validate, the request map,
+two normalized tables, and manifest are
+generated and validated in one private same-filesystem stage and published by one
+directory rename. After the manifest exists, raw-network continuation and relaunch
+of the raw child are prohibited, but network-free deterministic completion under
 the same opening identifier remains allowed. The scorer builds and validates one
 complete private same-filesystem trusted directory before one directory-rename
 publication. An absent canonical generation is recomputed; a complete canonical
-generation without a receipt is fully replayed before receipt creation. Partial,
-invalid, or noncanonical canonical contents fail closed and are not replaced. A
-valid receipt missing only its external digest sidecar may regenerate that sidecar
+generation without a receipt is fully replayed before receipt creation. An
+abandoned stage is deleted only after its canonical name, owner-private mode,
+same-device read-only regular files, and absence of external hard links all
+validate; any unsafe stage fails closed. Partial, invalid, or noncanonical
+canonical contents fail closed and are not replaced. A valid receipt missing only
+its external digest sidecar may regenerate that sidecar
 after full receipt-and-artifact validation; a sidecar without a receipt fails
 closed. This is an honest-owner crash/replay guard, not protection from a malicious
 owner or same-UID adversary.

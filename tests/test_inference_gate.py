@@ -171,8 +171,14 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
         "directional_reporting_gate_not_complete_outcome_quality_certification"
     )
     recovery = amendment["trusted_scoring_recovery_contract"]
-    assert recovery["maximum_raw_label_acquisitions"] == 1
-    assert recovery["second_label_acquisition_allowed"] is False
+    assert recovery["maximum_logical_openings"] == 1
+    assert recovery["maximum_frozen_request_ledgers_per_opening"] == 1
+    assert recovery["second_logical_opening_allowed"] is False
+    assert recovery["exactly_once_http_delivery_claimed"] is False
+    assert recovery[
+        "response_received_but_transaction_not_durable_may_be_requested_again"
+    ] is True
+    assert recovery["durable_canonical_response_replacement_allowed"] is False
     assert recovery["raw_transport_resume_after_acquisition_manifest_allowed"] is False
     assert recovery["raw_acquisition_child_after_acquisition_manifest_allowed"] is False
     assert recovery["partial_invalid_or_noncanonical_trusted_directory"] == (

@@ -5,8 +5,9 @@
 isolated orchestrator, raw-only acquisition child and fresh trusted scorer; no
 callback, module name, command, output path or alternate transport is accepted.
 ``resume`` accepts that same authorization only.  Before the acquisition
-manifest exists it may fetch only wholly absent entries in the already-frozen
-request ledger.  After that manifest exists it never launches the raw child;
+manifest exists it may retry only entries without a durably published canonical
+transaction in the one frozen request ledger; HTTP delivery is not claimed to be
+exactly once.  After that manifest exists it never launches the raw child;
 it may only finish network-free deterministic trusted scoring, canonical
 publication, receipt creation, or a missing receipt-digest sidecar.
 
@@ -169,47 +170,83 @@ def preflight(args: argparse.Namespace) -> None:
 
 
 def status(args: argparse.Namespace) -> None:
-    if not args.authorization.is_file():
+    if not os.path.lexists(args.authorization):
         print(json.dumps({
             "status": "NOT_AUTHORIZED_LABELS_SEALED",
             "authorization": str(args.authorization),
         }, indent=2))
         return
-    intent, receipt = _authorization_state_paths(args.authorization)
+    if not args.authorization.is_file() or args.authorization.is_symlink():
+        print(json.dumps({
+            "status": "OPENING_INDETERMINATE_INVALID_AUTHORIZATION_NO_RESUME",
+            "resume_phase": "FAIL_CLOSED",
+            "authorization": str(args.authorization),
+            "raw_transport_resume_allowed": False,
+            "network_free_acquisition_finalization_allowed": False,
+            "network_free_trusted_completion_allowed": False,
+        }, indent=2))
+        return
+    try:
+        intent, receipt = _authorization_state_paths(args.authorization)
+    except (OSError, TypeError, ValueError, OpeningContractError):
+        print(json.dumps({
+            "status": "OPENING_INDETERMINATE_INVALID_AUTHORIZATION_NO_RESUME",
+            "resume_phase": "FAIL_CLOSED",
+            "authorization": str(args.authorization),
+            "raw_transport_resume_allowed": False,
+            "network_free_acquisition_finalization_allowed": False,
+            "network_free_trusted_completion_allowed": False,
+        }, indent=2))
+        return
     state = opening_status(intent_path=intent, receipt_path=receipt)
     receipt_valid = False
     raw_transport_resume_allowed = False
+    network_free_acquisition_finalization_allowed = False
+    network_free_trusted_completion_allowed = False
+    resume_phase = "UNVALIDATED"
     transport = None
     forbidden_existing_outputs: list[str] = []
-    if receipt.exists():
-        try:
-            validate_completed_receipt(args.authorization, root=ROOT)
-            receipt_valid = True
-        except OpeningContractError:
-            state = "CORRUPT_OR_INCOMPLETE_OPENING_RECEIPT"
-    elif state == "OPENING_INCOMPLETE_SAME_OPENING_RESUME_REQUIRES_VALIDATION":
-        try:
-            inspection = inspect_same_opening_transport_resume(
-                args.authorization, root=ROOT
-            )
-        except OpeningContractError:
-            state = "OPENING_INDETERMINATE_INVALID_AUTHORIZATION_NO_RAW_RESUME"
-        else:
-            state = inspection["status"]
-            raw_transport_resume_allowed = bool(
-                inspection["raw_transport_resume_allowed"]
-            )
-            transport = inspection["transport"]
-            forbidden_existing_outputs = list(
-                inspection["forbidden_existing_outputs"]
-            )
+    try:
+        inspection = inspect_same_opening_transport_resume(
+            args.authorization, root=ROOT
+        )
+    except OpeningContractError:
+        state = "OPENING_INDETERMINATE_INVALID_AUTHORIZATION_NO_RESUME"
+        resume_phase = "FAIL_CLOSED"
+    else:
+        state = inspection["status"]
+        resume_phase = str(inspection["resume_phase"])
+        raw_transport_resume_allowed = bool(
+            inspection["raw_transport_resume_allowed"]
+        )
+        network_free_acquisition_finalization_allowed = bool(
+            inspection["network_free_acquisition_finalization_allowed"]
+        )
+        network_free_trusted_completion_allowed = bool(
+            inspection["network_free_trusted_completion_allowed"]
+        )
+        transport = inspection["transport"]
+        forbidden_existing_outputs = list(
+            inspection["forbidden_existing_outputs"]
+        )
+        receipt_valid = resume_phase in {
+            "TERMINAL_COMPLETE",
+            "SIDECAR_RECOVERY_AFTER_FULL_VALIDATION",
+        }
     print(json.dumps({
         "status": state,
+        "resume_phase": resume_phase,
         "authorization": str(args.authorization),
-        "intent_exists": intent.exists(),
-        "receipt_exists": receipt.exists(),
+        "intent_exists": os.path.lexists(intent),
+        "receipt_exists": os.path.lexists(receipt),
         "receipt_valid": receipt_valid,
         "raw_transport_resume_allowed": raw_transport_resume_allowed,
+        "network_free_acquisition_finalization_allowed": (
+            network_free_acquisition_finalization_allowed
+        ),
+        "network_free_trusted_completion_allowed": (
+            network_free_trusted_completion_allowed
+        ),
         "transport": transport,
         "forbidden_existing_outputs": forbidden_existing_outputs,
     }, indent=2))

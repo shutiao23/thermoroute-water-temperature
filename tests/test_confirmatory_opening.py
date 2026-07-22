@@ -584,7 +584,11 @@ def test_acquisition_rechecks_frozen_source_before_first_network_io(
         "run_directory": tmp_path / "state",
         "work_order": work_order_path,
         "intent": tmp_path / "state" / "intent.json",
-        "raw_nwis_root": tmp_path / "state" / "acquisition" / "raw",
+        "transport_root": tmp_path / "state" / "transport",
+        "raw_nwis_root": tmp_path / "state" / "transport" / "raw",
+        "raw_nwis_snapshot_index": (
+            tmp_path / "state" / "transport" / "raw" / "snapshot_index.json"
+        ),
         "acquisition_request_map": (
             tmp_path / "state" / "acquisition" / "request-map.json"
         ),
@@ -597,6 +601,12 @@ def test_acquisition_rechecks_frozen_source_before_first_network_io(
         "acquisition_manifest": (
             tmp_path / "state" / "acquisition" / "manifest.json"
         ),
+        "receipt": tmp_path / "state" / "receipt.json",
+        "receipt_sha256": tmp_path / "state" / "receipt.sha256",
+        **{
+            key: tmp_path / "state" / "trusted" / f"{key}.artifact"
+            for key in acquisition_contract.TRUSTED_STATE_KEYS
+        },
     }
     work_order = {
         "opening_id": "fixture",
@@ -653,6 +663,93 @@ def test_acquisition_rechecks_frozen_source_before_first_network_io(
     assert not state["acquisition_manifest"].exists()
 
 
+def test_raw_entrypoint_rejects_dangling_provider_before_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = tmp_path / "state"
+    work_order_path = run / "work_order.json"
+    transport = run / "transport"
+    raw_root = transport / "raw"
+    acquisition = run / "acquisition"
+    trusted = run / "trusted"
+    state = {
+        "run_directory": run,
+        "work_order": work_order_path,
+        "intent": run / "intent.json",
+        "transport_root": transport,
+        "raw_nwis_root": raw_root,
+        "raw_nwis_snapshot_index": raw_root / "snapshot_index.json",
+        "acquisition_request_map": acquisition / "request-map.json",
+        "temporal_outcomes": acquisition / "temporal.parquet",
+        "external_outcomes": acquisition / "external.parquet",
+        "acquisition_manifest": acquisition / "manifest.json",
+        "receipt": run / "receipt.json",
+        "receipt_sha256": run / "receipt.sha256",
+        **{
+            key: trusted / f"{key}.artifact"
+            for key in acquisition_contract.TRUSTED_STATE_KEYS
+        },
+    }
+    work_order = {
+        "opening_id": "fixture",
+        "authorization_sha256": "a" * 64,
+        "work_order_self_sha256": "b" * 64,
+        "site_registries": {
+            "temporal": {"sites": ["01000001"]},
+            "external": {"sites": []},
+        },
+    }
+    authorization = {
+        "opening_id": "fixture",
+        "acquisition_plan": {
+            "history_start": "2021-01-01",
+            "target_end": "2021-01-02",
+        },
+    }
+    run.mkdir()
+    work_order_path.write_bytes(canonical_json_bytes(work_order))
+    work_order_path.chmod(0o444)
+    expected_ledger = outcome_acquisition._expected_request_ledger(
+        work_order=work_order,
+        authorization=authorization,
+        work_order_path=work_order_path,
+    )
+    ledger_path = transport / "request_ledger_v1.json"
+    outcome_acquisition._create_bytes(
+        ledger_path, canonical_json_bytes(expected_ledger)
+    )
+    raw_root.mkdir()
+    provider = raw_root / outcome_acquisition.CONFIRMATORY_NWIS_PROVIDER
+    provider.symlink_to(tmp_path / "missing-provider", target_is_directory=True)
+    monkeypatch.setattr(
+        outcome_acquisition,
+        "validate_acquisition_work_order",
+        lambda *_args, **_kwargs: (work_order, authorization, state),
+    )
+    network_calls = 0
+
+    def forbidden_network(**_kwargs):
+        nonlocal network_calls
+        network_calls += 1
+        raise AssertionError("dangling provider reached network")
+
+    monkeypatch.setattr(
+        outcome_acquisition, "_fetch_create_only", forbidden_network
+    )
+    with pytest.raises(
+        outcome_acquisition.OutcomeAcquisitionError,
+        match="provider root is malformed",
+    ):
+        outcome_acquisition.acquire_from_work_order(
+            work_order_path,
+            root=tmp_path,
+            entrypoint_path=work_order_path,
+            resume=True,
+        )
+    assert network_calls == 0
+
+
 def test_canonical_opening_state_rejects_symlink_component_and_write(
     tmp_path,
 ):
@@ -673,6 +770,29 @@ def test_canonical_opening_state_rejects_symlink_component_and_write(
             {"must_not_escape": True},
         )
     assert not (outside / "confirmatory" / "route_a_fixture" / "intent.json").exists()
+
+
+def test_manifest_binding_rejects_same_bytes_at_noncanonical_path(
+    tmp_path: Path,
+) -> None:
+    canonical = tmp_path / "canonical" / "request_map.json"
+    alias = tmp_path / "alias" / "request_map.json"
+    canonical.parent.mkdir()
+    alias.parent.mkdir()
+    canonical.write_bytes(b"same immutable bytes\n")
+    alias.write_bytes(canonical.read_bytes())
+    binding = {
+        "path": alias.relative_to(tmp_path).as_posix(),
+        "sha256": sha256_file(alias),
+    }
+
+    with pytest.raises(OpeningContractError, match="path is noncanonical"):
+        opening_module._verify_canonical_file_binding(
+            tmp_path,
+            binding,
+            expected_path=canonical,
+            label="opened request map",
+        )
 
 
 class _StreamingResponse:
@@ -816,7 +936,11 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             "run_directory": state_base,
             "work_order": f"{state_base}/acquisition_work_order_v1.json",
             "intent": f"{state_base}/opening_intent_v1.json",
-            "raw_nwis_root": f"{state_base}/acquisition/raw_nwis_v1",
+            "transport_root": f"{state_base}/transport",
+            "raw_nwis_root": f"{state_base}/transport/raw_nwis_v1",
+            "raw_nwis_snapshot_index": (
+                f"{state_base}/transport/raw_nwis_v1/snapshot_index.json"
+            ),
             "acquisition_request_map": (
                 f"{state_base}/acquisition/source_request_map_v1.json"
             ),
@@ -829,6 +953,12 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             "acquisition_manifest": (
                 f"{state_base}/acquisition/acquisition_manifest_v1.json"
             ),
+            "receipt": f"{state_base}/opening_receipt_v1.json",
+            "receipt_sha256": f"{state_base}/opening_receipt_v1.sha256",
+            **{
+                key: f"{state_base}/trusted/{key}.artifact"
+                for key in acquisition_contract.TRUSTED_STATE_KEYS
+            },
         }
         source_inventory = opening_module.source_inventory(ROOT)
         authorization_path = fixture_root / "authorization.json"
@@ -901,6 +1031,7 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         }
         work_order["work_order_self_sha256"] = opening_module.sha256_json(work_order)
         write_json(work_order_path, work_order)
+        work_order_path.chmod(0o444)
 
         intent_path = ROOT / state_paths["intent"]
         intent = {
@@ -918,12 +1049,14 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             }
         intent["intent_self_sha256"] = opening_module.sha256_json(intent)
         write_json(intent_path, intent)
+        intent_path.chmod(0o444)
 
         encoded_payloads = {
             site: base64.b64encode(payload).decode("ascii")
             for site, payload in payloads.items()
         }
         allow_external_success = fixture_root / "allow_external_success"
+        kill_after_complete_replay = fixture_root / "kill_after_complete_replay"
         wrapper_path = fixture_root / "offline_http_wrapper.py"
         wrapper_path.write_text(
             "\n".join([
@@ -931,15 +1064,22 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
                 "from pathlib import Path",
                 "import runpy",
                 "import sys",
+                f"sys.path.insert(0, {str(ROOT / 'src')!r})",
                 "import time",
                 "from urllib.parse import parse_qs, urlsplit",
                 "import urllib.request",
+                "import thermoroute.outcome_acquisition as acquisition",
                 f"PAYLOADS = {encoded_payloads!r}",
                 f"ALLOW_EXTERNAL_SUCCESS = Path({str(allow_external_success)!r})",
-                f"REQUEST_LEDGER = Path({str((ROOT / state_paths['raw_nwis_root']).parent / 'request_ledger_v1.json')!r})",
+                f"KILL_AFTER_COMPLETE_REPLAY = Path({str(kill_after_complete_replay)!r})",
+                f"REQUEST_LEDGER = Path({str(ROOT / state_paths['transport_root'] / 'request_ledger_v1.json')!r})",
                 "RESUME = sys.argv[1:] == ['resume']",
                 "time.sleep = lambda _seconds: None",
                 "CALL_COUNT = 0",
+                "def transport_fault(point):",
+                "    if point == 'after_complete_transaction_replay' and KILL_AFTER_COMPLETE_REPLAY.exists():",
+                "        raise RuntimeError('injected death after exact complete replay')",
+                "acquisition._acquisition_transport_fault = transport_fault",
                 "class Response:",
                 "    status = 200",
                 "    def __init__(self, request, payload, call_count):",
@@ -993,7 +1133,8 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         assert not (ROOT / state_paths["external_outcomes"]).exists()
         raw_root = ROOT / state_paths["raw_nwis_root"]
         assert not (raw_root / "snapshot_index.json").exists()
-        ledger_path = raw_root.parent / "request_ledger_v1.json"
+        transport_root = ROOT / state_paths["transport_root"]
+        ledger_path = transport_root / "request_ledger_v1.json"
         frozen_ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
         assert frozen_ledger["request_count"] == 2
         temporal_request = next(
@@ -1011,7 +1152,7 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         }
         first_result = json.loads(
             (
-                raw_root.parent
+                transport_root
                 / "transport_attempts_v1"
                 / "attempt_000001_result.json"
             ).read_text(encoding="utf-8")
@@ -1024,6 +1165,29 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         ]
 
         allow_external_success.write_text("allow fixture response\n", encoding="utf-8")
+        kill_after_complete_replay.write_text("crash once\n", encoding="utf-8")
+        interrupted = subprocess.run(
+            [*command, "resume"],
+            cwd=ROOT,
+            env=child_environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert interrupted.returncode != 0
+        assert not (ROOT / state_paths["acquisition_manifest"]).exists()
+        attempts_root = transport_root / "transport_attempts_v1"
+        assert (attempts_root / "attempt_000002_start.json").is_file()
+        assert not (attempts_root / "attempt_000002_result.json").exists()
+        complete_before_reconstruction = {
+            path.relative_to(raw_root).as_posix(): (
+                sha256_file(path), path.stat().st_mtime_ns
+            )
+            for path in raw_root.rglob("*")
+            if path.is_file()
+        }
+
+        kill_after_complete_replay.unlink()
         result = subprocess.run(
             [*command, "resume"],
             cwd=ROOT,
@@ -1033,6 +1197,14 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             check=False,
         )
         assert result.returncode == 0, result.stderr
+        complete_after_reconstruction = {
+            path.relative_to(raw_root).as_posix(): (
+                sha256_file(path), path.stat().st_mtime_ns
+            )
+            for path in raw_root.rglob("*")
+            if path.is_file() and path.name != "snapshot_index.json"
+        }
+        assert complete_after_reconstruction == complete_before_reconstruction
         temporal_after = {
             path.name: (sha256_file(path), path.stat().st_mtime_ns)
             for path in temporal_transaction.iterdir()
@@ -1043,6 +1215,18 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert manifest["format"] == acquisition_contract.ACQUISITION_MANIFEST_FORMAT
         assert manifest["producer_role"] == "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS"
+        assert manifest["raw_nwis_snapshot_index"]["path"] == state_paths[
+            "raw_nwis_snapshot_index"
+        ]
+        assert manifest["request_map"]["path"] == state_paths[
+            "acquisition_request_map"
+        ]
+        assert manifest["normalized_outcome_tables"]["temporal"][
+            "path"
+        ] == state_paths["temporal_outcomes"]
+        assert manifest["normalized_outcome_tables"]["external"][
+            "path"
+        ] == state_paths["external_outcomes"]
         request_map = json.loads(
             (ROOT / state_paths["acquisition_request_map"]).read_text(encoding="utf-8")
         )
@@ -1072,7 +1256,7 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             record["attempt_number"] for record in snapshot_index["records"]
         ) == [1, 2]
         attempt_index = json.loads(
-            (raw_root.parent / "transport_attempt_index_v1.json").read_text(
+            (transport_root / "transport_attempt_index_v1.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -1146,7 +1330,7 @@ def test_raw_resume_rejects_partial_canonical_transaction(tmp_path):
     }
     request_sha = sha256_bytes(canonical_json_bytes(request))
     transaction = tmp_path / request_sha
-    transaction.mkdir()
+    transaction.mkdir(mode=0o700)
     response = transaction / "response.bin"
     response.write_bytes(b"complete bytes but missing immutable metadata")
     response.chmod(0o444)
@@ -1174,6 +1358,218 @@ def test_raw_resume_rejects_partial_canonical_transaction(tmp_path):
             directory=transaction,
             spec=spec,
             starts=starts,
+            results={},
+        )
+
+
+def _write_attempt_history_fixture(
+    attempts_root: Path,
+    attempts: list[dict[str, object]],
+) -> None:
+    attempts_root.mkdir()
+    common = {
+        "opening_id": "fixture-opening",
+        "authorization_sha256": "a" * 64,
+        "work_order_self_sha256": "b" * 64,
+        "request_ledger_sha256": "c" * 64,
+        "opening_count": 1,
+    }
+    for number, specification in enumerate(attempts, start=1):
+        start_stable = {
+            "format": outcome_acquisition.ACQUISITION_ATTEMPT_START_FORMAT,
+            "status": "TRANSPORT_ATTEMPT_STARTED",
+            **common,
+            "attempt_number": number,
+            "mode": specification["mode"],
+            "completed_before_attempt_request_sha256": specification[
+                "start_completed"
+            ],
+            "missing_at_start_request_sha256": specification[
+                "start_missing"
+            ],
+            "response_replacement_allowed": False,
+            "started_at_utc": "2026-07-22T00:00:00+00:00",
+        }
+        start = {
+            **start_stable,
+            "attempt_start_self_sha256": sha256_bytes(
+                canonical_json_bytes(start_stable)
+            ),
+        }
+        start_path = attempts_root / f"attempt_{number:06d}_start.json"
+        start_path.write_bytes(canonical_json_bytes(start))
+        start_path.chmod(0o444)
+        if "result_completed" not in specification:
+            continue
+        status = specification.get(
+            "status", "TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING"
+        )
+        result_stable = {
+            "format": outcome_acquisition.ACQUISITION_ATTEMPT_RESULT_FORMAT,
+            "status": status,
+            **common,
+            "attempt_number": number,
+            "attempt_start_sha256": sha256_file(start_path),
+            "completed_request_sha256": specification["result_completed"],
+            "missing_request_sha256": specification["result_missing"],
+            "failure_class": (
+                None
+                if status == "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+                else "FixtureFailure"
+            ),
+            "response_replacement_count": 0,
+            "completed_at_utc": "2026-07-22T00:00:00+00:00",
+        }
+        result = {
+            **result_stable,
+            "attempt_result_self_sha256": sha256_bytes(
+                canonical_json_bytes(result_stable)
+            ),
+        }
+        result_path = attempts_root / f"attempt_{number:06d}_result.json"
+        result_path.write_bytes(canonical_json_bytes(result))
+        result_path.chmod(0o444)
+
+
+@pytest.mark.parametrize(
+    ("scenario", "message"),
+    [
+        ("first_resume", "first transport attempt"),
+        ("first_partition_jump", "first transport attempt"),
+        ("partition_jump", "does not continue the prior result partition"),
+        ("completed_rollback", "rolls back completed requests"),
+        ("after_all_complete", "exists after ledger completion"),
+    ],
+)
+def test_attempt_history_rejects_self_consistent_state_machine_attacks(
+    tmp_path: Path,
+    scenario: str,
+    message: str,
+) -> None:
+    first, second = "1" * 64, "2" * 64
+    attempt_one: dict[str, object] = {
+        "mode": "INITIAL_OPENING_TRANSPORT",
+        "start_completed": [],
+        "start_missing": [first, second],
+        "result_completed": [first],
+        "result_missing": [second],
+    }
+    attempt_two: dict[str, object] = {
+        "mode": "RESUME_SAME_OPENING",
+        "start_completed": [first],
+        "start_missing": [second],
+        "result_completed": [first, second],
+        "result_missing": [],
+        "status": "ALL_LEDGER_TRANSACTIONS_COMPLETE",
+    }
+    if scenario == "first_resume":
+        attempt_one["mode"] = "RESUME_SAME_OPENING"
+        attempts = [attempt_one]
+    elif scenario == "first_partition_jump":
+        attempt_one["start_completed"] = [first]
+        attempt_one["start_missing"] = [second]
+        attempts = [attempt_one]
+    elif scenario == "partition_jump":
+        attempt_two["start_completed"] = [second]
+        attempt_two["start_missing"] = [first]
+        attempts = [attempt_one, attempt_two]
+    elif scenario == "completed_rollback":
+        attempt_two["result_completed"] = []
+        attempt_two["result_missing"] = [first, second]
+        attempt_two.pop("status")
+        attempts = [attempt_one, attempt_two]
+    else:
+        attempt_one["result_completed"] = [first, second]
+        attempt_one["result_missing"] = []
+        attempt_one["status"] = "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+        attempt_two["start_completed"] = [first, second]
+        attempt_two["start_missing"] = []
+        attempts = [attempt_one, attempt_two]
+    attempts_root = tmp_path / "attempts"
+    _write_attempt_history_fixture(attempts_root, attempts)
+
+    with pytest.raises(
+        outcome_acquisition.OutcomeAcquisitionError, match=message
+    ):
+        outcome_acquisition._load_attempt_history(
+            attempts_root=attempts_root,
+            opening_id="fixture-opening",
+            authorization_sha256="a" * 64,
+            work_order_self_sha256="b" * 64,
+            request_ledger_sha256="c" * 64,
+            request_ids={first, second},
+        )
+
+
+def test_canonical_transaction_must_be_closed_by_its_attempt_result(
+    tmp_path: Path,
+) -> None:
+    request = {
+        "schema_version": 1,
+        "provider": "usgs-nwis-confirmatory-dv",
+        "method": "GET",
+        "url": opening_module.build_nwis_confirmatory_url(
+            "01000001", "2021-01-01", "2021-01-02"
+        ),
+        "headers": {},
+    }
+    request_sha = sha256_bytes(canonical_json_bytes(request))
+    spec = {
+        "ordinal": 1,
+        "cohort": "temporal",
+        "site_no": "01000001",
+        "request": request,
+        "request_sha256": request_sha,
+    }
+    transaction = tmp_path / request_sha
+    transaction.mkdir(mode=0o700)
+    payload = b"durable fixture response\n"
+    response = transaction / "response.bin"
+    response.write_bytes(payload)
+    response.chmod(0o444)
+    metadata = {
+        "schema_version": 1,
+        "opening_id": "fixture-opening",
+        "authorization_sha256": "a" * 64,
+        "work_order_self_sha256": "b" * 64,
+        "request_ledger_sha256": "c" * 64,
+        "attempt_number": 1,
+        "request": request,
+        "request_sha256": request_sha,
+        "retrieved_at_utc": "2026-07-22T00:00:00+00:00",
+        "http_status": 200,
+        "response_headers": {},
+        "final_url": request["url"],
+        "byte_count": len(payload),
+        "response_sha256": sha256_bytes(payload),
+        "response_file": "response.bin",
+        "maximum_response_bytes_per_request": (
+            acquisition_contract.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+        ),
+    }
+    metadata_path = transaction / "metadata.json"
+    metadata_path.write_bytes(canonical_json_bytes(metadata))
+    metadata_path.chmod(0o444)
+    starts = {
+        1: {
+            "opening_id": "fixture-opening",
+            "authorization_sha256": "a" * 64,
+            "work_order_self_sha256": "b" * 64,
+            "request_ledger_sha256": "c" * 64,
+            "missing_at_start_request_sha256": [request_sha],
+        }
+    }
+    results = {1: {"completed_request_sha256": []}}
+
+    with pytest.raises(
+        outcome_acquisition.OutcomeAcquisitionError,
+        match="absent from its attempt result",
+    ):
+        outcome_acquisition._validate_transaction(
+            directory=transaction,
+            spec=spec,
+            starts=starts,
+            results=results,
         )
 
 
@@ -1199,25 +1595,34 @@ def test_transport_lock_rejects_concurrent_resume(tmp_path):
 
 
 _RAW_RESUME_FORBIDDEN_STATE_KEYS = (
-    "acquisition_manifest", "temporal_outcomes", "external_outcomes",
-    "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
-    "approved_target_sensitivity", "spatial_sensitivity",
-    "probabilistic_evaluation", "temporal_predictions",
-    "external_predictions", "statistics", "report", "receipt",
-    "receipt_sha256",
+    acquisition_contract.RAW_ACQUISITION_FORBIDDEN_STATE_KEYS
 )
 
 
 def _stub_resume_inspection(tmp_path, monkeypatch):
+    run = tmp_path / "run"
+    run.mkdir()
+    acquisition = run / "acquisition"
+    transport = run / "transport"
+    trusted = run / "trusted"
     state = {
-        "intent": tmp_path / "opening_intent_v1.json",
-        "work_order": tmp_path / "acquisition_work_order_v1.json",
-        "raw_nwis_root": tmp_path / "acquisition" / "raw_nwis_v1",
-        "acquisition_request_map": tmp_path / "acquisition" / "request_map.json",
-        "receipt": tmp_path / "receipt.artifact",
+        "run_directory": run,
+        "intent": run / "opening_intent_v1.json",
+        "work_order": run / "acquisition_work_order_v1.json",
+        "transport_root": transport,
+        "raw_nwis_root": transport / "raw_nwis_v1",
+        "raw_nwis_snapshot_index": (
+            transport / "raw_nwis_v1" / "snapshot_index.json"
+        ),
+        "acquisition_request_map": acquisition / "request_map.json",
+        "temporal_outcomes": acquisition / "temporal.parquet",
+        "external_outcomes": acquisition / "external.parquet",
+        "acquisition_manifest": acquisition / "manifest.json",
+        "receipt": run / "receipt.json",
+        "receipt_sha256": run / "receipt.sha256",
         **{
-            key: tmp_path / f"{key}.artifact"
-            for key in _RAW_RESUME_FORBIDDEN_STATE_KEYS
+            key: trusted / f"{key}.artifact"
+            for key in acquisition_contract.TRUSTED_STATE_KEYS
         },
     }
     state["intent"].write_text("{}\n", encoding="utf-8")
@@ -1230,6 +1635,7 @@ def _stub_resume_inspection(tmp_path, monkeypatch):
         }
     }
     state["work_order"].write_bytes(canonical_json_bytes(work_order))
+    state["work_order"].chmod(0o444)
     monkeypatch.setattr(
         opening_module,
         "validate_authorization",
@@ -1256,10 +1662,59 @@ def _stub_resume_inspection(tmp_path, monkeypatch):
             "completed_request_count": 1,
             "missing_request_count": 1,
             "recoverable_pending_request_count": 0,
+            "refetchable_nondurable_response_count": 0,
             "attempt_count": 1,
         },
     )
     return authorization_path, state
+
+
+@pytest.mark.parametrize(
+    "forbidden_kind",
+    ["outcome_qc_gate", "trusted_directory", "acquisition_directory"],
+)
+def test_raw_entrypoint_directly_rejects_every_publication_boundary(
+    tmp_path, monkeypatch, forbidden_kind,
+):
+    authorization_path, state = _stub_resume_inspection(tmp_path, monkeypatch)
+    work_order = json.loads(state["work_order"].read_text(encoding="utf-8"))
+    authorization = {"opening_id": "fixture"}
+    monkeypatch.setattr(
+        outcome_acquisition,
+        "validate_acquisition_work_order",
+        lambda *_args, **_kwargs: (work_order, authorization, state),
+    )
+
+    network_calls = 0
+
+    def forbidden_network(**_kwargs):
+        nonlocal network_calls
+        network_calls += 1
+        raise AssertionError("raw forbidden check occurred after network access")
+
+    monkeypatch.setattr(
+        outcome_acquisition, "_fetch_create_only", forbidden_network
+    )
+    if forbidden_kind == "outcome_qc_gate":
+        state["outcome_qc_gate"].parent.mkdir(parents=True)
+        state["outcome_qc_gate"].write_bytes(b"forbidden")
+    elif forbidden_kind == "trusted_directory":
+        state["outcome_qc_gate"].parent.mkdir(parents=True)
+    else:
+        state["acquisition_manifest"].parent.mkdir(parents=True)
+
+    with pytest.raises(
+        outcome_acquisition.OutcomeAcquisitionError,
+        match="cannot continue after derived/trusted publication",
+    ):
+        outcome_acquisition.acquire_from_work_order(
+            state["work_order"],
+            root=tmp_path,
+            entrypoint_path=authorization_path,
+            resume=True,
+        )
+    assert network_calls == 0
+    assert not state["transport_root"].exists()
 
 
 def test_status_marks_only_validated_raw_partial_state_resumable(
@@ -1270,9 +1725,11 @@ def test_status_marks_only_validated_raw_partial_state_resumable(
         authorization_path, root=tmp_path
     )
     assert result["status"] == (
-        "OPENING_INCOMPLETE_SAME_OPENING_RAW_RESUME_VALIDATED"
+        "OPENING_INCOMPLETE_SAME_OPENING_RAW_TRANSPORT_VALIDATED"
     )
+    assert result["resume_phase"] == "RAW_TRANSPORT"
     assert result["raw_transport_resume_allowed"] is True
+    assert result["network_free_trusted_completion_allowed"] is False
     assert result["transport"]["classification"] == "RESUMABLE_MISSING_REQUESTS"
 
 
@@ -1291,9 +1748,111 @@ def test_status_marks_partial_transaction_indeterminate(tmp_path, monkeypatch):
         authorization_path, root=tmp_path
     )
     assert result["status"] == (
-        "OPENING_INDETERMINATE_CORRUPT_OR_PARTIAL_TRANSACTION_NO_RAW_RESUME"
+        "OPENING_INDETERMINATE_CORRUPT_OR_PARTIAL_TRANSACTION_NO_RESUME"
     )
     assert result["raw_transport_resume_allowed"] is False
+
+
+@pytest.mark.parametrize(
+    (
+        "checkpoint",
+        "expected_phase",
+        "raw_allowed",
+        "acquisition_allowed",
+        "trusted_allowed",
+    ),
+    [
+        (
+            "raw_complete",
+            "ACQUISITION_FINALIZATION_NETWORK_FREE",
+            False,
+            True,
+            False,
+        ),
+        (
+            "manifest",
+            "TRUSTED_RECOMPUTE_NETWORK_FREE",
+            False,
+            False,
+            True,
+        ),
+        (
+            "trusted",
+            "RECEIPT_COMPLETION_AFTER_FULL_REPLAY",
+            False,
+            False,
+            True,
+        ),
+        (
+            "receipt",
+            "SIDECAR_RECOVERY_AFTER_FULL_VALIDATION",
+            False,
+            False,
+            True,
+        ),
+        ("sidecar", "TERMINAL_COMPLETE", False, False, False),
+    ],
+)
+def test_resume_status_phase_matrix(
+    tmp_path,
+    monkeypatch,
+    checkpoint,
+    expected_phase,
+    raw_allowed,
+    acquisition_allowed,
+    trusted_allowed,
+):
+    authorization_path, state = _stub_resume_inspection(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        outcome_acquisition,
+        "_assert_exact_acquisition_directory",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "_assert_exact_trusted_directory",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "_read_completed_receipt",
+        lambda **_kwargs: {"status": "OPENED_AND_SCORED_ONCE"},
+    )
+    if checkpoint == "raw_complete":
+        monkeypatch.setattr(
+            outcome_acquisition,
+            "inspect_transport_resume_state",
+            lambda **_kwargs: {
+                "classification": (
+                    "RESUMABLE_RAW_COMPLETE_DERIVATION_NOT_PUBLISHED"
+                ),
+                "completed_request_count": 2,
+                "missing_request_count": 0,
+                "recoverable_pending_request_count": 0,
+                "refetchable_nondurable_response_count": 0,
+                "attempt_count": 1,
+            },
+        )
+    else:
+        state["acquisition_manifest"].parent.mkdir(parents=True)
+        state["acquisition_manifest"].write_bytes(b"manifest")
+        if checkpoint in {"trusted", "receipt", "sidecar"}:
+            state["availability_registry"].parent.mkdir()
+        if checkpoint in {"receipt", "sidecar"}:
+            state["receipt"].write_bytes(b"receipt")
+        if checkpoint == "sidecar":
+            state["receipt_sha256"].write_bytes(b"sidecar")
+
+    result = opening_module.inspect_same_opening_transport_resume(
+        authorization_path, root=tmp_path
+    )
+    assert result["resume_phase"] == expected_phase
+    assert result["raw_transport_resume_allowed"] is raw_allowed
+    assert (
+        result["network_free_acquisition_finalization_allowed"]
+        is acquisition_allowed
+    )
+    assert result["network_free_trusted_completion_allowed"] is trusted_allowed
 
 
 @pytest.mark.parametrize(
@@ -1309,11 +1868,23 @@ def test_status_forbids_raw_resume_after_any_derived_or_trusted_publication(
     result = opening_module.inspect_same_opening_transport_resume(
         authorization_path, root=tmp_path
     )
+    if forbidden_key == "acquisition_manifest":
+        assert result["status"] == (
+            "OPENING_INDETERMINATE_INVALID_ACQUISITION_BUNDLE_NO_RESUME"
+        )
+        return
     assert result["status"] == (
-        "OPENING_INDETERMINATE_DERIVED_OR_TRUSTED_OUTPUT_EXISTS_NO_RAW_RESUME"
+        "OPENING_INDETERMINATE_DERIVED_OR_TRUSTED_OUTPUT_EXISTS_NO_RESUME"
     )
     assert result["raw_transport_resume_allowed"] is False
-    assert result["forbidden_existing_outputs"] == [forbidden_key]
+    expected = {forbidden_key}
+    if forbidden_key in {
+        "acquisition_request_map", "temporal_outcomes", "external_outcomes"
+    }:
+        expected.add("acquisition_directory")
+    if forbidden_key in acquisition_contract.TRUSTED_STATE_KEYS:
+        expected.add("trusted_directory")
+    assert set(result["forbidden_existing_outputs"]) == expected
 def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     tmp_path, monkeypatch,
 ):

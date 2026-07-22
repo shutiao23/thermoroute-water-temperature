@@ -30,6 +30,30 @@ ACQUISITION_ATTEMPT_INDEX_FORMAT = (
 )
 INTENT_FORMAT = "thermoroute.route-a-opening-intent.v1"
 MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES = 32 * 1024 * 1024
+TRUSTED_STATE_KEYS = (
+    "availability_registry",
+    "outcome_quality_audit",
+    "outcome_qc_gate",
+    "approved_target_sensitivity",
+    "spatial_sensitivity",
+    "probabilistic_evaluation",
+    "temporal_predictions",
+    "external_predictions",
+    "statistics",
+    "report",
+)
+RAW_DERIVED_STATE_KEYS = (
+    "acquisition_manifest",
+    "acquisition_request_map",
+    "temporal_outcomes",
+    "external_outcomes",
+)
+RAW_ACQUISITION_FORBIDDEN_STATE_KEYS = (
+    *RAW_DERIVED_STATE_KEYS,
+    *TRUSTED_STATE_KEYS,
+    "receipt",
+    "receipt_sha256",
+)
 SOURCE_INVENTORY_PATTERNS = (
     "src/**/*.py",
     "scripts/**/*.py",
@@ -70,6 +94,21 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _require_immutable_atomic_final(path: Path, *, label: str) -> None:
+    metadata = os.lstat(path)
+    parent = os.lstat(path.parent)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_dev != parent.st_dev
+        or metadata.st_nlink != 1
+        or metadata.st_mode & 0o222
+    ):
+        raise AcquisitionContractError(
+            f"{label} is not one immutable atomic final file"
+        )
 
 
 def assert_no_symlink_components(
@@ -304,6 +343,9 @@ def validate_acquisition_work_order(
         Path(os.path.abspath(os.fspath(work_order_path))),
         require_file=True,
     )
+    _require_immutable_atomic_final(
+        work_order_path, label="acquisition work order"
+    )
     work_order = _read_json(work_order_path)
     if work_order.get("format") != ACQUISITION_WORK_ORDER_FORMAT:
         raise AcquisitionContractError("unsupported acquisition work-order format")
@@ -366,6 +408,9 @@ def validate_acquisition_work_order(
     if work_order_path != resolved["work_order"]:
         raise AcquisitionContractError("work order is not at its canonical state path")
     intent = _read_json(resolved["intent"])
+    _require_immutable_atomic_final(
+        resolved["intent"], label="opening intent"
+    )
     self_hashed_intent = dict(intent)
     intent_self_digest = self_hashed_intent.pop("intent_self_sha256", None)
     if intent_self_digest != _sha256_json(self_hashed_intent):
