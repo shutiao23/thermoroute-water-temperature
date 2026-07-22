@@ -18,6 +18,14 @@ import pandas as pd
 
 from . import config as C
 from .evidence import DEFAULT_FROZEN_PANEL_SPEC, EvidenceError, FrozenPanelSpec
+from .weighting import station_equal_sample_weight
+
+
+PER_STATION_SCALER_METHOD = "per_station_train_only_sample_standardization_v1"
+POOLED_SCALER_METHOD = "pooled_station_balanced_population_standardization_v1"
+POOLED_SCALER_VARIANCE = "station_weighted_population_second_central_moment"
+PER_STATION_IMPUTER_METHOD = "station_day_of_year_median_fit_on_train_v1"
+POOLED_ROW_IMPUTER_METHOD = "pooled_row_weighted_day_of_year_median_fit_on_train_v1"
 
 
 def stabilising_transform(variable: str, values: np.ndarray) -> np.ndarray:
@@ -241,8 +249,23 @@ class StandardScalerPerStation:
             values = pd.to_numeric(tr[var], errors="coerce").to_numpy(float)
             values = stabilising_transform(var, values)
             finite = values[np.isfinite(values)]
-            mu = float(np.mean(finite)) if len(finite) else 0.0
-            sigma = float(np.std(finite, ddof=1)) if len(finite) > 1 else 1.0
+            if pooled:
+                finite_mask = np.isfinite(values)
+                finite_sites = tr.loc[finite_mask, "site_id"].astype(str)
+                missing = sorted(set(fitted) - set(finite_sites))
+                if missing:
+                    raise ValueError(
+                        f"station-balanced scaler has no finite train {var} for "
+                        f"fit stations: {missing[:5]}"
+                    )
+                weights = station_equal_sample_weight(finite_sites)
+                finite = values[finite_mask]
+                mu = float(np.average(finite, weights=weights))
+                variance = float(np.average(np.square(finite - mu), weights=weights))
+                sigma = float(np.sqrt(max(variance, 0.0)))
+            else:
+                mu = float(np.mean(finite)) if len(finite) else 0.0
+                sigma = float(np.std(finite, ddof=1)) if len(finite) > 1 else 1.0
             if not np.isfinite(sigma) or sigma < 1e-8:
                 sigma = 1.0
             pooled_stats[var] = (mu, sigma)

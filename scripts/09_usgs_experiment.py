@@ -258,69 +258,6 @@ def _finite(value):
     return value if np.isfinite(value) else None
 
 
-def _tuple_map(values, *, variables=None):
-    return {
-        f"{station}|{variable}": _finite(value)
-        for (station, variable), value in sorted(values.items())
-        if variables is None or variable in variables
-    }
-
-
-def preprocessing_metadata(wd, clim, imputer):
-    """Serialize every train-fit transformation required before inference."""
-    variables = set(wd.var_names)
-    seasonal_medians = {}
-    for (station, variable), series in sorted(imputer.medians.items()):
-        if variable not in variables:
-            continue
-        seasonal_medians[f"{station}|{variable}"] = {
-            str(int(day)): float(value)
-            for day, value in series.items() if np.isfinite(value)
-        }
-    return {
-        "input_schema": {
-            "variables": list(wd.var_names),
-            "physics_forcings": list(wd.phys_vars),
-            "context_length": int(wd.X.shape[1]),
-            "transforms": {
-                variable: ("signed_log1p" if variable == "FLOW" else "log1p_nonnegative")
-                for variable in C.LOG1P_VARS if variable in variables
-            },
-            "missingness_mask": True,
-        },
-        "imputer": {
-            "method": "station_day_of_year_median_fit_on_train",
-            "seasonal_medians": seasonal_medians,
-            "global_medians": _tuple_map(imputer.global_median, variables=variables),
-        },
-        "scaler": {
-            "method": "per_station_train_only_standardization",
-            "mean": _tuple_map(wd.scaler.mean, variables=variables),
-            "std": _tuple_map(wd.scaler.std, variables=variables),
-            "fit_stations": list(wd.scaler.fit_stations),
-            "pooled": bool(wd.scaler.pooled),
-        },
-        "climatology": {
-            "method": "harmonic_least_squares_fit_on_train",
-            "harmonics": int(clim.k),
-            "coefficients": {
-                station: [float(value) for value in coefficients]
-                for station, coefficients in sorted(clim.coef.items())
-            },
-            "fit_stations": list(clim.fit_stations),
-            "pooled": bool(clim.pooled),
-        },
-        "damped_anchor": {
-            "method": "train_fit_ar1_anomaly",
-            "phi": {station: float(value)
-                    for station, value in sorted(wd.damped_anchor.phi.items())},
-            "fit_stations": list(wd.damped_anchor.fit_stations),
-            "pooled": bool(wd.damped_anchor.pooled),
-            "fallback": float(wd.damped_anchor.fallback),
-        },
-    }
-
-
 def _serialise_offsets(offsets):
     return {f"{station}|{int(horizon)}": _finite(value)
             for (station, horizon), value in sorted(offsets.items())}

@@ -79,7 +79,7 @@ def main() -> None:
     tabs_v3 = B._tab_by_horizon(panel, clim, C.FEATURE_SETS["V3"])
     chunks.append(B.run_persistence(tabs_v3))
     chunks.append(B.run_climatology(tabs_v3))
-    dp, phi = B.run_damped_persistence(panel, masks, tabs_v3)
+    dp, phi = B.run_damped_persistence(panel, masks, tabs_v3, clim)
     chunks.append(dp)
     chunks.append(B.run_ridge(tabs_v3))
     chunks.append(B.run_air2stream(panel, masks, clim_air))

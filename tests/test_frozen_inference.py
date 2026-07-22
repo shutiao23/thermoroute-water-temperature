@@ -12,12 +12,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute import config as C  # noqa: E402
+from thermoroute import data as D  # noqa: E402
+from thermoroute import features as F  # noqa: E402
 from thermoroute.checkpoint import neural_output_head_schema  # noqa: E402
 from thermoroute.frozen_inference import (  # noqa: E402
     FrozenInferenceError,
     build_frozen_confirmation_windows,
     reconstruct_frozen_transforms,
     thermoroute_factory_from_metadata,
+)
+from thermoroute.weighting import (  # noqa: E402
+    ROW_EQUAL_WEIGHTING,
+    STATION_EQUAL_WEIGHTING,
 )
 
 
@@ -68,27 +74,50 @@ def _metadata(*, pooled: bool = False, station_agnostic: bool = False):
                 "missingness_mask": True,
             },
             "imputer": {
+                "method": (
+                    D.POOLED_ROW_IMPUTER_METHOD if pooled
+                    else D.PER_STATION_IMPUTER_METHOD
+                ),
                 "pooled": pooled,
+                "pool_weighting": ROW_EQUAL_WEIGHTING if pooled else None,
+                "fit_stations": list(training_sites),
                 "seasonal_medians": seasonal,
                 "global_medians": global_medians,
             },
             "scaler": {
+                "method": D.POOLED_SCALER_METHOD if pooled
+                          else D.PER_STATION_SCALER_METHOD,
                 "pooled": pooled,
+                "pool_weighting": STATION_EQUAL_WEIGHTING if pooled else None,
+                "variance": D.POOLED_SCALER_VARIANCE if pooled
+                            else "within_station_sample_variance_ddof_1",
                 "mean": means,
                 "std": stds,
                 "fit_stations": list(training_sites),
             },
             "climatology": {
+                "method": F.POOLED_HARMONIC_METHOD if pooled
+                          else F.PER_STATION_HARMONIC_METHOD,
                 "pooled": pooled,
+                "pool_weighting": STATION_EQUAL_WEIGHTING if pooled else None,
                 "harmonics": 3,
                 "coefficients": coefficients,
                 "fit_stations": list(training_sites),
             },
             "damped_anchor": {
+                "method": F.POOLED_DAMPED_AR_METHOD if pooled
+                          else F.DAMPED_AR_METHOD,
                 "pooled": pooled,
                 "phi": phi,
                 "fit_stations": list(training_sites),
                 "fallback": 0.9,
+                "min_pairs": F.DAMPED_MIN_PAIRS,
+                "coefficient_bounds": [
+                    F.DAMPED_LOWER_BOUND, F.DAMPED_UPPER_BOUND,
+                ],
+                "minimum_lagged_anomaly_mean_square": F.DAMPED_MIN_MEAN_SQUARE,
+                "pair_rule": F.DAMPED_PAIR_RULE,
+                "pool_weighting": STATION_EQUAL_WEIGHTING,
             },
         },
     }

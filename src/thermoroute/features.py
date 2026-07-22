@@ -13,6 +13,20 @@ import numpy as np
 import pandas as pd
 
 from . import config as C
+from .weighting import STATION_EQUAL_WEIGHTING, station_equal_sample_weight
+
+
+PER_STATION_HARMONIC_METHOD = "per_station_harmonic_least_squares_train_only_v1"
+POOLED_HARMONIC_METHOD = "pooled_station_balanced_harmonic_wls_train_only_v1"
+DAMPED_AR_METHOD = "constrained_zero_intercept_ar1_ols_train_pairs_v1"
+POOLED_DAMPED_AR_METHOD = (
+    "pooled_station_balanced_constrained_zero_intercept_ar1_ols_train_pairs_v1"
+)
+DAMPED_PAIR_RULE = "consecutive_calendar_days_both_wtemp_observed"
+DAMPED_MIN_PAIRS = 30
+DAMPED_LOWER_BOUND = 0.0
+DAMPED_UPPER_BOUND = 0.999
+DAMPED_MIN_MEAN_SQUARE = 1e-12
 
 
 # --------------------------------------------------------------------------- #
@@ -53,17 +67,37 @@ class HarmonicClimatology:
         tr = panel.loc[allowed]
         coef: dict[str, np.ndarray] = {}
 
-        def regress(sub: pd.DataFrame) -> np.ndarray | None:
+        def regress(
+            sub: pd.DataFrame, *, station_balanced: bool = False
+        ) -> np.ndarray | None:
             doy = pd.to_datetime(sub["DATE"]).dt.dayofyear.to_numpy()
             X = np.concatenate([np.ones((len(doy), 1)), doy_harmonics(doy, k)], axis=1)
             y = pd.to_numeric(sub[target], errors="coerce").to_numpy(dtype=float)
             m = np.isfinite(y)
             if m.sum() < X.shape[1]:
                 return None
-            beta, *_ = np.linalg.lstsq(X[m], y[m], rcond=None)
+            design, outcome = X[m], y[m]
+            if station_balanced:
+                finite_sites = sub.loc[m, "site_id"].astype(str)
+                represented = set(finite_sites)
+                missing = sorted(set(fitted) - represented)
+                if missing:
+                    raise ValueError(
+                        "station-balanced climatology has no finite train target "
+                        f"for fit stations: {missing[:5]}"
+                    )
+                weights = station_equal_sample_weight(finite_sites)
+                root_weight = np.sqrt(weights)
+                design = design * root_weight[:, None]
+                outcome = outcome * root_weight
+                if np.linalg.matrix_rank(design) < design.shape[1]:
+                    raise ValueError(
+                        "station-balanced climatology train design is rank deficient"
+                    )
+            beta, *_ = np.linalg.lstsq(design, outcome, rcond=None)
             return beta
 
-        pooled_beta = regress(tr)
+        pooled_beta = regress(tr, station_balanced=pooled)
         if pooled_beta is None:
             raise ValueError("not enough finite train-station data to fit climatology")
         for st in C.STATIONS:
@@ -88,6 +122,11 @@ class DampedPersistenceAnchor:
     fit_stations: tuple[str, ...]
     pooled: bool = False
     fallback: float = 0.9
+    min_pairs: int = DAMPED_MIN_PAIRS
+    lower_bound: float = DAMPED_LOWER_BOUND
+    upper_bound: float = DAMPED_UPPER_BOUND
+    min_mean_square: float = DAMPED_MIN_MEAN_SQUARE
+    pool_weighting: str = STATION_EQUAL_WEIGHTING
 
     @classmethod
     def fit(
@@ -99,9 +138,21 @@ class DampedPersistenceAnchor:
         fit_stations: tuple[str, ...] | None = None,
         pooled: bool = False,
         fallback: float = 0.9,
-        min_pairs: int = 30,
+        min_pairs: int = DAMPED_MIN_PAIRS,
+        lower_bound: float = DAMPED_LOWER_BOUND,
+        upper_bound: float = DAMPED_UPPER_BOUND,
+        min_mean_square: float = DAMPED_MIN_MEAN_SQUARE,
     ) -> "DampedPersistenceAnchor":
-        """Estimate anomaly lag-1 correlation using observed train pairs only."""
+        """Fit the bounded no-intercept anomaly AR(1) coefficient on train."""
+        if type(min_pairs) is not int or min_pairs < 1:
+            raise ValueError("damped anchor min_pairs must be a positive integer")
+        values = (fallback, lower_bound, upper_bound, min_mean_square)
+        if not np.isfinite(values).all():
+            raise ValueError("damped anchor configuration must be finite")
+        if not lower_bound <= fallback <= upper_bound or lower_bound >= upper_bound:
+            raise ValueError("damped anchor fallback/bounds are inconsistent")
+        if min_mean_square <= 0.0:
+            raise ValueError("damped anchor minimum mean square must be positive")
         fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
         allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()
         tr = panel.loc[allowed]
@@ -120,23 +171,45 @@ class DampedPersistenceAnchor:
                      & ((dates[1:] - dates[:-1]) == np.timedelta64(1, "D")))
             return anomaly[:-1][valid], anomaly[1:][valid]
 
-        all_x, all_y = [], []
         per_station: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for station in fitted:
             x, y = pairs(station)
             per_station[station] = (x, y)
-            all_x.append(x)
-            all_y.append(y)
-        px = np.concatenate(all_x) if all_x else np.empty(0)
-        py = np.concatenate(all_y) if all_y else np.empty(0)
 
         def estimate(x: np.ndarray, y: np.ndarray, default: float) -> float:
-            if len(x) < min_pairs or np.std(x) < 1e-12 or np.std(y) < 1e-12:
+            if len(x) < min_pairs:
                 return float(default)
-            value = float(np.corrcoef(x, y)[0, 1])
-            return float(np.clip(value, 0.0, 0.999)) if np.isfinite(value) else float(default)
+            mean_square = float(np.mean(np.square(x)))
+            if not np.isfinite(mean_square) or mean_square < min_mean_square:
+                return float(default)
+            value = float(np.dot(x, y) / np.dot(x, x))
+            return (
+                float(np.clip(value, lower_bound, upper_bound))
+                if np.isfinite(value) else float(default)
+            )
 
-        pooled_phi = estimate(px, py, fallback)
+        eligible = [
+            (x, y) for x, y in per_station.values()
+            if len(x) >= min_pairs
+            and np.isfinite(np.mean(np.square(x)))
+            and float(np.mean(np.square(x))) >= min_mean_square
+        ]
+        if eligible:
+            numerator = float(np.mean([
+                np.mean(x * y) for x, y in eligible
+            ]))
+            denominator = float(np.mean([
+                np.mean(np.square(x)) for x, _y in eligible
+            ]))
+            pooled_value = numerator / denominator
+            pooled_phi = (
+                float(np.clip(pooled_value, lower_bound, upper_bound))
+                if np.isfinite(pooled_value) and denominator >= min_mean_square
+                else float(fallback)
+            )
+        else:
+            pooled_phi = float(fallback)
+
         phi: dict[str, float] = {}
         for station in C.STATIONS:
             if pooled or station not in fitted:
@@ -144,7 +217,17 @@ class DampedPersistenceAnchor:
             else:
                 x, y = per_station[station]
                 phi[station] = estimate(x, y, pooled_phi)
-        return cls(phi=phi, fit_stations=fitted, pooled=pooled, fallback=fallback)
+        return cls(
+            phi=phi,
+            fit_stations=fitted,
+            pooled=pooled,
+            fallback=fallback,
+            min_pairs=min_pairs,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+            min_mean_square=min_mean_square,
+            pool_weighting=STATION_EQUAL_WEIGHTING,
+        )
 
     def predict(
         self,

@@ -24,6 +24,7 @@ from . import features as F
 from .checkpoint import neural_output_head_schema
 from .thermoroute import ThermoRoute
 from .train import LSTMForecaster
+from .weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
 
 
 class FrozenInferenceError(RuntimeError):
@@ -196,6 +197,13 @@ def _require_mapping(value: object, *, label: str) -> Mapping[str, Any]:
     return value
 
 
+def _require_method(
+    block: Mapping[str, Any], expected: str, *, label: str
+) -> None:
+    if block.get("method") != expected:
+        raise FrozenInferenceError(f"bundle {label} method differs from frozen code")
+
+
 def _pooled_seasonal(
     stored: Mapping[tuple[str, str], Mapping[int, float]],
     variable: str,
@@ -306,6 +314,87 @@ def reconstruct_frozen_transforms(
         raise FrozenInferenceError("damped phi falls outside [0, 0.999]")
 
     training_stations = _ordered_training_stations(metadata)
+    blocks = {
+        "imputer": imputer,
+        "scaler": scaler_block,
+        "climatology": climate_block,
+        "damped anchor": anchor_block,
+    }
+    for label, block in blocks.items():
+        if type(block.get("pooled")) is not bool:
+            raise FrozenInferenceError(f"bundle {label} lacks an exact pooled flag")
+        if tuple(str(site) for site in block.get("fit_stations", ())) != training_stations:
+            raise FrozenInferenceError(
+                f"bundle {label} fit-station registry differs from training stations"
+            )
+    imputer_pooled = bool(imputer["pooled"])
+    scaler_pooled = bool(scaler_block["pooled"])
+    climate_pooled = bool(climate_block["pooled"])
+    anchor_pooled = bool(anchor_block["pooled"])
+    _require_method(
+        imputer,
+        D.POOLED_ROW_IMPUTER_METHOD if imputer_pooled
+        else D.PER_STATION_IMPUTER_METHOD,
+        label="imputer",
+    )
+    expected_imputer_weighting = ROW_EQUAL_WEIGHTING if imputer_pooled else None
+    if imputer.get("pool_weighting") != expected_imputer_weighting:
+        raise FrozenInferenceError("bundle imputer pool weighting is not explicit")
+    _require_method(
+        scaler_block,
+        D.POOLED_SCALER_METHOD if scaler_pooled else D.PER_STATION_SCALER_METHOD,
+        label="scaler",
+    )
+    if scaler_block.get("pool_weighting") != (
+        STATION_EQUAL_WEIGHTING if scaler_pooled else None
+    ):
+        raise FrozenInferenceError("bundle scaler pool weighting differs from frozen code")
+    if scaler_block.get("variance") != (
+        D.POOLED_SCALER_VARIANCE if scaler_pooled
+        else "within_station_sample_variance_ddof_1"
+    ):
+        raise FrozenInferenceError("bundle scaler variance definition differs from frozen code")
+    _require_method(
+        climate_block,
+        F.POOLED_HARMONIC_METHOD if climate_pooled
+        else F.PER_STATION_HARMONIC_METHOD,
+        label="climatology",
+    )
+    if climate_block.get("pool_weighting") != (
+        STATION_EQUAL_WEIGHTING if climate_pooled else None
+    ):
+        raise FrozenInferenceError(
+            "bundle climatology pool weighting differs from frozen code"
+        )
+    _require_method(
+        anchor_block,
+        F.POOLED_DAMPED_AR_METHOD if anchor_pooled else F.DAMPED_AR_METHOD,
+        label="damped anchor",
+    )
+    if anchor_block.get("pair_rule") != F.DAMPED_PAIR_RULE:
+        raise FrozenInferenceError("bundle damped pair rule differs from frozen code")
+    if anchor_block.get("pool_weighting") != STATION_EQUAL_WEIGHTING:
+        raise FrozenInferenceError("bundle damped pool weighting differs from frozen code")
+    min_pairs = anchor_block.get("min_pairs")
+    if type(min_pairs) is not int or min_pairs < 1:
+        raise FrozenInferenceError("bundle damped min_pairs is invalid")
+    raw_bounds = anchor_block.get("coefficient_bounds")
+    if not isinstance(raw_bounds, list) or len(raw_bounds) != 2:
+        raise FrozenInferenceError("bundle damped coefficient bounds are malformed")
+    lower_bound = _float(raw_bounds[0], label="damped lower bound")
+    upper_bound = _float(raw_bounds[1], label="damped upper bound")
+    fallback = _float(anchor_block.get("fallback"), label="damped fallback")
+    min_mean_square = _float(
+        anchor_block.get("minimum_lagged_anomaly_mean_square"),
+        label="damped minimum lagged anomaly mean square",
+    )
+    if not lower_bound <= fallback <= upper_bound or lower_bound >= upper_bound:
+        raise FrozenInferenceError("bundle damped fallback/bounds are inconsistent")
+    if min_mean_square <= 0.0:
+        raise FrozenInferenceError("bundle damped minimum mean square is not positive")
+    if any(not lower_bound <= value <= upper_bound for value in phi.values()):
+        raise FrozenInferenceError("damped phi falls outside its frozen bounds")
+
     kwargs = _architecture_kwargs(metadata)
     station_agnostic = bool(kwargs.get("station_agnostic", False))
     if external:
@@ -365,6 +454,10 @@ def reconstruct_frozen_transforms(
         fit_stations = training_stations
         pooled = True
     else:
+        if any(bool(block["pooled"]) for block in blocks.values()):
+            raise FrozenInferenceError(
+                "same-station inference requires station-specific preprocessing"
+            )
         if set(station_ids) != set(training_stations):
             raise FrozenInferenceError(
                 "same-station bundle cannot score a different site registry"
@@ -414,7 +507,12 @@ def reconstruct_frozen_transforms(
         phi=anchor_phi,
         fit_stations=fit_stations,
         pooled=pooled,
-        fallback=_float(anchor_block.get("fallback", 0.9), label="damped fallback"),
+        fallback=fallback,
+        min_pairs=min_pairs,
+        lower_bound=lower_bound,
+        upper_bound=upper_bound,
+        min_mean_square=min_mean_square,
+        pool_weighting=STATION_EQUAL_WEIGHTING,
     )
     return FrozenTransforms(
         feature_order=feature_order,

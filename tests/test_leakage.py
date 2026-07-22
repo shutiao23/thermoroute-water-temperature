@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from thermoroute import config as C
+from thermoroute import baselines as B
 from thermoroute import data as D
 from thermoroute import features as F
 from thermoroute import datasets as DS
@@ -223,6 +224,18 @@ def test_damped_anchor_is_immune_to_post_train_targets():
     altered.loc[~b["masks"].train, "WTEMP"] += 1000.0
     refit = F.DampedPersistenceAnchor.fit(altered, b["masks"].train, clim)
     assert original.phi == refit.phi
+
+
+def test_legacy_damped_baseline_reuses_the_window_anchor():
+    b, clim = _bundle()
+    tabs = B._tab_by_horizon(b["panel"], clim, C.FEATURE_SETS["V3"])
+    _predictions, phi = B.run_damped_persistence(
+        b["panel"], b["masks"], tabs, clim
+    )
+    anchor = F.DampedPersistenceAnchor.fit(
+        b["panel"], b["masks"].train, clim
+    )
+    assert phi == anchor.phi
 
 
 def test_zero_shot_preprocessors_ignore_held_station_history():

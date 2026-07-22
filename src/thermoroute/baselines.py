@@ -20,6 +20,7 @@ import lightgbm as lgb
 from . import config as C
 from . import features as F
 from . import results as R
+from .weighting import station_equal_sample_weight as _station_equal_sample_weight
 
 
 # --------------------------------------------------------------------------- #
@@ -56,14 +57,10 @@ def run_climatology(tabs) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 
-def run_damped_persistence(panel, masks, tabs) -> pd.DataFrame:
-    """ŷ_{t+h} = clim_{t+h} + φ_s^h (y_t − clim_t).  φ_s = train AR(1) of anomaly."""
-    phi = {}
-    # estimate φ from the tabular anomaly (y_t − clim_t) on the training split
-    base = tabs[1]
-    for st in C.STATIONS:
-        a = base[(base.site_id == st) & (base.split == "train")]["clim_anom"].to_numpy(float)
-        phi[st] = float(np.clip(np.corrcoef(a[1:], a[:-1])[0, 1], 0.0, 0.999))
+def run_damped_persistence(panel, masks, tabs, clim) -> pd.DataFrame:
+    """Run the exact train-fit anchor shared with the sequence models."""
+    anchor = F.DampedPersistenceAnchor.fit(panel, masks.train, clim)
+    phi = anchor.phi
     out = []
     for h, tab in tabs.items():
         ph = tab["site_id"].map(phi).to_numpy(float) ** h
@@ -157,15 +154,7 @@ def run_air2stream(panel, masks, clim_air) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 def station_equal_sample_weight(site_ids) -> np.ndarray:
     """Give every station equal total loss weight, with mean row weight one."""
-    sites = pd.Series(site_ids, dtype="string")
-    if sites.empty or sites.isna().any() or sites.eq("").any():
-        raise ValueError("station-balanced weights require nonempty station ids")
-    counts = sites.value_counts(dropna=False)
-    weights = sites.map((1.0 / counts).to_dict()).to_numpy(float)
-    weights *= len(weights) / weights.sum()
-    if np.any(~np.isfinite(weights)) or np.any(weights <= 0.0):
-        raise ValueError("station-balanced weights are invalid")
-    return weights
+    return _station_equal_sample_weight(site_ids)
 
 
 def _lgb_fit(Xtr, ytr, Xval, yval, objective, alpha=None, n_est=800,

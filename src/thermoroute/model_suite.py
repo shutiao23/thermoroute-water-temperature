@@ -27,6 +27,7 @@ import torch
 
 from . import config as C
 from . import data as D
+from . import features as F
 from . import probability as P
 from . import results as R
 from .checkpoint import (
@@ -44,6 +45,7 @@ from .repro import (
     source_tree_hash,
     validate_artifact_sidecar,
 )
+from .weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
 
 
 LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v1"
@@ -932,24 +934,35 @@ def serialise_preprocessing(wd: Any, climatology: Any, imputer: D.Imputer) -> di
             "missingness_mask": True,
         },
         "imputer": {
-            "method": "pooled_day_of_year_median_fit_on_train" if imputer_pooled
-                      else "station_day_of_year_median_fit_on_train",
+            "method": D.POOLED_ROW_IMPUTER_METHOD if imputer_pooled
+                      else D.PER_STATION_IMPUTER_METHOD,
             "pooled": imputer_pooled,
+            "pool_weighting": ROW_EQUAL_WEIGHTING if imputer_pooled else None,
             "fit_stations": list(getattr(imputer, "fit_stations", C.STATIONS)),
             "seasonal_medians": seasonal,
             "global_medians": _tuple_map(imputer.global_median, variables),
         },
         "scaler": {
-            "method": "pooled_train_only_standardization" if wd.scaler.pooled
-                      else "per_station_train_only_standardization",
+            "method": D.POOLED_SCALER_METHOD if wd.scaler.pooled
+                      else D.PER_STATION_SCALER_METHOD,
+            "pool_weighting": (
+                STATION_EQUAL_WEIGHTING if wd.scaler.pooled else None
+            ),
+            "variance": (
+                D.POOLED_SCALER_VARIANCE if wd.scaler.pooled
+                else "within_station_sample_variance_ddof_1"
+            ),
             "mean": _tuple_map(wd.scaler.mean, variables),
             "std": _tuple_map(wd.scaler.std, variables),
             "fit_stations": list(wd.scaler.fit_stations),
             "pooled": bool(wd.scaler.pooled),
         },
         "climatology": {
-            "method": "pooled_harmonic_least_squares_fit_on_train"
-                      if climatology.pooled else "harmonic_least_squares_fit_on_train",
+            "method": F.POOLED_HARMONIC_METHOD if climatology.pooled
+                      else F.PER_STATION_HARMONIC_METHOD,
+            "pool_weighting": (
+                STATION_EQUAL_WEIGHTING if climatology.pooled else None
+            ),
             "harmonics": int(climatology.k),
             "coefficients": {
                 str(station): [float(value) for value in coefficients]
@@ -959,13 +972,23 @@ def serialise_preprocessing(wd: Any, climatology: Any, imputer: D.Imputer) -> di
             "pooled": bool(climatology.pooled),
         },
         "damped_anchor": {
-            "method": "pooled_train_fit_ar1_anomaly" if wd.damped_anchor.pooled
-                      else "train_fit_ar1_anomaly",
+            "method": F.POOLED_DAMPED_AR_METHOD if wd.damped_anchor.pooled
+                      else F.DAMPED_AR_METHOD,
             "phi": {str(station): float(value)
                     for station, value in sorted(wd.damped_anchor.phi.items())},
             "fit_stations": list(wd.damped_anchor.fit_stations),
             "pooled": bool(wd.damped_anchor.pooled),
             "fallback": float(wd.damped_anchor.fallback),
+            "min_pairs": int(wd.damped_anchor.min_pairs),
+            "coefficient_bounds": [
+                float(wd.damped_anchor.lower_bound),
+                float(wd.damped_anchor.upper_bound),
+            ],
+            "minimum_lagged_anomaly_mean_square": float(
+                wd.damped_anchor.min_mean_square
+            ),
+            "pair_rule": F.DAMPED_PAIR_RULE,
+            "pool_weighting": STATION_EQUAL_WEIGHTING,
         },
     }
 

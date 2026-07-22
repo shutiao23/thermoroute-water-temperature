@@ -136,6 +136,7 @@ from thermoroute.train import (
     configure_deterministic_runtime,
     fit_model,
 )
+from thermoroute.weighting import ROW_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
 
@@ -213,6 +214,12 @@ def external_sequence_metadata(
         development_prediction=prediction_binding,
     )
     metadata["event_thresholds"] = {"__pooled__": float(pooled_threshold)}
+    metadata["event_threshold_estimator"] = {
+        "method": "pooled_training_empirical_quantile_v1",
+        "quantile": 0.90,
+        "pool_weighting": ROW_EQUAL_WEIGHTING,
+        "station_balanced": False,
+    }
     metadata["conformal_offsets"] = serialise_offsets(offsets)
     return metadata
 
@@ -266,6 +273,12 @@ def main() -> None:
         "lstm_validation_grid": LSTM_VALIDATION_GRID,
         "lightgbm_validation_grid": STAGE9.LGB_VALIDATION_GRID,
         "event_reference_fit_interval": ("2006-01-01", "2018-12-31"),
+        "event_threshold_estimator": {
+            "method": "pooled_training_empirical_quantile_v1",
+            "quantile": 0.90,
+            "pool_weighting": ROW_EQUAL_WEIGHTING,
+            "station_balanced": False,
+        },
         "post_2020_data_read": False,
         "training_device": "cpu",
         "development_predictor_bridge": predictor_bridge,
@@ -444,6 +457,12 @@ def main() -> None:
             },
             "validation_selection": lgb_selection.to_dict(orient="records"),
             "event_thresholds": {"__pooled__": pooled_threshold},
+            "event_threshold_estimator": {
+                "method": "pooled_training_empirical_quantile_v1",
+                "quantile": 0.90,
+                "pool_weighting": ROW_EQUAL_WEIGHTING,
+                "station_balanced": False,
+            },
             "event_reference_climatology": dict(event_reference),
             "event_calibrators": {str(h): value.as_dict()
                                   for h, value in sorted(lgb_calibrators.items())},
