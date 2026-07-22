@@ -38,6 +38,10 @@ data_usgs/raw_snapshots/*
 # Stray run checkpoints
 *_ckpt/
 
+# Mutable advisory-lock diagnostics sit beside content-addressed run
+# directories; scientific run manifests/checkpoints remain trackable.
+outputs/runs/**/.*.formal-run.lock
+
 # LaTeX build artifacts
 *.aux
 *.log
