@@ -5,55 +5,93 @@
   "recorded_date": "2026-07-22",
   "post_2020_wtemp_requested_or_inspected": false,
   "outcome_independent_design": true,
+  "route_a_target_interval": {
+    "start": "2021-01-01",
+    "end": "2023-12-31",
+    "inclusive": true
+  },
   "scope": {
-    "cohorts": [
-      "temporal",
-      "external"
-    ],
+    "cohorts": ["temporal", "external"],
     "coverage_scope": "both_frozen_cohorts",
     "comparison_sensitivity_scope": "temporal_primary_five_tests_only",
     "not_a_missing_at_random_assessment": true,
-    "not_all_calendar_day_performance": true
+    "not_all_calendar_day_performance": true,
+    "core_status_requires_receipt_binding": true
+  },
+  "formal_comparisons": [
+    {
+      "test_id": "H1-h1-vs-damped",
+      "candidate": "ThermoRoute",
+      "reference": "DampedPersistence",
+      "horizon": 1,
+      "margin_c": 0.0
+    },
+    {
+      "test_id": "H1-h3-vs-damped",
+      "candidate": "ThermoRoute",
+      "reference": "DampedPersistence",
+      "horizon": 3,
+      "margin_c": 0.0
+    },
+    {
+      "test_id": "H1-h7-vs-damped",
+      "candidate": "ThermoRoute",
+      "reference": "DampedPersistence",
+      "horizon": 7,
+      "margin_c": 0.0
+    },
+    {
+      "test_id": "H2-h3-vs-lightgbm",
+      "candidate": "ThermoRoute",
+      "reference": "LightGBM",
+      "horizon": 3,
+      "margin_c": 0.05
+    },
+    {
+      "test_id": "H2-h7-vs-lightgbm",
+      "candidate": "ThermoRoute",
+      "reference": "LightGBM",
+      "horizon": 7,
+      "margin_c": 0.05
+    }
+  ],
+  "model_registry_by_cohort": {
+    "temporal": [
+      "Persistence",
+      "DampedPersistence",
+      "Climatology",
+      "LightGBM",
+      "LSTM",
+      "ThermoRoute",
+      "DampedPriorOnly",
+      "TR-noDynamicPrior",
+      "TR-fixedKappa",
+      "TR-noRouter",
+      "TR-noMoE",
+      "TR-noTCN",
+      "TR-unbounded"
+    ],
+    "external": [
+      "Persistence",
+      "DampedPersistence",
+      "Climatology",
+      "LightGBM",
+      "LSTM",
+      "ThermoRoute"
+    ]
   },
   "calendar_contract": {
     "classification_date": "target_date",
     "year_rule": "Gregorian_calendar_year_of_target_date",
-    "interval_rule": "caller_supplies_one_frozen_inclusive_interval_covering_exactly_three_complete_Gregorian_years",
-    "required_year_count": 3,
-    "season_order": [
-      "DJF",
-      "MAM",
-      "JJA",
-      "SON"
-    ],
+    "season_order": ["DJF", "MAM", "JJA", "SON"],
     "season_months": {
-      "DJF": [
-        12,
-        1,
-        2
-      ],
-      "MAM": [
-        3,
-        4,
-        5
-      ],
-      "JJA": [
-        6,
-        7,
-        8
-      ],
-      "SON": [
-        9,
-        10,
-        11
-      ]
+      "DJF": [12, 1, 2],
+      "MAM": [3, 4, 5],
+      "JJA": [6, 7, 8],
+      "SON": [9, 10, 11]
     },
     "season_role": "deterministic_meteorological_reporting_partition_not_ecological_life_stage_or_watershed_specific_season",
-    "horizons_days": [
-      1,
-      3,
-      7
-    ],
+    "horizons_days": [1, 3, 7],
     "context_length_days": 32,
     "calendar_opportunity": "issue_and_target_inside_interval_and_exact_daily_context_rows_present",
     "valid_key": "calendar_opportunity_and_issue_WTEMP_observed_and_target_WTEMP_observed"
@@ -62,35 +100,72 @@
     "minimum_valid_targets_per_station_horizon": 100,
     "all_site_horizon_year_season_cells_required_including_zero": true,
     "availability_registry_must_reconstruct_exactly": true,
-    "all_models_must_share_exact_forecast_keys": true,
+    "all_frozen_models_must_share_exact_key_and_y_true_summaries": true,
+    "zero_key_horizon_or_cohort_is_legal_when_explicitly_audited": true,
     "availability_may_not_replace_or_filter_a_frozen_site": true,
     "coverage_balance_changes_primary_reportability": false
   },
   "sensitivity_contract": {
-    "formal_comparison_count": 5,
     "role": "DESCRIPTIVE_NOT_IN_CONFIRMATORY_FAMILY",
-    "primary_effect_crosscheck": "exact_median_of_reportable_station_RMSE_candidate_minus_reference",
-    "complete_support": "primary_reportable_station_has_at_least_one_valid_key_in_each_of_three_years_by_four_seasons",
+    "formal_comparison_count": 5,
+    "comparison_models": ["ThermoRoute", "DampedPersistence", "LightGBM"],
+    "all_12_cells_nonempty": "primary_reportable_station_has_at_least_one_valid_key_in_each_of_three_years_by_four_seasons",
     "equal_cell_station_rmse": "sqrt_of_unweighted_mean_of_the_twelve_within_cell_MSE_values",
-    "leave_one_year": "same_complete_support_stations_and_equal_weight_over_remaining_eight_cells",
-    "leave_one_season": "same_complete_support_stations_and_equal_weight_over_remaining_nine_cells",
-    "primary_station_set_or_statistic_changed": false,
+    "leave_one_year": "same_all_12_cells_nonempty_stations_and_equal_weight_over_remaining_eight_cells",
+    "leave_one_season": "same_all_12_cells_nonempty_stations_and_equal_weight_over_remaining_nine_cells",
+    "does_not_establish_year_or_season_stability": true,
     "retraining_or_recalibration_performed": false,
     "favorable_sensitivity_may_rescue_primary_result": false,
-    "unfavorable_sensitivity_may_hide_primary_result": false
+    "unfavorable_sensitivity_must_be_reported": true,
+    "sensitivity_changes_primary_result_or_decision": false
   },
-  "prohibited_outputs": [
+  "formal_statistics_contract": {
+    "allowed_status": [
+      "ESTIMABLE",
+      "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS"
+    ],
+    "estimable_effect_must_exactly_match_prediction_derived_effect": true,
+    "not_estimable_formal_effect_must_be_null": true,
+    "prediction_derived_descriptive_effect_never_upgrades_inference": true
+  },
+  "source_binding_contract": {
+    "required_keys": [
+      "policy",
+      "protocol",
+      "acquisition_manifest",
+      "temporal_normalized_outcomes",
+      "external_normalized_outcomes",
+      "temporal_site_registry",
+      "external_site_registry",
+      "temporal_full_predictions",
+      "external_full_predictions",
+      "availability_registry",
+      "statistics"
+    ],
+    "binding_fields": ["path", "sha256"],
+    "canonical_repository_relative_posix_path_required": true,
+    "physical_file_verification_delegated_to_opening_release_wrapper": true,
+    "full_upstream_files_are_closed_by_sha256": true,
+    "core_semantic_digests_cover_declared_projection_only": true,
+    "unconsumed_upstream_fields_are_not_silently_claimed_as_validated": true
+  },
+  "declared_projection_contract": {
+    "missing_unknown_duplicate_or_tampered_declared_values_fail_closed": true,
+    "extra_upstream_fields_are_not_consumed": true,
+    "extra_upstream_fields_remain_covered_by_full_file_source_binding": true
+  },
+  "prohibited_sensitivity_outputs": [
     "p_value",
     "confidence_interval",
     "Holm_adjustment",
     "pass_fail_decision"
   ],
   "integrity_contract": {
-    "canonical_semantic_digest_for_every_consumed_input": true,
+    "canonical_chunked_semantic_digest_for_consumed_rows": true,
     "canonical_document_self_hash": true,
     "exact_recomputation_required": true,
-    "missing_unknown_duplicate_or_tampered_evidence_fails_closed": true
+    "rewriting_only_the_self_hash_cannot_validate_changed_evidence": true
   },
   "output_artifact": "trusted/temporal_coverage_audit_v1.json",
-  "policy_self_sha256": "340a46136ec645fcff778aabfe00c92e50c9813ef1f628d24b0818d1ce433e91"
+  "policy_self_sha256": "8a6cdf38dcf59e4c2818d2e9e0354a4ecd34922932a3be119e2ff4956c458c4f"
 }

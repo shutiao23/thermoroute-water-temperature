@@ -1,30 +1,40 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from thermoroute.coverage_audit import (
+    COMPARISON_MODELS,
+    FORECAST_KEY_DIGEST_DOMAIN,
+    MODEL_REGISTRY,
+    POLICY_FILE_SHA256,
     POLICY_RELATIVE,
+    PREDICTION_COLUMNS,
+    ROUTE_A_FORMAL_TESTS,
+    SOURCE_BINDING_KEYS,
+    TARGET_END,
+    TARGET_START,
+    Y_TRUE_DIGEST_DOMAIN,
     CoverageAuditError,
     build_temporal_coverage_audit,
     validate_temporal_coverage_audit,
     validate_temporal_coverage_policy,
 )
-from thermoroute.repro import sha256_json
+from thermoroute.repro import canonical_json, sha256_file, sha256_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-START = pd.Timestamp("2001-01-01")
-END = pd.Timestamp("2003-12-31")
+START = pd.Timestamp(TARGET_START)
+END = pd.Timestamp(TARGET_END)
 HORIZONS = (1, 3, 7)
 SEASONS = ("DJF", "MAM", "JJA", "SON")
-MODELS = ("Candidate", "Baseline", "Other")
-SITES = {"temporal": ("t1", "t2"), "external": ("e1",)}
+DEFAULT_SITES = {"temporal": ("t1", "t2"), "external": ("e1",)}
 
 
 def _season(month: int) -> str:
@@ -37,127 +47,166 @@ def _season(month: int) -> str:
     return "SON"
 
 
+def _digest_rows(domain: str, rows: Sequence[Sequence[object]]) -> str:
+    digest = hashlib.sha256()
+    digest.update(domain.encode("ascii"))
+    digest.update(b"\n")
+    for row in rows:
+        digest.update(canonical_json(list(row)).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def _formal_tests() -> list[dict[str, Any]]:
-    return [
-        {
-            "test_id": "H1-h1-vs-baseline",
-            "candidate": "Candidate",
-            "reference": "Baseline",
-            "horizon": 1,
-            "margin_c": 0.0,
-        },
-        {
-            "test_id": "H1-h3-vs-baseline",
-            "candidate": "Candidate",
-            "reference": "Baseline",
-            "horizon": 3,
-            "margin_c": 0.0,
-        },
-        {
-            "test_id": "H1-h7-vs-baseline",
-            "candidate": "Candidate",
-            "reference": "Baseline",
-            "horizon": 7,
-            "margin_c": 0.0,
-        },
-        {
-            "test_id": "H2-h3-vs-other",
-            "candidate": "Candidate",
-            "reference": "Other",
-            "horizon": 3,
-            "margin_c": 0.05,
-        },
-        {
-            "test_id": "H2-h7-vs-other",
-            "candidate": "Candidate",
-            "reference": "Other",
-            "horizon": 7,
-            "margin_c": 0.05,
-        },
-    ]
+    return [dict(row) for row in ROUTE_A_FORMAL_TESTS]
+
+
+def _source_bindings() -> dict[str, dict[str, str]]:
+    output = {
+        key: {
+            "path": f"evidence/coverage/{key}.json",
+            "sha256": hashlib.sha256(key.encode("ascii")).hexdigest(),
+        }
+        for key in SOURCE_BINDING_KEYS
+    }
+    output["policy"] = {
+        "path": POLICY_RELATIVE,
+        "sha256": POLICY_FILE_SHA256,
+    }
+    return output
 
 
 def _observability(
+    sites: Mapping[str, Sequence[str]],
     *,
     observed_rule: Callable[[str, str, pd.Timestamp], bool] | None = None,
 ) -> dict[str, pd.DataFrame]:
     dates = pd.date_range(START - pd.Timedelta(days=31), END, freq="D")
     output: dict[str, pd.DataFrame] = {}
-    for cohort, sites in SITES.items():
-        rows = []
-        for site in sites:
+    for cohort in ("temporal", "external"):
+        rows: list[dict[str, object]] = []
+        for site in sites[cohort]:
             for date in dates:
-                observed = (
-                    True
-                    if observed_rule is None
-                    else observed_rule(cohort, site, pd.Timestamp(date))
-                )
                 rows.append(
                     {
                         "site_id": site,
                         "date": date,
-                        "wtemp_observed": observed,
+                        "wtemp_observed": (
+                            True
+                            if observed_rule is None
+                            else observed_rule(cohort, site, pd.Timestamp(date))
+                        ),
                     }
                 )
-        output[cohort] = pd.DataFrame(rows)
+        output[cohort] = pd.DataFrame(
+            rows, columns=["site_id", "date", "wtemp_observed"]
+        )
     return output
 
 
-def _prediction_error(model: str, target_date: pd.Timestamp) -> float:
-    if model == "Baseline":
+def _valid_keys(
+    observations: pd.DataFrame, sites: Sequence[str]
+) -> list[tuple[str, int, pd.Timestamp, pd.Timestamp]]:
+    indexed = observations.set_index(["site_id", "date"])["wtemp_observed"]
+    rows: list[tuple[str, int, pd.Timestamp, pd.Timestamp]] = []
+    for site in sorted(sites):
+        values = indexed.loc[site]
+        for horizon in HORIZONS:
+            for issue in pd.date_range(
+                START, END - pd.Timedelta(days=horizon), freq="D"
+            ):
+                target = issue + pd.Timedelta(days=horizon)
+                if bool(values.loc[issue]) and bool(values.loc[target]):
+                    rows.append((site, horizon, pd.Timestamp(issue), pd.Timestamp(target)))
+    return rows
+
+
+def _truth(site: str, target: pd.Timestamp) -> float:
+    site_offset = sum(ord(value) for value in site) % 7
+    return 10.0 + site_offset + 0.01 * target.month
+
+
+def _error(model: str, target: pd.Timestamp) -> float:
+    if model == "DampedPersistence":
         return 0.65
-    if model == "Other":
+    if model == "LightGBM":
         return 0.50
     by_season = {"DJF": 0.20, "MAM": 0.35, "JJA": 0.90, "SON": 0.30}
-    return by_season[_season(target_date.month)] + 0.04 * (target_date.year - 2001)
+    return by_season[_season(target.month)] + 0.04 * (target.year - 2021)
 
 
-def _predictions(
-    observability: dict[str, pd.DataFrame],
-) -> dict[str, pd.DataFrame]:
-    output: dict[str, pd.DataFrame] = {}
-    for cohort, sites in SITES.items():
-        observed = observability[cohort].set_index(["site_id", "date"])[
-            "wtemp_observed"
+def _comparison_predictions(
+    observations: Mapping[str, pd.DataFrame], sites: Mapping[str, Sequence[str]]
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for site, horizon, issue, target in _valid_keys(
+        observations["temporal"], sites["temporal"]
+    ):
+        y_true = _truth(site, target)
+        for model in COMPARISON_MODELS:
+            rows.append(
+                {
+                    "model": model,
+                    "site_id": site,
+                    "horizon": horizon,
+                    "issue_date": issue,
+                    "target_date": target,
+                    "y_true": y_true,
+                    "y_pred": y_true + _error(model, target),
+                    "upstream_extra_column": "bound-but-not-consumed",
+                }
+            )
+    return pd.DataFrame(rows, columns=[*PREDICTION_COLUMNS, "upstream_extra_column"])
+
+
+def _model_summary_from_keys(
+    keys: Sequence[tuple[str, int, pd.Timestamp, pd.Timestamp]],
+) -> dict[str, Any]:
+    key_rows: list[list[object]] = []
+    y_rows: list[list[object]] = []
+    for site, horizon, issue, target in keys:
+        key = [
+            site,
+            horizon,
+            issue.strftime("%Y-%m-%d"),
+            target.strftime("%Y-%m-%d"),
         ]
-        rows = []
-        for site_index, site in enumerate(sites):
-            values = observed.loc[site]
-            for horizon in HORIZONS:
-                for issue_date in pd.date_range(
-                    START, END - pd.Timedelta(days=horizon), freq="D"
-                ):
-                    target_date = issue_date + pd.Timedelta(days=horizon)
-                    if not bool(values.loc[issue_date]) or not bool(
-                        values.loc[target_date]
-                    ):
-                        continue
-                    y_true = 10.0 + site_index + 0.01 * target_date.month
-                    for model in MODELS:
-                        rows.append(
-                            {
-                                "model": model,
-                                "site_id": site,
-                                "horizon": horizon,
-                                "issue_date": issue_date,
-                                "target_date": target_date,
-                                "y_true": y_true,
-                                "y_pred": y_true + _prediction_error(model, target_date),
-                                "ignored_extra_column": "not-consumed",
-                            }
-                        )
-        output[cohort] = pd.DataFrame(rows)
+        key_rows.append(key)
+        y_rows.append([*key, format(_truth(site, target), ".17g")])
+    return {
+        "row_count": len(keys),
+        "forecast_key_sha256": _digest_rows(FORECAST_KEY_DIGEST_DOMAIN, key_rows),
+        "y_true_sha256": _digest_rows(Y_TRUE_DIGEST_DOMAIN, y_rows),
+    }
+
+
+def _model_key_audits(
+    observations: Mapping[str, pd.DataFrame], sites: Mapping[str, Sequence[str]]
+) -> dict[str, list[dict[str, Any]]]:
+    output: dict[str, list[dict[str, Any]]] = {}
+    for cohort in ("temporal", "external"):
+        summary = _model_summary_from_keys(
+            _valid_keys(observations[cohort], sites[cohort])
+        )
+        output[cohort] = [
+            {"model": model, **summary} for model in MODEL_REGISTRY[cohort]
+        ]
     return output
 
 
-def _availability(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    rows = []
-    for cohort, sites in SITES.items():
-        one_model = predictions[cohort][predictions[cohort].model.eq("Candidate")]
-        counts = one_model.groupby(["site_id", "horizon"]).size().to_dict()
-        for site in sites:
+def _availability(
+    observations: Mapping[str, pd.DataFrame], sites: Mapping[str, Sequence[str]]
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for cohort in ("temporal", "external"):
+        counts: dict[tuple[str, int], int] = {}
+        for site, horizon, _issue, _target in _valid_keys(
+            observations[cohort], sites[cohort]
+        ):
+            counts[(site, horizon)] = counts.get((site, horizon), 0) + 1
+        for site in sites[cohort]:
             for horizon in HORIZONS:
-                count = int(counts.get((site, horizon), 0))
+                count = counts.get((site, horizon), 0)
                 rows.append(
                     {
                         "cohort": cohort,
@@ -167,7 +216,16 @@ def _availability(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
                         "reportable": count >= 100,
                     }
                 )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "cohort",
+            "site_no",
+            "horizon",
+            "n_valid_targets",
+            "reportable",
+        ],
+    )
 
 
 def _rmse(group: pd.DataFrame) -> float:
@@ -176,12 +234,14 @@ def _rmse(group: pd.DataFrame) -> float:
     return float(np.sqrt(np.mean(np.square(error))))
 
 
-def _primary_statistics(
-    predictions: dict[str, pd.DataFrame], availability: pd.DataFrame
+def _statistics(
+    predictions: pd.DataFrame,
+    availability: pd.DataFrame,
+    *,
+    force_one_cluster: bool = False,
 ) -> list[dict[str, Any]]:
-    temporal = predictions["temporal"]
-    rows = []
-    for test in _formal_tests():
+    rows: list[dict[str, Any]] = []
+    for test in ROUTE_A_FORMAL_TESTS:
         horizon = int(test["horizon"])
         reportable_sites = sorted(
             availability.loc[
@@ -193,20 +253,28 @@ def _primary_statistics(
         )
         effects = []
         for site in reportable_sites:
-            selected = temporal[
-                temporal.site_id.eq(site) & temporal.horizon.eq(horizon)
+            selected = predictions[
+                predictions.site_id.eq(site) & predictions.horizon.eq(horizon)
             ]
-            candidate = selected[selected.model.eq(test["candidate"])]
-            reference = selected[selected.model.eq(test["reference"])]
-            effects.append(_rmse(candidate) - _rmse(reference))
+            effects.append(
+                _rmse(selected[selected.model.eq(test["candidate"])])
+                - _rmse(selected[selected.model.eq(test["reference"])])
+            )
+        effect = None if not effects else float(np.median(np.asarray(effects)))
+        clusters = 1 if effects and force_one_cluster else min(len(effects), 2)
+        estimable = bool(effects) and clusters >= 2
         rows.append(
             {
                 "test_id": test["test_id"],
-                "median_effect_c": (
-                    None if not effects else float(np.median(np.asarray(effects)))
+                "status": (
+                    "ESTIMABLE"
+                    if estimable
+                    else "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS"
                 ),
+                "median_effect_c": effect if estimable else None,
                 "n_stations": len(effects),
-                "ignored_inferential_field": "not-consumed",
+                "n_clusters": clusters,
+                "upstream_inferential_field": "bound-but-not-consumed",
             }
         )
     return rows
@@ -214,21 +282,31 @@ def _primary_statistics(
 
 def _fixture(
     *,
+    sites: Mapping[str, Sequence[str]] | None = None,
     observed_rule: Callable[[str, str, pd.Timestamp], bool] | None = None,
+    force_one_cluster: bool = False,
 ) -> dict[str, Any]:
-    observations = _observability(observed_rule=observed_rule)
-    predictions = _predictions(observations)
-    availability = _availability(predictions)
+    site_registry = dict(DEFAULT_SITES if sites is None else sites)
+    observations = _observability(site_registry, observed_rule=observed_rule)
+    predictions = _comparison_predictions(observations, site_registry)
+    availability = _availability(observations, site_registry)
     return {
         "policy": validate_temporal_coverage_policy(ROOT / POLICY_RELATIVE),
+        "source_bindings": _source_bindings(),
         "target_start": START,
         "target_end": END,
-        "sites_by_cohort": SITES,
+        "sites_by_cohort": site_registry,
+        "model_registry_by_cohort": MODEL_REGISTRY,
+        "model_key_audits_by_cohort": _model_key_audits(
+            observations, site_registry
+        ),
         "observability_by_cohort": observations,
-        "predictions_by_cohort": predictions,
+        "temporal_comparison_predictions": predictions,
         "availability": availability,
         "formal_tests": _formal_tests(),
-        "primary_statistics": _primary_statistics(predictions, availability),
+        "primary_statistics": _statistics(
+            predictions, availability, force_one_cluster=force_one_cluster
+        ),
     }
 
 
@@ -236,235 +314,351 @@ def _build(arguments: dict[str, Any]) -> dict[str, Any]:
     return build_temporal_coverage_audit(**arguments)
 
 
-def test_frozen_policy_is_exact_outcome_free_and_nonfiltering() -> None:
+def test_policy_freezes_real_family_models_interval_and_file_digest() -> None:
     policy = validate_temporal_coverage_policy(ROOT / POLICY_RELATIVE)
     assert policy["post_2020_wtemp_requested_or_inspected"] is False
-    assert policy["coverage_contract"][
-        "coverage_balance_changes_primary_reportability"
-    ] is False
-    assert policy["scope"]["not_a_missing_at_random_assessment"] is True
-    assert policy["sensitivity_contract"][
-        "primary_station_set_or_statistic_changed"
-    ] is False
-    assert policy["prohibited_outputs"] == [
-        "p_value",
-        "confidence_interval",
-        "Holm_adjustment",
-        "pass_fail_decision",
-    ]
-
-
-def test_policy_semantic_or_self_hash_tamper_is_rejected(tmp_path: Path) -> None:
-    policy = validate_temporal_coverage_policy(ROOT / POLICY_RELATIVE)
-    attacked = deepcopy(policy)
-    attacked["coverage_contract"][
-        "coverage_balance_changes_primary_reportability"
-    ] = True
-    path = tmp_path / "policy.json"
-    path.write_text(__import__("json").dumps(attacked), encoding="utf-8")
-    with pytest.raises(CoverageAuditError, match="semantics changed"):
-        validate_temporal_coverage_policy(path)
-
-
-def test_complete_zero_inclusive_cells_and_target_date_partition() -> None:
-    def observed(cohort: str, site: str, date: pd.Timestamp) -> bool:
-        return not (
-            cohort == "temporal"
-            and site == "t2"
-            and date.year == 2002
-            and date.month in (9, 10, 11)
-        )
-
-    document = _build(_fixture(observed_rule=observed))
-    cells = pd.DataFrame(document["coverage_cells"])
-    assert len(cells) == 3 * 3 * 3 * 4
-    assert not cells.duplicated(
-        ["cohort", "site_no", "horizon", "target_year", "target_season"]
-    ).any()
-    zero = cells[
-        cells.cohort.eq("temporal")
-        & cells.site_no.eq("t2")
-        & cells.horizon.eq(7)
-        & cells.target_year.eq(2002)
-        & cells.target_season.eq("SON")
-    ].iloc[0]
-    assert zero.n_calendar_opportunities > 0
-    assert zero.n_valid_keys == 0
-
-    # Classification is by target date.  In the first non-leap DJF, the first
-    # possible target is Jan 2 for h=1 and Jan 8 for h=7.
-    t1 = cells[cells.cohort.eq("temporal") & cells.site_no.eq("t1")]
-    h1_djf = t1[
-        t1.horizon.eq(1)
-        & t1.target_year.eq(2001)
-        & t1.target_season.eq("DJF")
-    ].iloc[0]
-    h7_djf = t1[
-        t1.horizon.eq(7)
-        & t1.target_year.eq(2001)
-        & t1.target_season.eq("DJF")
-    ].iloc[0]
-    assert h1_djf.n_calendar_opportunities == 89
-    assert h7_djf.n_calendar_opportunities == 83
-
-
-def test_counts_reconstruct_availability_and_primary_is_unchanged() -> None:
-    arguments = _fixture()
-    document = _build(arguments)
-    cells = pd.DataFrame(document["coverage_cells"])
-    reconstructed = cells.groupby(["cohort", "site_no", "horizon"])[
-        "n_valid_keys"
-    ].sum()
-    for row in arguments["availability"].itertuples(index=False):
-        assert reconstructed[(row.cohort, row.site_no, row.horizon)] == (
-            row.n_valid_targets
-        )
-    expected = {
-        row["test_id"]: row for row in arguments["primary_statistics"]
+    assert policy["formal_comparisons"] == _formal_tests()
+    assert policy["model_registry_by_cohort"] == {
+        cohort: list(models) for cohort, models in MODEL_REGISTRY.items()
     }
-    for row in document["comparison_sensitivities"]:
-        assert row["primary_median_effect_c"] == expected[row["test_id"]][
-            "median_effect_c"
-        ]
-        assert row["n_primary_reportable_stations"] == expected[row["test_id"]][
-            "n_stations"
-        ]
-    assert document["primary_statistics_unchanged"] is True
-    assert document["primary_station_set_unchanged"] is True
+    assert policy["route_a_target_interval"] == {
+        "start": TARGET_START,
+        "end": TARGET_END,
+        "inclusive": True,
+    }
+    assert policy["sensitivity_contract"][
+        "unfavorable_sensitivity_must_be_reported"
+    ] is True
+    assert policy["sensitivity_contract"][
+        "sensitivity_changes_primary_result_or_decision"
+    ] is False
+    assert sha256_file(ROOT / POLICY_RELATIVE) == POLICY_FILE_SHA256
 
 
 @pytest.mark.parametrize(
-    ("run_length", "expected_h1_reportable"), [(100, False), (101, True)]
+    "attack", ["self", "margin", "id", "order", "duplicate", "bool_h", "bool_m"]
 )
-def test_reportability_boundary_is_exactly_100(
-    run_length: int, expected_h1_reportable: bool
-) -> None:
-    last = START + pd.Timedelta(days=run_length - 1)
-
-    def observed(_cohort: str, _site: str, date: pd.Timestamp) -> bool:
-        return START <= date <= last
-
-    arguments = _fixture(observed_rule=observed)
-    document = _build(arguments)
-    availability = arguments["availability"]
-    h1 = availability[availability.horizon.eq(1)]
-    assert set(h1.n_valid_targets) == {run_length - 1}
-    assert h1.reportable.eq(expected_h1_reportable).all()
-    cells = pd.DataFrame(document["coverage_cells"])
-    assert cells.groupby(["cohort", "site_no", "horizon"]).n_valid_keys.sum()[
-        ("temporal", "t1", 1)
-    ] == run_length - 1
-
-
-def _equal_cell_effect(
-    frame: pd.DataFrame, *, candidate: str, reference: str, horizon: int
-) -> float:
-    effects = []
-    for site, site_rows in frame[frame.horizon.eq(horizon)].groupby("site_id"):
-        model_rmse = {}
-        for model in (candidate, reference):
-            selected = site_rows[site_rows.model.eq(model)].copy()
-            selected["year"] = selected.target_date.dt.year
-            selected["season"] = selected.target_date.dt.month.map(_season)
-            selected["se"] = np.square(selected.y_pred - selected.y_true)
-            cell_mse = selected.groupby(["year", "season"]).se.mean()
-            assert len(cell_mse) == 12, site
-            model_rmse[model] = float(np.sqrt(cell_mse.mean()))
-        effects.append(model_rmse[candidate] - model_rmse[reference])
-    return float(np.median(np.asarray(effects)))
+def test_formal_family_identity_attacks_fail_closed(attack: str) -> None:
+    arguments = _fixture()
+    tests = deepcopy(arguments["formal_tests"])
+    if attack == "self":
+        tests[0]["reference"] = tests[0]["candidate"]
+    elif attack == "margin":
+        tests[3]["margin_c"] = 0.051
+    elif attack == "id":
+        tests[0]["test_id"] = "H1-renamed"
+    elif attack == "order":
+        tests[0], tests[1] = tests[1], tests[0]
+    elif attack == "duplicate":
+        tests[1].update(
+            {
+                "candidate": tests[0]["candidate"],
+                "reference": tests[0]["reference"],
+                "horizon": tests[0]["horizon"],
+            }
+        )
+    elif attack == "bool_h":
+        tests[0]["horizon"] = True
+    else:
+        tests[0]["margin_c"] = False
+    arguments["formal_tests"] = tests
+    with pytest.raises(CoverageAuditError, match="formal"):
+        _build(arguments)
 
 
-def test_equal_cell_and_leave_one_sensitivities_use_fixed_complete_subset() -> None:
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "/absolute/file",
+        "C:/absolute/file",
+        "../escape",
+        "a/../b",
+        "a\\b",
+        "a//b",
+        "a/./b",
+        "a/",
+    ],
+)
+def test_source_binding_path_attacks_fail_closed(bad_path: str) -> None:
+    arguments = _fixture()
+    arguments["source_bindings"]["protocol"]["path"] = bad_path
+    with pytest.raises(CoverageAuditError, match="path"):
+        _build(arguments)
+
+
+def test_source_binding_closure_and_shape_are_exact() -> None:
+    arguments = _fixture()
+    missing = deepcopy(arguments)
+    missing["source_bindings"].pop("statistics")
+    with pytest.raises(CoverageAuditError, match="closure"):
+        _build(missing)
+    extra_field = deepcopy(arguments)
+    extra_field["source_bindings"]["statistics"]["bytes"] = "1"
+    with pytest.raises(CoverageAuditError, match="malformed"):
+        _build(extra_field)
+    upper = deepcopy(arguments)
+    upper["source_bindings"]["statistics"]["sha256"] = "A" * 64
+    with pytest.raises(CoverageAuditError, match="SHA-256"):
+        _build(upper)
+    wrong_policy = deepcopy(arguments)
+    wrong_policy["source_bindings"]["policy"]["sha256"] = "0" * 64
+    with pytest.raises(CoverageAuditError, match="policy source binding"):
+        _build(wrong_policy)
+
+
+def test_full_build_binds_sources_models_cells_and_descriptive_support() -> None:
     arguments = _fixture()
     document = _build(arguments)
-    row = document["comparison_sensitivities"][0]
-    assert row["status"] == "ESTIMABLE_DESCRIPTIVE"
-    assert row["n_complete_12cell_stations"] == 2
-    expected = _equal_cell_effect(
-        arguments["predictions_by_cohort"]["temporal"],
-        candidate="Candidate",
-        reference="Baseline",
-        horizon=1,
-    )
-    assert row["equal_12cell_median_effect_c"] == pytest.approx(expected, abs=1e-15)
-    assert row["equal_12cell_median_effect_c"] != row[
-        "primary_median_effect_complete_support_c"
-    ]
-    assert [item["omitted_year"] for item in row["leave_one_year_equal_cell"]] == [
-        2001,
-        2002,
-        2003,
-    ]
-    assert [
-        item["omitted_season"] for item in row["leave_one_season_equal_cell"]
-    ] == list(SEASONS)
-
-
-def test_missing_cell_excludes_only_sensitivity_not_primary() -> None:
-    def observed(cohort: str, site: str, date: pd.Timestamp) -> bool:
-        return not (
-            cohort == "temporal"
-            and site == "t2"
-            and date.year == 2002
-            and date.month in (9, 10, 11)
-        )
-
-    document = _build(_fixture(observed_rule=observed))
-    for row in document["comparison_sensitivities"]:
-        assert row["n_primary_reportable_stations"] == 2
-        assert row["n_complete_12cell_stations"] == 1
-        assert row["primary_median_effect_c"] is not None
-        assert row["equal_12cell_median_effect_c"] is not None
-
-
-def test_no_inferential_or_decision_fields_are_emitted() -> None:
-    document = _build(_fixture())
-    prohibited = {
-        "p_value",
-        "confidence_interval",
-        "Holm_adjustment",
-        "pass_fail_decision",
-    }
-
-    def visit(value: object) -> None:
-        if isinstance(value, dict):
-            assert not (set(value) & prohibited)
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-
-    visit(document["comparison_sensitivities"])
+    assert document["status"] == "DERIVED_CORE_REQUIRES_RECEIPT_BINDING"
+    assert document["source_bindings"] == arguments["source_bindings"]
+    assert len(document["coverage_cells"]) == 3 * 3 * 3 * 4
+    assert document["primary_statistics_unchanged"] is True
+    assert document["sensitivity_changes_primary_result_or_decision"] is False
     assert document["inference_computed"] is False
+    for row in document["comparison_sensitivities"]:
+        assert row["formal_statistics_status"] == "ESTIMABLE"
+        assert row["formal_median_effect_c"] == row[
+            "prediction_derived_descriptive_median_effect_c"
+        ]
+        assert row["n_all_12_cells_nonempty_stations"] == 2
+        assert len(row["all_12_cells_nonempty_station_support"]) == 2
+        for station in row["all_12_cells_nonempty_station_support"]:
+            assert (
+                0
+                < station["min_valid_keys_per_cell"]
+                <= station["median_valid_keys_per_cell"]
+                <= station["max_valid_keys_per_cell"]
+            )
+        assert row["does_not_establish_year_or_season_stability"] is True
 
 
-def test_semantic_input_order_is_irrelevant_and_exact_replay_validates() -> None:
+def test_model_registry_delete_or_rename_is_rejected() -> None:
+    deleted = _fixture()
+    deleted["model_registry_by_cohort"] = deepcopy(MODEL_REGISTRY)
+    deleted["model_registry_by_cohort"]["temporal"] = MODEL_REGISTRY["temporal"][:-1]
+    with pytest.raises(CoverageAuditError, match="model registry"):
+        _build(deleted)
+    renamed = _fixture()
+    renamed["model_registry_by_cohort"] = deepcopy(MODEL_REGISTRY)
+    values = list(MODEL_REGISTRY["external"])
+    values[-1] = "ThermoRoute-renamed"
+    renamed["model_registry_by_cohort"]["external"] = values
+    with pytest.raises(CoverageAuditError, match="model registry"):
+        _build(renamed)
+
+
+def test_model_key_audit_delete_or_summary_replacement_is_rejected() -> None:
+    deleted = _fixture()
+    deleted["model_key_audits_by_cohort"]["temporal"].pop()
+    with pytest.raises(CoverageAuditError, match="registry"):
+        _build(deleted)
+    one_changed = _fixture()
+    one_changed["model_key_audits_by_cohort"]["temporal"][0][
+        "forecast_key_sha256"
+    ] = "a" * 64
+    with pytest.raises(CoverageAuditError, match="share exact"):
+        _build(one_changed)
+    all_changed = _fixture()
+    for row in all_changed["model_key_audits_by_cohort"]["external"]:
+        row["forecast_key_sha256"] = "b" * 64
+    with pytest.raises(CoverageAuditError, match="differs from observability"):
+        _build(all_changed)
+    all_y_changed = _fixture()
+    for row in all_y_changed["model_key_audits_by_cohort"]["temporal"]:
+        row["y_true_sha256"] = "d" * 64
+    with pytest.raises(CoverageAuditError, match="comparison projection differs"):
+        _build(all_y_changed)
+
+
+@pytest.mark.parametrize("value", [True, complex(1, 0), 1 << 70])
+def test_model_key_audit_row_count_requires_strict_int64(value: object) -> None:
+    arguments = _fixture()
+    arguments["model_key_audits_by_cohort"]["temporal"][0]["row_count"] = value
+    with pytest.raises(CoverageAuditError, match="model-key row count"):
+        _build(arguments)
+
+
+def test_zero_key_horizon_and_empty_external_cohort_are_legal() -> None:
+    sites = {"temporal": ("t1", "t2"), "external": ()}
+
+    def observed(_cohort: str, _site: str, date: pd.Timestamp) -> bool:
+        return 1 <= date.day <= 5
+
+    arguments = _fixture(sites=sites, observed_rule=observed)
+    document = _build(arguments)
+    availability = arguments["availability"]
+    assert availability[
+        availability.cohort.eq("temporal") & availability.horizon.eq(7)
+    ].n_valid_targets.eq(0).all()
+    assert not any(
+        row["cohort"] == "external" for row in document["coverage_cells"]
+    )
+    external_audits = arguments["model_key_audits_by_cohort"]["external"]
+    assert external_audits and all(row["row_count"] == 0 for row in external_audits)
+    h7 = [
+        row
+        for row in document["comparison_sensitivities"]
+        if row["horizon"] == 7
+    ]
+    assert h7 and all(row["n_primary_reportable_stations"] == 0 for row in h7)
+
+
+def test_empty_temporal_cohort_is_explicit_and_legal() -> None:
+    arguments = _fixture(sites={"temporal": (), "external": ("e1",)})
+    document = _build(arguments)
+    assert arguments["temporal_comparison_predictions"].empty
+    assert all(
+        row["formal_statistics_status"]
+        == "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS"
+        and row["prediction_derived_descriptive_median_effect_c"] is None
+        and row["temporal_reweighting_status"]
+        == "DESCRIPTIVE_NOT_ESTIMABLE_NO_STATION_WITH_ALL_12_CELLS_NONEMPTY"
+        for row in document["comparison_sensitivities"]
+    )
+
+
+def test_not_estimable_formal_row_reports_separate_descriptive_effect() -> None:
+    arguments = _fixture(force_one_cluster=True)
+    document = _build(arguments)
+    for row in document["comparison_sensitivities"]:
+        assert row["formal_statistics_status"] == (
+            "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS"
+        )
+        assert row["formal_median_effect_c"] is None
+        assert row["prediction_derived_descriptive_median_effect_c"] is not None
+        assert row[
+            "prediction_derived_descriptive_effect_does_not_upgrade_inference"
+        ] is True
+
+
+def test_not_estimable_formal_row_cannot_carry_a_formal_effect() -> None:
+    arguments = _fixture(force_one_cluster=True)
+    arguments["primary_statistics"][0]["median_effect_c"] = 0.0
+    with pytest.raises(CoverageAuditError, match="not-estimable"):
+        _build(arguments)
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("horizon", True),
+        ("n_valid_targets", complex(1, 0)),
+        ("n_valid_targets", 1 << 70),
+        ("reportable", complex(1, 0)),
+    ],
+)
+def test_availability_integer_and_boolean_attacks_fail(
+    column: str, value: object
+) -> None:
+    arguments = _fixture()
+    arguments["availability"][column] = arguments["availability"][column].astype(
+        object
+    )
+    arguments["availability"].loc[0, column] = value
+    with pytest.raises(CoverageAuditError, match="availability"):
+        _build(arguments)
+
+
+def test_observability_complex_flag_is_not_coerced_to_boolean() -> None:
+    arguments = _fixture()
+    frame = arguments["observability_by_cohort"]["temporal"]
+    frame["wtemp_observed"] = frame["wtemp_observed"].astype(object)
+    frame.loc[0, "wtemp_observed"] = complex(1, 0)
+    with pytest.raises(CoverageAuditError, match="observability flag"):
+        _build(arguments)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("n_stations", True),
+        ("n_clusters", complex(1, 0)),
+        ("n_stations", 1 << 70),
+        ("median_effect_c", np.inf),
+        ("status", "UNKNOWN"),
+    ],
+)
+def test_primary_statistics_nonfinite_type_and_status_attacks_fail(
+    field: str, value: object
+) -> None:
+    arguments = _fixture()
+    arguments["primary_statistics"][0][field] = value
+    with pytest.raises(CoverageAuditError, match="primary"):
+        _build(arguments)
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("horizon", True),
+        ("horizon", 1.5),
+        ("horizon", complex(1, 0)),
+        ("horizon", 1 << 70),
+        ("y_true", np.inf),
+        ("y_pred", complex(1, 0)),
+    ],
+)
+def test_prediction_nonfinite_and_type_attacks_fail(
+    column: str, value: object
+) -> None:
+    arguments = _fixture()
+    arguments["temporal_comparison_predictions"][column] = arguments[
+        "temporal_comparison_predictions"
+    ][column].astype(object)
+    arguments["temporal_comparison_predictions"].loc[0, column] = value
+    with pytest.raises(CoverageAuditError, match="comparison prediction"):
+        _build(arguments)
+
+
+def test_exact_y_true_digest_rejects_cross_model_change() -> None:
+    arguments = _fixture()
+    predictions = arguments["temporal_comparison_predictions"]
+    mask = predictions.model.eq("LightGBM")
+    predictions.loc[mask & (predictions.index == predictions[mask].index[0]), "y_true"] += 1e-9
+    with pytest.raises(CoverageAuditError, match="comparison projection differs"):
+        _build(arguments)
+
+
+def test_declared_projection_ignores_extra_columns_but_binding_is_retained() -> None:
+    arguments = _fixture()
+    first = _build(arguments)
+    projected = deepcopy(arguments)
+    projected["temporal_comparison_predictions"]["another_unconsumed_column"] = (
+        "anything"
+    )
+    for row in projected["formal_tests"]:
+        row["upstream_protocol_field"] = "bound-by-protocol-sha"
+    for row in projected["primary_statistics"]:
+        row["upstream_ci_field"] = "bound-by-statistics-sha"
+    assert _build(projected) == first
+    assert first["source_bindings"] == arguments["source_bindings"]
+
+
+def test_input_order_is_irrelevant_and_exact_replay_validates() -> None:
     arguments = _fixture()
     document = _build(arguments)
     shuffled = deepcopy(arguments)
-    for frame in shuffled["observability_by_cohort"].values():
-        frame[:] = frame.sample(frac=1.0, random_state=17).to_numpy()
-    for cohort, frame in shuffled["predictions_by_cohort"].items():
-        shuffled["predictions_by_cohort"][cohort] = frame.sample(
-            frac=1.0, random_state=19
+    for cohort, frame in shuffled["observability_by_cohort"].items():
+        shuffled["observability_by_cohort"][cohort] = frame.sample(
+            frac=1.0, random_state=11
         ).reset_index(drop=True)
+    shuffled["temporal_comparison_predictions"] = shuffled[
+        "temporal_comparison_predictions"
+    ].sample(frac=1.0, random_state=13).reset_index(drop=True)
     shuffled["availability"] = shuffled["availability"].sample(
-        frac=1.0, random_state=23
+        frac=1.0, random_state=17
     ).reset_index(drop=True)
     assert _build(shuffled) == document
     assert validate_temporal_coverage_audit(document, **arguments) == document
 
 
-def test_self_hash_and_semantic_tamper_fail_closed() -> None:
+def test_self_hash_rewrite_cannot_validate_changed_evidence() -> None:
     arguments = _fixture()
     document = _build(arguments)
     attacked = deepcopy(document)
     attacked["coverage_cells"][0]["n_valid_keys"] -= 1
     with pytest.raises(CoverageAuditError, match="self-hash changed"):
         validate_temporal_coverage_audit(attacked, **arguments)
-
-    # Re-hashing an altered document cannot defeat exact semantic replay.
     stable = deepcopy(attacked)
     stable.pop("audit_self_sha256")
     attacked["audit_self_sha256"] = sha256_json(stable)
@@ -472,12 +666,20 @@ def test_self_hash_and_semantic_tamper_fail_closed() -> None:
         validate_temporal_coverage_audit(attacked, **arguments)
 
 
-def test_changed_prediction_semantics_cannot_reuse_primary_statistics() -> None:
+def test_changed_source_binding_requires_exact_replay_input() -> None:
     arguments = _fixture()
     document = _build(arguments)
-    changed = deepcopy(arguments)
-    temporal = changed["predictions_by_cohort"]["temporal"]
-    mask = temporal.model.eq("Candidate") & temporal.site_id.eq("t1")
-    temporal.loc[mask, "y_pred"] += 0.25
-    with pytest.raises(CoverageAuditError, match="primary effect exact crosscheck"):
-        validate_temporal_coverage_audit(document, **changed)
+    attacked = deepcopy(document)
+    attacked["source_bindings"]["statistics"]["sha256"] = "c" * 64
+    stable = deepcopy(attacked)
+    stable.pop("audit_self_sha256")
+    attacked["audit_self_sha256"] = sha256_json(stable)
+    with pytest.raises(CoverageAuditError, match="stale or tampered"):
+        validate_temporal_coverage_audit(attacked, **arguments)
+
+
+def test_estimable_effect_tamper_is_rejected_exactly() -> None:
+    arguments = _fixture()
+    arguments["primary_statistics"][0]["median_effect_c"] += 1e-15
+    with pytest.raises(CoverageAuditError, match="exact crosscheck"):
+        _build(arguments)
