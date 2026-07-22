@@ -178,6 +178,7 @@ ACQUISITION_ATTEMPT_RESULT_FORMAT = (
 ACQUISITION_ATTEMPT_INDEX_FORMAT = (
     "thermoroute.route-a-acquisition-attempt-index.v1"
 )
+POSTOPEN_CLAIM_DOCUMENT = "paper/ThermoRoute_paper.md"
 
 _FIXED_ENTRYPOINTS = {
     "orchestrator": "scripts/route_a_opening_orchestrator.py",
@@ -1334,8 +1335,8 @@ def _is_document_only_postopening_descendant(
 
     The authorization remains bound to the exact compute commit.  A later HEAD
     is accepted only after the canonical receipt exists and only when the
-    cumulative committed diff is additions/modifications under the frozen
-    manuscript whitelist.  Chronology validation separately rejects any
+    cumulative committed diff adds or modifies only the canonical Markdown
+    claim document.  Chronology validation separately rejects any
     post-model source/control or frozen-artifact touch, including reverted
     commits.
     """
@@ -1396,9 +1397,7 @@ def _is_document_only_postopening_descendant(
                 relative = fields[offset + 1].decode("utf-8", errors="strict")
             except UnicodeDecodeError:
                 return False
-            if status not in {"A", "M"} or not (
-                relative == "README.md" or relative.startswith("paper/")
-            ):
+            if status not in {"A", "M"} or relative != POSTOPEN_CLAIM_DOCUMENT:
                 return False
     return True
 

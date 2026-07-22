@@ -340,10 +340,10 @@ def test_completed_opening_allows_only_document_commit_descendant(tmp_path):
     receipt = tmp_path / receipt_relative
     receipt.parent.mkdir(parents=True)
     receipt.write_text("{}\n", encoding="utf-8")
-    paper = tmp_path / "paper" / "main.md"
+    paper = tmp_path / "paper" / "ThermoRoute_paper.md"
     paper.parent.mkdir()
     paper.write_text("results\n", encoding="utf-8")
-    git("add", "paper/main.md")
+    git("add", "paper/ThermoRoute_paper.md")
     git("commit", "-q", "-m", "manuscript")
     manuscript = git("rev-parse", "HEAD")
     authorization = {"state_paths": {"receipt": receipt_relative}}
@@ -374,6 +374,58 @@ def test_completed_opening_allows_only_document_commit_descendant(tmp_path):
         authorization,
         compute_commit=compute,
         current_commit=reverted,
+    )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "README.md",
+        "paper/agu_submission/ThermoRoute_WRR.tex",
+        "paper/ThermoRoute_paper.docx",
+        "paper/ThermoRoute_paper.pdf",
+        "paper/highlights.md",
+    ),
+)
+def test_completed_opening_rejects_every_noncanonical_document(
+    tmp_path, relative,
+):
+    def git(*arguments):
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=tmp_path,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.email", "fixture@example.test")
+    git("config", "user.name", "Fixture")
+    readme = tmp_path / "README.md"
+    readme.write_text("compute\n", encoding="utf-8")
+    git("add", "README.md")
+    git("commit", "-q", "-m", "compute")
+    compute = git("rev-parse", "HEAD")
+    receipt_relative = "outputs/confirmatory/route_a_fixture/opening_receipt_v1.json"
+    receipt = tmp_path / receipt_relative
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text("{}\n", encoding="utf-8")
+
+    document = tmp_path / relative
+    document.parent.mkdir(parents=True, exist_ok=True)
+    document.write_text("post-opening document\n", encoding="utf-8")
+    git("add", relative)
+    git("commit", "-q", "-m", "forbidden document")
+    current = git("rev-parse", "HEAD")
+    authorization = {"state_paths": {"receipt": receipt_relative}}
+    assert not opening_module._is_document_only_postopening_descendant(
+        tmp_path,
+        authorization,
+        compute_commit=compute,
+        current_commit=current,
     )
 
 
