@@ -42,6 +42,13 @@ from typing import Any, Iterable, Mapping
 
 
 SCHEMA_VERSION = "thermoroute.provenance-manifest.v2"
+STAGE09_PREDICTIONS_PATH = (
+    "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+)
+STAGE09_SCORES_PATH = "outputs/tables/usgs_scores.csv"
+STAGE09_PRIMARY_MODELS = (
+    "Persistence", "DampedPersistence", "Climatology", "LightGBM", "ThermoRoute",
+)
 
 # Files that can change model behaviour or interpretation.  The manifest itself
 # is deliberately excluded to avoid a self-hash cycle.
@@ -299,10 +306,10 @@ def _artifact_kind(rel: str) -> str:
 
 def _current_truth(root: Path) -> dict[str, str]:
     candidates = {
-        "usgs_predictions": "outputs/predictions/usgs_predictions_v2.parquet",
+        "usgs_predictions": STAGE09_PREDICTIONS_PATH,
         "usgs_panel": "data_usgs/panel_usgs_120v2.parquet",
         "usgs_registry": "data_usgs/station_registry_v1.csv",
-        "usgs_scores": "outputs/tables/usgs_scores_v2.csv",
+        "usgs_scores": STAGE09_SCORES_PATH,
         "legacy_three_site_predictions": "outputs/predictions/predictions.parquet",
         "legacy_three_site_scores": "outputs/tables/scores_all.csv",
     }
@@ -323,10 +330,16 @@ def _run_source_sha256(root: Path) -> str:
 
 
 def validate_usgs_current_truth(root: Path) -> None:
-    """Reject a legacy/mixed-generation v2 file before calling it current truth."""
-    prediction = root / "outputs" / "predictions" / "usgs_predictions_v2.parquet"
-    if not prediction.is_file():
+    """Reject a stale or mixed-generation Stage-9 canonical artifact pair."""
+    prediction = root / STAGE09_PREDICTIONS_PATH
+    scores = root / STAGE09_SCORES_PATH
+    if not prediction.is_file() and not scores.is_file():
         return
+    if not prediction.is_file() or not scores.is_file():
+        raise RuntimeError(
+            "USGS_CURRENT_TRUTH_STALE: canonical Stage-9 predictions/scores pair "
+            "is incomplete"
+        )
     sidecar = prediction.with_name(prediction.name + ".meta.json")
     if not sidecar.is_file():
         raise RuntimeError("USGS_CURRENT_TRUTH_STALE: prediction lineage sidecar is missing")
@@ -336,7 +349,7 @@ def validate_usgs_current_truth(root: Path) -> None:
         raise RuntimeError("USGS_CURRENT_TRUTH_STALE: invalid lineage JSON") from exc
     expected = {
         "schema_version": "thermoroute.artifact.v1",
-        "kind": "final_route_a_development_predictions",
+        "kind": "canonical_stage9_usgs_predictions",
         "content_schema": "thermoroute.predictions.v1",
         "artifact_sha256": sha256_file(prediction),
         "artifact_bytes": prediction.stat().st_size,
@@ -375,10 +388,7 @@ def validate_usgs_current_truth(root: Path) -> None:
         raise RuntimeError(
             "USGS_CURRENT_TRUTH_STALE: legacy or unknown station identifiers"
         )
-    primary = (
-        "Persistence", "DampedPersistence", "Climatology",
-        "LightGBM", "ThermoRoute", "LSTM",
-    )
+    primary = STAGE09_PRIMARY_MODELS
     test = frame[frame.split.eq("test") & frame.model.isin(primary)].copy()
     if set(test.model.astype(str)) != set(primary):
         raise RuntimeError("USGS_CURRENT_TRUTH_STALE: a primary model is absent")

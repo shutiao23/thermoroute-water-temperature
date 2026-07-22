@@ -181,8 +181,15 @@ def _stage09_fixture(root: Path) -> dict[str, Any]:
     report.parent.mkdir(parents=True)
     report.write_text(
         "# USGS large-sample experiment\n\n"
+        "| Air2stream-style a4/a8 (unofficial, non-primary) |\n\n"
         "## Random held-station warm-start diagnostic\n\n"
-        "## Module ablations\n\n"
+        "## Module ablations (single-seed functionality/intervention "
+        "diagnostic; seed0-vs-seed0)\n\n"
+        "Audit: every mandatory control is exact seed=0 and is paired with "
+        "ThermoRoute seed=0 on identical forecast keys and exact y_true. "
+        "Interpretation: not evidence of module necessity, causal mechanism, "
+        "or cross-seed stability.\n\n"
+        "| ThermoRoute | 0.7 | 0.8 | 0.9 |\n"
         + "\n".join(f"| {name} | 0.8 | 0.9 | 1.0 |" for name in MANDATORY_ABLATIONS)
         + "\n",
         encoding="utf-8",
@@ -296,7 +303,7 @@ def _stage09_fixture(root: Path) -> dict[str, Any]:
     }
 
 
-def test_thermoroute_ablation_summary_retains_target_date():
+def test_thermoroute_ensemble_summary_retains_target_date():
     issue = pd.Timestamp("2020-01-01")
     frame = pd.DataFrame([
         {
@@ -306,10 +313,77 @@ def test_thermoroute_ablation_summary_retains_target_date():
         }
         for seed in (0, 1)
     ])
-    summary = STAGE09.thermoroute_ablation_summary_frame(frame)
+    summary = STAGE09.thermoroute_ensemble_summary_frame(frame)
     assert "target_date" in summary.columns
     assert summary.loc[0, "y_pred"] == 0.5
     assert STAGE09.rmse_per_station(summary, 1) == {"site-a": 0.5}
+
+
+def _seed0_ablation_predictions() -> pd.DataFrame:
+    issue = pd.Timestamp("2020-01-01")
+    rows = []
+    for model in ("ThermoRoute", *MANDATORY_ABLATIONS):
+        seeds = (0, 1) if model == "ThermoRoute" else (0,)
+        for seed in seeds:
+            for offset in (0, 1):
+                rows.append({
+                    "model": model,
+                    "split": "test",
+                    "seed": seed,
+                    "site_id": f"site-{offset}",
+                    "horizon": 1,
+                    "issue_date": issue,
+                    "target_date": issue + pd.Timedelta(days=1),
+                    "y_true": 10.0 + offset,
+                    "y_pred": 9.0 + offset + seed,
+                })
+    return pd.DataFrame(rows)
+
+
+def test_seed0_ablation_diagnostic_is_paired_not_ensemble_mean():
+    frames = STAGE09.seed0_ablation_diagnostic_frames(
+        _seed0_ablation_predictions()
+    )
+    assert tuple(frames) == ("ThermoRoute", *MANDATORY_ABLATIONS)
+    assert set(frames["ThermoRoute"]["seed"]) == {0}
+    assert frames["ThermoRoute"]["y_pred"].tolist() == [9.0, 10.0]
+    assert all(set(frames[name]["seed"]) == {0} for name in MANDATORY_ABLATIONS)
+
+
+def test_seed0_ablation_diagnostic_rejects_nonzero_control_seed():
+    frame = _seed0_ablation_predictions()
+    control = MANDATORY_ABLATIONS[0]
+    frame.loc[frame["model"].eq(control), "seed"] = 1
+    with pytest.raises(ValueError, match=f"{control} must contain exact seed=0"):
+        STAGE09.seed0_ablation_diagnostic_frames(frame)
+
+
+def test_seed0_ablation_diagnostic_rejects_different_control_keys():
+    frame = _seed0_ablation_predictions()
+    control = MANDATORY_ABLATIONS[1]
+    row = frame.index[frame["model"].eq(control)][0]
+    frame.loc[row, "target_date"] += pd.Timedelta(days=1)
+    with pytest.raises(ValueError, match=f"{control} seed=0 forecast keys differ"):
+        STAGE09.seed0_ablation_diagnostic_frames(frame)
+
+
+def test_seed0_ablation_diagnostic_rejects_different_y_true():
+    frame = _seed0_ablation_predictions()
+    control = MANDATORY_ABLATIONS[2]
+    row = frame.index[frame["model"].eq(control)][0]
+    frame.loc[row, "y_true"] += 0.25
+    with pytest.raises(ValueError, match=f"{control} seed=0 y_true differs"):
+        STAGE09.seed0_ablation_diagnostic_frames(frame)
+
+
+def test_air2stream_display_is_explicitly_unofficial_and_non_primary():
+    assert STAGE09.AIR2STREAM_DISPLAY_NAME == (
+        "Air2stream-style a4/a8 (unofficial, non-primary)"
+    )
+    source = (ROOT / "scripts" / "09_usgs_experiment.py").read_text(
+        encoding="utf-8"
+    )
+    assert "help=f\"add {AIR2STREAM_DISPLAY_NAME}" in source
 
 
 def test_report_failure_does_not_publish_formal_pointer_or_receipt(tmp_path):
@@ -409,6 +483,38 @@ def test_semantic_validation_failure_does_not_replace_completion_receipt(tmp_pat
     _rehash_receipt(document)
 
     with pytest.raises(ModelSuiteError, match="report is incomplete"):
+        publish_stage09_completion_receipt(
+            fixture["receipt"],
+            document,
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+        )
+    assert fixture["receipt"].read_bytes() == before
+
+
+def test_stage09_receipt_rejects_old_ensemble_vs_single_seed_ablation_report(
+    tmp_path,
+):
+    fixture = _stage09_fixture(tmp_path)
+    before = fixture["receipt"].read_bytes()
+    document = json.loads(before)
+    report_text = fixture["report"].read_text(encoding="utf-8")
+    report_text = report_text.replace(
+        "## Module ablations (single-seed functionality/intervention "
+        "diagnostic; seed0-vs-seed0)",
+        "## Module ablations (median per-station RMSE)",
+    ).replace(
+        "Audit: every mandatory control is exact seed=0 and is paired with "
+        "ThermoRoute seed=0 on identical forecast keys and exact y_true. "
+        "Interpretation: not evidence of module necessity, causal mechanism, "
+        "or cross-seed stability.\n\n",
+        "",
+    )
+    fixture["report"].write_text(report_text, encoding="utf-8")
+    document["artifacts"]["report"] = file_binding(tmp_path, fixture["report"])
+    _rehash_receipt(document)
+
+    with pytest.raises(ModelSuiteError, match="seed0 ablation diagnostic contract"):
         publish_stage09_completion_receipt(
             fixture["receipt"],
             document,

@@ -108,6 +108,7 @@ import torch
 torch.set_num_threads(1)
 
 from thermoroute import config as C
+from thermoroute.chronology import STAGE09_ARTIFACT_PATHS
 from thermoroute import data as D
 from thermoroute.probability import (
     fit_frozen_seasonal_event_reference,
@@ -165,6 +166,7 @@ from thermoroute.repro import (
     sidecar_path,
 )
 from thermoroute.registry import (
+    FORECAST_KEY,
     STAGE9_PRIMARY_MODELS,
     enforce_common_forecast_keys,
     restrict_tabular_to_window_registry,
@@ -182,6 +184,7 @@ configure_deterministic_runtime()
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")  # +gridMET wind
 CFG = C.TrainConfig(batch_size=1536)         # larger batch ⇒ fewer steps on 100k+ samples
 DELTA_SCALE = C.DELTA_SCALE   # single source (config.py); val-selected (11_retune)
+AIR2STREAM_DISPLAY_NAME = "Air2stream-style a4/a8 (unofficial, non-primary)"
 LGB_VALIDATION_GRID = (
     {"num_leaves": 15, "min_child_samples": 40, "learning_rate": 0.03},
     {"num_leaves": 31, "min_child_samples": 40, "learning_rate": 0.03},
@@ -207,6 +210,93 @@ def formal_publication_candidate(
     )
 
 
+def seed0_ablation_diagnostic_frames(
+    frame: pd.DataFrame,
+    *,
+    controls: tuple[str, ...] = MANDATORY_ABLATIONS,
+    split: str = "test",
+) -> dict[str, pd.DataFrame]:
+    """Return strictly paired seed-0 frames for the Stage-9 diagnostic table.
+
+    The formal Stage-9 controls are deliberately single-member interventions.
+    Their descriptive table must therefore compare each control with the same
+    ThermoRoute member, never with the five-member headline ensemble.  Refuse
+    publication unless every control contains seed 0 only and its exact
+    forecast-key registry and serialized target values equal ThermoRoute seed 0.
+    """
+    required = {"model", "split", "seed", "y_true", "y_pred", *FORECAST_KEY}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise ValueError(
+            f"seed0 ablation diagnostic lacks required columns: {missing}"
+        )
+
+    normal = frame.copy()
+    normal["issue_date"] = pd.to_datetime(normal["issue_date"])
+    normal["target_date"] = pd.to_datetime(normal["target_date"])
+    test_rows = normal[normal["split"].eq(split)]
+
+    full_rows = test_rows[test_rows["model"].eq("ThermoRoute")]
+    full_seeds = pd.to_numeric(full_rows["seed"], errors="coerce")
+    full = full_rows.loc[full_seeds.eq(0)].copy()
+    if full.empty:
+        raise ValueError(f"ThermoRoute seed=0 is absent from split={split!r}")
+    if full.duplicated(list(FORECAST_KEY)).any():
+        raise ValueError("ThermoRoute seed=0 has duplicate forecast keys")
+
+    key_columns = list(FORECAST_KEY)
+    full_keys = set(full[key_columns].itertuples(index=False, name=None))
+    if not full_keys:
+        raise ValueError("ThermoRoute seed=0 has no forecast keys")
+    result = {"ThermoRoute": full.reset_index(drop=True)}
+
+    for name in controls:
+        all_control = normal[normal["model"].eq(name)]
+        seeds = pd.to_numeric(all_control["seed"], errors="coerce")
+        if (
+            all_control.empty
+            or seeds.isna().any()
+            or not seeds.eq(0).all()
+        ):
+            raise ValueError(f"{name} must contain exact seed=0 rows only")
+        control = all_control[all_control["split"].eq(split)].copy()
+        if control.empty:
+            raise ValueError(f"{name} is absent from split={split!r}")
+        if control.duplicated(key_columns).any():
+            raise ValueError(f"{name} seed=0 has duplicate forecast keys")
+        control_keys = set(
+            control[key_columns].itertuples(index=False, name=None)
+        )
+        if control_keys != full_keys:
+            raise ValueError(
+                f"{name} seed=0 forecast keys differ from ThermoRoute seed=0"
+            )
+        aligned = full[key_columns + ["y_true"]].merge(
+            control[key_columns + ["y_true"]],
+            on=key_columns,
+            how="inner",
+            validate="one_to_one",
+            suffixes=("_thermoroute", "_control"),
+        )
+        full_truth = pd.to_numeric(
+            aligned["y_true_thermoroute"], errors="coerce"
+        ).to_numpy(dtype=np.float64)
+        control_truth = pd.to_numeric(
+            aligned["y_true_control"], errors="coerce"
+        ).to_numpy(dtype=np.float64)
+        if (
+            len(aligned) != len(full_keys)
+            or not np.isfinite(full_truth).all()
+            or not np.isfinite(control_truth).all()
+            or not np.array_equal(full_truth, control_truth)
+        ):
+            raise ValueError(
+                f"{name} seed=0 y_true differs from ThermoRoute seed=0"
+            )
+        result[name] = control.reset_index(drop=True)
+    return result
+
+
 def rmse_per_station(frame: pd.DataFrame, horizon: int) -> dict[str, float]:
     """Collapse seed rows on exact forecast keys before station-level RMSE."""
     required = {
@@ -224,8 +314,8 @@ def rmse_per_station(frame: pd.DataFrame, horizon: int) -> dict[str, float]:
     }
 
 
-def thermoroute_ablation_summary_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """Seed-mean ThermoRoute predictions retaining the complete forecast key."""
+def thermoroute_ensemble_summary_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Seed-mean headline predictions retaining the complete forecast key."""
     return frame.groupby(
         ["site_id", "horizon", "issue_date", "target_date"], as_index=False
     ).agg(y_pred=("y_pred", "mean"), y_true=("y_true", "first"))
@@ -684,10 +774,17 @@ def main():
                     help="equal-station bootstrap (main protocol) or natural row-frequency sensitivity")
     ap.add_argument("--ablations", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--air2stream", action="store_true", default=False,
-                    help="add air2stream-variant a4+a8 physical reference baselines (slower)")
-    ap.add_argument("--out_predictions", default="usgs_predictions_stage9_v2.parquet")
-    ap.add_argument("--out_report", default="usgs_experiment.md")
-    ap.add_argument("--out_scores", default="usgs_scores.csv")
+                    help=f"add {AIR2STREAM_DISPLAY_NAME} physical references (slower)")
+    ap.add_argument(
+        "--out_predictions",
+        default=Path(STAGE09_ARTIFACT_PATHS["predictions"]).name,
+    )
+    ap.add_argument(
+        "--out_report", default=Path(STAGE09_ARTIFACT_PATHS["report"]).name
+    )
+    ap.add_argument(
+        "--out_scores", default=Path(STAGE09_ARTIFACT_PATHS["scores"]).name
+    )
     ap.add_argument(
         "--shard-cache",
         help=(
@@ -806,7 +903,8 @@ def main():
             t = time.time()
             chunks.append(A2S.run_air2stream(panel_imp, masks, clim_air,
                                              stations=stations, variant=v))
-            log(f"  air2stream-{v}: {time.time() - t:.0f}s")
+            log(f"  Air2stream-style {v} (unofficial, non-primary): "
+                f"{time.time() - t:.0f}s")
     (lightgbm_predictions, lightgbm_selection, lightgbm_models,
      lightgbm_parity_inputs, lightgbm_evaluation_design,
      lightgbm_design_order) = lightgbm_joint(
@@ -996,6 +1094,9 @@ def main():
     )
     log(f"sample registry: {audit.common_unique} exact keys across {audit.models}; "
         f"dropped {audit.dropped_rows} non-shared rows (before={audit.before_unique})")
+    seed0_diagnostic = (
+        seed0_ablation_diagnostic_frames(allp) if args.ablations else {}
+    )
 
     output_predictions = C.PREDICTIONS / args.out_predictions
     write_prediction_artifact(
@@ -1210,7 +1311,7 @@ def main():
         rp = rmse_per_station(base["Persistence"], h)
         rd = rmse_per_station(base["DampedPersistence"], h)
         # ThermoRoute seed-mean on the complete forecast key.
-        tm = thermoroute_ablation_summary_frame(
+        tm = thermoroute_ensemble_summary_frame(
             tr_test[tr_test.horizon == h]
         )
         rt = {s: float(np.sqrt(((g.y_pred - g.y_true) ** 2).mean()))
@@ -1228,17 +1329,21 @@ def main():
          "LightGBM is also a five-seed mean and receives stable site identity as a "
          "categorical feature; its small "
          "predeclared grid is selected by 2016–2017 station-macro RMSE only._\n",
-         "| horizon | persist | damped | air2stream-a8 | LightGBM | ThermoRoute | "
+         f"| horizon | persist | damped | {AIR2STREAM_DISPLAY_NAME} | "
+         "LightGBM | ThermoRoute | "
          "skill vs persist | skill vs damped | win-rate vs damped |",
          "|---|---|---|---|---|---|---|---|---|"]
     lg = allp[(allp.model == "LightGBM") & (allp.split == "test")]
+    a2s_a4 = allp[(allp.model == "Air2stream-a4") & (allp.split == "test")]
     a2s_a8 = allp[(allp.model == "Air2stream-a8") & (allp.split == "test")]
     for h in wd.horizons:
         d = sc[sc.horizon == h]
         rl = rmse_per_station(lg, h)
         ml = np.median([rl[s] for s in stations if s in rl])
-        ra = rmse_per_station(a2s_a8, h)
-        ma = np.median([ra[s] for s in stations if s in ra]) if ra else float("nan")
+        ra4 = rmse_per_station(a2s_a4, h)
+        ra8 = rmse_per_station(a2s_a8, h)
+        ma4 = np.median([ra4[s] for s in stations if s in ra4]) if ra4 else float("nan")
+        ma8 = np.median([ra8[s] for s in stations if s in ra8]) if ra8 else float("nan")
         mp, md, mt = d.rmse_persist.median(), d.rmse_damped.median(), d.rmse_thermo.median()
         sk_p = 1 - (d.rmse_thermo / d.rmse_persist).median()
         sk_d = 1 - (d.rmse_thermo / d.rmse_damped).median()
@@ -1246,7 +1351,8 @@ def main():
         # models; stations with no test samples must not count as losses.
         dv = d.dropna(subset=["rmse_thermo", "rmse_damped"])
         win = float((dv.rmse_thermo < dv.rmse_damped).mean())
-        L.append(f"| {h} | {mp:.3f} | {md:.3f} | {ma:.3f} | {ml:.3f} | {mt:.3f} | "
+        L.append(f"| {h} | {mp:.3f} | {md:.3f} | {ma4:.3f} / {ma8:.3f} | "
+                 f"{ml:.3f} | {mt:.3f} | "
                  f"{sk_p:+.3f} | {sk_d:+.3f} | {win:.2f} |")
     # leave-group-out
     lgo = allp[(allp.model == "ThermoRoute-LGO-WarmStart") & (allp.split == "test")]
@@ -1264,17 +1370,19 @@ def main():
         L.append(f"| {h} | {rt:.3f} | {rp:.3f} | {1-rt/rp:+.3f} |")
 
     # ---- ablation summary (median per-station RMSE) --------------------- #
-    abl_models = ["ThermoRoute", "TR-noDynamicPrior", "TR-fixedKappa",
-                  "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded",
-                  "DampedPriorOnly"]
-    L += ["", f"## Module ablations (median per-station RMSE, delta_scale={args.delta_scale})\n",
+    abl_models = ("ThermoRoute", *MANDATORY_ABLATIONS)
+    L += ["", f"## Module ablations (single-seed functionality/intervention "
+          f"diagnostic; seed0-vs-seed0; median per-station RMSE, "
+          f"delta_scale={args.delta_scale})\n",
+          "Audit: every mandatory control is exact seed=0 and is paired with "
+          "ThermoRoute seed=0 on identical forecast keys and exact y_true. "
+          "Interpretation: this is a single-seed functionality/intervention "
+          "diagnostic, seed0-vs-seed0; not evidence of module necessity, causal "
+          "mechanism, or cross-seed stability.\n",
           "| variant | h1 | h3 | h7 |", "|---|---|---|---|"]
     for m in abl_models:
-        if m == "ThermoRoute":
-            sub = thermoroute_ablation_summary_frame(tr_test)
-        else:
-            sub = allp[(allp.model == m) & (allp.split == "test")]
-        if sub.empty:
+        sub = seed0_diagnostic.get(m)
+        if sub is None:
             continue
         meds = []
         for h in wd.horizons:

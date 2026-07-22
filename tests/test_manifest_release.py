@@ -1923,11 +1923,19 @@ def test_git_path_lifetime_walk_sees_add_delete_on_merged_side_branch(tmp_path):
     }
 
 
-def test_manifest_refuses_unsealed_legacy_usgs_current_truth(tmp_path):
+def test_manifest_refuses_unsealed_canonical_stage09_current_truth(tmp_path):
     manifest_path = _write_fixture(tmp_path)
-    legacy = tmp_path / "outputs" / "predictions" / "usgs_predictions_v2.parquet"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_bytes(b"legacy-unsealed-bytes")
+    prediction = (
+        tmp_path
+        / "outputs"
+        / "predictions"
+        / "usgs_predictions_stage9_v2.parquet"
+    )
+    prediction.parent.mkdir(parents=True)
+    prediction.write_bytes(b"unsealed-stage09-bytes")
+    scores = tmp_path / "outputs" / "tables" / "usgs_scores.csv"
+    scores.parent.mkdir(parents=True, exist_ok=True)
+    scores.write_text("horizon,site\n", encoding="utf-8")
     result = subprocess.run(
         _manifest_command(tmp_path, manifest_path),
         check=False,

@@ -59,9 +59,7 @@ echo "      using panel: ${USGS_PANEL}"
 # accepted receipt into the frozen suite identity.
 python3 scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --air2stream --seeds 5 \
     --device cpu \
-    --out_predictions usgs_predictions_stage9_v2.parquet \
-    --out_report usgs_experiment_v2.md \
-    --out_scores usgs_scores_v2.csv
+    --out_predictions usgs_predictions_stage9_v2.parquet
 echo "[9/27] matched-budget neural controls + exact 31-member feature ladder"
 # Stage 09b publishes its content-bound receipt only after all 31 member
 # predictions, their sidecars, the common-key audit, budget, combined

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -235,6 +236,37 @@ def test_shell_and_ci_entrypoints_are_part_of_source_identity(tmp_path):
         root=root, panel=panel, registry=registry, config={"seed": 1}
     )
     assert third.run_id != second.run_id
+
+
+def test_stage09_run_all_manifest_and_chronology_paths_are_exactly_aligned():
+    manifest = _load_script_module(
+        ROOT / "scripts/14_manifest.py", "manifest_stage09_path_contract_test"
+    )
+    expected = chronology_module.STAGE09_ARTIFACT_PATHS
+    assert manifest.STAGE09_PREDICTIONS_PATH == expected["predictions"]
+    assert manifest.STAGE09_SCORES_PATH == expected["scores"]
+
+    run_all = (ROOT / "scripts" / "run_all.sh").read_text(encoding="utf-8")
+    logical_lines = run_all.replace("\\\n", " ").splitlines()
+    command = next(
+        line.strip()
+        for line in logical_lines
+        if line.strip().startswith("python3 scripts/09_usgs_experiment.py ")
+    )
+    arguments = shlex.split(command)
+    assert "--out_report" not in arguments
+    assert "--out_scores" not in arguments
+    prediction_option = arguments.index("--out_predictions")
+    assert arguments[prediction_option + 1] == Path(expected["predictions"]).name
+
+    stage09_source = (ROOT / "scripts" / "09_usgs_experiment.py").read_text(
+        encoding="utf-8"
+    )
+    for label in ("predictions", "report", "scores"):
+        assert (
+            f'default=Path(STAGE09_ARTIFACT_PATHS["{label}"]).name'
+            in stage09_source
+        )
 
 
 def test_hashed_transitive_lock_is_part_of_source_identity(tmp_path):

@@ -1685,10 +1685,32 @@ def _validate_stage09_report_outputs(
         "# USGS large-sample experiment",
         "## Random held-station warm-start diagnostic",
         "## Module ablations",
+        "Air2stream-style a4/a8 (unofficial, non-primary)",
+        "| ThermoRoute |",
         *(f"| {name} |" for name in MANDATORY_ABLATIONS),
     }
     if any(fragment not in report_text for fragment in required_report_fragments):
         raise ModelSuiteError("Stage-9 report is incomplete")
+    module_section = report_text.partition("## Module ablations")[2].split(
+        "\n## ", maxsplit=1
+    )[0]
+    required_ablation_contract = {
+        "single-seed functionality/intervention diagnostic",
+        "seed0-vs-seed0",
+        "every mandatory control is exact seed=0",
+        "identical forecast keys and exact y_true",
+        (
+            "not evidence of module necessity, causal mechanism, or "
+            "cross-seed stability"
+        ),
+    }
+    if any(
+        fragment not in module_section
+        for fragment in required_ablation_contract
+    ):
+        raise ModelSuiteError(
+            "Stage-9 report lacks the mandatory seed0 ablation diagnostic contract"
+        )
     try:
         score_frame = pd.read_csv(scores)
         selection_frame = pd.read_csv(lightgbm_selection)
