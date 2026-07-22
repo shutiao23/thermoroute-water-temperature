@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import csv
 import importlib.util
 import hashlib
-import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -12,6 +10,7 @@ import subprocess
 import sys
 import zipfile
 
+import pandas as pd
 import pytest
 
 
@@ -77,6 +76,31 @@ def _chronology_binding(verifier, root: Path, relative: str) -> dict[str, object
     }
 
 
+def _fixture_confirmatory_family() -> list[dict[str, object]]:
+    specifications = (
+        ("H1-h1-vs-damped", "DampedPersistence", 1, 0.0, 1001, 5001),
+        ("H1-h3-vs-damped", "DampedPersistence", 3, 0.0, 1003, 5003),
+        ("H1-h7-vs-damped", "DampedPersistence", 7, 0.0, 1007, 5007),
+        ("H2-h3-vs-lightgbm", "LightGBM", 3, 0.05, 1103, 5103),
+        ("H2-h7-vs-lightgbm", "LightGBM", 7, 0.05, 1107, 5107),
+    )
+    return [
+        {
+            "test_id": test_id,
+            "candidate": "ThermoRoute",
+            "reference": reference,
+            "horizon": horizon,
+            "margin_c": margin,
+            "alternative": "candidate_minus_reference_below_margin",
+            "bootstrap_seed": bootstrap_seed,
+            "sign_flip_seed": sign_flip_seed,
+            "description": f"fixture comparison {test_id}",
+        }
+        for test_id, reference, horizon, margin, bootstrap_seed, sign_flip_seed
+        in specifications
+    ]
+
+
 def _minimal_canonical_release(verifier, root: Path) -> None:
     _write_bytes(
         root,
@@ -103,6 +127,16 @@ def _write_protocol_seal_fixture(
         json.dumps({
             "protocol_id": "route-a-confirmatory-v1",
             "authoritative_protocol_commit": original_commit,
+            "primary_inference_contract": {
+                "confirmatory_family": _fixture_confirmatory_family()
+            },
+            "availability_contract": {
+                "minimum_valid_targets_per_station_horizon": 2
+            },
+            "time_holdout": {
+                "primary_target_start": "2021-01-01",
+                "end": "2021-12-31",
+            },
         }, sort_keys=True).encode() + b"\n",
     )
     markdown = _write_bytes(
@@ -193,6 +227,11 @@ def _materialize_claim_fixture(verifier, stage: Path, profile: str) -> None:
 
 def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]:
     _minimal_canonical_release(verifier, root)
+    _write_bytes(
+        root,
+        "data_usgs/station_registry_v1.csv",
+        b"site_no,huc2\n01073319,01\n",
+    )
     _write_bytes(root, "requirements-lock.txt", b"numpy==1.0\n")
     _write_protocol_seal_fixture(verifier, root)
     _write_bytes(root, "data_usgs/external.csv")
@@ -203,12 +242,97 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(root, "data_usgs/candidate-raw/response.rdb")
     _write_bytes(root, "src/thermoroute/opening.py", b"# fixed\n")
     _write_bytes(root, "src/thermoroute/chronology.py", b"# chronology gate\n")
+    for relative in (
+        "src/thermoroute/outcome_qc.py",
+        "src/thermoroute/repro.py",
+    ):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
     _write_bytes(
         root, "scripts/28_freeze_prelabel_chronology.py", b"# chronology gate\n"
     )
     _write_bytes(root, "tests/test_chronology.py", b"# chronology gate\n")
     _write_bytes(root, "scripts/route_a_trusted_scorer.py", b"# fixed\n")
     _write_claim_fixture_files(root)
+
+    protocol_binding = _binding(
+        verifier, root, "protocols/route_a_confirmatory_v1.json"
+    )
+    protocol_seal_binding = _binding(verifier, root, verifier.PROTOCOL_SEAL_PATH)
+    family = _fixture_confirmatory_family()
+    family_sha256 = verifier._sha256_json(family)
+    outcome_qc_policy_path = "protocols/route_a_outcome_qc_policy_v1.json"
+    outcome_qc_policy = json.loads(
+        (ROOT / outcome_qc_policy_path).read_text(encoding="utf-8")
+    )
+    outcome_qc_policy["base_protocol"] = protocol_binding
+    outcome_qc_policy["confirmatory_family_sha256"] = family_sha256
+    _write_bytes(
+        root, outcome_qc_policy_path, json.dumps(outcome_qc_policy).encode()
+    )
+    amendment_path = "protocols/route_a_inference_amendment_v1.json"
+    policy_overlay = {
+        **_binding(verifier, root, outcome_qc_policy_path),
+        "required": True,
+        "role": verifier.OUTCOME_QC_AMENDMENT_ROLE,
+    }
+    amendment = {
+        "format": "thermoroute.route-a-inference-amendment.v1",
+        "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+        "amendment_id": "route-a-prelabel-inference-scope-014",
+        "recorded_date": "2026-07-22",
+        "post_2020_wtemp_requested_or_inspected": False,
+        "outcome_independent": True,
+        "base_protocol": protocol_binding,
+        "base_protocol_seal": protocol_seal_binding,
+        "scientific_comparisons": {
+            "count": 5,
+            "confirmatory_family_sha256": family_sha256,
+            "objects": family,
+            "change_allowed": False,
+        },
+        "estimand_scope": {"fixture": "fixed cohort"},
+        "inference_scope": {"fixture": "assumption conditional"},
+        "decision_overlay": {
+            "gate_artifact": "outputs/prelabel/route_a_inference_gate_v1.json",
+            "all_gate_components_must_pass": True,
+            "missing_unknown_or_not_run_is_failure": True,
+            "gate_failure_verdict": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
+            "supported_claim_allowed_when_gate_fails": False,
+            "strong_p_value_or_favorable_interval_cannot_override_gate": True,
+            "all_five_comparisons_must_still_be_rendered_exactly_once": True,
+        },
+        "additional_preopen_gates": {"outcome_qc_policy": policy_overlay},
+        "lineage_contract": {
+            "base_v1_files_remain_immutable": True,
+            "separate_amendment_seal_required": True,
+            "seal_path": "protocols/route_a_inference_amendment_seal_v1.json",
+            "amendment_commit_must_precede_seal_commit": True,
+        },
+    }
+    _write_bytes(root, amendment_path, json.dumps(amendment).encode())
+    amendment_commit = "7" * 40
+    amendment_seal_path = "protocols/route_a_inference_amendment_seal_v1.json"
+    amendment_seal = {
+        "format": "thermoroute.route-a-inference-amendment-seal.v1",
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "amendment_id": amendment["amendment_id"],
+        "amendment": _binding(verifier, root, amendment_path),
+        "base_protocol_seal": protocol_seal_binding,
+        "final_prelabel_commit": amendment_commit,
+        "history_contract": {
+            "base_protocol_commit_must_be_ancestor": True,
+            "amendment_blob_must_match_commit": True,
+            "amendment_commit_must_be_ancestor_of_authorization": True,
+            "seal_is_created_only_after_amendment_commit": True,
+        },
+        "prelabel_attestation": {
+            "post_2020_wtemp_requested_or_inspected": False,
+            "outcome_independent": True,
+        },
+    }
+    _write_bytes(root, amendment_seal_path, json.dumps(amendment_seal).encode())
 
     model_entries: dict[str, list[dict[str, object]]] = {}
     builtins = {"Persistence", "DampedPersistence", "Climatology"}
@@ -234,6 +358,103 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         if verifier._matches_source_inventory(relative)
     }
     source_sha256 = verifier._sha256_json(source_inventory)
+    inference_policy = {
+        "estimand_scope": {
+            "fixed_cohort": "fixture fixed cohort",
+            "superpopulation": "assumption conditional only",
+        },
+        "cluster_thresholds": {
+            "minimum_clusters": 30,
+            "minimum_effective_cluster_fraction": 0.75,
+            "maximum_largest_cluster_share_exclusive": 0.25,
+        },
+        "structural_assumptions": [
+            {
+                "assumption_id": "INDEPENDENT_EXCHANGEABLE_HUC2_SAMPLING",
+                "status": "NOT_ESTABLISHED",
+            },
+            {
+                "assumption_id": "JOINT_CLUSTER_VECTOR_SIGN_SYMMETRY",
+                "status": "NOT_ESTABLISHED",
+            },
+        ],
+        "null_simulation": {
+            "role": "FALSIFICATION_ONLY_NEVER_ESTABLISHES_STRUCTURAL_ASSUMPTIONS",
+            "required_before_inferential_claims": True,
+            "synthetic_boundary_null_only": True,
+            "post_2020_outcomes_allowed": False,
+            "caller_supplied_effects_allowed": False,
+            "network_allowed": False,
+            "scenarios": ["fixture"],
+        },
+        "decision": {
+            "all_components_must_pass": True,
+            "missing_unknown_or_not_run_is_failure": True,
+            "failed_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
+            "failed_verdict": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
+        },
+    }
+    gate_path = "outputs/prelabel/route_a_inference_gate_v1.json"
+    registry_path = root / "data_usgs/station_registry_v1.csv"
+    gate_geometry = verifier._independent_station_geometry(registry_path)
+    threshold_failures = [
+        "SMALL_CLUSTER_COUNT_LT_30",
+        "DOMINANT_CLUSTER_SHARE_GE_0_25",
+    ]
+    structural_failures = [
+        "INDEPENDENT_EXCHANGEABLE_HUC2_SAMPLING",
+        "JOINT_CLUSTER_VECTOR_SIGN_SYMMETRY",
+    ]
+    null_gate = {
+        **inference_policy["null_simulation"],
+        "status": "NOT_RUN_BLOCKED_BY_STRUCTURAL_OR_CLUSTER_GATE",
+        "pass": False,
+        "outcomes_read": False,
+        "network_used": False,
+    }
+    inference_gate = {
+        "format": "thermoroute.route-a-inference-gate.v1",
+        "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
+        "contains_confirmation_outcomes": False,
+        "post_2020_outcomes_requested_or_inspected": False,
+        "network_used": False,
+        "inputs": {
+            "base_protocol": protocol_binding,
+            "base_protocol_seal": protocol_seal_binding,
+            "station_registry": _binding(
+                verifier, root, "data_usgs/station_registry_v1.csv"
+            ),
+            "source": {
+                "source_tree_sha256": source_sha256,
+                "source_inventory": source_inventory,
+            },
+        },
+        "confirmatory_family": {
+            "count": 5,
+            "sha256": family_sha256,
+            "objects": family,
+            "candidate_reference_horizon_margin_unchanged": True,
+        },
+        "policy": inference_policy,
+        "policy_sha256": verifier._sha256_json(inference_policy),
+        "cluster_geometry": gate_geometry,
+        "cluster_gate": {"pass": False, "failure_codes": threshold_failures},
+        "structural_assumption_gate": {
+            "pass": False,
+            "failure_codes": structural_failures,
+        },
+        "null_simulation_gate": null_gate,
+        "claim_eligible": False,
+        "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
+        "blocking_reasons": [
+            *(f"STRUCTURAL_ASSUMPTION_NOT_ESTABLISHED:{value}"
+              for value in structural_failures),
+            *threshold_failures,
+            "NULL_SIMULATION_NOT_PASSING",
+        ],
+    }
+    inference_gate["gate_self_sha256"] = verifier._sha256_json(inference_gate)
+    _write_bytes(root, gate_path, json.dumps(inference_gate).encode())
     bridge_dependencies = {
         "frozen": "data_usgs/development_predictor_bridge_v1/frozen.parquet",
         "refreshed": "data_usgs/development_predictor_bridge_v1/refreshed.parquet",
@@ -267,6 +488,20 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(root, bridge_path, json.dumps(bridge).encode())
 
     def write_preopening_gate_fixtures() -> dict[str, dict[str, str]]:
+        sys.path.insert(0, str(ROOT / "src"))
+        try:
+            from thermoroute.development_controls import (
+                architecture_budget_rows,
+                budget_csv_bytes,
+                declared_arms,
+                prediction_content_digest,
+                recompute_metric_summary,
+                render_report,
+                summary_csv_bytes,
+            )
+        finally:
+            sys.path.pop(0)
+
         identity = {
             "run_id": "stage09b-fixture",
             "panel_sha256": bridge["panel"]["sha256"],
@@ -277,8 +512,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "schema_version": "thermoroute.run.v1",
         }
         expected_members = verifier._stage09b_release_members()
+        matrix_audit = {
+            "expected_members": 31,
+            "prediction_rows": 31 * 9,
+            "common_forecast_keys": 9,
+            "splits": ["calib", "test", "val"],
+            "reference_member": "PlainMLP-7var/seed0",
+        }
         controls_config = {
             "stage": "09b_development_controls",
+            "format": "thermoroute.development-controls.v2",
             "training_device": "cpu",
             "panel_date_range": ["2006-01-01", "2020-12-31"],
             "blind_or_confirmatory": False,
@@ -293,10 +536,51 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "identity": identity,
             "resolved_config": controls_config,
         }).encode())
+        arm_features = {
+            "PlainMLP-7var": "all_7_variables",
+            "PlainCausalTCN-7var": "all_7_variables",
+            **{
+                f"ThermoRoute-ladder-{rung}": f"feature_ladder_{rung}"
+                for rung in (
+                    "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
+                    "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
+                )
+            },
+        }
         member_registry = []
+        member_frames = {}
         for arm_id, seed in expected_members:
             relative = f"outputs/runs/09b-fixture/members/{arm_id}/seed{seed}.parquet"
-            prediction = _write_bytes(root, relative, f"{arm_id}/{seed}\n".encode())
+            records = []
+            for split_index, split in enumerate(("val", "calib", "test")):
+                for horizon in (1, 3, 7):
+                    issue_date = pd.Timestamp("2017-01-01") + pd.Timedelta(
+                        days=split_index * 30 + horizon
+                    )
+                    truth = float(split_index + horizon / 10)
+                    prediction_value = truth + float(seed + 1) / 100
+                    records.append({
+                        "model": arm_id,
+                        "scope": "development_only_2006_2020",
+                        "feature_set": arm_features[arm_id],
+                        "seed": seed,
+                        "site_id": "01073319",
+                        "horizon": horizon,
+                        "split": split,
+                        "issue_date": issue_date,
+                        "target_date": issue_date + pd.Timedelta(days=horizon),
+                        "y_true": truth,
+                        "y_pred": prediction_value,
+                        "q05": prediction_value - 1.0,
+                        "q50": prediction_value,
+                        "q95": prediction_value + 1.0,
+                        "p_exceed": 0.25,
+                    })
+            frame = pd.DataFrame.from_records(records)
+            prediction = root / relative
+            prediction.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_parquet(prediction, index=False)
+            member_frames[(arm_id, seed)] = frame
             sidecar_relative = relative + ".meta.json"
             _write_bytes(root, sidecar_relative, json.dumps({
                 "kind": "development_control_arm_predictions",
@@ -319,44 +603,44 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         final_paths = {
             "predictions": "outputs/runs/09b-fixture/controls.parquet",
             "architecture_budget": "outputs/runs/09b-fixture/budget.csv",
+            "metric_summary": "outputs/runs/09b-fixture/metric_summary.csv",
             "report": "outputs/runs/09b-fixture/report.md",
+            "semantic_audit": "outputs/runs/09b-fixture/semantic_audit.json",
         }
-        _write_bytes(root, final_paths["predictions"], b"combined fixture\n")
-        parameters = {
-            "PlainMLP-7var": 38_545,
-            "PlainCausalTCN-7var": 38_031,
-            "ThermoRoute-ladder-01_WTEMP": 37_775,
-            "ThermoRoute-ladder-02_plus_FLOW": 37_896,
-            "ThermoRoute-ladder-03_plus_TEMP": 38_018,
-            "ThermoRoute-ladder-04_plus_PRCP": 38_139,
-            "ThermoRoute-ladder-05_plus_RHMEAN": 38_261,
-            "ThermoRoute-ladder-06_plus_DH": 38_383,
-            "ThermoRoute-ladder-07_plus_WDSP": 38_505,
-        }
-        budget_buffer = io.StringIO()
-        writer = csv.DictWriter(budget_buffer, fieldnames=(
-            "arm_id", "trainable_parameters", "training_device",
-            "historical_tuning_budget_equalized",
-        ))
-        writer.writeheader()
-        for arm_id, count in parameters.items():
-            writer.writerow({
-                "arm_id": arm_id,
-                "trainable_parameters": count,
-                "training_device": "cpu",
-                "historical_tuning_budget_equalized": False,
-            })
+        combined = pd.concat(
+            [member_frames[member] for member in expected_members], ignore_index=True
+        )
+        combined.to_parquet(root / final_paths["predictions"], index=False)
+        budget = architecture_budget_rows(
+            declared_arms(), n_stations=120, train_examples=9
+        )
         _write_bytes(
             root, final_paths["architecture_budget"],
-            budget_buffer.getvalue().encode(),
+            budget_csv_bytes(budget),
         )
-        _write_bytes(root, final_paths["report"], b"complete controls fixture\n")
+        summary = recompute_metric_summary(member_frames)
+        _write_bytes(
+            root, final_paths["metric_summary"], summary_csv_bytes(summary)
+        )
+        _write_bytes(
+            root,
+            final_paths["report"],
+            render_report(
+                run_id=identity["run_id"],
+                audit=matrix_audit,
+                budget=budget,
+                summary=summary,
+            ).encode("utf-8"),
+        )
         final_kinds = {
             "predictions": "development_controls_combined_predictions",
             "architecture_budget": "development_controls_budget",
+            "metric_summary": "development_controls_metric_summary",
             "report": "development_controls_report",
+            "semantic_audit": "development_controls_semantic_audit",
         }
-        for name, relative in final_paths.items():
+        for name in ("predictions", "architecture_budget", "metric_summary", "report"):
+            relative = final_paths[name]
             _write_bytes(root, relative + ".meta.json", json.dumps({
                 "kind": final_kinds[name],
                 "artifact_sha256": verifier.sha256_file(root / relative),
@@ -365,8 +649,87 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                     "expected_members": 31,
                     "development_only": True,
                     "blind_or_confirmatory": False,
+                    "evidence_scope": "prediction_artifact_closure",
+                    "training_replay_verified": False,
                 },
             }).encode())
+        semantic_members = []
+        for entry in member_registry:
+            prediction = root / entry["prediction"]["path"]
+            prediction_sidecar = root / entry["prediction_sidecar"]["path"]
+            semantic_members.append({
+                "arm_id": entry["arm_id"],
+                "seed": entry["seed"],
+                "prediction": {
+                    "sha256": verifier.sha256_file(prediction),
+                    "bytes": prediction.stat().st_size,
+                },
+                "prediction_sidecar": {
+                    "sha256": verifier.sha256_file(prediction_sidecar),
+                    "bytes": prediction_sidecar.stat().st_size,
+                },
+                "normalised_prediction_sha256": prediction_content_digest(
+                    member_frames[(entry["arm_id"], entry["seed"])]
+                    .sort_values(
+                        ["split", "site_id", "horizon", "issue_date", "target_date"],
+                        kind="mergesort",
+                    )
+                    .reset_index(drop=True)
+                ),
+            })
+        derived = {}
+        for label, name in (
+            ("architecture_budget", "architecture_budget"),
+            ("combined_predictions", "predictions"),
+            ("metric_summary", "metric_summary"),
+            ("report", "report"),
+        ):
+            artifact = root / final_paths[name]
+            sidecar = root / (final_paths[name] + ".meta.json")
+            derived[label] = {
+                "artifact": {
+                    "sha256": verifier.sha256_file(artifact),
+                    "bytes": artifact.stat().st_size,
+                },
+                "sidecar": {
+                    "sha256": verifier.sha256_file(sidecar),
+                    "bytes": sidecar.stat().st_size,
+                },
+            }
+        semantic = {
+            "format": "thermoroute.development-controls-semantic-audit.v1",
+            "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+            "run_id": identity["run_id"],
+            "evidence_scope": "prediction_artifact_closure",
+            "training_replay_verified": False,
+            "post_2020_outcomes_requested_or_read": False,
+            "matrix_audit": matrix_audit,
+            "canonical_window_registry": {
+                "sha256": "a" * 64,
+                "common_forecast_keys": 9,
+                "train_examples_per_epoch": 9,
+                "train_registry_sha256": "b" * 64,
+            },
+            "members": semantic_members,
+            "derived_artifacts": derived,
+        }
+        semantic["semantic_audit_self_sha256"] = verifier._sha256_json(semantic)
+        _write_bytes(
+            root, final_paths["semantic_audit"], json.dumps(semantic).encode()
+        )
+        semantic_relative = final_paths["semantic_audit"]
+        _write_bytes(root, semantic_relative + ".meta.json", json.dumps({
+            "kind": final_kinds["semantic_audit"],
+            "artifact_sha256": verifier.sha256_file(root / semantic_relative),
+            "run": identity,
+            "extra": {
+                "expected_members": 31,
+                "development_only": True,
+                "blind_or_confirmatory": False,
+                "evidence_scope": "prediction_artifact_closure",
+                "training_replay_verified": False,
+            },
+        }).encode())
         controls_artifacts = {
             "run_manifest": _binding(verifier, root, run_manifest_path),
             "frozen_panel_spec": _binding(
@@ -385,24 +748,26 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "architecture_budget_sidecar": _binding(
                 verifier, root, final_paths["architecture_budget"] + ".meta.json"
             ),
+            "metric_summary_sidecar": _binding(
+                verifier, root, final_paths["metric_summary"] + ".meta.json"
+            ),
             "report_sidecar": _binding(
                 verifier, root, final_paths["report"] + ".meta.json"
             ),
+            "semantic_audit_sidecar": _binding(
+                verifier, root, final_paths["semantic_audit"] + ".meta.json"
+            ),
         }
         controls = {
-            "format": "thermoroute.stage09b-completion-receipt.v1",
-            "status": "PASS_FORMAL_STAGE09B_CONTROLS_COMPLETE",
+            "format": "thermoroute.stage09b-completion-receipt.v2",
+            "status": "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
             "stage": "09b_development_controls",
             "run_id": identity["run_id"],
             "run_identity": identity,
             "formal_configuration": controls_config,
-            "matrix_audit": {
-                "expected_members": 31,
-                "prediction_rows": 31 * 9,
-                "common_forecast_keys": 9,
-                "splits": ["calib", "test", "val"],
-                "reference_member": "PlainMLP-7var/seed0",
-            },
+            "evidence_scope": "prediction_artifact_closure",
+            "training_replay_verified": False,
+            "matrix_audit": matrix_audit,
             "member_registry": member_registry,
             "artifacts": controls_artifacts,
             "post_2020_outcomes_requested_or_read": False,
@@ -566,8 +931,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             _chronology_binding(verifier, root, relative)
             for relative in (
                 "src/thermoroute/chronology.py",
+                "src/thermoroute/outcome_qc.py",
                 "scripts/28_freeze_prelabel_chronology.py",
                 "tests/test_chronology.py",
+                "protocols/route_a_outcome_qc_policy_v1.json",
             )
         ],
         "model_source_control_artifacts": [
@@ -640,6 +1007,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "acquisition_manifest": f"{base}/acquisition/acquisition_manifest_v1.json",
         "availability_registry": f"{base}/trusted/availability_registry_v1.csv",
         "outcome_quality_audit": f"{base}/trusted/outcome_quality_audit_v1.json",
+        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
         "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
         "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v1.json",
@@ -698,6 +1066,27 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "status": verifier.CHRONOLOGY_STATUS,
             "order": chronology_order,
             "evidence_scope": verifier.CHRONOLOGY_EVIDENCE_SCOPE,
+        },
+        "inference_amendment": {
+            **_binding(verifier, root, amendment_path),
+            "format": amendment["format"],
+            "amendment_id": amendment["amendment_id"],
+            "seal": _binding(verifier, root, amendment_seal_path),
+            "final_prelabel_commit": amendment_commit,
+        },
+        "inference_gate": {
+            **_binding(verifier, root, gate_path),
+            "format": inference_gate["format"],
+            "status": inference_gate["status"],
+            "claim_eligible": inference_gate["claim_eligible"],
+            "analysis_mode": inference_gate["analysis_mode"],
+            "policy_sha256": inference_gate["policy_sha256"],
+        },
+        "outcome_qc_policy": {
+            **_binding(verifier, root, outcome_qc_policy_path),
+            "format": outcome_qc_policy["format"],
+            "policy_id": outcome_qc_policy["policy_id"],
+            "required": True,
         },
         "actual_inputs": _binding(
             verifier, root, "data_usgs/confirmatory_actual_inputs_v1.json"
@@ -760,6 +1149,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "runtime_sha256": authorization["runtime"]["runtime_sha256"],
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
+        "same_opening_transport_resume_allowed": True,
         "trusted_validator": trusted_validator,
     }
     intent["intent_self_sha256"] = verifier._sha256_json(intent)
@@ -782,6 +1172,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "site_replacement_count": 0,
         "response_replacement_count": 0,
         "producer_role": "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS",
+        "transport_summary": {
+            "opening_count": 1,
+            "attempt_count": 1,
+            "resume_count": 0,
+            "completed_before_final_attempt_request_sha256": [],
+            "retrieval_span_utc": {
+                "first": "2026-01-01T00:00:00+00:00",
+                "last": "2026-01-01T00:00:00+00:00",
+            },
+        },
         "request_ledger": _binding(verifier, root, request_ledger),
         "transport_attempt_index": _binding(verifier, root, attempt_index),
         "raw_nwis_snapshot_index": _binding(verifier, root, raw_index),
@@ -796,15 +1196,85 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     )
     _write_bytes(root, state["availability_registry"])
     _write_bytes(root, state["outcome_quality_audit"], b"{}\n")
+    prediction_rows = []
+    models_by_horizon = {
+        1: ("ThermoRoute", "DampedPersistence"),
+        3: ("ThermoRoute", "DampedPersistence", "LightGBM"),
+        7: ("ThermoRoute", "DampedPersistence", "LightGBM"),
+    }
+    for horizon, models in models_by_horizon.items():
+        for offset in range(3):
+            issue = pd.Timestamp("2021-02-01") + pd.Timedelta(days=offset)
+            for model in models:
+                prediction_rows.append({
+                    "model": model,
+                    "site_id": "01073319",
+                    "horizon": horizon,
+                    "issue_date": issue,
+                    "target_date": issue + pd.Timedelta(days=horizon),
+                    "y_true": 10.0,
+                    "y_pred": 10.0 if model == "ThermoRoute" else 11.0,
+                })
+    outcome_predictions = pd.DataFrame.from_records(prediction_rows)
+    normalized_temporal = pd.DataFrame({
+        "site_no": ["01073319"] * 3,
+        "DATE": pd.date_range("2021-02-01", periods=3, freq="D"),
+        "WTEMP": [10.0, 11.0, 12.0],
+    })
+    spatial_sensitivity = {
+        "comparisons": [
+            {
+                "test_id": row["test_id"],
+                "station_weighted_median_effect_c": -1.0,
+                "leave_one_huc": [{
+                    "held_out_huc2": "01",
+                    "effect_minus_margin_c": -1.0 - float(row["margin_c"]),
+                }],
+            }
+            for row in family
+        ]
+    }
+    outcome_qc_module = verifier._load_canonical_outcome_qc_module(root)
+    outcome_qc_gate = outcome_qc_module.build_outcome_qc_gate_document(
+        root=root,
+        policy_path=root / outcome_qc_policy_path,
+        protocol=json.loads(
+            (root / "protocols/route_a_confirmatory_v1.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        temporal_predictions=outcome_predictions,
+        normalized_temporal=normalized_temporal,
+        spatial_sensitivity=spatial_sensitivity,
+        minimum_targets=2,
+    )
+    _write_bytes(
+        root, state["outcome_qc_gate"], json.dumps(outcome_qc_gate).encode()
+    )
     _write_bytes(root, state["approved_target_sensitivity"], b"{}\n")
     _write_bytes(root, state["spatial_sensitivity"], b"{}\n")
     _write_bytes(root, state["probabilistic_evaluation"], b"{}\n")
     _write_bytes(root, state["temporal_predictions"])
     _write_bytes(root, state["external_predictions"])
-    tests = [{"test_id": f"T{index}"} for index in range(1, 6)]
+    tests = [
+        {
+            "test_id": row["test_id"],
+            "status": "ESTIMABLE",
+            "reject_at_0_05": True,
+            "confidence_bound_supports_margin": True,
+        }
+        for row in family
+    ]
     (root / state["statistics"]).write_text(json.dumps({
         "format": verifier.STATISTICS_FORMAT,
         "tests": tests,
+        "outcome_qc_gate": {
+            **_binding(verifier, root, state["outcome_qc_gate"]),
+            "format": outcome_qc_gate["format"],
+            "status": outcome_qc_gate["status"],
+            "pass": True,
+            "directional_claims_allowed": True,
+        },
     }), encoding="utf-8")
     _write_bytes(root, state["report"], b"# trusted report\n")
     receipt_artifacts = {
@@ -815,6 +1285,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "external_normalized_outcomes": _binding(verifier, root, state["external_outcomes"]),
         "availability_registry": _binding(verifier, root, state["availability_registry"]),
         "outcome_quality_audit": _binding(verifier, root, state["outcome_quality_audit"]),
+        "outcome_qc_gate": _binding(verifier, root, state["outcome_qc_gate"]),
         "approved_target_sensitivity": _binding(
             verifier, root, state["approved_target_sensitivity"]
         ),
@@ -864,6 +1335,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "opening_count": 1,
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
+        "same_opening_transport_resume_allowed": True,
+        "transport_recovery": acquisition["transport_summary"],
         "all_predeclared_models_reported": True,
         "reported_models": {
             cohort: sorted(values)
@@ -887,6 +1360,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     representatives = {
         "canonical_development": "data_usgs/panel_usgs_120v2.parquet",
         "authorization": "protocols/route_a_confirmatory_v1.json",
+        "inference_gates": gate_path,
         "registries": "data_usgs/external.csv",
         "candidate_evidence": "data_usgs/candidates.csv",
         "model_suite": "data_usgs/confirmatory_model_suite_v1.json",
@@ -900,6 +1374,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "trusted_predictions": state["temporal_predictions"],
         "availability": state["availability_registry"],
         "sensitivity_audits": state["outcome_quality_audit"],
+        "outcome_qc": state["outcome_qc_gate"],
         "probabilistic_evaluation": state["probabilistic_evaluation"],
         "statistics": state["statistics"],
         "report": state["report"],
@@ -1215,6 +1690,9 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     )
     _materialize_claim_fixture(verifier, stage, verifier.PREOPEN_PROFILE)
     assert document["profile"] == "PREOPEN_NOT_COMPLETE"
+    assert document["confirmatory_scoring_completed"] is False
+    assert document["directional_claims_allowed"] is False
+    assert document["supported_test_ids"] == []
     assert document["supports_route_a_confirmatory_conclusions"] is False
     assert document["labels_included"] is False
     assert "cannot support" in document["warning"]
@@ -1234,7 +1712,9 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     labels.unlink()
 
 
-def test_postopen_profile_closes_every_required_category_and_missing_file_fails(tmp_path):
+def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
+    tmp_path, monkeypatch
+):
     verifier = _load_script(VERIFY_SCRIPT, "thermoroute_verify_postopen_profile_test")
     source, stage = tmp_path / "source", tmp_path / "stage"
     source.mkdir()
@@ -1248,10 +1728,49 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     )
     _materialize_claim_fixture(verifier, stage, verifier.POSTOPEN_PROFILE)
     assert document["profile"] == "ROUTE_A_OPENED_COMPLETE"
+    assert document["confirmatory_scoring_completed"] is True
+    assert document["directional_claims_allowed"] is False
+    assert document["inference_gate_claim_eligible"] is False
+    assert document[
+        "gross_plausibility_and_aggregate_sensitivity_gate_passed"
+    ] is True
+    assert document["supported_test_ids"] == []
+    assert document["supports_route_a_confirmatory_conclusions"] is False
     assert set(document["artifact_closure"]) == verifier.REQUIRED_POSTOPEN_CATEGORIES
+    replay_calls = []
+    monkeypatch.setattr(
+        verifier,
+        "_verify_git_history_evidence",
+        lambda *_args, **_kwargs: replay_calls.append("git"),
+    )
+    monkeypatch.setattr(
+        verifier,
+        "_verify_claim_audit",
+        lambda *_args, **kwargs: replay_calls.append(
+            f"claims:{kwargs['execute_validator']}"
+        ),
+    )
+    monkeypatch.setattr(
+        verifier,
+        "_run_trusted_replay",
+        lambda *_args, **_kwargs: replay_calls.append("trusted"),
+    )
     assert verifier.verify_release_profile(
-        stage, run_trusted_replay=False
+        stage, run_trusted_replay=True
     ) == verifier.POSTOPEN_PROFILE
+    assert replay_calls == ["git", "claims:True", "trusted"]
+    marker_path = stage / verifier.PROFILE_MARKER
+    marker_bytes = marker_path.read_bytes()
+    overstated = json.loads(marker_bytes)
+    overstated["supports_route_a_confirmatory_conclusions"] = True
+    overstated["directional_claims_allowed"] = True
+    overstated["supported_test_ids"] = [
+        _fixture_confirmatory_family()[0]["test_id"]
+    ]
+    marker_path.write_text(json.dumps(overstated), encoding="utf-8")
+    with pytest.raises(ValueError, match="claim status"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
 
     for category, relative in representatives.items():
         artifact = stage / relative
@@ -1267,6 +1786,133 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     with pytest.raises(ValueError, match="outside the authorization closure"):
         verifier.verify_release_profile(stage, run_trusted_replay=False)
     stale.unlink()
+
+
+def test_postopen_release_rejects_self_consistent_nested_outcome_gate_forgery(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_nested_outcome_gate_attack_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+
+    gate_path = source / state["outcome_qc_gate"]
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["single_extreme_influence"][0]["absolute_effect_change_c"] += 0.01
+    gate.pop("gate_self_sha256")
+    gate["gate_self_sha256"] = verifier._sha256_json(gate)
+    gate_path.write_text(json.dumps(gate), encoding="utf-8")
+
+    statistics_path = source / state["statistics"]
+    statistics = json.loads(statistics_path.read_text(encoding="utf-8"))
+    statistics["outcome_qc_gate"]["sha256"] = verifier.sha256_file(gate_path)
+    statistics_path.write_text(json.dumps(statistics), encoding="utf-8")
+
+    receipt_path = source / state["receipt"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    for label, path in (
+        ("outcome_qc_gate", gate_path),
+        ("statistics", statistics_path),
+    ):
+        digest = verifier.sha256_file(path)
+        receipt["artifacts"][label]["sha256"] = digest
+        receipt["release_bindings"]["artifacts"][label]["sha256"] = digest
+    receipt.pop("receipt_self_sha256")
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    receipt_digest = verifier.sha256_file(receipt_path)
+    (source / state["receipt_sha256"]).write_text(
+        f"{receipt_digest}  opening_receipt_v1.json\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="outcome-QC gate semantics changed"):
+        verifier.build_release_profile(
+            source,
+            verifier.POSTOPEN_PROFILE,
+            authorization_path=authorization_path,
+        )
+
+
+def test_postopen_release_distinguishes_transport_resume_from_second_opening(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_transport_completion_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    acquisition_path = source / state["acquisition_manifest"]
+    receipt_path = source / state["receipt"]
+
+    def publish_transport(summary: dict[str, object]) -> None:
+        acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
+        acquisition["transport_summary"] = summary
+        acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
+        acquisition_sha = verifier.sha256_file(acquisition_path)
+
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["transport_recovery"] = summary
+        receipt["artifacts"]["acquisition_manifest"]["sha256"] = acquisition_sha
+        receipt["release_bindings"]["artifacts"]["acquisition_manifest"][
+            "sha256"
+        ] = acquisition_sha
+        receipt.pop("receipt_self_sha256")
+        receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+        (source / state["receipt_sha256"]).write_text(
+            f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
+            encoding="utf-8",
+        )
+
+    resumed_transport = {
+        "opening_count": 1,
+        "attempt_count": 2,
+        "resume_count": 1,
+        "completed_before_final_attempt_request_sha256": ["c" * 64],
+        "retrieval_span_utc": {
+            "first": "2026-01-01T00:00:00+00:00",
+            "last": "2026-01-01T01:00:00+00:00",
+        },
+    }
+    publish_transport(resumed_transport)
+    verifier.build_release_profile(
+        source,
+        verifier.POSTOPEN_PROFILE,
+        authorization_path=authorization_path,
+    )
+
+    second_opening = {**resumed_transport, "opening_count": 2}
+    publish_transport(second_opening)
+    with pytest.raises(ValueError, match="transport evidence differs"):
+        verifier.build_release_profile(
+            source,
+            verifier.POSTOPEN_PROFILE,
+            authorization_path=authorization_path,
+        )
+
+    publish_transport(resumed_transport)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["same_opening_transport_resume_allowed"] = False
+    receipt.pop("receipt_self_sha256")
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    (source / state["receipt_sha256"]).write_text(
+        f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="complete production one-shot receipt"):
+        verifier.build_release_profile(
+            source,
+            verifier.POSTOPEN_PROFILE,
+            authorization_path=authorization_path,
+        )
 
 
 def test_release_verifier_requires_both_receipts_and_exact_control_members(tmp_path):
@@ -1824,8 +2470,10 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     gate_paths = (
         "src/thermoroute/chronology.py",
+        "src/thermoroute/outcome_qc.py",
         "scripts/28_freeze_prelabel_chronology.py",
         "tests/test_chronology.py",
+        "protocols/route_a_outcome_qc_policy_v1.json",
     )
     for relative in gate_paths:
         _write_bytes(source, relative, f"# frozen gate: {relative}\n".encode())
@@ -1834,7 +2482,11 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "thermoroute.model_suite": "src/thermoroute/model_suite.py",
         "thermoroute.frozen_inference": "src/thermoroute/frozen_inference.py",
         "thermoroute.datasets": "src/thermoroute/datasets.py",
+        "thermoroute.provenance": "src/thermoroute/provenance.py",
         "thermoroute.usgs": "src/thermoroute/usgs.py",
+        "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
+        "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
+        "thermoroute.quantiles": "src/thermoroute/quantiles.py",
     }
     fixed_files = {
         relative: relative
@@ -1858,7 +2510,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     development_paths = {
         "frozen_panel_spec": "data_usgs/frozen_panel_v1.json",
-        "panel": "data_usgs/panel.parquet",
+        "panel": "data_usgs/panel_usgs_120v2.parquet",
         "registry": "data_usgs/station_registry_v1.csv",
     }
     for relative in development_paths.values():
@@ -1867,23 +2519,70 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     prediction_sidecar = prediction_path + ".meta.json"
     _write_bytes(source, prediction_path, b"predictions\n")
     _write_bytes(source, prediction_sidecar, b"{}\n")
-    lgb_model_path = "outputs/models/lgb/member_h1_point.txt"
-    _write_bytes(source, lgb_model_path, b"tree\n")
+    lgb_model_paths = {
+        head: f"outputs/models/lgb/member_h1_{head}.txt"
+        for head in ("point", "q05", "q50", "q95", "event")
+    }
+    for head, relative in lgb_model_paths.items():
+        _write_bytes(source, relative, f"{head} tree\n".encode())
     lgb_manifest_path = "outputs/models/lgb/manifest.json"
     runtime_sha256 = "e" * 64
+    raw_crossing_member = {
+        "1": {
+            "rows": 3,
+            "forecast_key_sha256": "a" * 64,
+            "raw_prediction_sha256": "b" * 64,
+            "q05_above_q50_count": 0,
+            "q50_above_q95_count": 0,
+            "any_crossing_count": 0,
+            "any_crossing_rate": 0.0,
+            "maximum_crossing_gap_c": 0.0,
+        }
+    }
+    raw_crossing_audit = {
+        "format": "thermoroute.raw-quantile-crossing-audit.v1",
+        "scope": "development_export_rows_before_repair",
+        "key_columns": [
+            "site_id", "horizon", "split", "issue_date", "target_date"
+        ],
+        "repair_method": "median_preserving_endpoint_clip_v1",
+        "members": {"seed0": raw_crossing_member},
+    }
+    raw_crossing_audit["audit_sha256"] = verifier._sha256_json(
+        raw_crossing_audit
+    )
     write_json(
         lgb_manifest_path,
         {
-            "format": "thermoroute.lightgbm-bundle.v1",
+            "format": "thermoroute.lightgbm-bundle.v2",
             "training_device": "cpu",
             "runtime_sha256": runtime_sha256,
+            "heads": ["point", "q05", "q50", "q95", "event"],
+            "members": ["seed0"],
+            "member_count": 1,
+            "horizons": [1],
+            "quantile_repair": {
+                "method": "median_preserving_endpoint_clip_v1",
+                "version": 1,
+                "nominal_head_levels": {
+                    "q05": 0.05,
+                    "q50": 0.50,
+                    "q95": 0.95,
+                },
+                "q05_operation": "minimum(raw_q05,raw_q50)",
+                "q50_operation": "raw_q50_unchanged",
+                "q95_operation": "maximum(raw_q95,raw_q50)",
+                "nominal_median_preserved_exactly": True,
+            },
+            "raw_quantile_crossing_audit": raw_crossing_audit,
             "models": {
                 "seed0": {
                     "1": {
-                        "point": {
-                            "path": "member_h1_point.txt",
-                            "sha256": verifier.sha256_file(source / lgb_model_path),
+                        head: {
+                            "path": PurePosixPath(relative).name,
+                            "sha256": verifier.sha256_file(source / relative),
                         }
+                        for head, relative in lgb_model_paths.items()
                     }
                 }
             },
@@ -1895,6 +2594,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             },
         },
     )
+    inference_amendment_path = "protocols/route_a_inference_amendment_v1.json"
+    inference_amendment_seal_path = (
+        "protocols/route_a_inference_amendment_seal_v1.json"
+    )
+    inference_gate_path = "outputs/prelabel/route_a_inference_gate_v1.json"
+    write_json(inference_amendment_path, {"fixture": "outcome-free amendment"})
+    write_json(inference_amendment_seal_path, {"fixture": "amendment seal"})
+    write_json(inference_gate_path, {"fixture": "fail-closed inference gate"})
     frozen_source_inventory = {
         relative: verifier.sha256_file(source / relative)
         for relative in sorted(verifier._working_model_control_paths(source))
@@ -1960,6 +2667,205 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         },
     }
     write_json(bridge_path, bridge)
+
+    stage09_run_id = "stage09-fixture"
+    stage09_artifacts = {
+        "run_manifest": (
+            f"outputs/runs/09_usgs_experiment/{stage09_run_id}/run.json"
+        ),
+        "predictions": "outputs/predictions/usgs_predictions_stage9_v2.parquet",
+        "prediction_sidecar": (
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json"
+        ),
+        "scores": "outputs/tables/usgs_scores.csv",
+        "report": "outputs/reports/usgs_experiment.md",
+        "lightgbm_selection": (
+            "outputs/tables/lightgbm_joint_validation_selection.csv"
+        ),
+        "thermoroute_pointer": "outputs/models/thermoroute_usgs_bundle.json",
+        "lightgbm_pointer": "outputs/models/lightgbm_usgs_bundle.json",
+        "components_pointer": "outputs/models/route_a_stage9_components.json",
+    }
+    for label, relative in stage09_artifacts.items():
+        _write_bytes(source, relative, f"stage09 {label}\n".encode())
+    stage09_receipt_path = "outputs/models/route_a_stage09_completion.json"
+    stage09_receipt = {
+        "format": "thermoroute.stage09-completion-receipt.v1",
+        "status": "PASS_FORMAL_STAGE09_COMPLETE",
+        "stage": "09_usgs_experiment",
+        "run_id": stage09_run_id,
+        "run_identity": {"run_id": stage09_run_id},
+        "formal_configuration": {"fixture": True},
+        "confirmation_outcomes_requested_or_read": False,
+        "artifacts": {
+            label: _binding(verifier, source, relative)
+            for label, relative in stage09_artifacts.items()
+        },
+    }
+    stage09_receipt["receipt_self_sha256"] = verifier._sha256_json(
+        stage09_receipt
+    )
+    write_json(stage09_receipt_path, stage09_receipt)
+
+    stage09b_run_id = "stage09b-fixture"
+    stage09b_run_dir = (
+        f"outputs/runs/09b_development_controls/{stage09b_run_id}"
+    )
+    stage09b_artifacts = {
+        "run_manifest": f"{stage09b_run_dir}/run.json",
+        "frozen_panel_spec": development_paths["frozen_panel_spec"],
+        "panel": development_paths["panel"],
+        "registry": development_paths["registry"],
+        "predictor_bridge": bridge_path,
+        "predictions": f"{stage09b_run_dir}/development_controls_predictions.parquet",
+        "prediction_sidecar": (
+            f"{stage09b_run_dir}/development_controls_predictions.parquet.meta.json"
+        ),
+        "architecture_budget": (
+            f"{stage09b_run_dir}/development_controls_architecture_budget.csv"
+        ),
+        "architecture_budget_sidecar": (
+            f"{stage09b_run_dir}/development_controls_architecture_budget.csv.meta.json"
+        ),
+        "metric_summary": f"{stage09b_run_dir}/development_controls_metric_summary.csv",
+        "metric_summary_sidecar": (
+            f"{stage09b_run_dir}/development_controls_metric_summary.csv.meta.json"
+        ),
+        "report": f"{stage09b_run_dir}/development_controls_report.md",
+        "report_sidecar": f"{stage09b_run_dir}/development_controls_report.md.meta.json",
+        "semantic_audit": f"{stage09b_run_dir}/development_controls_semantic_audit.json",
+        "semantic_audit_sidecar": (
+            f"{stage09b_run_dir}/development_controls_semantic_audit.json.meta.json"
+        ),
+    }
+    for label, relative in stage09b_artifacts.items():
+        if label in {
+            "frozen_panel_spec", "panel", "registry", "predictor_bridge",
+            "semantic_audit", "semantic_audit_sidecar",
+        }:
+            continue
+        _write_bytes(source, relative, f"stage09b {label}\n".encode())
+    stage09b_members = []
+    semantic_members = []
+    stage09b_member_paths: set[str] = set()
+    for arm_id, seed in verifier._stage09b_release_members():
+        member_path = (
+            f"{stage09b_run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
+        )
+        member_sidecar = f"{member_path}.meta.json"
+        _write_bytes(source, member_path, f"{arm_id}/seed{seed}\n".encode())
+        _write_bytes(source, member_sidecar, b"{}\n")
+        stage09b_member_paths.update({member_path, member_sidecar})
+        stage09b_members.append({
+            "arm_id": arm_id,
+            "seed": seed,
+            "prediction": _binding(verifier, source, member_path),
+            "prediction_sidecar": _binding(verifier, source, member_sidecar),
+        })
+        semantic_members.append({
+            "arm_id": arm_id,
+            "seed": seed,
+            "prediction": {
+                "sha256": verifier.sha256_file(source / member_path),
+                "bytes": (source / member_path).stat().st_size,
+            },
+            "prediction_sidecar": {
+                "sha256": verifier.sha256_file(source / member_sidecar),
+                "bytes": (source / member_sidecar).stat().st_size,
+            },
+            "normalised_prediction_sha256": hashlib.sha256(
+                f"normalised:{arm_id}:{seed}".encode()
+            ).hexdigest(),
+        })
+
+    stage09b_matrix = {
+        "expected_members": 31,
+        "prediction_rows": 93,
+        "common_forecast_keys": 3,
+        "splits": ["calib", "test", "val"],
+        "reference_member": "PlainMLP-7var/seed0",
+    }
+
+    def stage09b_descriptor(relative: str) -> dict[str, object]:
+        return {
+            "sha256": verifier.sha256_file(source / relative),
+            "bytes": (source / relative).stat().st_size,
+        }
+
+    semantic_audit = {
+        "format": "thermoroute.development-controls-semantic-audit.v1",
+        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "run_id": stage09b_run_id,
+        "evidence_scope": "prediction_artifact_closure",
+        "training_replay_verified": False,
+        "post_2020_outcomes_requested_or_read": False,
+        "matrix_audit": stage09b_matrix,
+        "canonical_window_registry": {
+            "sha256": "c" * 64,
+            "common_forecast_keys": 3,
+            "train_examples_per_epoch": 3,
+            "train_registry_sha256": "d" * 64,
+        },
+        "members": semantic_members,
+        "derived_artifacts": {
+            "architecture_budget": {
+                "artifact": stage09b_descriptor(
+                    stage09b_artifacts["architecture_budget"]
+                ),
+                "sidecar": stage09b_descriptor(
+                    stage09b_artifacts["architecture_budget_sidecar"]
+                ),
+            },
+            "combined_predictions": {
+                "artifact": stage09b_descriptor(stage09b_artifacts["predictions"]),
+                "sidecar": stage09b_descriptor(
+                    stage09b_artifacts["prediction_sidecar"]
+                ),
+            },
+            "metric_summary": {
+                "artifact": stage09b_descriptor(
+                    stage09b_artifacts["metric_summary"]
+                ),
+                "sidecar": stage09b_descriptor(
+                    stage09b_artifacts["metric_summary_sidecar"]
+                ),
+            },
+            "report": {
+                "artifact": stage09b_descriptor(stage09b_artifacts["report"]),
+                "sidecar": stage09b_descriptor(
+                    stage09b_artifacts["report_sidecar"]
+                ),
+            },
+        },
+    }
+    semantic_audit["semantic_audit_self_sha256"] = verifier._sha256_json(
+        semantic_audit
+    )
+    write_json(stage09b_artifacts["semantic_audit"], semantic_audit)
+    _write_bytes(source, stage09b_artifacts["semantic_audit_sidecar"], b"{}\n")
+    stage09b_receipt_path = "outputs/models/route_a_stage09b_completion.json"
+    stage09b_receipt = {
+        "format": "thermoroute.stage09b-completion-receipt.v2",
+        "status": "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+        "stage": "09b_development_controls",
+        "run_id": stage09b_run_id,
+        "run_identity": {"run_id": stage09b_run_id},
+        "formal_configuration": {"fixture": True},
+        "evidence_scope": "prediction_artifact_closure",
+        "training_replay_verified": False,
+        "matrix_audit": stage09b_matrix,
+        "member_registry": stage09b_members,
+        "artifacts": {
+            label: _binding(verifier, source, relative)
+            for label, relative in stage09b_artifacts.items()
+        },
+        "post_2020_outcomes_requested_or_read": False,
+    }
+    stage09b_receipt["receipt_self_sha256"] = verifier._sha256_json(
+        stage09b_receipt
+    )
+    write_json(stage09b_receipt_path, stage09b_receipt)
+
     suite = {
         "format": "thermoroute.route-a-model-suite.v1",
         "status": "FROZEN_BEFORE_LABEL_OPENING",
@@ -1972,6 +2878,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             },
             "predictor_bridge": _binding(verifier, source, bridge_path),
             "source_sha256": frozen_source_sha,
+        },
+        "preopening_gates": {
+            "stage09_completion": _binding(
+                verifier, source, stage09_receipt_path
+            ),
+            "stage09b_development_controls": _binding(
+                verifier, source, stage09b_receipt_path
+            ),
         },
         "cohorts": {
             "temporal": {
@@ -2003,12 +2917,17 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         prediction_path,
         prediction_sidecar,
         lgb_manifest_path,
-        lgb_model_path,
+        *lgb_model_paths.values(),
         bridge_path,
         *bridge_normalized.values(),
         bridge_report,
         bridge_request_map,
         *bridge_raw_paths,
+        stage09_receipt_path,
+        *stage09_artifacts.values(),
+        stage09b_receipt_path,
+        *stage09b_artifacts.values(),
+        *stage09b_member_paths,
     }
     model_commit = commit("freeze executable models and chronology gate")
     model_tree_paths = {
@@ -2301,6 +3220,12 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "order": chronology_order,
             "evidence_scope": verifier.CHRONOLOGY_EVIDENCE_SCOPE,
         },
+        "inference_amendment": {
+            **_binding(verifier, source, inference_amendment_path),
+            "seal": _binding(verifier, source, inference_amendment_seal_path),
+            "final_prelabel_commit": model_commit,
+        },
+        "inference_gate": _binding(verifier, source, inference_gate_path),
         "runtime": {
             "requirements_lock": _binding(
                 verifier, source, "requirements-lock.txt"
@@ -2726,6 +3651,7 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
         "acquisition_manifest": f"{base}/acquisition/acquisition_manifest_v1.json",
         "availability_registry": f"{base}/trusted/availability_registry_v1.csv",
         "outcome_quality_audit": f"{base}/trusted/outcome_quality_audit_v1.json",
+        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
         "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
         "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v1.json",
@@ -2744,6 +3670,33 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
         "source": {
             "authorization_path": authorization_relative,
             "git_commit_before_authorization": head,
+        },
+        "outcome_qc_policy": {
+            "path": "protocols/route_a_outcome_qc_policy_v1.json",
+            "sha256": "7" * 64,
+            "format": "thermoroute.route-a-outcome-qc-policy.v1",
+            "policy_id": "route-a-outcome-qc-and-influence-001",
+            "required": True,
+        },
+        "inference_amendment": {
+            "path": "protocols/route_a_inference_amendment_v1.json",
+            "sha256": "8" * 64,
+            "format": "thermoroute.route-a-inference-amendment.v1",
+            "amendment_id": "route-a-prelabel-inference-scope-014",
+            "seal": {
+                "path": "protocols/route_a_inference_amendment_seal_v1.json",
+                "sha256": "9" * 64,
+            },
+            "final_prelabel_commit": head,
+        },
+        "inference_gate": {
+            "path": "outputs/prelabel/route_a_inference_gate_v1.json",
+            "sha256": "a" * 64,
+            "format": "thermoroute.route-a-inference-gate.v1",
+            "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
+            "claim_eligible": False,
+            "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
+            "policy_sha256": "b" * 64,
         },
             "runtime": {
                 "format": "thermoroute.route-a-runtime.v1",

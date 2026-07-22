@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute.chronology import (  # noqa: E402
     ChronologyError,
+    STAGE09_ARTIFACT_PATHS,
+    STAGE09B_MEMBERS,
     freeze_prelabel_chronology,
     validate_prelabel_chronology,
 )
@@ -151,13 +153,15 @@ def _seed_model_commit(
     _write(root, "protocols/route_a_protocol_seal_v1.json", _json_bytes(seal))
     for path in (
         "src/thermoroute/chronology.py",
+        "src/thermoroute/outcome_qc.py",
         "scripts/28_freeze_prelabel_chronology.py",
         "tests/test_chronology.py",
+        "protocols/route_a_outcome_qc_policy_v1.json",
     ):
         _write(root, path, f"# frozen gate fixture: {path}\n")
 
     _write(root, "data_usgs/frozen_panel_v1.json", "{}\n")
-    _write(root, "data_usgs/panel.parquet", b"development-panel")
+    _write(root, "data_usgs/panel_usgs_120v2.parquet", b"development-panel")
     _write(root, "data_usgs/station_registry_v1.csv", "site_no,lat,lon\n1,1,2\n")
     _write(root, "outputs/development/predictions.parquet", b"predictions")
     _write(root, "outputs/development/predictions.parquet.meta.json", "{}\n")
@@ -201,6 +205,201 @@ def _seed_model_commit(
     }
     _write(root, "outputs/models/lgb/manifest.json", _json_bytes(lgb_manifest))
 
+    # Freeze a predictor bridge made by a deliberately different source tree.
+    # Its own source identity is valid but is not the later training identity.
+    bridge_normalized = {}
+    for name in ("frozen", "refreshed"):
+        relative = f"data_usgs/bridge/{name}.parquet"
+        _write(root, relative, f"{name} predictors".encode())
+        bridge_normalized[name] = _binding(root, relative)
+    bridge_indexes = {}
+    for name in ("daymet", "gridmet", "gridmet_schema"):
+        relative = f"data_usgs/bridge/{name}/snapshot_index.json"
+        _snapshot(root, relative, payload=f"{name} response".encode())
+        bridge_indexes[name] = _binding(root, relative)
+    _write(root, "data_usgs/bridge/report.json", "{}\n")
+    _write(root, "data_usgs/bridge/request_map.json", "{}\n")
+    bridge = {
+        "format": "thermoroute.development-predictor-bridge.v1",
+        "status": "PASS_EXACT_PRODUCT_BRIDGE",
+        "outcome_values_requested_or_read": False,
+        "source_tree_sha256": "b" * 64,
+        "panel": _binding(root, "data_usgs/panel_usgs_120v2.parquet"),
+        "registry": _binding(root, "data_usgs/station_registry_v1.csv"),
+        "normalized": bridge_normalized,
+        "raw_snapshot_indexes": bridge_indexes,
+        "report": _binding(root, "data_usgs/bridge/report.json"),
+        "request_map": _binding(root, "data_usgs/bridge/request_map.json"),
+    }
+    bridge_path = "data_usgs/development_predictor_bridge_v1.json"
+    _write(root, bridge_path, _json_bytes(bridge))
+
+    stage9_run_id = "stage09-fixture"
+    stage9_run_manifest = (
+        f"outputs/runs/09_usgs_experiment/{stage9_run_id}/run.json"
+    )
+    _write(root, stage9_run_manifest, "{}\n")
+    for label, relative in STAGE09_ARTIFACT_PATHS.items():
+        _write(root, relative, f"stage09 {label}\n")
+    stage9 = {
+        "format": "thermoroute.stage09-completion-receipt.v1",
+        "status": "PASS_FORMAL_STAGE09_COMPLETE",
+        "stage": "09_usgs_experiment",
+        "run_id": stage9_run_id,
+        "run_identity": {"run_id": stage9_run_id},
+        "formal_configuration": {"fixture": True},
+        "confirmation_outcomes_requested_or_read": False,
+        "artifacts": {
+            "run_manifest": _binding(root, stage9_run_manifest),
+            **{
+                label: _binding(root, relative)
+                for label, relative in STAGE09_ARTIFACT_PATHS.items()
+            },
+        },
+    }
+    stage9["receipt_self_sha256"] = _repro_sha(stage9)
+    stage9_path = "outputs/models/route_a_stage09_completion.json"
+    _write(root, stage9_path, _json_bytes(stage9))
+
+    stage09b_run_id = "stage09b-fixture"
+    stage09b_run_dir = (
+        f"outputs/runs/09b_development_controls/{stage09b_run_id}"
+    )
+    _write(root, f"{stage09b_run_dir}/run.json", "{}\n")
+    members = []
+    semantic_members = []
+    for arm_id, seed in STAGE09B_MEMBERS:
+        prediction_path = (
+            f"{stage09b_run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
+        )
+        prediction_sidecar = f"{prediction_path}.meta.json"
+        _write(root, prediction_path, f"{arm_id}/seed{seed}".encode())
+        _write(root, prediction_sidecar, "{}\n")
+        members.append({
+            "arm_id": arm_id,
+            "seed": seed,
+            "prediction": _binding(root, prediction_path),
+            "prediction_sidecar": _binding(root, prediction_sidecar),
+        })
+        semantic_members.append({
+            "arm_id": arm_id,
+            "seed": seed,
+            "prediction": {
+                "sha256": _file_sha(root, prediction_path),
+                "bytes": (root / prediction_path).stat().st_size,
+            },
+            "prediction_sidecar": {
+                "sha256": _file_sha(root, prediction_sidecar),
+                "bytes": (root / prediction_sidecar).stat().st_size,
+            },
+            "normalised_prediction_sha256": _sha(
+                f"normalised:{arm_id}:{seed}".encode()
+            ),
+        })
+    final_paths = {
+        "predictions": f"{stage09b_run_dir}/development_controls_predictions.parquet",
+        "prediction_sidecar": (
+            f"{stage09b_run_dir}/development_controls_predictions.parquet.meta.json"
+        ),
+        "architecture_budget": (
+            f"{stage09b_run_dir}/development_controls_architecture_budget.csv"
+        ),
+        "architecture_budget_sidecar": (
+            f"{stage09b_run_dir}/development_controls_architecture_budget.csv.meta.json"
+        ),
+        "metric_summary": (
+            f"{stage09b_run_dir}/development_controls_metric_summary.csv"
+        ),
+        "metric_summary_sidecar": (
+            f"{stage09b_run_dir}/development_controls_metric_summary.csv.meta.json"
+        ),
+        "report": f"{stage09b_run_dir}/development_controls_report.md",
+        "report_sidecar": (
+            f"{stage09b_run_dir}/development_controls_report.md.meta.json"
+        ),
+    }
+    for label, relative in final_paths.items():
+        _write(root, relative, f"stage09b {label}\n")
+
+    matrix_audit = {
+        "expected_members": 31,
+        "prediction_rows": 93,
+        "common_forecast_keys": 3,
+        "splits": ["calib", "test", "val"],
+        "reference_member": "PlainMLP-7var/seed0",
+    }
+    descriptor = lambda relative: {  # noqa: E731 - compact fixture helper
+        "sha256": _file_sha(root, relative),
+        "bytes": (root / relative).stat().st_size,
+    }
+    semantic = {
+        "format": "thermoroute.development-controls-semantic-audit.v1",
+        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "run_id": stage09b_run_id,
+        "evidence_scope": "prediction_artifact_closure",
+        "training_replay_verified": False,
+        "post_2020_outcomes_requested_or_read": False,
+        "matrix_audit": matrix_audit,
+        "canonical_window_registry": {
+            "sha256": "c" * 64,
+            "common_forecast_keys": 3,
+            "train_examples_per_epoch": 3,
+            "train_registry_sha256": "d" * 64,
+        },
+        "members": semantic_members,
+        "derived_artifacts": {
+            "architecture_budget": {
+                "artifact": descriptor(final_paths["architecture_budget"]),
+                "sidecar": descriptor(final_paths["architecture_budget_sidecar"]),
+            },
+            "combined_predictions": {
+                "artifact": descriptor(final_paths["predictions"]),
+                "sidecar": descriptor(final_paths["prediction_sidecar"]),
+            },
+            "metric_summary": {
+                "artifact": descriptor(final_paths["metric_summary"]),
+                "sidecar": descriptor(final_paths["metric_summary_sidecar"]),
+            },
+            "report": {
+                "artifact": descriptor(final_paths["report"]),
+                "sidecar": descriptor(final_paths["report_sidecar"]),
+            },
+        },
+    }
+    semantic["semantic_audit_self_sha256"] = _repro_sha(semantic)
+    semantic_path = f"{stage09b_run_dir}/development_controls_semantic_audit.json"
+    _write(root, semantic_path, _json_bytes(semantic))
+    _write(root, f"{semantic_path}.meta.json", "{}\n")
+    stage09b = {
+        "format": "thermoroute.stage09b-completion-receipt.v2",
+        "status": "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+        "stage": "09b_development_controls",
+        "run_id": stage09b_run_id,
+        "run_identity": {"run_id": stage09b_run_id},
+        "formal_configuration": {"fixture": True},
+        "evidence_scope": "prediction_artifact_closure",
+        "training_replay_verified": False,
+        "matrix_audit": matrix_audit,
+        "member_registry": members,
+        "artifacts": {
+            "run_manifest": _binding(root, f"{stage09b_run_dir}/run.json"),
+            "frozen_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
+            "panel": _binding(root, "data_usgs/panel_usgs_120v2.parquet"),
+            "registry": _binding(root, "data_usgs/station_registry_v1.csv"),
+            "predictor_bridge": _binding(root, bridge_path),
+            **{
+                label: _binding(root, relative)
+                for label, relative in final_paths.items()
+            },
+            "semantic_audit": _binding(root, semantic_path),
+            "semantic_audit_sidecar": _binding(root, f"{semantic_path}.meta.json"),
+        },
+        "post_2020_outcomes_requested_or_read": False,
+    }
+    stage09b["receipt_self_sha256"] = _repro_sha(stage09b)
+    stage09b_path = "outputs/models/route_a_stage09b_completion.json"
+    _write(root, stage09b_path, _json_bytes(stage09b))
+
     # This is computed only after every source/protocol/control fixture byte is
     # present.  The frozen suite and replay must agree with the exact source
     # inventory committed alongside the model artifacts.
@@ -211,9 +410,14 @@ def _seed_model_commit(
         "status": "FROZEN_BEFORE_LABEL_OPENING",
         "development_contract": {
             "frozen_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
-            "panel": _binding(root, "data_usgs/panel.parquet"),
+            "panel": _binding(root, "data_usgs/panel_usgs_120v2.parquet"),
             "registry": _binding(root, "data_usgs/station_registry_v1.csv"),
+            "predictor_bridge": _binding(root, bridge_path),
             "source_sha256": frozen_source_sha256,
+        },
+        "preopening_gates": {
+            "stage09_completion": _binding(root, stage9_path),
+            "stage09b_development_controls": _binding(root, stage09b_path),
         },
         "cohorts": {
             "temporal": {

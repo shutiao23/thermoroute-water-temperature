@@ -106,14 +106,13 @@ _isolate_project_bytecode()
 
 import argparse  # noqa: E402
 from collections.abc import Callable, Mapping, Sequence  # noqa: E402
-from dataclasses import asdict, dataclass  # noqa: E402
+from dataclasses import asdict  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
-from typing import Any, Protocol  # noqa: E402
+from typing import Any, Protocol, cast  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import torch  # noqa: E402
 
@@ -128,13 +127,35 @@ from thermoroute.development_controls_gate import (  # noqa: E402
     build_stage09b_completion_receipt,
     publish_stage09b_completion_receipt,
 )
+from thermoroute.development_controls import (  # noqa: E402
+    ArmSpec,
+    DEVELOPMENT_DISCLOSURE,
+    DEVELOPMENT_SCOPE,
+    FEATURE_LADDER,  # noqa: F401 - public script contract used by tests/audits
+    FULL_VARIABLES,
+    MatrixAudit,
+    TRAIN_CONFIG,
+    architecture_budget_rows,
+    architecture_configuration,
+    architecture_template,
+    assert_parameter_budgets,
+    budget_csv_bytes,
+    build_arm_model,
+    declared_arms,
+    expected_member_registry,
+    normalise_prediction_frame,
+    parameter_count,
+    physics_count,
+    prediction_content_digest,
+    recompute_metric_summary,
+    render_report,
+    summary_csv_bytes,
+    window_registry_digest,
+    window_registry_from_windowed,
+)
 from thermoroute.model_suite import (  # noqa: E402
     ModelSuiteError,
     development_predictor_bridge_binding,
-)
-from thermoroute.neural_baselines import (  # noqa: E402
-    PlainCausalTCNForecaster,
-    PlainMLPForecaster,
 )
 from thermoroute.registry import FORECAST_KEY, targets_match_at_model_precision  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
@@ -144,73 +165,24 @@ from thermoroute.repro import (  # noqa: E402
     resolve_run_identity,
     seal_artifact,
     sha256_file,
+    sha256_json,
     sidecar_path,
     validate_artifact_sidecar,
 )
-from thermoroute.thermoroute import ThermoRoute  # noqa: E402
 from thermoroute.train import FitResult, configure_deterministic_runtime, fit_model  # noqa: E402
 
 
-FULL_VARIABLES: tuple[str, ...] = (
-    "WTEMP",
-    "FLOW",
-    "TEMP",
-    "PRCP",
-    "RHMEAN",
-    "DH",
-    "WDSP",
-)
-FEATURE_LADDER: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("01_WTEMP", ("WTEMP",)),
-    ("02_plus_FLOW", ("WTEMP", "FLOW")),
-    ("03_plus_TEMP", ("WTEMP", "FLOW", "TEMP")),
-    ("04_plus_PRCP", ("WTEMP", "FLOW", "TEMP", "PRCP")),
-    ("05_plus_RHMEAN", ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN")),
-    ("06_plus_DH", ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH")),
-    ("07_plus_WDSP", FULL_VARIABLES),
-)
-CONTROL_SEEDS: tuple[int, ...] = C.USGS_SEEDS
-LADDER_SEEDS: tuple[int, ...] = C.USGS_SEEDS[:3]
-TRAIN_CONFIG = C.TrainConfig(batch_size=1536)
-MLP_HIDDEN_DIM = 70
-TCN_CHANNELS = 54
-# Exact counts for the current five-head contract (independent RMSE point and
-# q50 outputs).  They remain within the requested approximate 38k budget; a
-# future head/schema change fails closed until this audit is consciously updated.
-THERMOROUTE_REFERENCE_PARAMETERS = 38_505
-MLP_EXPECTED_PARAMETERS = 38_545
-TCN_EXPECTED_PARAMETERS = 38_031
 PREDICTION_KIND = "development_control_arm_predictions"
 PREDICTION_EXTRA_FORMAT = "thermoroute.development-control-arm.v1"
 FINAL_PREDICTION_KIND = "development_controls_combined_predictions"
-FINAL_FORMAT = "thermoroute.development-controls.v1"
-DEVELOPMENT_SCOPE = "development_only_2006_2020"
-DEVELOPMENT_DISCLOSURE = (
-    "2019-2020 outcomes were already inspected during development; this is "
-    "exploratory development evidence, not a blind or confirmatory test."
-)
+FINAL_FORMAT = "thermoroute.development-controls.v2"
+SUMMARY_KIND = "development_controls_metric_summary"
+SEMANTIC_AUDIT_KIND = "development_controls_semantic_audit"
+SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v1"
 
 
 class ControlExperimentError(RuntimeError):
     """The development-control registry, cache, or publication is invalid."""
-
-
-@dataclass(frozen=True)
-class ArmSpec:
-    arm_id: str
-    family: str
-    feature_set: str
-    variables: tuple[str, ...]
-    seeds: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class MatrixAudit:
-    expected_members: int
-    prediction_rows: int
-    common_forecast_keys: int
-    splits: tuple[str, ...]
-    reference_member: str
 
 
 class FitCallable(Protocol):
@@ -223,240 +195,7 @@ class FitCallable(Protocol):
     ) -> FitResult: ...
 
 
-def declared_arms() -> tuple[ArmSpec, ...]:
-    """Return the complete, immutable development-control arm registry."""
-    controls = (
-        ArmSpec(
-            arm_id="PlainMLP-7var",
-            family="PlainMLP",
-            feature_set="all_7_variables",
-            variables=FULL_VARIABLES,
-            seeds=CONTROL_SEEDS,
-        ),
-        ArmSpec(
-            arm_id="PlainCausalTCN-7var",
-            family="PlainCausalTCN",
-            feature_set="all_7_variables",
-            variables=FULL_VARIABLES,
-            seeds=CONTROL_SEEDS,
-        ),
-    )
-    ladder = tuple(
-        ArmSpec(
-            arm_id=f"ThermoRoute-ladder-{rung}",
-            family="ThermoRoute",
-            feature_set=f"feature_ladder_{rung}",
-            variables=variables,
-            seeds=LADDER_SEEDS,
-        )
-        for rung, variables in FEATURE_LADDER
-    )
-    return controls + ladder
-
-
-def expected_member_registry(
-    arms: Sequence[ArmSpec],
-) -> tuple[tuple[str, int], ...]:
-    members = tuple((arm.arm_id, int(seed)) for arm in arms for seed in arm.seeds)
-    if len(members) != len(set(members)):
-        raise ControlExperimentError("declared development-control members are not unique")
-    return members
-
-
-def _physics_count(variables: Sequence[str]) -> int:
-    return sum(variable in DS.PHYS_FORCINGS for variable in variables)
-
-
-def build_arm_model(arm: ArmSpec, *, seed: int, n_stations: int) -> torch.nn.Module:
-    """Construct one fixed architecture; there is no test-driven model search."""
-    common = {
-        "n_vars": len(arm.variables),
-        "context_length": C.CONTEXT_LENGTH,
-        "horizons": C.HORIZONS,
-        "n_stations": n_stations,
-        "station_agnostic": False,
-        "init_seed": int(seed),
-    }
-    if arm.family == "PlainMLP":
-        return PlainMLPForecaster(
-            **common,
-            hidden_dim=MLP_HIDDEN_DIM,
-            depth=2,
-            dropout=TRAIN_CONFIG.dropout,
-        )
-    if arm.family == "PlainCausalTCN":
-        return PlainCausalTCNForecaster(
-            **common,
-            channels=TCN_CHANNELS,
-            blocks=4,
-            kernel_size=3,
-            dropout=TRAIN_CONFIG.dropout,
-        )
-    if arm.family == "ThermoRoute":
-        return ThermoRoute(
-            n_vars=len(arm.variables),
-            n_stations=n_stations,
-            horizons=C.HORIZONS,
-            cfg=TRAIN_CONFIG,
-            n_phys=_physics_count(arm.variables),
-            station_agnostic=False,
-            delta_scale=C.DELTA_SCALE,
-            safety_anchor="damped",
-        )
-    raise ControlExperimentError(f"unknown development-control family: {arm.family}")
-
-
-def parameter_count(arm: ArmSpec, *, n_stations: int = 120) -> int:
-    model = build_arm_model(arm, seed=arm.seeds[0], n_stations=n_stations)
-    return sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
-
-
-def architecture_configuration(
-    arm: ArmSpec,
-    *,
-    seed: int,
-    n_stations: int,
-) -> dict[str, Any]:
-    """Return the exact JSON architecture contract for one member."""
-    model = build_arm_model(arm, seed=seed, n_stations=n_stations)
-    if isinstance(model, (PlainMLPForecaster, PlainCausalTCNForecaster)):
-        metadata = model.architecture_metadata()
-    elif isinstance(model, ThermoRoute):
-        metadata = {
-            "format_version": 2,
-            "architecture_id": "thermoroute_full_v2",
-            "module": model.__class__.__module__,
-            "class_name": model.__class__.__name__,
-            "constructor_kwargs": {
-                "n_vars": len(arm.variables),
-                "n_stations": n_stations,
-                "horizons": list(C.HORIZONS),
-                "train_config": asdict(TRAIN_CONFIG),
-                "n_phys": _physics_count(arm.variables),
-                "station_agnostic": False,
-                "delta_scale": C.DELTA_SCALE,
-                "safety_anchor": "damped",
-            },
-            "initialization_seed": int(seed),
-            "trainable_parameters": model.n_params(),
-            "input_variables": list(arm.variables),
-        }
-    else:  # pragma: no cover - build_arm_model is already exhaustive
-        raise ControlExperimentError("unsupported architecture metadata type")
-    # Sidecars are JSON. Normalise tuples and scalar subclasses now so cache
-    # comparison uses exactly the representation that will be persisted.
-    return json.loads(json.dumps(metadata, sort_keys=True, allow_nan=False))
-
-
-def architecture_template(arm: ArmSpec, *, n_stations: int) -> dict[str, Any]:
-    template = architecture_configuration(
-        arm,
-        seed=arm.seeds[0],
-        n_stations=n_stations,
-    )
-    constructor = template.get("constructor_kwargs")
-    if isinstance(constructor, dict) and "init_seed" in constructor:
-        constructor["init_seed"] = "member_seed"
-    if "initialization_seed" in template:
-        template["initialization_seed"] = "member_seed"
-    template["initialization_seed_policy"] = "exact declared member seed"
-    return template
-
-
-def assert_parameter_budgets(arms: Sequence[ArmSpec], *, n_stations: int) -> dict[str, int]:
-    """Fail closed if a supposedly matched architecture silently changes."""
-    counts = {arm.arm_id: parameter_count(arm, n_stations=n_stations) for arm in arms}
-    expected = {
-        "PlainMLP-7var": MLP_EXPECTED_PARAMETERS,
-        "PlainCausalTCN-7var": TCN_EXPECTED_PARAMETERS,
-        "ThermoRoute-ladder-07_plus_WDSP": THERMOROUTE_REFERENCE_PARAMETERS,
-    }
-    wrong = {
-        arm: (counts.get(arm), wanted)
-        for arm, wanted in expected.items()
-        if counts.get(arm) != wanted
-    }
-    if wrong:
-        raise ControlExperimentError(f"architecture parameter budget drifted: {wrong}")
-    for arm in ("PlainMLP-7var", "PlainCausalTCN-7var"):
-        if abs(counts[arm] - THERMOROUTE_REFERENCE_PARAMETERS) / (
-            THERMOROUTE_REFERENCE_PARAMETERS
-        ) > 0.02:
-            raise ControlExperimentError(f"{arm} no longer matches the 2% parameter budget")
-    return counts
-
-
-def architecture_budget_rows(
-    arms: Sequence[ArmSpec],
-    *,
-    n_stations: int,
-    train_examples: int,
-) -> pd.DataFrame:
-    """Create the auditable architecture, optimisation, and tuning budget table."""
-    counts = assert_parameter_budgets(arms, n_stations=n_stations)
-    steps_per_epoch = math.ceil(train_examples / TRAIN_CONFIG.batch_size)
-    rows: list[dict[str, Any]] = []
-    for arm in arms:
-        count = counts[arm.arm_id]
-        rows.append(
-            {
-                "arm_id": arm.arm_id,
-                "family": arm.family,
-                "feature_set": arm.feature_set,
-                "variables": "+".join(arm.variables),
-                "variable_count": len(arm.variables),
-                "seed_count": len(arm.seeds),
-                "seeds": ",".join(str(seed) for seed in arm.seeds),
-                "trainable_parameters": count,
-                "thermoroute_full_reference_parameters": (
-                    THERMOROUTE_REFERENCE_PARAMETERS
-                ),
-                "parameter_difference_from_full_thermoroute": (
-                    count - THERMOROUTE_REFERENCE_PARAMETERS
-                ),
-                "parameter_ratio_to_full_thermoroute": (
-                    count / THERMOROUTE_REFERENCE_PARAMETERS
-                ),
-                "matched_within_2pct_of_full_thermoroute": (
-                    abs(count - THERMOROUTE_REFERENCE_PARAMETERS)
-                    / THERMOROUTE_REFERENCE_PARAMETERS
-                    <= 0.02
-                ),
-                "context_length": C.CONTEXT_LENGTH,
-                "horizons": ",".join(str(horizon) for horizon in C.HORIZONS),
-                "optimizer": "torch.optim.AdamW",
-                "learning_rate": TRAIN_CONFIG.lr,
-                "weight_decay": TRAIN_CONFIG.weight_decay,
-                "batch_size": TRAIN_CONFIG.batch_size,
-                "max_epochs": TRAIN_CONFIG.max_epochs,
-                "early_stopping_patience": TRAIN_CONFIG.patience,
-                "selection_metric": "station_macro_rmse",
-                "station_sampling": "equal_station_fixed_size_bootstrap",
-                "train_examples_per_epoch": train_examples,
-                "maximum_optimizer_steps_per_seed": (
-                    steps_per_epoch * TRAIN_CONFIG.max_epochs
-                ),
-                "architecture_candidates_in_this_entrypoint": 1,
-                "architecture_configuration": json.dumps(
-                    architecture_template(arm, n_stations=n_stations),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ),
-                "mlp_hidden_dim": MLP_HIDDEN_DIM if arm.family == "PlainMLP" else None,
-                "mlp_depth": 2 if arm.family == "PlainMLP" else None,
-                "tcn_channels": TCN_CHANNELS if arm.family == "PlainCausalTCN" else None,
-                "tcn_blocks": 4 if arm.family == "PlainCausalTCN" else None,
-                "tcn_kernel_size": 3 if arm.family == "PlainCausalTCN" else None,
-                "thermoroute_d_model": (
-                    TRAIN_CONFIG.d_model if arm.family == "ThermoRoute" else None
-                ),
-                "historical_tuning_budget_equalized": False,
-                "training_device": "cpu",
-                "evidence_role": "development_only_exploratory",
-            }
-        )
-    return pd.DataFrame(rows)
+_physics_count = physics_count
 
 
 def _parent_bindings(
@@ -523,35 +262,12 @@ def _validate_training_summary(value: object) -> dict[str, Any]:
 
 
 def _validate_arm_frame(frame: pd.DataFrame, arm: ArmSpec, seed: int) -> None:
-    if list(frame.columns) != R.PRED_COLS:
-        raise ControlExperimentError("arm prediction schema columns or order changed")
-    R.validate_predictions(frame)
-    if set(frame["model"].astype(str)) != {arm.arm_id}:
-        raise ControlExperimentError(f"{arm.arm_id}/seed{seed} cache has another model")
-    if set(pd.to_numeric(frame["seed"], errors="coerce")) != {int(seed)}:
-        raise ControlExperimentError(f"{arm.arm_id}/seed{seed} cache has another seed")
-    if set(frame["feature_set"].astype(str)) != {arm.feature_set}:
-        raise ControlExperimentError(f"{arm.arm_id}/seed{seed} cache has another feature set")
-    if set(frame["scope"].astype(str)) != {DEVELOPMENT_SCOPE}:
-        raise ControlExperimentError(f"{arm.arm_id}/seed{seed} cache has invalid scope")
-    if set(frame["split"].astype(str)) != {"val", "calib", "test"}:
-        raise ControlExperimentError(f"{arm.arm_id}/seed{seed} cache omits a development split")
-    if set(pd.to_numeric(frame["horizon"], errors="coerce")) != set(C.HORIZONS):
-        raise ControlExperimentError(f"{arm.arm_id}/seed{seed} cache omits a forecast horizon")
-    issue = pd.to_datetime(frame["issue_date"])
-    target = pd.to_datetime(frame["target_date"])
-    for split, (lower, upper) in C.SPLIT.as_dict().items():
-        if split == "train":
-            continue
-        selected = frame["split"].astype(str).eq(split)
-        if (
-            not selected.any()
-            or (issue[selected] < pd.Timestamp(lower)).any()
-            or (target[selected] > pd.Timestamp(upper)).any()
-        ):
-            raise ControlExperimentError(
-                f"development-control prediction escaped the declared {split} interval"
-            )
+    try:
+        normalise_prediction_frame(frame, arm=arm, seed=seed)
+    except (TypeError, ValueError) as exc:
+        raise ControlExperimentError(
+            f"{arm.arm_id}/seed{seed} prediction semantics changed: {exc}"
+        ) from exc
 
 
 def read_arm_prediction(
@@ -695,7 +411,7 @@ def train_arm_group(
     parents: Mapping[str, str],
     eval_batch_size: int,
     verbose: bool,
-    fit_function: FitCallable = fit_model,
+    fit_function: FitCallable = fit_model,  # type: ignore[assignment]
 ) -> list[Path]:
     """Train/cache all arms sharing one window tensor without retaining frames."""
     paths: list[Path] = []
@@ -806,13 +522,14 @@ def validate_complete_prediction_matrix(
     for member in expected:
         arm_id, seed = member
         frame = frames[member]
-        _validate_arm_frame(frame, arm_by_id[arm_id], seed)
-        sites = set(frame["site_id"].astype(str))
-        if allowed_sites is not None and sites != allowed_sites:
-            raise ControlExperimentError(
-                f"{arm_id}/seed{seed} station registry differs from the frozen registry"
+        try:
+            normalised = normalise_prediction_frame(
+                frame, arm=arm_by_id[arm_id], seed=seed,
+                allowed_sites=allowed_sites,
             )
-        current = _normalised_key_truth(frame)
+        except (TypeError, ValueError) as exc:
+            raise ControlExperimentError(str(exc)) from exc
+        current = _normalised_key_truth(normalised)
         total_rows += len(frame)
         if reference is None:
             reference = current
@@ -845,6 +562,7 @@ def validate_prediction_paths(
     parents: Mapping[str, str],
     n_stations: int,
     allowed_sites: set[str],
+    canonical_registry: pd.DataFrame | None = None,
 ) -> tuple[MatrixAudit, dict[tuple[str, int], Path], list[dict[str, Any]]]:
     """Validate large member files sequentially while retaining one key registry."""
     expected = expected_member_registry(arms)
@@ -884,9 +602,16 @@ def validate_prediction_paths(
             parents=parents,
         )
         assert frame is not None
-        if set(frame["site_id"].astype(str)) != allowed_sites:
-            raise ControlExperimentError(f"{arm_id}/seed{seed} station registry changed")
-        current = _normalised_key_truth(frame)
+        try:
+            normalised = normalise_prediction_frame(
+                frame, arm=arm, seed=seed, allowed_sites=allowed_sites,
+                canonical_registry=canonical_registry,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ControlExperimentError(
+                f"{arm_id}/seed{seed} prediction contract changed: {exc}"
+            ) from exc
+        current = _normalised_key_truth(normalised)
         key_columns = ["split", *FORECAST_KEY]
         if reference is None:
             reference = current
@@ -899,21 +624,13 @@ def validate_prediction_paths(
                 f"{arm_id}/seed{seed} does not share exact forecast keys and truth"
             )
         total_rows += len(frame)
-        for (split, horizon), group in frame.groupby(["split", "horizon"], sort=True):
-            error = group["y_pred"].to_numpy(float) - group["y_true"].to_numpy(float)
-            summaries.append(
-                {
-                    "arm_id": arm_id,
-                    "seed": seed,
-                    "split": str(split),
-                    "horizon": int(horizon),
-                    "n": len(group),
-                    "rmse": float(np.sqrt(np.mean(error**2))),
-                    "mae": float(np.mean(np.abs(error))),
-                }
+        summaries.extend(
+            recompute_metric_summary({(arm_id, seed): normalised}).to_dict(
+                orient="records"
             )
+        )
         resolved_paths[(arm_id, seed)] = path
-        del frame, current
+        del frame, normalised, current
     assert reference is not None
     return (
         MatrixAudit(
@@ -984,104 +701,6 @@ def _stream_combined_predictions(
         temporary_path.unlink(missing_ok=True)
 
 
-def _markdown_table(frame: pd.DataFrame) -> str:
-    """Render a compact Markdown table without an undeclared tabulate dependency."""
-    def render(value: object) -> str:
-        if isinstance(value, (float, np.floating)):
-            return "" if not math.isfinite(float(value)) else f"{float(value):.4f}"
-        return str(value).replace("|", "\\|").replace("\n", " ")
-
-    columns = [str(column) for column in frame.columns]
-    lines = [
-        "| " + " | ".join(columns) + " |",
-        "| " + " | ".join("---" for _ in columns) + " |",
-    ]
-    lines.extend(
-        "| " + " | ".join(render(value) for value in row) + " |"
-        for row in frame.itertuples(index=False, name=None)
-    )
-    return "\n".join(lines)
-
-
-def _report_text(
-    *,
-    identity: RunIdentity,
-    audit: MatrixAudit,
-    budget: pd.DataFrame,
-    summaries: Sequence[Mapping[str, Any]],
-) -> str:
-    summary = pd.DataFrame(summaries)
-    development = summary[summary["split"].eq("test")]
-    aggregate = (
-        development.groupby(["arm_id", "horizon"], as_index=False)
-        .agg(rmse_mean=("rmse", "mean"), rmse_sd=("rmse", "std"), seeds=("seed", "nunique"))
-        .sort_values(["horizon", "rmse_mean", "arm_id"])
-    )
-    result_table = _markdown_table(aggregate)
-    budget_view = _markdown_table(budget[
-        [
-            "arm_id",
-            "variables",
-            "seed_count",
-            "trainable_parameters",
-            "parameter_ratio_to_full_thermoroute",
-            "maximum_optimizer_steps_per_seed",
-        ]
-    ])
-    return f"""# Development-only neural controls and feature ladder
-
-Run ID: `{identity.run_id}`
-
-Status: **COMPLETE DEVELOPMENT MATRIX**. This artifact is exploratory and is not
-part of the sealed confirmatory model suite.
-
-> {DEVELOPMENT_DISCLOSURE}
-
-## Design
-
-All models use the frozen 120-site 2006--2020 panel, 32 days of history,
-horizons 1/3/7 days, CPU-only deterministic execution, equal-station fixed-size
-bootstrap sampling, AdamW, the same training configuration, batch size,
-maximum epoch budget, and early-stopping rule. PlainMLP and PlainCausalTCN
-receive the same seven observed history variables and missingness masks as the
-full ThermoRoute arm. The same composite-loss implementation is used, but its
-physical-residual penalty is structurally inapplicable to the prior-free
-controls; ThermoRoute also receives its declared train-fit/calendar-derived
-physical-anchor inputs. The comparison therefore tests the full inductive-prior
-design, not an information-pathway-neutral encoder swap. The ThermoRoute ladder
-adds one declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP,
-RHMEAN, DH, WDSP.
-
-The two pure-neural controls are parameter-matched within 2% of the full
-ThermoRoute architecture. Each architecture has one fixed candidate in this
-entry point. This controls the compute budget used here; it does **not** erase
-ThermoRoute's prior historical development/tuning advantage, so
-`historical_tuning_budget_equalized` remains false in the budget table.
-
-Exact member count: {audit.expected_members}. Common forecast keys per member:
-{audit.common_forecast_keys}. Total prediction rows: {audit.prediction_rows}.
-Validated splits: {', '.join(audit.splits)}.
-
-## Architecture and maximum optimisation budget
-
-{budget_view}
-
-## 2019--2020 development-evaluation results
-
-Rows below average each seed's RMSE; `test` in the stored schema means the
-already-inspected 2019--2020 development partition, never a blind test.
-
-{result_table}
-
-## Interpretation boundary
-
-These controls diagnose architecture and cumulative feature contribution on
-historical development data. They cannot establish prospective, operational,
-causal, or confirmatory performance. They do not modify or point to the frozen
-Route-A model suite.
-"""
-
-
 def _final_extra(audit: MatrixAudit, *, artifact_role: str) -> dict[str, Any]:
     return {
         "format": FINAL_FORMAT,
@@ -1094,7 +713,61 @@ def _final_extra(audit: MatrixAudit, *, artifact_role: str) -> dict[str, Any]:
         "development_only": True,
         "blind_or_confirmatory": False,
         "suite_pointer_written": False,
+        "evidence_scope": "prediction_artifact_closure",
+        "training_replay_verified": False,
     }
+
+
+def _semantic_audit_document(
+    *,
+    identity: RunIdentity,
+    audit: MatrixAudit,
+    train_examples: int,
+    canonical_registry_sha256: str,
+    canonical_train_registry_sha256: str,
+    member_paths: Mapping[tuple[str, int], Path],
+    member_digests: Mapping[tuple[str, int], str],
+    final_paths: Mapping[str, Path],
+) -> dict[str, Any]:
+    def descriptor(path: Path) -> dict[str, Any]:
+        return {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+
+    document: dict[str, Any] = {
+        "format": SEMANTIC_AUDIT_FORMAT,
+        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "run_id": identity.run_id,
+        "evidence_scope": "prediction_artifact_closure",
+        "training_replay_verified": False,
+        "post_2020_outcomes_requested_or_read": False,
+        "matrix_audit": asdict(audit),
+        "canonical_window_registry": {
+            "sha256": canonical_registry_sha256,
+            "common_forecast_keys": audit.common_forecast_keys,
+            "train_examples_per_epoch": train_examples,
+            "train_registry_sha256": canonical_train_registry_sha256,
+        },
+        "members": [
+            {
+                "arm_id": arm_id,
+                "seed": seed,
+                "prediction": descriptor(member_paths[(arm_id, seed)]),
+                "prediction_sidecar": descriptor(
+                    sidecar_path(member_paths[(arm_id, seed)])
+                ),
+                "normalised_prediction_sha256": member_digests[(arm_id, seed)],
+            }
+            for arm_id, seed in expected_member_registry()
+        ],
+        "derived_artifacts": {
+            label: {
+                "artifact": descriptor(path),
+                "sidecar": descriptor(sidecar_path(path)),
+            }
+            for label, path in sorted(final_paths.items())
+        },
+    }
+    document["semantic_audit_self_sha256"] = sha256_json(document)
+    return document
 
 
 def publish_final_artifacts(
@@ -1107,15 +780,14 @@ def publish_final_artifacts(
     audit: MatrixAudit,
     budget: pd.DataFrame,
     summaries: Sequence[Mapping[str, Any]],
-) -> tuple[Path, Path, Path]:
-    """Create the three final artifacts only after a successful full audit."""
+    train_examples: int,
+    canonical_registry_sha256: str,
+    canonical_train_registry_sha256: str,
+) -> tuple[Path, Path, Path, Path, Path]:
+    """Publish deterministic prediction-derived closure artifacts."""
     expected = set(expected_member_registry(arms))
-    summary_members = {
-        (str(row["arm_id"]), int(row["seed"])) for row in summaries
-    }
     if (
         set(member_paths) != expected
-        or summary_members != expected
         or audit.expected_members != len(expected)
         or audit.prediction_rows <= 0
         or audit.common_forecast_keys <= 0
@@ -1128,7 +800,9 @@ def publish_final_artifacts(
         )
     prediction_path = run_dir / "development_controls_predictions.parquet"
     budget_path = run_dir / "development_controls_architecture_budget.csv"
+    summary_path = run_dir / "development_controls_metric_summary.csv"
     report_path = run_dir / "development_controls_report.md"
+    semantic_audit_path = run_dir / "development_controls_semantic_audit.json"
     final_parents = {
         **dict(member_parents),
         **{
@@ -1136,23 +810,59 @@ def publish_final_artifacts(
             for (arm_id, seed), path in member_paths.items()
         },
     }
+    arm_by_id = {arm.arm_id: arm for arm in arms}
+    normalised_frames: dict[tuple[str, int], pd.DataFrame] = {}
+    member_digests: dict[tuple[str, int], str] = {}
+    for member in expected_member_registry(arms):
+        frame = pd.read_parquet(member_paths[member], columns=R.PRED_COLS)
+        try:
+            normalised = normalise_prediction_frame(
+                frame, arm=arm_by_id[member[0]], seed=member[1]
+            )
+        except (TypeError, ValueError) as exc:
+            raise ControlExperimentError(f"member semantic validation failed: {exc}") from exc
+        normalised_frames[member] = normalised
+        member_digests[member] = prediction_content_digest(normalised)
+    recomputed_summary = recompute_metric_summary(normalised_frames)
+    declared_summary = pd.DataFrame.from_records(summaries)
+    if list(declared_summary.columns) != list(recomputed_summary.columns):
+        declared_summary = declared_summary.reindex(columns=recomputed_summary.columns)
+    declared_summary = declared_summary.sort_values(
+        ["arm_id", "seed", "split", "horizon"], kind="mergesort"
+    ).reset_index(drop=True)
+    try:
+        if summary_csv_bytes(declared_summary) != summary_csv_bytes(recomputed_summary):
+            raise ControlExperimentError("metric summary is not prediction-derived")
+    except (TypeError, ValueError) as exc:
+        raise ControlExperimentError("metric summary is malformed") from exc
+    del normalised_frames
+    report_bytes = render_report(
+        run_id=identity.run_id, audit=audit, budget=budget,
+        summary=recomputed_summary,
+    ).encode("utf-8")
+    base_specs = (
+        (
+            prediction_path, FINAL_PREDICTION_KIND,
+            R.PREDICTION_SCHEMA_VERSION, "combined_predictions",
+        ),
+        (budget_path, "development_controls_budget", "text/csv", "architecture_budget"),
+        (summary_path, SUMMARY_KIND, "text/csv", "metric_summary"),
+        (report_path, "development_controls_report", "text/markdown", "report"),
+    )
     existing = [
         path.exists() or sidecar_path(path).exists()
-        for path in (prediction_path, budget_path, report_path)
+        for path in (
+            prediction_path, budget_path, summary_path, report_path,
+            semantic_audit_path,
+        )
     ]
     if any(existing):
         if not all(existing):
             raise ControlExperimentError("partial final publication state exists")
-        for path, kind, schema, role in (
-            (
-                prediction_path,
-                FINAL_PREDICTION_KIND,
-                R.PREDICTION_SCHEMA_VERSION,
-                "combined_predictions",
-            ),
-            (budget_path, "development_controls_budget", "text/csv", "architecture_budget"),
-            (report_path, "development_controls_report", "text/markdown", "report"),
-        ):
+        for path, kind, schema, role in (*base_specs, (
+            semantic_audit_path, SEMANTIC_AUDIT_KIND,
+            "application/json", "semantic_audit",
+        )):
             metadata = validate_artifact_sidecar(
                 path, identity=identity, schema=schema, kind=kind
             )
@@ -1160,33 +870,34 @@ def publish_final_artifacts(
                 raise ControlExperimentError(f"final artifact parent lineage changed: {path}")
             if metadata["extra"] != _final_extra(audit, artifact_role=role):
                 raise ControlExperimentError(f"final artifact metadata changed: {path}")
-        return prediction_path, budget_path, report_path
+        expected_semantic = _semantic_audit_document(
+            identity=identity, audit=audit, train_examples=train_examples,
+            canonical_registry_sha256=canonical_registry_sha256,
+            canonical_train_registry_sha256=canonical_train_registry_sha256,
+            member_paths=member_paths, member_digests=member_digests,
+            final_paths={
+                "architecture_budget": budget_path,
+                "combined_predictions": prediction_path,
+                "metric_summary": summary_path,
+                "report": report_path,
+            },
+        )
+        if semantic_audit_path.read_bytes() != (
+            json.dumps(expected_semantic, indent=2, sort_keys=True, allow_nan=False)
+            + "\n"
+        ).encode("utf-8"):
+            raise ControlExperimentError("semantic audit changed")
+        return prediction_path, budget_path, summary_path, report_path, semantic_audit_path
 
     _stream_combined_predictions(member_paths, prediction_path)
     import pyarrow.parquet as pq
 
     if pq.ParquetFile(prediction_path).metadata.num_rows != audit.prediction_rows:
         raise ControlExperimentError("combined prediction row count changed during publication")
-    _create_only_bytes(budget.to_csv(index=False).encode("utf-8"), budget_path)
-    _create_only_bytes(
-        _report_text(
-            identity=identity,
-            audit=audit,
-            budget=budget,
-            summaries=summaries,
-        ).encode("utf-8"),
-        report_path,
-    )
-    for path, kind, schema, role in (
-        (
-            prediction_path,
-            FINAL_PREDICTION_KIND,
-            R.PREDICTION_SCHEMA_VERSION,
-            "combined_predictions",
-        ),
-        (budget_path, "development_controls_budget", "text/csv", "architecture_budget"),
-        (report_path, "development_controls_report", "text/markdown", "report"),
-    ):
+    _create_only_bytes(budget_csv_bytes(budget), budget_path)
+    _create_only_bytes(summary_csv_bytes(recomputed_summary), summary_path)
+    _create_only_bytes(report_bytes, report_path)
+    for path, kind, schema, role in base_specs:
         seal_artifact(
             path,
             identity,
@@ -1195,7 +906,29 @@ def publish_final_artifacts(
             parents=final_parents,
             extra=_final_extra(audit, artifact_role=role),
         )
-    return prediction_path, budget_path, report_path
+    semantic_document = _semantic_audit_document(
+        identity=identity, audit=audit, train_examples=train_examples,
+        canonical_registry_sha256=canonical_registry_sha256,
+        canonical_train_registry_sha256=canonical_train_registry_sha256,
+        member_paths=member_paths, member_digests=member_digests,
+        final_paths={
+            "architecture_budget": budget_path,
+            "combined_predictions": prediction_path,
+            "metric_summary": summary_path,
+            "report": report_path,
+        },
+    )
+    _create_only_bytes(
+        (json.dumps(semantic_document, indent=2, sort_keys=True, allow_nan=False) + "\n")
+        .encode("utf-8"),
+        semantic_audit_path,
+    )
+    seal_artifact(
+        semantic_audit_path, identity, kind=SEMANTIC_AUDIT_KIND,
+        schema="application/json", parents=final_parents,
+        extra=_final_extra(audit, artifact_role="semantic_audit"),
+    )
+    return prediction_path, budget_path, summary_path, report_path, semantic_audit_path
 
 
 def _group_arms_by_variables(arms: Sequence[ArmSpec]) -> list[tuple[tuple[str, ...], list[ArmSpec]]]:
@@ -1265,7 +998,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) from exc
 
     arms = declared_arms()
-    counts = assert_parameter_budgets(arms, n_stations=int(evidence["station_count"]))
+    station_count = cast(int, evidence["station_count"])
+    counts = assert_parameter_budgets(arms, n_stations=station_count)
     run_config = {
         "stage": "09b_development_controls",
         "format": FINAL_FORMAT,
@@ -1290,7 +1024,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "architecture_templates": {
             arm.arm_id: architecture_template(
                 arm,
-                n_stations=int(evidence["station_count"]),
+                n_stations=station_count,
             )
             for arm in arms
         },
@@ -1327,7 +1061,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     panel = bundle["panel_raw"]
     panel_imputed = bundle["panel"]
     masks = bundle["masks"]
-    stations = tuple(str(station) for station in bundle["stations"])
+    stations = tuple(str(station) for station in cast(Sequence[object], bundle["stations"]))
     if not isinstance(panel, pd.DataFrame) or not isinstance(panel_imputed, pd.DataFrame):
         raise ControlExperimentError("canonical panel preparation returned invalid tables")
     if not isinstance(masks, D.SplitMasks):
@@ -1348,6 +1082,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     member_paths: list[Path] = []
     train_examples: int | None = None
+    canonical_registry: pd.DataFrame | None = None
+    canonical_train_registry: pd.DataFrame | None = None
     for variables, grouped_arms in _group_arms_by_variables(arms):
         wd = DS.build_windows(
             panel_imputed,
@@ -1363,6 +1099,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             train_examples = current_train_examples
         elif current_train_examples != train_examples:
             raise ControlExperimentError("feature ladder changed the training-sample budget")
+        current_registry = window_registry_from_windowed(wd, stations)
+        current_train_registry = window_registry_from_windowed(
+            wd, stations, splits=("train",)
+        )
+        if canonical_registry is None:
+            canonical_registry = current_registry
+            canonical_train_registry = current_train_registry
+        else:
+            assert canonical_train_registry is not None
+            key_columns = ["split", *FORECAST_KEY]
+            if (
+                not current_registry[key_columns].equals(canonical_registry[key_columns])
+                or not targets_match_at_model_precision(
+                    current_registry["y_true"], canonical_registry["y_true"]
+                )
+            ):
+                raise ControlExperimentError(
+                    "feature ladder changed the exact forecast-key/truth registry"
+                )
+            if (
+                not current_train_registry[key_columns].equals(
+                    canonical_train_registry[key_columns]
+                )
+                or not targets_match_at_model_precision(
+                    current_train_registry["y_true"],
+                    canonical_train_registry["y_true"],
+                )
+            ):
+                raise ControlExperimentError(
+                    "feature ladder changed the exact training-window registry"
+                )
         member_paths.extend(
             train_arm_group(
                 grouped_arms,
@@ -1377,8 +1144,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 verbose=args.verbose,
             )
         )
-        del wd
-    assert train_examples is not None
+        del wd, current_registry, current_train_registry
+    assert (
+        train_examples is not None
+        and canonical_registry is not None
+        and canonical_train_registry is not None
+    )
 
     audit, resolved_members, summaries = validate_prediction_paths(
         member_paths,
@@ -1387,6 +1158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parents=parents,
         n_stations=len(stations),
         allowed_sites=set(stations),
+        canonical_registry=canonical_registry,
     )
     budget = architecture_budget_rows(
         arms,
@@ -1402,8 +1174,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         audit=audit,
         budget=budget,
         summaries=summaries,
+        train_examples=train_examples,
+        canonical_registry_sha256=window_registry_digest(canonical_registry),
+        canonical_train_registry_sha256=window_registry_digest(
+            canonical_train_registry
+        ),
     )
-    predictions, architecture_budget, report = outputs
+    predictions, architecture_budget, metric_summary, report, semantic_audit = outputs
     receipt_path = ROOT / STAGE09B_COMPLETION_RECEIPT_PATH
     receipt = build_stage09b_completion_receipt(
         root=ROOT,
@@ -1416,7 +1193,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         member_paths=resolved_members,
         predictions=predictions,
         architecture_budget=architecture_budget,
+        metric_summary=metric_summary,
         report=report,
+        semantic_audit=semantic_audit,
         matrix_audit=asdict(audit),
     )
     # This is deliberately the final write in the transaction.  Any missing

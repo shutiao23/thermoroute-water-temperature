@@ -48,8 +48,68 @@ DEFAULT_INPUT_MANIFEST = "data_usgs/confirmatory_actual_inputs_v1.json"
 
 REQUIRED_GATE_PATHS = (
     "src/thermoroute/chronology.py",
+    "src/thermoroute/outcome_qc.py",
     "scripts/28_freeze_prelabel_chronology.py",
     "tests/test_chronology.py",
+    "protocols/route_a_outcome_qc_policy_v1.json",
+)
+
+STAGE09_RECEIPT_PATH = "outputs/models/route_a_stage09_completion.json"
+STAGE09_ARTIFACT_PATHS = {
+    "predictions": "outputs/predictions/usgs_predictions_stage9_v2.parquet",
+    "prediction_sidecar": (
+        "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json"
+    ),
+    "scores": "outputs/tables/usgs_scores.csv",
+    "report": "outputs/reports/usgs_experiment.md",
+    "lightgbm_selection": (
+        "outputs/tables/lightgbm_joint_validation_selection.csv"
+    ),
+    "thermoroute_pointer": "outputs/models/thermoroute_usgs_bundle.json",
+    "lightgbm_pointer": "outputs/models/lightgbm_usgs_bundle.json",
+    "components_pointer": "outputs/models/route_a_stage9_components.json",
+}
+STAGE09_ARTIFACT_LABELS = ("run_manifest", *STAGE09_ARTIFACT_PATHS)
+
+STAGE09B_RECEIPT_PATH = "outputs/models/route_a_stage09b_completion.json"
+STAGE09B_ARTIFACT_LABELS = (
+    "run_manifest",
+    "frozen_panel_spec",
+    "panel",
+    "registry",
+    "predictor_bridge",
+    "predictions",
+    "prediction_sidecar",
+    "architecture_budget",
+    "architecture_budget_sidecar",
+    "metric_summary",
+    "metric_summary_sidecar",
+    "report",
+    "report_sidecar",
+    "semantic_audit",
+    "semantic_audit_sidecar",
+)
+STAGE09B_DATA_PATHS = {
+    "frozen_panel_spec": "data_usgs/frozen_panel_v1.json",
+    "panel": "data_usgs/panel_usgs_120v2.parquet",
+    "registry": "data_usgs/station_registry_v1.csv",
+    "predictor_bridge": "data_usgs/development_predictor_bridge_v1.json",
+}
+STAGE09B_ARM_SEEDS = (
+    ("PlainMLP-7var", (0, 1, 2, 3, 4)),
+    ("PlainCausalTCN-7var", (0, 1, 2, 3, 4)),
+    ("ThermoRoute-ladder-01_WTEMP", (0, 1, 2)),
+    ("ThermoRoute-ladder-02_plus_FLOW", (0, 1, 2)),
+    ("ThermoRoute-ladder-03_plus_TEMP", (0, 1, 2)),
+    ("ThermoRoute-ladder-04_plus_PRCP", (0, 1, 2)),
+    ("ThermoRoute-ladder-05_plus_RHMEAN", (0, 1, 2)),
+    ("ThermoRoute-ladder-06_plus_DH", (0, 1, 2)),
+    ("ThermoRoute-ladder-07_plus_WDSP", (0, 1, 2)),
+)
+STAGE09B_MEMBERS = tuple(
+    (arm_id, seed)
+    for arm_id, seeds in STAGE09B_ARM_SEEDS
+    for seed in seeds
 )
 
 PROTECTED_DIRECTORIES = ("src", "scripts", "tests", "protocols", ".github")
@@ -309,7 +369,7 @@ def _validate_portable_receipt_bytes(
     observed_by_field: dict[str, set[str]] = {}
     bindings_by_path: dict[str, Mapping[str, Any]] = {}
     for field, minimum in (
-        ("required_gate_files_at_model_freeze", 3),
+        ("required_gate_files_at_model_freeze", len(REQUIRED_GATE_PATHS)),
         ("model_source_control_artifacts", 1),
         ("model_freeze_artifacts", 1),
         ("input_evidence_artifacts", 1),
@@ -700,6 +760,313 @@ def _collect_lightgbm_bundle(
     )
 
 
+def _collect_development_bridge(
+    output: dict[str, dict[str, Any]],
+    root: Path,
+    commit: str,
+    development: Mapping[str, Any],
+) -> None:
+    bridge_path = _declared_root_binding(
+        output, root, commit, development.get("predictor_bridge"),
+        label="model-suite development predictor bridge",
+    )
+    bridge = _json_from_git(
+        root, commit, bridge_path, label="development predictor bridge",
+    )
+    bridge_source = bridge.get("source_tree_sha256")
+    if (
+        bridge.get("format") != "thermoroute.development-predictor-bridge.v1"
+        or bridge.get("status") != "PASS_EXACT_PRODUCT_BRIDGE"
+        or bridge.get("outcome_values_requested_or_read") is not False
+        or not isinstance(bridge_source, str)
+        or len(bridge_source) != 64
+        or any(character not in "0123456789abcdef" for character in bridge_source)
+        or bridge.get("panel") != development.get("panel")
+        or bridge.get("registry") != development.get("registry")
+    ):
+        raise ChronologyError("development predictor bridge is stale or malformed")
+    normalized = bridge.get("normalized")
+    indexes = bridge.get("raw_snapshot_indexes")
+    if (
+        not isinstance(normalized, Mapping)
+        or set(normalized) != {"frozen", "refreshed"}
+        or not isinstance(indexes, Mapping)
+        or set(indexes) != {"daymet", "gridmet", "gridmet_schema"}
+    ):
+        raise ChronologyError("development predictor bridge dependency registry changed")
+    for name, binding in normalized.items():
+        _declared_root_binding(
+            output, root, commit, binding,
+            label=f"development predictor bridge normalized/{name}",
+        )
+    for name, binding in indexes.items():
+        index_path = _declared_root_binding(
+            output, root, commit, binding,
+            label=f"development predictor bridge raw/{name}",
+        )
+        _collect_snapshot_files(output, root, commit, index_path)
+    for name in ("report", "request_map"):
+        _declared_root_binding(
+            output, root, commit, bridge.get(name),
+            label=f"development predictor bridge {name}",
+        )
+
+
+def _collect_preopening_receipts(
+    output: dict[str, dict[str, Any]],
+    root: Path,
+    commit: str,
+    suite: Mapping[str, Any],
+) -> None:
+    gates = suite.get("preopening_gates")
+    if not isinstance(gates, Mapping) or set(gates) != {
+        "stage09_completion", "stage09b_development_controls",
+    }:
+        raise ChronologyError("model suite lacks exact Stage-09/09b completion gates")
+    for gate_name, expected_path, expected_format, expected_status in (
+        (
+            "stage09_completion",
+            STAGE09_RECEIPT_PATH,
+            "thermoroute.stage09-completion-receipt.v1",
+            "PASS_FORMAL_STAGE09_COMPLETE",
+        ),
+        (
+            "stage09b_development_controls",
+            STAGE09B_RECEIPT_PATH,
+            "thermoroute.stage09b-completion-receipt.v2",
+            "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+        ),
+    ):
+        receipt_path = _declared_root_binding(
+            output, root, commit, gates.get(gate_name), label=gate_name,
+        )
+        if receipt_path != expected_path:
+            raise ChronologyError(f"{gate_name} receipt path is noncanonical")
+        receipt = _json_from_git(root, commit, receipt_path, label=gate_name)
+        unhashed = dict(receipt)
+        receipt_self = unhashed.pop("receipt_self_sha256", None)
+        if (
+            receipt.get("format") != expected_format
+            or receipt.get("status") != expected_status
+            or receipt_self != _repro_sha256_json(unhashed)
+        ):
+            raise ChronologyError(f"{gate_name} receipt is stale or malformed")
+        if gate_name == "stage09_completion":
+            expected_receipt_keys = {
+                "format", "status", "stage", "run_id", "run_identity",
+                "formal_configuration", "confirmation_outcomes_requested_or_read",
+                "artifacts", "receipt_self_sha256",
+            }
+            if (
+                set(receipt) != expected_receipt_keys
+                or receipt.get("stage") != "09_usgs_experiment"
+                or receipt.get("confirmation_outcomes_requested_or_read") is not False
+                or not isinstance(receipt.get("run_id"), str)
+                or not receipt["run_id"]
+                or not isinstance(receipt.get("run_identity"), Mapping)
+                or not isinstance(receipt.get("formal_configuration"), Mapping)
+            ):
+                raise ChronologyError("Stage-09 receipt contract changed")
+            expected_artifact_labels = set(STAGE09_ARTIFACT_LABELS)
+        else:
+            expected_receipt_keys = {
+                "format", "status", "stage", "run_id", "run_identity",
+                "formal_configuration", "evidence_scope",
+                "training_replay_verified", "matrix_audit", "member_registry",
+                "artifacts", "post_2020_outcomes_requested_or_read",
+                "receipt_self_sha256",
+            }
+            if (
+                set(receipt) != expected_receipt_keys
+                or receipt.get("stage") != "09b_development_controls"
+                or receipt.get("evidence_scope") != "prediction_artifact_closure"
+                or receipt.get("training_replay_verified") is not False
+                or receipt.get("post_2020_outcomes_requested_or_read") is not False
+                or not isinstance(receipt.get("run_id"), str)
+                or not receipt["run_id"]
+                or not isinstance(receipt.get("run_identity"), Mapping)
+                or not isinstance(receipt.get("formal_configuration"), Mapping)
+                or not isinstance(receipt.get("matrix_audit"), Mapping)
+            ):
+                raise ChronologyError("Stage-09b receipt contract changed")
+            expected_artifact_labels = set(STAGE09B_ARTIFACT_LABELS)
+        artifacts = receipt.get("artifacts")
+        if (
+            not isinstance(artifacts, Mapping)
+            or set(artifacts) != expected_artifact_labels
+        ):
+            raise ChronologyError(f"{gate_name} artifact registry changed")
+        resolved: dict[str, str] = {}
+        for label, binding in artifacts.items():
+            if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
+                raise ChronologyError(f"{gate_name} {label} binding is not exact")
+            resolved[str(label)] = _declared_root_binding(
+                output, root, commit, binding,
+                label=f"{gate_name} {label}",
+            )
+        run_id = str(receipt["run_id"])
+        if gate_name == "stage09_completion":
+            expected_paths = {
+                "run_manifest": (
+                    f"outputs/runs/09_usgs_experiment/{run_id}/run.json"
+                ),
+                **STAGE09_ARTIFACT_PATHS,
+            }
+            if resolved != expected_paths:
+                raise ChronologyError("Stage-09 artifact paths are noncanonical")
+            continue
+
+        run_dir = f"outputs/runs/09b_development_controls/{run_id}"
+        expected_paths = {
+            "run_manifest": f"{run_dir}/run.json",
+            **STAGE09B_DATA_PATHS,
+            "predictions": f"{run_dir}/development_controls_predictions.parquet",
+            "prediction_sidecar": (
+                f"{run_dir}/development_controls_predictions.parquet.meta.json"
+            ),
+            "architecture_budget": (
+                f"{run_dir}/development_controls_architecture_budget.csv"
+            ),
+            "architecture_budget_sidecar": (
+                f"{run_dir}/development_controls_architecture_budget.csv.meta.json"
+            ),
+            "metric_summary": f"{run_dir}/development_controls_metric_summary.csv",
+            "metric_summary_sidecar": (
+                f"{run_dir}/development_controls_metric_summary.csv.meta.json"
+            ),
+            "report": f"{run_dir}/development_controls_report.md",
+            "report_sidecar": f"{run_dir}/development_controls_report.md.meta.json",
+            "semantic_audit": f"{run_dir}/development_controls_semantic_audit.json",
+            "semantic_audit_sidecar": (
+                f"{run_dir}/development_controls_semantic_audit.json.meta.json"
+            ),
+        }
+        if resolved != expected_paths:
+            raise ChronologyError("Stage-09b artifact paths are noncanonical")
+        members = receipt.get("member_registry")
+        if not isinstance(members, list) or len(members) != len(STAGE09B_MEMBERS):
+            raise ChronologyError("Stage-09b receipt does not bind 31 exact members")
+        member_paths: dict[tuple[str, int], tuple[str, str]] = {}
+        for member, expected_member in zip(members, STAGE09B_MEMBERS):
+            if (
+                not isinstance(member, Mapping)
+                or set(member) != {
+                    "arm_id", "seed", "prediction", "prediction_sidecar"
+                }
+                or (member.get("arm_id"), member.get("seed")) != expected_member
+            ):
+                raise ChronologyError("Stage-09b member binding is malformed")
+            arm_id, seed = expected_member
+            expected_prediction = (
+                f"{run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
+            )
+            expected_sidecar = f"{expected_prediction}.meta.json"
+            observed_paths = []
+            for label in ("prediction", "prediction_sidecar"):
+                binding = member.get(label)
+                if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
+                    raise ChronologyError("Stage-09b member binding is not exact")
+                observed_paths.append(_declared_root_binding(
+                    output, root, commit, member.get(label),
+                    label=f"Stage-09b member {label}",
+                ))
+            if observed_paths != [expected_prediction, expected_sidecar]:
+                raise ChronologyError("Stage-09b member path is noncanonical")
+            member_paths[expected_member] = (expected_prediction, expected_sidecar)
+        semantic_path = resolved.get("semantic_audit")
+        assert semantic_path is not None
+        semantic = _json_from_git(
+            root, commit, semantic_path, label="Stage-09b semantic audit",
+        )
+        stable_semantic = dict(semantic)
+        semantic_self = stable_semantic.pop("semantic_audit_self_sha256", None)
+        expected_semantic_keys = {
+            "format", "status", "run_id", "evidence_scope",
+            "training_replay_verified", "post_2020_outcomes_requested_or_read",
+            "matrix_audit", "canonical_window_registry", "members",
+            "derived_artifacts", "semantic_audit_self_sha256",
+        }
+        if (
+            set(semantic) != expected_semantic_keys
+            or semantic.get("format")
+            != "thermoroute.development-controls-semantic-audit.v1"
+            or semantic.get("status") != "PASS_PREDICTION_ARTIFACT_CLOSURE"
+            or semantic.get("run_id") != run_id
+            or semantic.get("evidence_scope") != "prediction_artifact_closure"
+            or semantic.get("training_replay_verified") is not False
+            or semantic.get("post_2020_outcomes_requested_or_read") is not False
+            or semantic.get("matrix_audit") != receipt.get("matrix_audit")
+            or semantic_self != _repro_sha256_json(stable_semantic)
+        ):
+            raise ChronologyError("Stage-09b semantic audit changed")
+        registry = semantic.get("canonical_window_registry")
+        if (
+            not isinstance(registry, Mapping)
+            or set(registry) != {
+                "sha256", "common_forecast_keys", "train_examples_per_epoch",
+                "train_registry_sha256",
+            }
+            or any(
+                not isinstance(registry.get(key), str)
+                or len(str(registry[key])) != 64
+                or any(character not in "0123456789abcdef" for character in str(registry[key]))
+                for key in ("sha256", "train_registry_sha256")
+            )
+            or type(registry.get("common_forecast_keys")) is not int
+            or int(registry["common_forecast_keys"]) < 1
+            or type(registry.get("train_examples_per_epoch")) is not int
+            or int(registry["train_examples_per_epoch"]) < 1
+        ):
+            raise ChronologyError("Stage-09b canonical window registry changed")
+
+        semantic_members = semantic.get("members")
+        if not isinstance(semantic_members, list) or len(semantic_members) != len(
+            STAGE09B_MEMBERS
+        ):
+            raise ChronologyError("Stage-09b semantic member registry changed")
+
+        def descriptor(path: str) -> dict[str, Any]:
+            binding = output[path]
+            return {"sha256": binding["sha256"], "bytes": binding["byte_count"]}
+
+        for row, expected_member in zip(semantic_members, STAGE09B_MEMBERS):
+            prediction_path, sidecar_path = member_paths[expected_member]
+            digest = row.get("normalised_prediction_sha256") if isinstance(
+                row, Mapping
+            ) else None
+            if (
+                not isinstance(row, Mapping)
+                or set(row) != {
+                    "arm_id", "seed", "prediction", "prediction_sidecar",
+                    "normalised_prediction_sha256",
+                }
+                or (row.get("arm_id"), row.get("seed")) != expected_member
+                or row.get("prediction") != descriptor(prediction_path)
+                or row.get("prediction_sidecar") != descriptor(sidecar_path)
+                or not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ChronologyError("Stage-09b semantic member evidence changed")
+        semantic_derived = semantic.get("derived_artifacts")
+        derived_labels = {
+            "architecture_budget": ("architecture_budget", "architecture_budget_sidecar"),
+            "combined_predictions": ("predictions", "prediction_sidecar"),
+            "metric_summary": ("metric_summary", "metric_summary_sidecar"),
+            "report": ("report", "report_sidecar"),
+        }
+        if not isinstance(semantic_derived, Mapping) or set(
+            semantic_derived
+        ) != set(derived_labels):
+            raise ChronologyError("Stage-09b semantic derived-artifact registry changed")
+        for label, (artifact_label, sidecar_label) in derived_labels.items():
+            if semantic_derived[label] != {
+                "artifact": descriptor(resolved[artifact_label]),
+                "sidecar": descriptor(resolved[sidecar_label]),
+            }:
+                raise ChronologyError("Stage-09b semantic artifact evidence changed")
+
+
 def _collect_model_artifacts(
     root: Path,
     commit: str,
@@ -726,6 +1093,8 @@ def _collect_model_artifacts(
             development.get(name),
             label=f"model-suite development {name}",
         )
+    _collect_development_bridge(output, root, commit, development)
+    _collect_preopening_receipts(output, root, commit, suite)
     suite_source_sha256 = str(development.get("source_sha256", ""))
     if len(suite_source_sha256) != 64 or any(
         character not in "0123456789abcdef" for character in suite_source_sha256

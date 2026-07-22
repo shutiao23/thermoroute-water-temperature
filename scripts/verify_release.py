@@ -14,8 +14,10 @@ import csv
 from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatch
 import hashlib
+import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -25,6 +27,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import types
 from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qs, urlparse
 import zipfile
@@ -59,6 +62,10 @@ CHRONOLOGY_PATH = "outputs/prelabel/route_a_prelabel_chronology_v1.json"
 CHRONOLOGY_EVIDENCE_SCOPE = (
     "repository-internal Git ancestry and SHA-256 evidence for an honest owner; "
     "not proof against owner-controlled Git-history rewriting"
+)
+OUTCOME_QC_AMENDMENT_ROLE = (
+    "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_"
+    "directional_reporting_gate_not_complete_outcome_quality_certification"
 )
 
 # The outer verifier treats a release ZIP as hostile input.  These limits are
@@ -182,6 +189,7 @@ REQUIRED_STATE_PATHS = {
     "acquisition_manifest",
     "availability_registry",
     "outcome_quality_audit",
+    "outcome_qc_gate",
     "approved_target_sensitivity",
     "spatial_sensitivity",
     "probabilistic_evaluation",
@@ -201,6 +209,7 @@ REQUIRED_RECEIPT_ARTIFACTS = {
     "external_normalized_outcomes",
     "availability_registry",
     "outcome_quality_audit",
+    "outcome_qc_gate",
     "approved_target_sensitivity",
     "spatial_sensitivity",
     "probabilistic_evaluation",
@@ -213,6 +222,7 @@ REQUIRED_RECEIPT_ARTIFACTS = {
 REQUIRED_POSTOPEN_CATEGORIES = {
     "canonical_development",
     "authorization",
+    "inference_gates",
     "registries",
     "candidate_evidence",
     "model_suite",
@@ -226,6 +236,7 @@ REQUIRED_POSTOPEN_CATEGORIES = {
     "trusted_predictions",
     "availability",
     "sensitivity_audits",
+    "outcome_qc",
     "probabilistic_evaluation",
     "statistics",
     "report",
@@ -707,6 +718,58 @@ def _load_json(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _load_canonical_outcome_qc_module(root: Path) -> Any:
+    """Load the release root's one shared outcome-QC implementation.
+
+    A private package name prevents an already-imported ``thermoroute`` from a
+    different checkout from satisfying this security-sensitive import.  The
+    source bytes are separately covered by the fixed-code and Git closures.
+    """
+    source_dir = (root / "src" / "thermoroute").resolve()
+    source = source_dir / "outcome_qc.py"
+    if not source.is_file() or source.is_symlink():
+        raise ValueError("canonical outcome-QC verifier source is absent")
+    fingerprint = hashlib.sha256(
+        str(root).encode("utf-8") + b"\0" + source.read_bytes()
+    ).hexdigest()[:20]
+    package_name = f"_thermoroute_release_{fingerprint}"
+    module_name = f"{package_name}.outcome_qc"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        if Path(getattr(existing, "__file__", "")).resolve() != source:
+            raise ValueError("cached outcome-QC verifier is noncanonical")
+        return existing
+
+    package = types.ModuleType(package_name)
+    package.__package__ = package_name
+    package.__path__ = [str(source_dir)]
+    sys.modules[package_name] = package
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise ValueError("cannot construct canonical outcome-QC verifier import")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        sys.modules.pop(module_name, None)
+        sys.modules.pop(package_name, None)
+        raise ValueError("cannot load canonical outcome-QC verifier") from exc
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    if Path(getattr(module, "__file__", "")).resolve() != source:
+        raise ValueError("imported outcome-QC verifier is noncanonical")
+    for name in (
+        "validate_outcome_qc_policy",
+        "validate_outcome_qc_gate_structure",
+    ):
+        if not callable(getattr(module, name, None)):
+            raise ValueError("canonical outcome-QC verifier API is incomplete")
+    return module
+
+
 def _load_protocol_seal(
     root: Path, protocol: Mapping[str, Any]
 ) -> tuple[Path, dict[str, Any]]:
@@ -942,13 +1005,15 @@ def _validate_prelabel_chronology_structure(
 
     required_gate_paths = {
         "src/thermoroute/chronology.py",
+        "src/thermoroute/outcome_qc.py",
         "scripts/28_freeze_prelabel_chronology.py",
         "tests/test_chronology.py",
+        "protocols/route_a_outcome_qc_policy_v1.json",
     }
     observed_by_field: dict[str, set[str]] = {}
     bindings_by_path: dict[str, Mapping[str, Any]] = {}
     for field, minimum in (
-        ("required_gate_files_at_model_freeze", 3),
+        ("required_gate_files_at_model_freeze", len(required_gate_paths)),
         ("model_source_control_artifacts", 1),
         ("model_freeze_artifacts", 1),
         ("input_evidence_artifacts", 1),
@@ -1144,6 +1209,7 @@ def _validate_authorization_structure(
         "acquisition_manifest": f"{base}/acquisition/acquisition_manifest_v1.json",
         "availability_registry": f"{base}/trusted/availability_registry_v1.csv",
         "outcome_quality_audit": f"{base}/trusted/outcome_quality_audit_v1.json",
+        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
         "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
         "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v1.json",
@@ -1157,6 +1223,57 @@ def _validate_authorization_structure(
     wrong = {key: state.get(key) for key, value in expected.items() if state.get(key) != value}
     if wrong:
         raise ValueError(f"authorization state paths leave the canonical namespace: {wrong}")
+    qc_policy = authorization.get("outcome_qc_policy")
+    if (
+        not isinstance(qc_policy, Mapping)
+        or set(qc_policy) != {"path", "sha256", "format", "policy_id", "required"}
+        or qc_policy.get("path") != "protocols/route_a_outcome_qc_policy_v1.json"
+        or qc_policy.get("format") != "thermoroute.route-a-outcome-qc-policy.v1"
+        or qc_policy.get("policy_id") != "route-a-outcome-qc-and-influence-001"
+        or qc_policy.get("required") is not True
+    ):
+        raise ValueError("authorization lacks the canonical required outcome-QC policy")
+    amendment = authorization.get("inference_amendment")
+    if (
+        not isinstance(amendment, Mapping)
+        or set(amendment) != {
+            "path", "sha256", "format", "amendment_id", "seal",
+            "final_prelabel_commit",
+        }
+        or amendment.get("path")
+        != "protocols/route_a_inference_amendment_v1.json"
+        or amendment.get("format")
+        != "thermoroute.route-a-inference-amendment.v1"
+        or amendment.get("amendment_id")
+        != "route-a-prelabel-inference-scope-014"
+        or not isinstance(amendment.get("seal"), Mapping)
+        or amendment["seal"].get("path")
+        != "protocols/route_a_inference_amendment_seal_v1.json"
+        or not re.fullmatch(
+            r"[0-9a-f]{40}", str(amendment.get("final_prelabel_commit", ""))
+        )
+    ):
+        raise ValueError("authorization lacks the canonical inference amendment seal")
+    inference_gate = authorization.get("inference_gate")
+    if (
+        not isinstance(inference_gate, Mapping)
+        or set(inference_gate) != {
+            "path", "sha256", "format", "status", "claim_eligible",
+            "analysis_mode", "policy_sha256",
+        }
+        or inference_gate.get("path")
+        != "outputs/prelabel/route_a_inference_gate_v1.json"
+        or inference_gate.get("format")
+        != "thermoroute.route-a-inference-gate.v1"
+        or inference_gate.get("status") != "FAIL_CLOSED_DESCRIPTIVE_ONLY"
+        or inference_gate.get("claim_eligible") is not False
+        or inference_gate.get("analysis_mode")
+        != "FIXED_COHORT_DESCRIPTIVE_ONLY"
+        or not re.fullmatch(
+            r"[0-9a-f]{64}", str(inference_gate.get("policy_sha256", ""))
+        )
+    ):
+        raise ValueError("authorization inference gate is not fail-closed")
     runtime = authorization.get("runtime")
     if not isinstance(runtime, Mapping):
         raise ValueError("authorization lacks an environment attestation")
@@ -1341,6 +1458,250 @@ def _validate_receipt_self_hash(receipt: Mapping[str, Any], *, label: str) -> No
         raise ValueError(f"{label} self hash changed")
 
 
+_STAGE09B_PREDICTION_COLUMNS = [
+    "model", "scope", "feature_set", "seed", "site_id", "horizon", "split",
+    "issue_date", "target_date", "y_true", "y_pred", "q05", "q50", "q95",
+    "p_exceed",
+]
+_STAGE09B_KEY_COLUMNS = [
+    "split", "site_id", "horizon", "issue_date", "target_date",
+]
+
+
+def _stage09b_prediction_content_digest(frame: Any) -> str:
+    import numpy as np
+    import pandas as pd
+
+    digest = hashlib.sha256()
+    digest.update(b"thermoroute.prediction-content-digest.v1")
+    digest.update(struct.pack("<Q", len(frame)))
+    integer_columns = {"seed", "horizon"}
+    date_columns = {"issue_date", "target_date"}
+    float_columns = {"y_true", "y_pred", "q05", "q50", "q95", "p_exceed"}
+    for column in _STAGE09B_PREDICTION_COLUMNS:
+        encoded = column.encode("ascii")
+        digest.update(struct.pack("<Q", len(encoded)))
+        digest.update(encoded)
+        if column in integer_columns:
+            digest.update(np.asarray(frame[column], dtype="<i8").tobytes(order="C"))
+        elif column in date_columns:
+            values = pd.to_datetime(frame[column], errors="raise").to_numpy(
+                dtype="datetime64[ns]"
+            ).astype("<i8", copy=False)
+            digest.update(values.tobytes(order="C"))
+        elif column in float_columns:
+            values = np.asarray(frame[column], dtype="<f8").copy()
+            values[values == 0.0] = 0.0
+            digest.update(values.tobytes(order="C"))
+        else:
+            for value in frame[column].astype(str):
+                payload = value.encode("utf-8")
+                digest.update(struct.pack("<Q", len(payload)))
+                digest.update(payload)
+    return digest.hexdigest()
+
+
+def _normalise_stage09b_release_prediction(
+    frame: Any,
+    *,
+    arm_id: str,
+    seed: int,
+    feature_set: str,
+    reference: Any | None,
+) -> Any:
+    import numpy as np
+    import pandas as pd
+
+    if list(frame.columns) != _STAGE09B_PREDICTION_COLUMNS:
+        raise ValueError("Stage-09b prediction columns/order changed")
+    output = frame.loc[:, _STAGE09B_PREDICTION_COLUMNS].copy()
+    for column in ("model", "scope", "feature_set", "site_id", "split"):
+        if output[column].isna().any():
+            raise ValueError(f"Stage-09b prediction {column} contains nulls")
+        output[column] = output[column].astype(str)
+    if (
+        set(output["model"]) != {arm_id}
+        or set(output["scope"]) != {"development_only_2006_2020"}
+        or set(output["feature_set"]) != {feature_set}
+    ):
+        raise ValueError("Stage-09b prediction static identity changed")
+    numeric_seed = pd.to_numeric(output["seed"], errors="raise")
+    horizon = pd.to_numeric(output["horizon"], errors="raise")
+    if (
+        not np.equal(numeric_seed, np.floor(numeric_seed)).all()
+        or set(numeric_seed.astype("int64")) != {seed}
+        or not np.equal(horizon, np.floor(horizon)).all()
+    ):
+        raise ValueError("Stage-09b prediction seed/horizon changed")
+    output["seed"] = numeric_seed.astype("int64")
+    output["horizon"] = horizon.astype("int64")
+    output["issue_date"] = pd.to_datetime(output["issue_date"], errors="raise")
+    output["target_date"] = pd.to_datetime(output["target_date"], errors="raise")
+    if output[["issue_date", "target_date"]].isna().any().any():
+        raise ValueError("Stage-09b prediction dates contain nulls")
+    numerical = ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed")
+    for column in numerical:
+        output[column] = pd.to_numeric(output[column], errors="raise").astype("float64")
+    if not np.isfinite(output.loc[:, numerical].to_numpy(float)).all():
+        raise ValueError("Stage-09b prediction numerical values are non-finite")
+    if not (
+        (output["q05"] <= output["q50"])
+        & (output["q50"] <= output["q95"])
+    ).all() or not output["p_exceed"].between(0.0, 1.0, inclusive="both").all():
+        raise ValueError("Stage-09b prediction probabilistic semantics changed")
+    if set(output["split"]) != {"val", "calib", "test"} or set(
+        output["horizon"]
+    ) != {1, 3, 7}:
+        raise ValueError("Stage-09b prediction split/horizon registry changed")
+    sites = set(output["site_id"])
+    if any(not site.isdigit() or not 8 <= len(site) <= 15 for site in sites):
+        raise ValueError("Stage-09b prediction does not use stable site_no")
+    if not (
+        output["issue_date"] + pd.to_timedelta(output["horizon"], unit="D")
+    ).equals(output["target_date"]):
+        raise ValueError("Stage-09b prediction target-date arithmetic changed")
+    if output.duplicated(_STAGE09B_KEY_COLUMNS).any():
+        raise ValueError("Stage-09b prediction has duplicate forecast keys")
+    output = output.sort_values(
+        _STAGE09B_KEY_COLUMNS, kind="mergesort"
+    ).reset_index(drop=True)
+    if reference is not None:
+        if (
+            not output[_STAGE09B_KEY_COLUMNS].equals(
+                reference[_STAGE09B_KEY_COLUMNS]
+            )
+            or not np.array_equal(
+                output["y_true"].to_numpy(dtype="<f8"),
+                reference["y_true"].to_numpy(dtype="<f8"),
+            )
+        ):
+            raise ValueError("Stage-09b member forecast registry/truth changed")
+    return output
+
+
+def _stage09b_recompute_summary(frames: Mapping[tuple[str, int], Any]) -> Any:
+    import numpy as np
+    import pandas as pd
+
+    rows: list[dict[str, object]] = []
+    for (arm_id, seed), frame in frames.items():
+        for (split, horizon), group in frame.groupby(["split", "horizon"], sort=True):
+            error = group["y_pred"].to_numpy(float) - group["y_true"].to_numpy(float)
+            if not np.isfinite(error).all():
+                raise ValueError("Stage-09b metric arithmetic overflowed")
+            scale = float(np.max(np.abs(error), initial=0.0))
+            rmse = 0.0 if scale == 0.0 else scale * float(
+                np.sqrt(np.mean((error / scale) ** 2))
+            )
+            mae = float(np.mean(np.abs(error)))
+            if not math.isfinite(rmse) or not math.isfinite(mae):
+                raise ValueError("Stage-09b prediction-derived metric is non-finite")
+            rows.append({
+                "arm_id": arm_id,
+                "seed": seed,
+                "split": str(split),
+                "horizon": int(horizon),
+                "n": len(group),
+                "rmse": rmse,
+                "mae": mae,
+            })
+    return pd.DataFrame.from_records(
+        rows, columns=("arm_id", "seed", "split", "horizon", "n", "rmse", "mae")
+    ).sort_values(
+        ["arm_id", "seed", "split", "horizon"], kind="mergesort"
+    ).reset_index(drop=True)
+
+
+def _stage09b_markdown_table(frame: Any) -> str:
+    import numpy as np
+
+    def render(value: object) -> str:
+        if isinstance(value, (float, np.floating)):
+            return "" if not math.isfinite(float(value)) else f"{float(value):.4f}"
+        return str(value).replace("|", "\\|").replace("\n", " ")
+
+    columns = [str(column) for column in frame.columns]
+    lines = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join("---" for _ in columns) + " |",
+    ]
+    lines.extend(
+        "| " + " | ".join(render(value) for value in row) + " |"
+        for row in frame.itertuples(index=False, name=None)
+    )
+    return "\n".join(lines)
+
+
+def _stage09b_expected_report(
+    *, run_id: str, audit: Mapping[str, Any], budget: Any, summary: Any,
+) -> bytes:
+    development = summary.loc[summary["split"].eq("test")]
+    aggregate = (
+        development.groupby(["arm_id", "horizon"], as_index=False)
+        .agg(
+            rmse_mean=("rmse", "mean"),
+            rmse_sd=("rmse", "std"),
+            seeds=("seed", "nunique"),
+        )
+        .sort_values(["horizon", "rmse_mean", "arm_id"], kind="mergesort")
+    )
+    result_table = _stage09b_markdown_table(aggregate)
+    budget_table = _stage09b_markdown_table(budget[[
+        "arm_id", "variables", "seed_count", "trainable_parameters",
+        "parameter_ratio_to_full_thermoroute", "maximum_optimizer_steps_per_seed",
+    ]])
+    splits = audit["splits"]
+    return f"""# Development-only neural controls and feature ladder
+
+Run ID: `{run_id}`
+
+Status: **COMPLETE PREDICTION-ARTIFACT CLOSURE**. This verifies the stored
+prediction matrix and derived artifacts; it is not a checkpoint-backed training
+replay and is not part of the sealed confirmatory model suite.
+
+> 2019-2020 outcomes were already inspected during development; this is exploratory development evidence, not a blind or confirmatory test.
+
+## Design
+
+All models use the frozen 120-site 2006--2020 panel, 32 days of history,
+horizons 1/3/7 days, CPU-only deterministic execution, equal-station fixed-size
+bootstrap sampling, AdamW, the same declared maximum optimisation budget, and
+early-stopping rule. PlainMLP and PlainCausalTCN receive the seven declared
+history variables and masks. ThermoRoute additionally receives its declared
+train-fit/calendar-derived physical-anchor inputs. The feature ladder adds one
+declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP, RHMEAN,
+DH, WDSP.
+
+The two pure-neural controls are parameter-matched within 2% of the full
+ThermoRoute architecture. Each architecture has one fixed candidate here.
+This does not equalise ThermoRoute's historical tuning advantage, so
+`historical_tuning_budget_equalized` remains false.
+
+Exact member count: {audit['expected_members']}. Common forecast keys per member:
+{audit['common_forecast_keys']}. Total prediction rows: {audit['prediction_rows']}.
+Validated splits: {', '.join(splits)}.
+
+## Architecture and declared maximum optimisation budget
+
+{budget_table}
+
+## 2019--2020 development-evaluation results
+
+These values are deterministically derived from the machine-readable summary,
+which is itself recomputed from every stored prediction row. `test` means the
+already-inspected 2019--2020 development partition, never a blind test.
+
+{result_table}
+
+## Interpretation boundary
+
+These artifacts diagnose architecture and cumulative feature contribution on
+historical development data. They do not prove that the declared training was
+replayed, and cannot establish prospective, operational, causal, safety, or
+confirmatory performance. They do not modify the frozen Route-A suite pointer.
+""".encode("utf-8")
+
+
 def _validate_preopening_completion_gates(
     root: Path,
     categories: dict[str, set[Path]],
@@ -1408,23 +1769,27 @@ def _validate_preopening_completion_gates(
     )
     control_keys = {
         "format", "status", "stage", "run_id", "run_identity",
-        "formal_configuration", "matrix_audit", "member_registry", "artifacts",
+        "formal_configuration", "evidence_scope", "training_replay_verified",
+        "matrix_audit", "member_registry", "artifacts",
         "post_2020_outcomes_requested_or_read", "receipt_self_sha256",
     }
     control_artifacts = {
         "run_manifest", "frozen_panel_spec", "panel", "registry",
         "predictor_bridge", "predictions", "prediction_sidecar",
-        "architecture_budget", "architecture_budget_sidecar", "report",
-        "report_sidecar",
+        "architecture_budget", "architecture_budget_sidecar", "metric_summary",
+        "metric_summary_sidecar", "report", "report_sidecar", "semantic_audit",
+        "semantic_audit_sidecar",
     }
     identity = controls.get("run_identity")
     config = controls.get("formal_configuration")
     if (
         set(controls) != control_keys
-        or controls.get("format") != "thermoroute.stage09b-completion-receipt.v1"
-        or controls.get("status") != "PASS_FORMAL_STAGE09B_CONTROLS_COMPLETE"
+        or controls.get("format") != "thermoroute.stage09b-completion-receipt.v2"
+        or controls.get("status") != "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE"
         or controls.get("stage") != "09b_development_controls"
         or controls.get("post_2020_outcomes_requested_or_read") is not False
+        or controls.get("evidence_scope") != "prediction_artifact_closure"
+        or controls.get("training_replay_verified") is not False
         or not isinstance(identity, Mapping)
         or not isinstance(config, Mapping)
         or controls.get("run_id") != identity.get("run_id")
@@ -1462,7 +1827,9 @@ def _validate_preopening_completion_gates(
     for artifact, sidecar in (
         ("predictions", "prediction_sidecar"),
         ("architecture_budget", "architecture_budget_sidecar"),
+        ("metric_summary", "metric_summary_sidecar"),
         ("report", "report_sidecar"),
+        ("semantic_audit", "semantic_audit_sidecar"),
     ):
         if resolved_artifacts[sidecar] != resolved_artifacts[artifact].with_name(
             resolved_artifacts[artifact].name + ".meta.json"
@@ -1477,7 +1844,15 @@ def _validate_preopening_completion_gates(
             "architecture_budget", "architecture_budget_sidecar",
             "development_controls_budget",
         ),
+        (
+            "metric_summary", "metric_summary_sidecar",
+            "development_controls_metric_summary",
+        ),
         ("report", "report_sidecar", "development_controls_report"),
+        (
+            "semantic_audit", "semantic_audit_sidecar",
+            "development_controls_semantic_audit",
+        ),
     ):
         metadata = _load_json(
             resolved_artifacts[sidecar], label=f"Stage-09b {artifact} sidecar"
@@ -1491,6 +1866,8 @@ def _validate_preopening_completion_gates(
             or extra.get("expected_members") != 31
             or extra.get("development_only") is not True
             or extra.get("blind_or_confirmatory") is not False
+            or extra.get("evidence_scope") != "prediction_artifact_closure"
+            or extra.get("training_replay_verified") is not False
         ):
             raise ValueError("authorized Stage-09b final sidecar changed")
     run_manifest = _load_json(
@@ -1522,6 +1899,7 @@ def _validate_preopening_completion_gates(
     ):
         raise ValueError("authorized Stage-09b matrix audit is incomplete")
     observed: list[tuple[str, int]] = []
+    member_prediction_paths: dict[tuple[str, int], Path] = {}
     for entry in members:
         if not isinstance(entry, Mapping) or set(entry) != {
             "arm_id", "seed", "prediction", "prediction_sidecar",
@@ -1534,13 +1912,14 @@ def _validate_preopening_completion_gates(
         prediction = add(
             entry["prediction"], label=f"Stage-09b {arm_id}/seed{seed} prediction"
         )
-        sidecar = add(
+        member_prediction_paths[(arm_id, seed)] = prediction
+        member_sidecar = add(
             entry["prediction_sidecar"],
             label=f"Stage-09b {arm_id}/seed{seed} sidecar",
         )
-        if sidecar != prediction.with_name(prediction.name + ".meta.json"):
+        if member_sidecar != prediction.with_name(prediction.name + ".meta.json"):
             raise ValueError("authorized Stage-09b member sidecar path changed")
-        metadata = _load_json(sidecar, label="Stage-09b member sidecar")
+        metadata = _load_json(member_sidecar, label="Stage-09b member sidecar")
         extra = metadata.get("extra")
         if (
             metadata.get("kind") != "development_control_arm_predictions"
@@ -1557,6 +1936,75 @@ def _validate_preopening_completion_gates(
     if tuple(observed) != expected_members:
         raise ValueError("authorized Stage-09b receipt does not bind exactly 31 members")
 
+    try:
+        import pandas as pd
+
+        features = {
+            "PlainMLP-7var": "all_7_variables",
+            "PlainCausalTCN-7var": "all_7_variables",
+            **{
+                f"ThermoRoute-ladder-{rung}": f"feature_ladder_{rung}"
+                for rung in (
+                    "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
+                    "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
+                )
+            },
+        }
+        normalised_frames: dict[tuple[str, int], Any] = {}
+        member_digests: dict[tuple[str, int], str] = {}
+        reference = None
+        for member in expected_members:
+            frame = pd.read_parquet(member_prediction_paths[member])
+            normalised = _normalise_stage09b_release_prediction(
+                frame,
+                arm_id=member[0],
+                seed=member[1],
+                feature_set=features[member[0]],
+                reference=reference,
+            )
+            if reference is None:
+                reference = normalised
+            normalised_frames[member] = normalised
+            member_digests[member] = _stage09b_prediction_content_digest(normalised)
+        recomputed_summary = _stage09b_recompute_summary(normalised_frames)
+        expected_summary_bytes = recomputed_summary.to_csv(
+            index=False, float_format="%.17g", lineterminator="\n"
+        ).encode("utf-8")
+        if resolved_artifacts["metric_summary"].read_bytes() != expected_summary_bytes:
+            raise ValueError("Stage-09b metric summary is not prediction-derived")
+
+        combined = pd.read_parquet(resolved_artifacts["predictions"])
+        if list(combined.columns) != _STAGE09B_PREDICTION_COLUMNS:
+            raise ValueError("Stage-09b combined prediction schema changed")
+        combined_members = [
+            (str(model), int(seed))
+            for model, seed in combined[["model", "seed"]]
+            .drop_duplicates(keep="first")
+            .itertuples(index=False, name=None)
+        ]
+        if tuple(combined_members) != expected_members:
+            raise ValueError("Stage-09b combined prediction member order changed")
+        if len(combined) != audit["prediction_rows"]:
+            raise ValueError("Stage-09b combined prediction row count changed")
+        for member in expected_members:
+            selected = combined.loc[
+                combined["model"].astype(str).eq(member[0])
+                & pd.to_numeric(combined["seed"], errors="raise").eq(member[1])
+            ]
+            normalised = _normalise_stage09b_release_prediction(
+                selected,
+                arm_id=member[0],
+                seed=member[1],
+                feature_set=features[member[0]],
+                reference=reference,
+            )
+            if _stage09b_prediction_content_digest(normalised) != member_digests[member]:
+                raise ValueError("Stage-09b combined/member prediction columns differ")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("authorized Stage-09b prediction semantics are unreadable") from exc
+
     expected_parameters = {
         "PlainMLP-7var": 38_545,
         "PlainCausalTCN-7var": 38_031,
@@ -1568,25 +2016,505 @@ def _validate_preopening_completion_gates(
         "ThermoRoute-ladder-06_plus_DH": 38_383,
         "ThermoRoute-ladder-07_plus_WDSP": 38_505,
     }
+    budget_columns = (
+        "arm_id", "family", "feature_set", "variables", "variable_count",
+        "seed_count", "seeds", "trainable_parameters",
+        "thermoroute_full_reference_parameters",
+        "parameter_difference_from_full_thermoroute",
+        "parameter_ratio_to_full_thermoroute", "matched_within_2pct_of_full_thermoroute",
+        "context_length", "horizons", "optimizer", "learning_rate", "weight_decay",
+        "batch_size", "max_epochs", "early_stopping_patience", "selection_metric",
+        "station_sampling", "train_examples_per_epoch",
+        "maximum_optimizer_steps_per_seed", "architecture_candidates_in_this_entrypoint",
+        "architecture_configuration", "mlp_hidden_dim", "mlp_depth", "tcn_channels",
+        "tcn_blocks", "tcn_kernel_size", "thermoroute_d_model",
+        "historical_tuning_budget_equalized", "training_device", "evidence_role",
+    )
     try:
         with resolved_artifacts["architecture_budget"].open(
             newline="", encoding="utf-8"
-        ) as handle:
-            rows = list(csv.DictReader(handle))
+        ) as budget_handle:
+            rows = list(csv.DictReader(budget_handle))
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
         raise ValueError("authorized Stage-09b architecture budget is unreadable") from exc
+    train_example_values = {
+        int(row.get("train_examples_per_epoch", "-1")) for row in rows
+    }
     if (
-        [row.get("arm_id") for row in rows] != list(expected_parameters)
+        not rows
+        or tuple(rows[0]) != budget_columns
+        or [row.get("arm_id") for row in rows] != list(expected_parameters)
+        or len(train_example_values) != 1
+        or next(iter(train_example_values), -1) < 1
         or any(
             int(row.get("trainable_parameters", "-1")) != expected_parameters[row["arm_id"]]
+            or int(row.get("thermoroute_full_reference_parameters", "-1")) != 38_505
+            or int(row.get("parameter_difference_from_full_thermoroute", "-999999"))
+            != expected_parameters[row["arm_id"]] - 38_505
+            or not math.isclose(
+                float(row.get("parameter_ratio_to_full_thermoroute", "nan")),
+                expected_parameters[row["arm_id"]] / 38_505,
+                rel_tol=0.0,
+                abs_tol=1e-15,
+            )
+            or row.get("matched_within_2pct_of_full_thermoroute") != "True"
+            or int(row.get("context_length", "-1")) != 32
+            or row.get("horizons") != "1,3,7"
+            or row.get("optimizer") != "torch.optim.AdamW"
+            or float(row.get("learning_rate", "nan")) != 0.002
+            or float(row.get("weight_decay", "nan")) != 0.0001
+            or int(row.get("batch_size", "-1")) != 1536
+            or int(row.get("max_epochs", "-1")) != 80
+            or int(row.get("early_stopping_patience", "-1")) != 12
+            or row.get("selection_metric") != "station_macro_rmse"
+            or row.get("station_sampling") != "equal_station_fixed_size_bootstrap"
+            or int(row.get("maximum_optimizer_steps_per_seed", "-1"))
+            != math.ceil(int(row["train_examples_per_epoch"]) / 1536) * 80
+            or int(row.get("architecture_candidates_in_this_entrypoint", "-1")) != 1
+            or not isinstance(json.loads(row.get("architecture_configuration", "null")), dict)
             or row.get("training_device") != "cpu"
             or row.get("historical_tuning_budget_equalized") != "False"
+            or row.get("evidence_role") != "development_only_exploratory"
             for row in rows
         )
     ):
         raise ValueError("authorized Stage-09b architecture budget changed")
+    try:
+        with resolved_artifacts["metric_summary"].open(
+            newline="", encoding="utf-8"
+        ) as summary_handle:
+            summary_rows = list(csv.DictReader(summary_handle))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("authorized Stage-09b metric summary is unreadable") from exc
+    summary_registry = {
+        (row.get("arm_id"), int(row.get("seed", "-1")), row.get("split"),
+         int(row.get("horizon", "-1")))
+        for row in summary_rows
+    }
+    expected_summary_registry = {
+        (arm, seed, split, horizon)
+        for arm, seed in expected_members
+        for split in ("val", "calib", "test")
+        for horizon in (1, 3, 7)
+    }
+    if (
+        summary_registry != expected_summary_registry
+        or len(summary_rows) != len(expected_summary_registry)
+        or any(
+            int(row.get("n", "0")) < 1
+            or not math.isfinite(float(row.get("rmse", "nan")))
+            or not math.isfinite(float(row.get("mae", "nan")))
+            for row in summary_rows
+        )
+    ):
+        raise ValueError("authorized Stage-09b metric summary registry changed")
+    try:
+        budget_frame = pd.read_csv(resolved_artifacts["architecture_budget"])
+        expected_report_bytes = _stage09b_expected_report(
+            run_id=str(controls["run_id"]),
+            audit=audit,
+            budget=budget_frame,
+            summary=recomputed_summary,
+        )
+    except Exception as exc:
+        raise ValueError("authorized Stage-09b report cannot be regenerated") from exc
+    if resolved_artifacts["report"].read_bytes() != expected_report_bytes:
+        raise ValueError("authorized Stage-09b report is not summary-derived")
+    semantic = _load_json(
+        resolved_artifacts["semantic_audit"], label="Stage-09b semantic audit"
+    )
+    semantic_stable = dict(semantic)
+    semantic_self = semantic_stable.pop("semantic_audit_self_sha256", None)
+    semantic_members = semantic.get("members")
+    derived = semantic.get("derived_artifacts")
+    canonical_window = semantic.get("canonical_window_registry")
+    if (
+        semantic.get("format")
+        != "thermoroute.development-controls-semantic-audit.v1"
+        or semantic.get("status") != "PASS_PREDICTION_ARTIFACT_CLOSURE"
+        or semantic.get("run_id") != controls.get("run_id")
+        or semantic.get("evidence_scope") != "prediction_artifact_closure"
+        or semantic.get("training_replay_verified") is not False
+        or semantic.get("post_2020_outcomes_requested_or_read") is not False
+        or semantic.get("matrix_audit") != audit
+        or semantic_self != _sha256_json(semantic_stable)
+        or not isinstance(semantic_members, list)
+        or len(semantic_members) != 31
+        or not isinstance(canonical_window, Mapping)
+        or set(canonical_window)
+        != {
+            "sha256", "common_forecast_keys", "train_examples_per_epoch",
+            "train_registry_sha256",
+        }
+        or not re.fullmatch(r"[0-9a-f]{64}", str(canonical_window.get("sha256", "")))
+        or not re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(canonical_window.get("train_registry_sha256", "")),
+        )
+        or canonical_window.get("common_forecast_keys")
+        != audit["common_forecast_keys"]
+        or canonical_window.get("train_examples_per_epoch")
+        != next(iter(train_example_values))
+        or not isinstance(derived, Mapping)
+        or set(derived) != {
+            "architecture_budget", "combined_predictions", "metric_summary", "report"
+        }
+    ):
+        raise ValueError("authorized Stage-09b semantic audit changed")
+    for semantic_member, receipt_member, member in zip(
+        semantic_members, members, expected_members, strict=True
+    ):
+        prediction_path = member_prediction_paths[member]
+        prediction_sidecar_path = Path(
+            root / receipt_member["prediction_sidecar"]["path"]
+        )
+        if (
+            not isinstance(semantic_member, Mapping)
+            or semantic_member.get("arm_id") != receipt_member.get("arm_id")
+            or semantic_member.get("seed") != receipt_member.get("seed")
+            or semantic_member.get("prediction", {}).get("sha256")
+            != receipt_member.get("prediction", {}).get("sha256")
+            or semantic_member.get("prediction_sidecar", {}).get("sha256")
+            != receipt_member.get("prediction_sidecar", {}).get("sha256")
+            or semantic_member.get("prediction", {}).get("bytes")
+            != prediction_path.stat().st_size
+            or semantic_member.get("prediction_sidecar", {}).get("bytes")
+            != prediction_sidecar_path.stat().st_size
+            or semantic_member.get("normalised_prediction_sha256")
+            != member_digests[member]
+        ):
+            raise ValueError("authorized Stage-09b semantic member audit changed")
+    derived_labels = {
+        "architecture_budget": ("architecture_budget", "architecture_budget_sidecar"),
+        "combined_predictions": ("predictions", "prediction_sidecar"),
+        "metric_summary": ("metric_summary", "metric_summary_sidecar"),
+        "report": ("report", "report_sidecar"),
+    }
+    for semantic_label, (artifact_label, sidecar_label) in derived_labels.items():
+        value = derived.get(semantic_label)
+        if (
+            not isinstance(value, Mapping)
+            or value.get("artifact", {}).get("sha256")
+            != artifacts[artifact_label].get("sha256")
+            or value.get("sidecar", {}).get("sha256")
+            != artifacts[sidecar_label].get("sha256")
+            or value.get("artifact", {}).get("bytes")
+            != resolved_artifacts[artifact_label].stat().st_size
+            or value.get("sidecar", {}).get("bytes")
+            != resolved_artifacts[sidecar_label].stat().st_size
+        ):
+            raise ValueError("authorized Stage-09b semantic artifact audit changed")
     _walk_json_dependencies(root, categories, "model_suite", stage9_path)
     _walk_json_dependencies(root, categories, "model_suite", controls_path)
+
+
+def _independent_station_geometry(path: Path) -> dict[str, object]:
+    """Recompute the outcome-free HUC2 concentration gate from frozen CSV bytes."""
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames is None or {"site_no", "huc2"} - set(
+                reader.fieldnames
+            ):
+                raise ValueError("station registry lacks site_no/huc2")
+            rows = list(reader)
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("cannot parse inference-gate station registry") from exc
+    sites: set[str] = set()
+    counts: dict[str, int] = {}
+    for row in rows:
+        site = str(row.get("site_no", "")).strip()
+        huc2 = str(row.get("huc2", "")).strip()
+        if not site or not huc2 or site in sites:
+            raise ValueError("inference-gate station geometry is malformed")
+        sites.add(site)
+        counts[huc2] = counts.get(huc2, 0) + 1
+    if not sites or not counts:
+        raise ValueError("inference-gate station geometry is empty")
+    n_stations = len(sites)
+    cluster_sizes = sorted(counts.values())
+    shares = [count / n_stations for count in cluster_sizes]
+    effective = 1.0 / sum(share * share for share in shares)
+    n_clusters = len(cluster_sizes)
+    mean_size = n_stations / n_clusters
+    size_cv = math.sqrt(
+        sum((count - mean_size) ** 2 for count in cluster_sizes) / n_clusters
+    ) / mean_size
+    return {
+        "n_stations": n_stations,
+        "n_clusters": n_clusters,
+        "cluster_sizes_sorted": cluster_sizes,
+        "cluster_size_min": min(cluster_sizes),
+        "cluster_size_max": max(cluster_sizes),
+        "cluster_size_cv": size_cv,
+        "largest_cluster_share": max(shares),
+        "effective_cluster_count_inverse_herfindahl": effective,
+        "effective_cluster_fraction": effective / n_clusters,
+    }
+
+
+def _validate_inference_closure(
+    root: Path,
+    categories: dict[str, set[Path]],
+    authorization: Mapping[str, Any],
+    *,
+    protocol_binding: Mapping[str, Any],
+    protocol_document: Mapping[str, Any],
+    protocol_seal_path: Path,
+    outcome_qc_policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Independently validate the prelabel amendment, seal, and fail-closed gate."""
+    def exact_binding(path: Path) -> dict[str, str]:
+        return {
+            "path": _relative(root, path, label="inference closure artifact"),
+            "sha256": sha256_file(path),
+        }
+
+    family = protocol_document.get("primary_inference_contract", {}).get(
+        "confirmatory_family"
+    )
+    if not isinstance(family, list) or len(family) != 5:
+        raise ValueError("inference closure lacks the exact five-test family")
+
+    amendment_binding = authorization.get("inference_amendment")
+    assert isinstance(amendment_binding, Mapping)
+    amendment_path = _add_binding(
+        root,
+        categories,
+        "inference_gates",
+        amendment_binding,
+        label="authorized inference amendment",
+    )
+    amendment = _load_json(amendment_path, label="inference amendment")
+    if (
+        set(amendment)
+        != {
+            "format", "status", "amendment_id", "recorded_date",
+            "post_2020_wtemp_requested_or_inspected", "outcome_independent",
+            "base_protocol", "base_protocol_seal", "scientific_comparisons",
+            "estimand_scope", "inference_scope", "decision_overlay",
+            "additional_preopen_gates", "lineage_contract",
+        }
+        or amendment.get("format")
+        != "thermoroute.route-a-inference-amendment.v1"
+        or amendment.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or amendment.get("amendment_id")
+        != "route-a-prelabel-inference-scope-014"
+        or amendment.get("post_2020_wtemp_requested_or_inspected") is not False
+        or amendment.get("outcome_independent") is not True
+        or amendment.get("base_protocol")
+        != {
+            "path": protocol_binding.get("path"),
+            "sha256": protocol_binding.get("sha256"),
+        }
+        or amendment.get("base_protocol_seal")
+        != exact_binding(protocol_seal_path)
+    ):
+        raise ValueError("inference amendment identity or outcome-free attestation changed")
+    comparisons = amendment.get("scientific_comparisons")
+    if (
+        not isinstance(comparisons, Mapping)
+        or set(comparisons)
+        != {
+            "count", "confirmatory_family_sha256", "objects", "change_allowed"
+        }
+        or comparisons.get("count") != 5
+        or comparisons.get("objects") != family
+        or comparisons.get("confirmatory_family_sha256") != _sha256_json(family)
+        or comparisons.get("change_allowed") is not False
+    ):
+        raise ValueError("inference amendment changed a scientific comparison")
+    decision = amendment.get("decision_overlay")
+    if (
+        not isinstance(decision, Mapping)
+        or decision.get("gate_artifact")
+        != "outputs/prelabel/route_a_inference_gate_v1.json"
+        or decision.get("all_gate_components_must_pass") is not True
+        or decision.get("missing_unknown_or_not_run_is_failure") is not True
+        or decision.get("gate_failure_verdict")
+        != "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED"
+        or decision.get("supported_claim_allowed_when_gate_fails") is not False
+        or decision.get("strong_p_value_or_favorable_interval_cannot_override_gate")
+        is not True
+        or decision.get("all_five_comparisons_must_still_be_rendered_exactly_once")
+        is not True
+    ):
+        raise ValueError("inference amendment decision overlay is not fail-closed")
+    policy_overlay = amendment.get("additional_preopen_gates")
+    policy_overlay = (
+        policy_overlay.get("outcome_qc_policy")
+        if isinstance(policy_overlay, Mapping)
+        else None
+    )
+    expected_policy_overlay = {
+        "path": authorization["outcome_qc_policy"]["path"],
+        "sha256": authorization["outcome_qc_policy"]["sha256"],
+        "required": True,
+        "role": OUTCOME_QC_AMENDMENT_ROLE,
+    }
+    if policy_overlay != expected_policy_overlay:
+        raise ValueError("inference amendment binds another outcome-QC policy")
+    if amendment.get("lineage_contract") != {
+        "base_v1_files_remain_immutable": True,
+        "separate_amendment_seal_required": True,
+        "seal_path": "protocols/route_a_inference_amendment_seal_v1.json",
+        "amendment_commit_must_precede_seal_commit": True,
+    }:
+        raise ValueError("inference amendment lineage contract changed")
+
+    seal_path = _add_binding(
+        root,
+        categories,
+        "inference_gates",
+        amendment_binding.get("seal"),
+        label="authorized inference amendment seal",
+    )
+    seal = _load_json(seal_path, label="inference amendment seal")
+    if (
+        set(seal)
+        != {
+            "format", "status", "amendment_id", "amendment",
+            "base_protocol_seal", "final_prelabel_commit", "history_contract",
+            "prelabel_attestation",
+        }
+        or seal.get("format")
+        != "thermoroute.route-a-inference-amendment-seal.v1"
+        or seal.get("status") != "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+        or seal.get("amendment_id") != amendment.get("amendment_id")
+        or seal.get("amendment") != exact_binding(amendment_path)
+        or seal.get("base_protocol_seal") != exact_binding(protocol_seal_path)
+        or seal.get("final_prelabel_commit")
+        != amendment_binding.get("final_prelabel_commit")
+        or seal.get("history_contract")
+        != {
+            "base_protocol_commit_must_be_ancestor": True,
+            "amendment_blob_must_match_commit": True,
+            "amendment_commit_must_be_ancestor_of_authorization": True,
+            "seal_is_created_only_after_amendment_commit": True,
+        }
+        or seal.get("prelabel_attestation")
+        != {
+            "post_2020_wtemp_requested_or_inspected": False,
+            "outcome_independent": True,
+        }
+    ):
+        raise ValueError("inference amendment seal semantics changed")
+
+    gate_binding = authorization.get("inference_gate")
+    assert isinstance(gate_binding, Mapping)
+    gate_path = _add_binding(
+        root,
+        categories,
+        "inference_gates",
+        gate_binding,
+        label="authorized inference gate",
+    )
+    gate = _load_json(gate_path, label="inference gate")
+    gate_stable = dict(gate)
+    gate_self = gate_stable.pop("gate_self_sha256", None)
+    inputs = gate.get("inputs")
+    gate_family = gate.get("confirmatory_family")
+    policy = gate.get("policy")
+    cluster_geometry = gate.get("cluster_geometry")
+    station_registry_path = _resolve_release_path(
+        root,
+        authorization["registries"]["development"]["path"],
+        label="inference-gate station registry",
+    )
+    expected_geometry = _independent_station_geometry(station_registry_path)
+    threshold_failures: list[str] = []
+    if int(expected_geometry["n_clusters"]) < 30:
+        threshold_failures.append("SMALL_CLUSTER_COUNT_LT_30")
+    if float(expected_geometry["effective_cluster_fraction"]) < 0.75:
+        threshold_failures.append("EFFECTIVE_CLUSTER_FRACTION_LT_0_75")
+    if float(expected_geometry["largest_cluster_share"]) >= 0.25:
+        threshold_failures.append("DOMINANT_CLUSTER_SHARE_GE_0_25")
+    structural_failures = [
+        "INDEPENDENT_EXCHANGEABLE_HUC2_SAMPLING",
+        "JOINT_CLUSTER_VECTOR_SIGN_SYMMETRY",
+    ]
+    blocking = [
+        *(f"STRUCTURAL_ASSUMPTION_NOT_ESTABLISHED:{value}"
+          for value in structural_failures),
+        *threshold_failures,
+        "NULL_SIMULATION_NOT_PASSING",
+    ]
+    if (
+        set(gate)
+        != {
+            "format", "status", "contains_confirmation_outcomes",
+            "post_2020_outcomes_requested_or_inspected", "network_used", "inputs",
+            "confirmatory_family", "policy", "policy_sha256", "cluster_geometry",
+            "cluster_gate", "structural_assumption_gate", "null_simulation_gate",
+            "claim_eligible", "analysis_mode", "blocking_reasons",
+            "gate_self_sha256",
+        }
+        or gate_self != _sha256_json(gate_stable)
+        or gate.get("format") != "thermoroute.route-a-inference-gate.v1"
+        or gate.get("status") != "FAIL_CLOSED_DESCRIPTIVE_ONLY"
+        or gate.get("contains_confirmation_outcomes") is not False
+        or gate.get("post_2020_outcomes_requested_or_inspected") is not False
+        or gate.get("network_used") is not False
+        or gate.get("claim_eligible") is not False
+        or gate.get("analysis_mode") != "FIXED_COHORT_DESCRIPTIVE_ONLY"
+        or not isinstance(inputs, Mapping)
+        or inputs.get("base_protocol")
+        != {
+            "path": protocol_binding.get("path"),
+            "sha256": protocol_binding.get("sha256"),
+        }
+        or inputs.get("base_protocol_seal") != exact_binding(protocol_seal_path)
+        or inputs.get("station_registry")
+        != {
+            "path": authorization["registries"]["development"]["path"],
+            "sha256": authorization["registries"]["development"]["sha256"],
+        }
+        or inputs.get("source")
+        != {
+            "source_tree_sha256": authorization["source"]["source_tree_sha256"],
+            "source_inventory": authorization["source"]["source_inventory"],
+        }
+        or gate_family
+        != {
+            "count": 5,
+            "sha256": _sha256_json(family),
+            "objects": family,
+            "candidate_reference_horizon_margin_unchanged": True,
+        }
+        or not isinstance(policy, Mapping)
+        or gate.get("policy_sha256") != _sha256_json(policy)
+        or gate.get("policy_sha256") != gate_binding.get("policy_sha256")
+        or policy.get("cluster_thresholds")
+        != {
+            "minimum_clusters": 30,
+            "minimum_effective_cluster_fraction": 0.75,
+            "maximum_largest_cluster_share_exclusive": 0.25,
+        }
+        or policy.get("decision", {}).get("all_components_must_pass") is not True
+        or policy.get("decision", {}).get("missing_unknown_or_not_run_is_failure")
+        is not True
+        or policy.get("decision", {}).get("failed_mode")
+        != "FIXED_COHORT_DESCRIPTIVE_ONLY"
+        or cluster_geometry != expected_geometry
+        or gate.get("cluster_gate")
+        != {"pass": not threshold_failures, "failure_codes": threshold_failures}
+        or gate.get("structural_assumption_gate")
+        != {"pass": False, "failure_codes": structural_failures}
+        or gate.get("null_simulation_gate", {}).get("pass") is not False
+        or gate.get("null_simulation_gate", {}).get("outcomes_read") is not False
+        or gate.get("null_simulation_gate", {}).get("network_used") is not False
+        or gate.get("blocking_reasons") != blocking
+        or {key: gate_binding.get(key) for key in (
+            "format", "status", "claim_eligible", "analysis_mode", "policy_sha256"
+        )}
+        != {key: gate.get(key) for key in (
+            "format", "status", "claim_eligible", "analysis_mode", "policy_sha256"
+        )}
+    ):
+        raise ValueError("inference gate semantics or frozen inputs changed")
+    if outcome_qc_policy.get("confirmatory_family_sha256") != gate_family["sha256"]:
+        raise ValueError("inference and outcome-QC gates bind different test families")
+    return dict(gate)
 
 
 def _gather_postopen_categories(
@@ -1611,6 +2539,31 @@ def _gather_postopen_categories(
     if not isinstance(protocol_binding, Mapping):
         raise ValueError("authorized protocol binding is malformed")
     protocol_document = _load_json(protocol, label="authorized protocol")
+    outcome_qc_policy_path = _add_binding(
+        root, categories, "authorization", authorization.get("outcome_qc_policy"),
+        label="authorized outcome-QC policy",
+    )
+    outcome_qc_policy = _load_json(
+        outcome_qc_policy_path, label="authorized outcome-QC policy",
+    )
+    outcome_qc_module = _load_canonical_outcome_qc_module(root)
+    try:
+        validated_outcome_qc_policy = outcome_qc_module.validate_outcome_qc_policy(
+            outcome_qc_policy_path,
+            root=root,
+            protocol_path=protocol,
+        )
+    except Exception as exc:
+        raise ValueError("authorized outcome-QC policy semantics changed") from exc
+    family = protocol_document.get("primary_inference_contract", {}).get(
+        "confirmatory_family"
+    )
+    if (
+        validated_outcome_qc_policy != outcome_qc_policy
+        or not isinstance(family, list)
+        or len(family) != 5
+    ):
+        raise ValueError("authorized outcome-QC policy semantics changed")
     seal_path, seal = _load_protocol_seal(root, protocol_document)
     final_protocol = seal.get("final_prelabel_protocol")
     if not isinstance(final_protocol, Mapping):
@@ -1641,6 +2594,15 @@ def _gather_postopen_categories(
         or protocol_binding.get("authoritative_commit") != original.get("commit")
     ):
         raise ValueError("authorization protocol chronology differs from its seal")
+    _validate_inference_closure(
+        root,
+        categories,
+        authorization,
+        protocol_binding=protocol_binding,
+        protocol_document=protocol_document,
+        protocol_seal_path=seal_path,
+        outcome_qc_policy=outcome_qc_policy,
+    )
 
     registries = authorization.get("registries")
     required_registries = {
@@ -1822,6 +2784,7 @@ def _gather_postopen_categories(
         or intent.get("opening_id") != authorization["opening_id"]
         or intent.get("maximum_openings") != 1
         or intent.get("retry_after_failure_allowed") is not False
+        or intent.get("same_opening_transport_resume_allowed") is not True
         or intent.get("unsafe_test_only") is not None
     ):
         raise ValueError("opening intent is not a production one-shot marker")
@@ -1843,6 +2806,7 @@ def _gather_postopen_categories(
         or receipt.get("opening_count") != 1
         or receipt.get("maximum_openings") != 1
         or receipt.get("retry_after_failure_allowed") is not False
+        or receipt.get("same_opening_transport_resume_allowed") is not True
         or receipt.get("all_predeclared_models_reported") is not True
         or receipt.get("state_paths") != dict(state)
         or receipt.get("unsafe_test_only") is not None
@@ -1946,7 +2910,41 @@ def _gather_postopen_categories(
         or acquisition.get("producer_role") != "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS"
     ):
         raise ValueError("acquisition manifest identity or raw-only role changed")
-    if receipt.get("transport_recovery") != acquisition.get("transport_summary"):
+    transport = acquisition.get("transport_summary")
+    completed_before_final = (
+        transport.get("completed_before_final_attempt_request_sha256")
+        if isinstance(transport, Mapping) else None
+    )
+    retrieval_span = transport.get("retrieval_span_utc") if isinstance(
+        transport, Mapping
+    ) else None
+    if (
+        not isinstance(transport, Mapping)
+        or set(transport) != {
+            "opening_count", "attempt_count", "resume_count",
+            "completed_before_final_attempt_request_sha256",
+            "retrieval_span_utc",
+        }
+        or transport.get("opening_count") != 1
+        or type(transport.get("attempt_count")) is not int
+        or transport["attempt_count"] < 1
+        or type(transport.get("resume_count")) is not int
+        or not 0 <= transport["resume_count"] < transport["attempt_count"]
+        or not isinstance(completed_before_final, list)
+        or len(completed_before_final) != len(set(completed_before_final))
+        or any(
+            not re.fullmatch(r"[0-9a-f]{64}", str(value))
+            for value in completed_before_final
+        )
+        or not isinstance(retrieval_span, Mapping)
+        or set(retrieval_span) != {"first", "last"}
+        or any(
+            not isinstance(retrieval_span.get(field), str)
+            or not retrieval_span[field]
+            for field in ("first", "last")
+        )
+        or receipt.get("transport_recovery") != transport
+    ):
         raise ValueError("receipt/acquisition transport evidence differs")
     raw_root = _resolve_release_path(root, state["raw_nwis_root"], label="raw NWIS root")
     _add_path(root, categories, "raw_nwis", raw_root)
@@ -1982,6 +2980,7 @@ def _gather_postopen_categories(
         "external_normalized_outcomes": "normalized_outcomes",
         "availability_registry": "availability",
         "outcome_quality_audit": "sensitivity_audits",
+        "outcome_qc_gate": "outcome_qc",
         "approved_target_sensitivity": "sensitivity_audits",
         "spatial_sensitivity": "sensitivity_audits",
         "probabilistic_evaluation": "probabilistic_evaluation",
@@ -2034,6 +3033,7 @@ def _gather_postopen_categories(
         "external_normalized_outcomes": state["external_outcomes"],
         "availability_registry": state["availability_registry"],
         "outcome_quality_audit": state["outcome_quality_audit"],
+        "outcome_qc_gate": state["outcome_qc_gate"],
         "approved_target_sensitivity": state["approved_target_sensitivity"],
         "spatial_sensitivity": state["spatial_sensitivity"],
         "probabilistic_evaluation": state["probabilistic_evaluation"],
@@ -2054,6 +3054,44 @@ def _gather_postopen_categories(
         or receipt.get("formal_tests") != tests
     ):
         raise ValueError("receipt/statistics do not contain the exact five-test family")
+    outcome_qc_gate = _load_json(
+        resolved_receipt_artifacts["outcome_qc_gate"], label="outcome-QC gate",
+    )
+    availability_contract = protocol_document.get("availability_contract")
+    minimum_targets = (
+        availability_contract.get("minimum_valid_targets_per_station_horizon")
+        if isinstance(availability_contract, Mapping)
+        else None
+    )
+    if type(minimum_targets) is not int or minimum_targets < 2:
+        raise ValueError("authorized protocol has an invalid outcome-QC minimum")
+    try:
+        validated_outcome_qc_gate = (
+            outcome_qc_module.validate_outcome_qc_gate_structure(
+                outcome_qc_gate,
+                root=root,
+                policy_path=outcome_qc_policy_path,
+                protocol=protocol_document,
+                minimum_targets=minimum_targets,
+            )
+        )
+    except Exception as exc:
+        raise ValueError("outcome-QC gate semantics changed") from exc
+    if validated_outcome_qc_gate != outcome_qc_gate:
+        raise ValueError("outcome-QC gate semantics changed")
+    gate_pass = outcome_qc_gate["pass"]
+    expected_gate_binding = {
+        "path": receipt_artifacts["outcome_qc_gate"]["path"],
+        "sha256": receipt_artifacts["outcome_qc_gate"]["sha256"],
+        "format": "thermoroute.route-a-outcome-qc-gate.v1",
+        "status": outcome_qc_gate.get("status"),
+        "pass": gate_pass,
+        "directional_claims_allowed": outcome_qc_gate.get(
+            "directional_claims_allowed_by_outcome_qc"
+        ),
+    }
+    if statistics.get("outcome_qc_gate") != expected_gate_binding:
+        raise ValueError("outcome-QC gate semantics or statistics binding changed")
     if resolved_receipt_artifacts["report"].stat().st_size == 0:
         raise ValueError("trusted report is empty")
 
@@ -2066,6 +3104,69 @@ def _gather_postopen_categories(
         missing = sorted(REQUIRED_POSTOPEN_CATEGORIES - set(categories))
         raise ValueError(f"post-opening closure categories are absent: {missing}")
     return categories, authorization, state
+
+
+def _derive_release_claim_status(
+    root: Path,
+    authorization: Mapping[str, Any],
+    state: Mapping[str, str],
+) -> dict[str, object]:
+    """Separate completed scoring from claim support and recompute every verdict."""
+    gate = _load_json(
+        _resolve_release_path(
+            root,
+            str(authorization["inference_gate"]["path"]),
+            label="release inference gate",
+        ),
+        label="release inference gate",
+    )
+    outcome_gate = _load_json(
+        _resolve_release_path(
+            root, state["outcome_qc_gate"], label="release outcome-QC gate"
+        ),
+        label="release outcome-QC gate",
+    )
+    statistics = _load_json(
+        _resolve_release_path(root, state["statistics"], label="release statistics"),
+        label="release statistics",
+    )
+    inference_allowed = gate.get("claim_eligible") is True
+    gross_plausibility_and_sensitivity_allowed = (
+        outcome_gate.get("directional_claims_allowed_by_outcome_qc") is True
+    )
+    directional_allowed = (
+        inference_allowed and gross_plausibility_and_sensitivity_allowed
+    )
+    tests = statistics.get("tests")
+    if not isinstance(tests, list) or len(tests) != 5:
+        raise ValueError("cannot derive release claim status from malformed tests")
+    supported: list[str] = []
+    for row in tests:
+        if not isinstance(row, Mapping) or not isinstance(row.get("test_id"), str):
+            raise ValueError("cannot derive release claim status from malformed test")
+        p_support = row.get("reject_at_0_05") is True
+        interval_support = row.get("confidence_bound_supports_margin") is True
+        if p_support != interval_support and row.get("status") == "ESTIMABLE":
+            # The claim validator renders this as an evidence conflict.  Keeping
+            # it out of the support list is mandatory even when both gates pass.
+            continue
+        if (
+            directional_allowed
+            and row.get("status") == "ESTIMABLE"
+            and p_support
+            and interval_support
+        ):
+            supported.append(str(row["test_id"]))
+    return {
+        "confirmatory_scoring_completed": True,
+        "directional_claims_allowed": directional_allowed,
+        "inference_gate_claim_eligible": inference_allowed,
+        "gross_plausibility_and_aggregate_sensitivity_gate_passed": (
+            gross_plausibility_and_sensitivity_allowed
+        ),
+        "supported_test_ids": supported,
+        "supports_route_a_confirmatory_conclusions": bool(supported),
+    }
 
 
 def build_release_profile(
@@ -2085,6 +3186,9 @@ def build_release_profile(
             "format": PROFILE_FORMAT,
             "profile": PREOPEN_PROFILE,
             "status": PREOPEN_PROFILE,
+            "confirmatory_scoring_completed": False,
+            "directional_claims_allowed": False,
+            "supported_test_ids": [],
             "supports_route_a_confirmatory_conclusions": False,
             "labels_included": False,
             "warning": PREOPEN_WARNING,
@@ -2100,11 +3204,12 @@ def build_release_profile(
     categories, authorization, state = _gather_postopen_categories(
         root, authorization_path
     )
+    claim_status = _derive_release_claim_status(root, authorization, state)
     document = {
         "format": PROFILE_FORMAT,
         "profile": POSTOPEN_PROFILE,
         "status": POSTOPEN_PROFILE,
-        "supports_route_a_confirmatory_conclusions": True,
+        **claim_status,
         "labels_included": True,
         "opening_id": authorization["opening_id"],
         "state_namespace": state["namespace"],
@@ -2708,7 +3813,11 @@ def _verify_authorized_compute_tree_from_bundle(
             "thermoroute.model_suite": "src/thermoroute/model_suite.py",
             "thermoroute.frozen_inference": "src/thermoroute/frozen_inference.py",
             "thermoroute.datasets": "src/thermoroute/datasets.py",
+            "thermoroute.provenance": "src/thermoroute/provenance.py",
             "thermoroute.usgs": "src/thermoroute/usgs.py",
+            "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
+            "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
+            "thermoroute.quantiles": "src/thermoroute/quantiles.py",
         },
         "files": {
             "src/thermoroute/opening_contract.py": (
@@ -2773,6 +3882,68 @@ def _verify_authorized_compute_tree_from_bundle(
             str(binding["sha256"]),
             label=f"authorized {key}",
         )
+
+    amendment = authorization.get("inference_amendment")
+    if not isinstance(amendment, Mapping):
+        raise ValueError("authorization lacks inference amendment Git lineage")
+    amendment_relative = _git_declared_binding_path(
+        bare,
+        compute_commit,
+        amendment,
+        label="authorized inference amendment",
+    )
+    seal_relative = _git_declared_binding_path(
+        bare,
+        compute_commit,
+        amendment.get("seal"),
+        label="authorized inference amendment seal",
+    )
+    gate_relative = _git_declared_binding_path(
+        bare,
+        compute_commit,
+        authorization.get("inference_gate"),
+        label="authorized inference gate",
+    )
+    if (
+        amendment_relative != "protocols/route_a_inference_amendment_v1.json"
+        or seal_relative
+        != "protocols/route_a_inference_amendment_seal_v1.json"
+        or gate_relative != "outputs/prelabel/route_a_inference_gate_v1.json"
+    ):
+        raise ValueError("authorized inference Git artifacts are noncanonical")
+    amendment_commit = str(amendment.get("final_prelabel_commit", ""))
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", amendment_commit)
+        or _run_git(
+            bare, "merge-base", "--is-ancestor", amendment_commit, compute_commit
+        ).returncode
+    ):
+        raise ValueError("inference amendment commit is not a compute ancestor")
+    protocol = authorization.get("protocol")
+    final_protocol_commit = (
+        str(protocol.get("final_prelabel_commit", ""))
+        if isinstance(protocol, Mapping)
+        else ""
+    )
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", final_protocol_commit)
+        or _run_git(
+            bare,
+            "merge-base",
+            "--is-ancestor",
+            final_protocol_commit,
+            amendment_commit,
+        ).returncode
+    ):
+        raise ValueError("base protocol commit is not an inference-amendment ancestor")
+    sealed_blob = _run_git(
+        bare, "show", f"{amendment_commit}:{amendment_relative}"
+    )
+    if (
+        sealed_blob.returncode
+        or hashlib.sha256(sealed_blob.stdout).hexdigest() != amendment.get("sha256")
+    ):
+        raise ValueError("sealed inference-amendment Git blob changed")
 
 
 def _normalise_git_relative(value: object, *, label: str) -> str:
@@ -2841,6 +4012,410 @@ def _prediction_dependency_paths(
     return {path, sidecar}
 
 
+def _validate_git_lightgbm_quantile_contract(manifest: Mapping[str, Any]) -> None:
+    repair = manifest.get("quantile_repair")
+    if repair != {
+        "method": "median_preserving_endpoint_clip_v1",
+        "version": 1,
+        "nominal_head_levels": {"q05": 0.05, "q50": 0.50, "q95": 0.95},
+        "q05_operation": "minimum(raw_q05,raw_q50)",
+        "q50_operation": "raw_q50_unchanged",
+        "q95_operation": "maximum(raw_q95,raw_q50)",
+        "nominal_median_preserved_exactly": True,
+    }:
+        raise ValueError("Git LightGBM quantile-head identity contract changed")
+    members = manifest.get("members")
+    horizons = manifest.get("horizons")
+    audit = manifest.get("raw_quantile_crossing_audit")
+    if (
+        not isinstance(members, list)
+        or not members
+        or len(members) != len(set(members))
+        or manifest.get("member_count") != len(members)
+        or not isinstance(horizons, list)
+        or not horizons
+        or len(horizons) != len(set(horizons))
+        or not isinstance(audit, Mapping)
+        or set(audit)
+        != {
+            "format", "scope", "key_columns", "repair_method", "members",
+            "audit_sha256",
+        }
+        or audit.get("format")
+        != "thermoroute.raw-quantile-crossing-audit.v1"
+        or audit.get("scope") != "development_export_rows_before_repair"
+        or audit.get("key_columns")
+        != ["site_id", "horizon", "split", "issue_date", "target_date"]
+        or audit.get("repair_method") != "median_preserving_endpoint_clip_v1"
+    ):
+        raise ValueError("Git LightGBM raw-crossing audit registry changed")
+    stable = {key: value for key, value in audit.items() if key != "audit_sha256"}
+    member_audits = audit.get("members")
+    expected_horizons = {str(int(value)) for value in horizons}
+    if (
+        audit.get("audit_sha256") != _sha256_json(stable)
+        or not isinstance(member_audits, Mapping)
+        or set(member_audits) != set(members)
+    ):
+        raise ValueError("Git LightGBM raw-crossing audit self hash changed")
+    horizon_identity: dict[str, tuple[int, str]] = {}
+    fields = {
+        "rows", "forecast_key_sha256", "raw_prediction_sha256",
+        "q05_above_q50_count", "q50_above_q95_count", "any_crossing_count",
+        "any_crossing_rate", "maximum_crossing_gap_c",
+    }
+    for member in members:
+        values = member_audits[member]
+        if not isinstance(values, Mapping) or set(values) != expected_horizons:
+            raise ValueError("Git LightGBM raw-crossing horizons changed")
+        for horizon, summary in values.items():
+            if not isinstance(summary, Mapping) or set(summary) != fields:
+                raise ValueError("Git LightGBM raw-crossing summary schema changed")
+            integers = [
+                summary.get("rows"), summary.get("q05_above_q50_count"),
+                summary.get("q50_above_q95_count"),
+                summary.get("any_crossing_count"),
+            ]
+            if any(type(value) is not int for value in integers):
+                raise ValueError("Git LightGBM raw-crossing counts are not integers")
+            rows, lower, upper, crossing = (int(value) for value in integers)
+            rate = summary.get("any_crossing_rate")
+            gap = summary.get("maximum_crossing_gap_c")
+            if (
+                rows < 1
+                or min(lower, upper, crossing) < 0
+                or max(lower, upper, crossing) > rows
+                or crossing < max(lower, upper)
+                or crossing > lower + upper
+                or isinstance(rate, bool)
+                or not isinstance(rate, (int, float))
+                or not math.isfinite(float(rate))
+                or float(rate) != crossing / rows
+                or isinstance(gap, bool)
+                or not isinstance(gap, (int, float))
+                or not math.isfinite(float(gap))
+                or float(gap) < 0.0
+                or (crossing == 0) != (float(gap) == 0.0)
+                or any(
+                    not re.fullmatch(r"[0-9a-f]{64}", str(summary.get(field, "")))
+                    for field in ("forecast_key_sha256", "raw_prediction_sha256")
+                )
+            ):
+                raise ValueError("Git LightGBM raw-crossing summary is inconsistent")
+            identity = (rows, str(summary["forecast_key_sha256"]))
+            if horizon in horizon_identity and horizon_identity[horizon] != identity:
+                raise ValueError("Git LightGBM raw-crossing keys differ by member")
+            horizon_identity[horizon] = identity
+
+
+def _git_preopening_gate_dependency_paths(
+    bare: Path, commit: str, suite: Mapping[str, Any]
+) -> set[str]:
+    gates = suite.get("preopening_gates")
+    expected_gates = {
+        "stage09_completion": (
+            "outputs/models/route_a_stage09_completion.json",
+            "thermoroute.stage09-completion-receipt.v1",
+            "PASS_FORMAL_STAGE09_COMPLETE",
+        ),
+        "stage09b_development_controls": (
+            "outputs/models/route_a_stage09b_completion.json",
+            "thermoroute.stage09b-completion-receipt.v2",
+            "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+        ),
+    }
+    if not isinstance(gates, Mapping) or set(gates) != set(expected_gates):
+        raise ValueError("Git model suite lacks exact Stage-09/09b completion gates")
+    output: set[str] = set()
+    for gate_name, (
+        expected_receipt_path, expected_format, expected_status,
+    ) in expected_gates.items():
+        gate_binding = gates[gate_name]
+        if not isinstance(gate_binding, Mapping) or set(gate_binding) != {
+            "path", "sha256"
+        }:
+            raise ValueError(f"Git {gate_name} binding is not exact")
+        receipt_path = _git_declared_binding_path(
+            bare, commit, gate_binding, label=f"Git {gate_name}",
+        )
+        if receipt_path != expected_receipt_path:
+            raise ValueError(f"Git {gate_name} receipt path is noncanonical")
+        output.add(receipt_path)
+        receipt = _git_json_document(
+            bare, commit, receipt_path, label=f"Git {gate_name}",
+        )
+        stable = dict(receipt)
+        self_hash = stable.pop("receipt_self_sha256", None)
+        if (
+            receipt.get("format") != expected_format
+            or receipt.get("status") != expected_status
+            or self_hash != _sha256_json(stable)
+        ):
+            raise ValueError(f"Git {gate_name} receipt changed")
+        run_id = receipt.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError(f"Git {gate_name} run identity changed")
+        if gate_name == "stage09_completion":
+            expected_receipt_keys = {
+                "format", "status", "stage", "run_id", "run_identity",
+                "formal_configuration", "confirmation_outcomes_requested_or_read",
+                "artifacts", "receipt_self_sha256",
+            }
+            expected_artifact_paths = {
+                "run_manifest": f"outputs/runs/09_usgs_experiment/{run_id}/run.json",
+                "predictions": "outputs/predictions/usgs_predictions_stage9_v2.parquet",
+                "prediction_sidecar": (
+                    "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json"
+                ),
+                "scores": "outputs/tables/usgs_scores.csv",
+                "report": "outputs/reports/usgs_experiment.md",
+                "lightgbm_selection": (
+                    "outputs/tables/lightgbm_joint_validation_selection.csv"
+                ),
+                "thermoroute_pointer": "outputs/models/thermoroute_usgs_bundle.json",
+                "lightgbm_pointer": "outputs/models/lightgbm_usgs_bundle.json",
+                "components_pointer": "outputs/models/route_a_stage9_components.json",
+            }
+            if (
+                set(receipt) != expected_receipt_keys
+                or receipt.get("stage") != "09_usgs_experiment"
+                or receipt.get("confirmation_outcomes_requested_or_read") is not False
+                or not isinstance(receipt.get("run_identity"), Mapping)
+                or not isinstance(receipt.get("formal_configuration"), Mapping)
+            ):
+                raise ValueError("Git Stage-09 receipt contract changed")
+        else:
+            expected_receipt_keys = {
+                "format", "status", "stage", "run_id", "run_identity",
+                "formal_configuration", "evidence_scope",
+                "training_replay_verified", "matrix_audit", "member_registry",
+                "artifacts", "post_2020_outcomes_requested_or_read",
+                "receipt_self_sha256",
+            }
+            run_dir = f"outputs/runs/09b_development_controls/{run_id}"
+            expected_artifact_paths = {
+                "run_manifest": f"{run_dir}/run.json",
+                "frozen_panel_spec": "data_usgs/frozen_panel_v1.json",
+                "panel": "data_usgs/panel_usgs_120v2.parquet",
+                "registry": "data_usgs/station_registry_v1.csv",
+                "predictor_bridge": "data_usgs/development_predictor_bridge_v1.json",
+                "predictions": (
+                    f"{run_dir}/development_controls_predictions.parquet"
+                ),
+                "prediction_sidecar": (
+                    f"{run_dir}/development_controls_predictions.parquet.meta.json"
+                ),
+                "architecture_budget": (
+                    f"{run_dir}/development_controls_architecture_budget.csv"
+                ),
+                "architecture_budget_sidecar": (
+                    f"{run_dir}/development_controls_architecture_budget.csv.meta.json"
+                ),
+                "metric_summary": (
+                    f"{run_dir}/development_controls_metric_summary.csv"
+                ),
+                "metric_summary_sidecar": (
+                    f"{run_dir}/development_controls_metric_summary.csv.meta.json"
+                ),
+                "report": f"{run_dir}/development_controls_report.md",
+                "report_sidecar": (
+                    f"{run_dir}/development_controls_report.md.meta.json"
+                ),
+                "semantic_audit": (
+                    f"{run_dir}/development_controls_semantic_audit.json"
+                ),
+                "semantic_audit_sidecar": (
+                    f"{run_dir}/development_controls_semantic_audit.json.meta.json"
+                ),
+            }
+            audit = receipt.get("matrix_audit")
+            common_keys = audit.get("common_forecast_keys") if isinstance(
+                audit, Mapping
+            ) else None
+            if (
+                set(receipt) != expected_receipt_keys
+                or receipt.get("stage") != "09b_development_controls"
+                or receipt.get("evidence_scope") != "prediction_artifact_closure"
+                or receipt.get("training_replay_verified") is not False
+                or receipt.get("post_2020_outcomes_requested_or_read") is not False
+                or not isinstance(receipt.get("run_identity"), Mapping)
+                or not isinstance(receipt.get("formal_configuration"), Mapping)
+                or not isinstance(audit, Mapping)
+                or set(audit) != {
+                    "expected_members", "prediction_rows", "common_forecast_keys",
+                    "splits", "reference_member",
+                }
+                or audit.get("expected_members") != 31
+                or type(common_keys) is not int
+                or common_keys < 1
+                or audit.get("prediction_rows") != 31 * common_keys
+                or audit.get("splits") != ["calib", "test", "val"]
+                or audit.get("reference_member") != "PlainMLP-7var/seed0"
+            ):
+                raise ValueError("Git Stage-09b receipt contract changed")
+        artifacts = receipt.get("artifacts")
+        if (
+            not isinstance(artifacts, Mapping)
+            or set(artifacts) != set(expected_artifact_paths)
+        ):
+            raise ValueError(f"Git {gate_name} artifact registry changed")
+        resolved: dict[str, str] = {}
+        descriptors: dict[str, dict[str, object]] = {}
+        for label, binding in artifacts.items():
+            if not isinstance(binding, Mapping) or set(binding) != {
+                "path", "sha256"
+            }:
+                raise ValueError(f"Git {gate_name} {label} binding is not exact")
+            resolved[str(label)] = _git_declared_binding_path(
+                bare, commit, binding, label=f"Git {gate_name} {label}",
+            )
+            output.add(resolved[str(label)])
+            blob = _run_git(bare, "show", f"{commit}:{resolved[str(label)]}")
+            if blob.returncode:
+                raise ValueError(f"cannot replay Git {gate_name} {label}")
+            descriptors[str(label)] = {
+                "sha256": hashlib.sha256(blob.stdout).hexdigest(),
+                "bytes": len(blob.stdout),
+            }
+        if resolved != expected_artifact_paths:
+            raise ValueError(f"Git {gate_name} artifact paths are noncanonical")
+        if gate_name != "stage09b_development_controls":
+            continue
+        members = receipt.get("member_registry")
+        expected_members = _stage09b_release_members()
+        if not isinstance(members, list) or len(members) != len(expected_members):
+            raise ValueError("Git Stage-09b member registry changed")
+        member_descriptors: dict[
+            tuple[str, int], tuple[dict[str, object], dict[str, object]]
+        ] = {}
+        for member, (arm_id, seed) in zip(members, expected_members):
+            if (
+                not isinstance(member, Mapping)
+                or set(member) != {
+                    "arm_id", "seed", "prediction", "prediction_sidecar"
+                }
+                or (member.get("arm_id"), member.get("seed")) != (arm_id, seed)
+            ):
+                raise ValueError("Git Stage-09b member binding is malformed")
+            expected_prediction = (
+                f"{run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
+            )
+            member_output: list[tuple[str, dict[str, object]]] = []
+            for label, expected_path in (
+                ("prediction", expected_prediction),
+                ("prediction_sidecar", f"{expected_prediction}.meta.json"),
+            ):
+                binding = member[label]
+                if not isinstance(binding, Mapping) or set(binding) != {
+                    "path", "sha256"
+                }:
+                    raise ValueError("Git Stage-09b member binding is not exact")
+                path = _git_declared_binding_path(
+                    bare, commit, binding,
+                    label=f"Git Stage-09b {arm_id}/seed{seed} {label}",
+                )
+                if path != expected_path:
+                    raise ValueError("Git Stage-09b member path is noncanonical")
+                output.add(path)
+                blob = _run_git(bare, "show", f"{commit}:{path}")
+                if blob.returncode:
+                    raise ValueError("cannot replay Git Stage-09b member")
+                member_output.append((path, {
+                    "sha256": hashlib.sha256(blob.stdout).hexdigest(),
+                    "bytes": len(blob.stdout),
+                }))
+            member_descriptors[(arm_id, seed)] = (
+                member_output[0][1], member_output[1][1]
+            )
+        semantic_path = resolved.get("semantic_audit")
+        if semantic_path is None:
+            raise ValueError("Git Stage-09b receipt lacks semantic audit")
+        semantic = _git_json_document(
+            bare, commit, semantic_path, label="Git Stage-09b semantic audit",
+        )
+        stable_semantic = dict(semantic)
+        semantic_hash = stable_semantic.pop("semantic_audit_self_sha256", None)
+        expected_semantic_keys = {
+            "format", "status", "run_id", "evidence_scope",
+            "training_replay_verified", "post_2020_outcomes_requested_or_read",
+            "matrix_audit", "canonical_window_registry", "members",
+            "derived_artifacts", "semantic_audit_self_sha256",
+        }
+        if (
+            set(semantic) != expected_semantic_keys
+            or semantic.get("format")
+            != "thermoroute.development-controls-semantic-audit.v1"
+            or semantic.get("status") != "PASS_PREDICTION_ARTIFACT_CLOSURE"
+            or semantic.get("run_id") != run_id
+            or semantic.get("evidence_scope") != "prediction_artifact_closure"
+            or semantic.get("training_replay_verified") is not False
+            or semantic.get("post_2020_outcomes_requested_or_read") is not False
+            or semantic.get("matrix_audit") != receipt.get("matrix_audit")
+            or semantic_hash != _sha256_json(stable_semantic)
+        ):
+            raise ValueError("Git Stage-09b semantic audit changed")
+        registry = semantic.get("canonical_window_registry")
+        if (
+            not isinstance(registry, Mapping)
+            or set(registry) != {
+                "sha256", "common_forecast_keys", "train_examples_per_epoch",
+                "train_registry_sha256",
+            }
+            or any(
+                not re.fullmatch(r"[0-9a-f]{64}", str(registry.get(field, "")))
+                for field in ("sha256", "train_registry_sha256")
+            )
+            or type(registry.get("common_forecast_keys")) is not int
+            or registry["common_forecast_keys"] < 1
+            or type(registry.get("train_examples_per_epoch")) is not int
+            or registry["train_examples_per_epoch"] < 1
+        ):
+            raise ValueError("Git Stage-09b canonical-window registry changed")
+        semantic_members = semantic.get("members")
+        if (
+            not isinstance(semantic_members, list)
+            or len(semantic_members) != len(expected_members)
+        ):
+            raise ValueError("Git Stage-09b semantic member registry changed")
+        for row, expected_member in zip(semantic_members, expected_members):
+            digest = row.get("normalised_prediction_sha256") if isinstance(
+                row, Mapping
+            ) else None
+            prediction_descriptor, sidecar_descriptor = member_descriptors[
+                expected_member
+            ]
+            if (
+                not isinstance(row, Mapping)
+                or set(row) != {
+                    "arm_id", "seed", "prediction", "prediction_sidecar",
+                    "normalised_prediction_sha256",
+                }
+                or (row.get("arm_id"), row.get("seed")) != expected_member
+                or row.get("prediction") != prediction_descriptor
+                or row.get("prediction_sidecar") != sidecar_descriptor
+                or not re.fullmatch(r"[0-9a-f]{64}", str(digest or ""))
+            ):
+                raise ValueError("Git Stage-09b semantic member evidence changed")
+        derived_labels = {
+            "architecture_budget": (
+                "architecture_budget", "architecture_budget_sidecar"
+            ),
+            "combined_predictions": ("predictions", "prediction_sidecar"),
+            "metric_summary": ("metric_summary", "metric_summary_sidecar"),
+            "report": ("report", "report_sidecar"),
+        }
+        derived = semantic.get("derived_artifacts")
+        if not isinstance(derived, Mapping) or set(derived) != set(derived_labels):
+            raise ValueError("Git Stage-09b derived-artifact registry changed")
+        for label, (artifact_label, sidecar_label) in derived_labels.items():
+            if derived[label] != {
+                "artifact": descriptors[artifact_label],
+                "sidecar": descriptors[sidecar_label],
+            }:
+                raise ValueError("Git Stage-09b derived-artifact evidence changed")
+    return output
+
+
 def _reconstruct_model_dependency_paths(
     bare: Path,
     commit: str,
@@ -2893,7 +4468,8 @@ def _reconstruct_model_dependency_paths(
         bridge.get("format") != "thermoroute.development-predictor-bridge.v1"
         or bridge.get("status") != "PASS_EXACT_PRODUCT_BRIDGE"
         or bridge.get("outcome_values_requested_or_read") is not False
-        or bridge.get("source_tree_sha256") != suite_source_sha
+        or not isinstance(bridge.get("source_tree_sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", bridge["source_tree_sha256"])
         or bridge.get("panel") != development.get("panel")
         or bridge.get("registry") != development.get("registry")
     ):
@@ -2926,6 +4502,7 @@ def _reconstruct_model_dependency_paths(
                 label=f"development predictor bridge {field}",
             )
         )
+    output |= _git_preopening_gate_dependency_paths(bare, commit, suite)
     versioned = suite.get("versioned_suite")
     if versioned is not None:
         versioned_path = _git_declared_binding_path(
@@ -2967,15 +4544,18 @@ def _reconstruct_model_dependency_paths(
                 manifest = _git_json_document(
                     bare, commit, manifest_path, label="LightGBM manifest"
                 )
-                if manifest.get("format") != "thermoroute.lightgbm-bundle.v1":
+                if manifest.get("format") != "thermoroute.lightgbm-bundle.v2":
                     raise ValueError("Git LightGBM manifest format changed")
                 if (
                     manifest.get("training_device") != "cpu"
                     or manifest.get("runtime_sha256") != suite_runtime
+                    or manifest.get("heads")
+                    != ["point", "q05", "q50", "q95", "event"]
                 ):
                     raise ValueError(
                         "Git LightGBM manifest differs from the suite numerical runtime"
                     )
+                _validate_git_lightgbm_quantile_contract(manifest)
                 models = manifest.get("models")
                 if not isinstance(models, Mapping) or not models:
                     raise ValueError("Git LightGBM manifest has no models")
@@ -4048,7 +5628,10 @@ def verify_release_profile(
         }
     if profile == PREOPEN_PROFILE:
         if (
-            marker.get("supports_route_a_confirmatory_conclusions") is not False
+            marker.get("confirmatory_scoring_completed") is not False
+            or marker.get("directional_claims_allowed") is not False
+            or marker.get("supported_test_ids") != []
+            or marker.get("supports_route_a_confirmatory_conclusions") is not False
             or marker.get("labels_included") is not False
             or marker.get("warning") != PREOPEN_WARNING
             or marker.get("fully_hashed_lock_role") != HASHED_LOCK_ROLE
@@ -4082,7 +5665,7 @@ def verify_release_profile(
         return profile
 
     if (
-        marker.get("supports_route_a_confirmatory_conclusions") is not True
+        marker.get("confirmatory_scoring_completed") is not True
         or marker.get("labels_included") is not True
         or marker.get("fully_hashed_lock_role") != HASHED_LOCK_ROLE
     ):
@@ -4093,12 +5676,19 @@ def verify_release_profile(
         label="release authorization",
     )
     categories, document, state = _gather_postopen_categories(root, authorization)
+    expected_claim_status = _derive_release_claim_status(root, document, state)
     if (
         marker.get("opening_id") != document.get("opening_id")
         or marker.get("state_namespace") != state.get("namespace")
         or set(marker.get("artifact_closure", {})) != REQUIRED_POSTOPEN_CATEGORIES
+        or any(
+            marker.get(key) != value
+            for key, value in expected_claim_status.items()
+        )
     ):
-        raise ValueError("opened-complete marker identity/categories are inconsistent")
+        raise ValueError(
+            "opened-complete marker identity/categories/claim status are inconsistent"
+        )
     _verify_archived_revision_contract(root, marker, document, state)
     _verify_declared_closure(root, marker.get("artifact_closure"), categories)
     closure = _closure_paths(marker.get("artifact_closure"))

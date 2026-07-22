@@ -23,6 +23,12 @@ from thermoroute.development_controls_gate import (  # noqa: E402
     publish_stage09b_completion_receipt,
     validate_stage09b_completion_receipt,
 )
+import thermoroute.development_controls_gate as CONTROLS_GATE  # noqa: E402
+from thermoroute.development_controls import (  # noqa: E402
+    CanonicalWindowContract,
+    normalise_window_registry,
+    window_registry_digest,
+)
 from thermoroute.repro import (  # noqa: E402
     RUN_SCHEMA_VERSION,
     RunIdentity,
@@ -66,6 +72,18 @@ def _rehash(document: dict[str, Any]) -> None:
     document["receipt_self_sha256"] = sha256_json(stable)
 
 
+def _reseal_existing_artifact(path: Path) -> None:
+    metadata = json.loads(sidecar_path(path).read_text(encoding="utf-8"))
+    seal_artifact(
+        path,
+        RunIdentity(**metadata["run"]),
+        kind=metadata["kind"],
+        schema=metadata["content_schema"],
+        parents=metadata["parents"],
+        extra=metadata["extra"],
+    )
+
+
 def _formal_policy() -> dict[str, Any]:
     return {
         "thread_environment": {
@@ -76,7 +94,7 @@ def _formal_policy() -> dict[str, Any]:
         },
         "cublas_workspace_config": ":4096:8",
         "python_hash_environment_declaration": "0",
-        "python_hash_randomization_enabled": True,
+        "python_hash_randomization_enabled": False,
         "python_hash_policy": (
             "canonical-sort-identity-collections-independent-of-hash-secret"
         ),
@@ -143,20 +161,53 @@ def _prediction(arm, seed: int, sites: list[str]) -> pd.DataFrame:
     )
 
 
+def _fixture_window_contract(sites: list[str]) -> CanonicalWindowContract:
+    arm = DC.declared_arms()[0]
+    frame = _prediction(arm, arm.seeds[0], sites)
+    registry = normalise_window_registry(
+        frame[["split", "site_id", "horizon", "issue_date", "target_date", "y_true"]]
+    )
+    return CanonicalWindowContract(
+        registry=registry,
+        train_examples=3_073,
+        stations=tuple(sorted(sites)),
+        registry_sha256=window_registry_digest(registry),
+        train_registry_sha256="6" * 64,
+    )
+
+
+def _fixture_bridge_frame() -> pd.DataFrame:
+    return pd.DataFrame({
+        "site_no": ["00000000"],
+        "DATE": [pd.Timestamp("2018-01-01")],
+        **{name: [1.0] for name in DC.FULL_VARIABLES if name != "WTEMP"},
+    })
+
+
+def _fixture_bridge_report(*_args, **_kwargs) -> dict[str, Any]:
+    return {
+        "status": "PASS_EXACT_PRODUCT_BRIDGE",
+        "interval": ["2018-01-01", "2020-12-31"],
+        "outcome_values_requested_or_read": False,
+    }
+
+
 def _build_fixture(root: Path) -> dict[str, Any]:
     (root / "src").mkdir(parents=True)
     (root / "src" / "fixture.py").write_text("VALUE = 1\n", encoding="utf-8")
     data = root / "data_usgs"
     data.mkdir()
-    panel = data / "panel.parquet"
-    panel.write_bytes(b"frozen development panel fixture")
-    sites = [f"n{index:03d}" for index in range(120)]
-    registry = data / "registry.csv"
+    panel = data / "panel_usgs_120v2.parquet"
+    pd.DataFrame({"DATE": pd.Series(dtype="datetime64[ns]")}).to_parquet(
+        panel, index=False
+    )
+    sites = [f"{index:08d}" for index in range(120)]
+    registry = data / "station_registry_v1.csv"
     pd.DataFrame({
-        "site_no": [f"{index:08d}" for index in range(120)],
-        "legacy_site_id": sites,
+        "site_no": sites,
+        "legacy_site_id": [f"n{index:03d}" for index in range(120)],
     }).to_csv(registry, index=False)
-    frozen_spec = data / "frozen.json"
+    frozen_spec = data / "frozen_panel_v1.json"
     frozen_spec.write_text(json.dumps({
         "schema_version": 1,
         "panel": {
@@ -172,7 +223,56 @@ def _build_fixture(root: Path) -> dict[str, Any]:
             "station_count": 120,
         },
     }), encoding="utf-8")
-    bridge = data / "bridge.json"
+    bridge_data = data / "development_predictor_bridge_v1"
+    bridge_data.mkdir()
+    report = bridge_data / "bridge_report_v1.json"
+    request_map = bridge_data / "source_request_map_v1.json"
+    frozen_predictors = bridge_data / "frozen_panel_predictors_2018_2020.parquet"
+    refreshed_predictors = bridge_data / "refreshed_predictors_2018_2020.parquet"
+    bridge_frame = pd.DataFrame({
+        "site_no": [sites[0]],
+        "DATE": [pd.Timestamp("2018-01-01")],
+        **{name: [1.0] for name in DC.FULL_VARIABLES if name != "WTEMP"},
+    })
+    bridge_frame.to_parquet(frozen_predictors, index=False)
+    bridge_frame.to_parquet(refreshed_predictors, index=False)
+    bridge_report = {
+        "status": "PASS_EXACT_PRODUCT_BRIDGE",
+        "interval": ["2018-01-01", "2020-12-31"],
+        "outcome_values_requested_or_read": False,
+    }
+    report.write_text(json.dumps(bridge_report), encoding="utf-8")
+    request_map.write_text(json.dumps({
+        "format": "thermoroute.development-predictor-bridge-requests.v1",
+        "outcome_values_requested_or_read": False,
+        "interval": bridge_report["interval"],
+        "request_count": 0,
+        "requests": [],
+        "gridmet_provider_contract": {"fixture": True},
+    }), encoding="utf-8")
+    raw_root = data / "raw_snapshots" / "development-predictor-bridge-v1"
+    snapshots: dict[str, Path] = {}
+    for label, directory in (
+        ("daymet", "daymet-v1"),
+        ("gridmet", "gridmet-v1"),
+        ("gridmet_schema", "gridmet-schema-v1"),
+    ):
+        snapshot_dir = raw_root / directory
+        response_dir = snapshot_dir / "provider" / ("a" * 64)
+        response_dir.mkdir(parents=True)
+        response = response_dir / "response.bin"
+        response.write_bytes(f"{label} predictor response fixture".encode())
+        metadata = response_dir / "metadata.json"
+        metadata.write_text("{}\n", encoding="utf-8")
+        snapshot = snapshot_dir / "snapshot_index.json"
+        snapshot.write_text(json.dumps({"records": [{
+            "byte_count": response.stat().st_size,
+            "metadata_path": metadata.relative_to(snapshot_dir).as_posix(),
+            "response_path": response.relative_to(snapshot_dir).as_posix(),
+            "response_sha256": sha256_file(response),
+        }]}), encoding="utf-8")
+        snapshots[label] = snapshot
+    bridge = data / "development_predictor_bridge_v1.json"
     bridge.write_text(json.dumps({
         "format": "thermoroute.development-predictor-bridge.v1",
         "status": "PASS_EXACT_PRODUCT_BRIDGE",
@@ -180,7 +280,17 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         "source_tree_sha256": "b" * 64,
         "panel": _binding(root, panel),
         "registry": _binding(root, registry),
+        "report": _binding(root, report),
+        "request_map": _binding(root, request_map),
+        "normalized": {
+            "frozen": _binding(root, frozen_predictors),
+            "refreshed": _binding(root, refreshed_predictors),
+        },
+        "raw_snapshot_indexes": {
+            label: _binding(root, path) for label, path in snapshots.items()
+        },
     }), encoding="utf-8")
+    contract = _fixture_window_contract(sites)
     arms = DC.declared_arms()
     config = {
         "stage": "09b_development_controls",
@@ -252,7 +362,6 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         "development_predictor_bridge": sha256_file(bridge),
     }
     members: dict[tuple[str, int], Path] = {}
-    summaries: list[dict[str, Any]] = []
     for arm in arms:
         parameters = DC.parameter_count(arm, n_stations=120)
         for seed in arm.seeds:
@@ -274,27 +383,18 @@ def _build_fixture(root: Path) -> dict[str, Any]:
                 },
             )
             members[(arm.arm_id, seed)] = path
-            for split in ("val", "calib", "test"):
-                for horizon in DC.C.HORIZONS:
-                    summaries.append({
-                        "arm_id": arm.arm_id,
-                        "seed": seed,
-                        "split": split,
-                        "horizon": horizon,
-                        "n": 120,
-                        "rmse": 0.1,
-                        "mae": 0.1,
-                    })
     frames = {
         member: pd.read_parquet(path) for member, path in members.items()
     }
+    summaries = DC.recompute_metric_summary(frames).to_dict(orient="records")
     audit = DC.validate_complete_prediction_matrix(
         frames, arms, allowed_sites=set(sites)
     )
     budget = DC.architecture_budget_rows(
         arms, n_stations=120, train_examples=3_073
     )
-    predictions, budget_path, report = DC.publish_final_artifacts(
+    predictions, budget_path, summary_path, report, semantic_audit = (
+        DC.publish_final_artifacts(
         run_dir=run_dir,
         identity=identity,
         arms=arms,
@@ -303,7 +403,10 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         audit=audit,
         budget=budget,
         summaries=summaries,
-    )
+        train_examples=contract.train_examples,
+        canonical_registry_sha256=contract.registry_sha256,
+        canonical_train_registry_sha256=contract.train_registry_sha256,
+    ))
     receipt_path = root / "outputs" / "models" / "route_a_stage09b_completion.json"
     receipt = build_stage09b_completion_receipt(
         root=root,
@@ -316,7 +419,9 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         member_paths=members,
         predictions=predictions,
         architecture_budget=budget_path,
+        metric_summary=summary_path,
         report=report,
+        semantic_audit=semantic_audit,
         matrix_audit=asdict(audit),
     )
     publish_stage09b_completion_receipt(receipt_path, receipt, root=root)
@@ -333,8 +438,46 @@ def _build_fixture(root: Path) -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def stage09b_base(tmp_path_factory) -> Path:
     root = tmp_path_factory.mktemp("stage09b-gate-base")
-    _build_fixture(root)
+    sites = [f"{index:08d}" for index in range(120)]
+    originals = (
+        CONTROLS_GATE.rebuild_canonical_window_contract,
+        CONTROLS_GATE.frozen_bridge_slice,
+        CONTROLS_GATE.compare_predictor_bridge,
+    )
+    CONTROLS_GATE.rebuild_canonical_window_contract = (
+        lambda **_kwargs: _fixture_window_contract(sites)
+    )
+    CONTROLS_GATE.frozen_bridge_slice = lambda *_args, **_kwargs: (
+        _fixture_bridge_frame()
+    )
+    CONTROLS_GATE.compare_predictor_bridge = _fixture_bridge_report
+    try:
+        _build_fixture(root)
+    finally:
+        (
+            CONTROLS_GATE.rebuild_canonical_window_contract,
+            CONTROLS_GATE.frozen_bridge_slice,
+            CONTROLS_GATE.compare_predictor_bridge,
+        ) = originals
     return root
+
+
+@pytest.fixture(autouse=True)
+def _scoped_data_replay_stubs(monkeypatch) -> None:
+    sites = [f"{index:08d}" for index in range(120)]
+    monkeypatch.setattr(
+        CONTROLS_GATE,
+        "rebuild_canonical_window_contract",
+        lambda **_kwargs: _fixture_window_contract(sites),
+    )
+    monkeypatch.setattr(
+        CONTROLS_GATE,
+        "frozen_bridge_slice",
+        lambda *_args, **_kwargs: _fixture_bridge_frame(),
+    )
+    monkeypatch.setattr(
+        CONTROLS_GATE, "compare_predictor_bridge", _fixture_bridge_report
+    )
 
 
 @pytest.fixture
@@ -449,10 +592,101 @@ def test_self_consistent_member_with_changed_common_key_fails_closed(fixture) ->
     first_entry["prediction"] = _binding(fixture["root"], member)
     first_entry["prediction_sidecar"] = _binding(fixture["root"], metadata_path)
     _rehash(forged)
-    with pytest.raises(DevelopmentControlsGateError, match="common keys"):
+    with pytest.raises(DevelopmentControlsGateError, match="canonical window registry"):
         validate_stage09b_completion_receipt(
             fixture["receipt"], root=fixture["root"], document=forged
         )
+
+
+@pytest.mark.parametrize(
+    ("column", "operation"),
+    (
+        ("y_pred", lambda value: value + 0.05),
+        ("q05", lambda value: value - 0.05),
+        ("p_exceed", lambda _value: 0.75),
+    ),
+)
+def test_self_consistent_member_scientific_output_forgery_fails_closed(
+    fixture, column, operation
+) -> None:
+    forged = fixture["document"]
+    entry = forged["member_registry"][0]
+    member = fixture["root"] / entry["prediction"]["path"]
+    frame = pd.read_parquet(member)
+    frame[column] = frame[column].astype("float64")
+    frame.loc[0, column] = operation(frame.loc[0, column])
+    frame.to_parquet(member, index=False)
+    _reseal_existing_artifact(member)
+    entry["prediction"] = _binding(fixture["root"], member)
+    entry["prediction_sidecar"] = _binding(
+        fixture["root"], sidecar_path(member)
+    )
+    _rehash(forged)
+    with pytest.raises(
+        DevelopmentControlsGateError,
+        match="final artifact closure|summary|combined|semantic",
+    ):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=forged
+        )
+
+
+def test_rehashed_combined_prediction_forgery_fails_full_column_equality(fixture) -> None:
+    forged = fixture["document"]
+    combined = fixture["root"] / forged["artifacts"]["predictions"]["path"]
+    frame = pd.read_parquet(combined)
+    frame[["q50", "q95"]] = frame[["q50", "q95"]].astype("float64")
+    frame.loc[0, "q50"] += 0.05
+    frame.loc[0, "q95"] += 0.05
+    frame.to_parquet(combined, index=False)
+    _reseal_existing_artifact(combined)
+    forged["artifacts"]["predictions"] = _binding(fixture["root"], combined)
+    forged["artifacts"]["prediction_sidecar"] = _binding(
+        fixture["root"], sidecar_path(combined)
+    )
+    _rehash(forged)
+    with pytest.raises(DevelopmentControlsGateError, match="combined predictions differ"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=forged
+        )
+
+
+def test_rehashed_metric_summary_forgery_is_recomputed_and_rejected(fixture) -> None:
+    forged = fixture["document"]
+    summary = fixture["root"] / forged["artifacts"]["metric_summary"]["path"]
+    table = pd.read_csv(summary)
+    table.loc[0, "rmse"] += 0.1
+    table.to_csv(summary, index=False)
+    _reseal_existing_artifact(summary)
+    forged["artifacts"]["metric_summary"] = _binding(fixture["root"], summary)
+    forged["artifacts"]["metric_summary_sidecar"] = _binding(
+        fixture["root"], sidecar_path(summary)
+    )
+    _rehash(forged)
+    with pytest.raises(DevelopmentControlsGateError, match="not prediction-derived"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=forged
+        )
+
+
+def test_formal_numerical_policy_rejects_each_previously_unchecked_field() -> None:
+    attacks = (
+        ("python_hash_environment_declaration", "ATTACK"),
+        ("python_hash_randomization_enabled", True),
+        ("required.cublas_workspace_config", "ATTACK"),
+        ("required.float32_matmul_precision", "ATTACK"),
+        ("torch.cudnn_deterministic", False),
+        ("torch.cudnn_benchmark", True),
+    )
+    for dotted, value in attacks:
+        policy = _formal_policy()
+        target = policy
+        parts = dotted.split(".")
+        for part in parts[:-1]:
+            target = target[part]
+        target[parts[-1]] = value
+        with pytest.raises(DevelopmentControlsGateError, match="numerical policy"):
+            CONTROLS_GATE._validate_formal_policy(policy)
 
 
 def test_post_validation_artifact_mutation_is_rejected_on_revalidation(fixture) -> None:

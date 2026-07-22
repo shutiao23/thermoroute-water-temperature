@@ -81,7 +81,7 @@ echo "[15/27] deep sequence baseline: leave-HUC2-region-out transfer (4 folds)"
 python3 scripts/16_lstm_baseline.py --transfer
 echo "[16/27] 3-way transfer + in-sample LSTM report"
 python3 scripts/16_lstm_baseline.py --report
-echo "[17/27] Algebraic bounded-deviation diagnostic (Fig 3; no safety claim)"
+echo "[17/27] Algebraic diagnostic (Fig 3; no safety claim)"
 python3 scripts/17_prop1_binding.py
 echo "[18/27] full REV decision-value curve over cost-loss grid (Fig 5)"
 python3 scripts/18_rev_curve.py

@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute import results as R  # noqa: E402
+from thermoroute.development_controls import (  # noqa: E402
+    DevelopmentControlsContractError,
+)
 from thermoroute.repro import RunIdentity, sidecar_path  # noqa: E402
 from thermoroute.train import FitResult  # noqa: E402
 
@@ -177,6 +180,81 @@ def test_complete_matrix_requires_every_member_and_exact_common_keys() -> None:
         DC.validate_complete_prediction_matrix(changed_truth, arms)
 
 
+@pytest.mark.parametrize(
+    ("column", "value", "message"),
+    (
+        ("issue_date", pd.NaT, "dates contain nulls"),
+        ("q05", 99.0, "quantiles are not ordered"),
+        ("q95", -99.0, "quantiles are not ordered"),
+        ("p_exceed", 1.01, "outside"),
+    ),
+)
+def test_prediction_semantics_reject_nat_crossing_and_probability(
+    column: str, value: object, message: str,
+) -> None:
+    arm = DC.declared_arms()[0]
+    frame = _tiny_predictions(arm, 0)
+    frame.loc[0, column] = value
+    with pytest.raises(DevelopmentControlsContractError, match=message):
+        DC.normalise_prediction_frame(frame, arm=arm, seed=0)
+
+
+@pytest.mark.parametrize(
+    ("column", "operation"),
+    (
+        ("y_pred", lambda value: value + 0.05),
+        ("q05", lambda value: value - 0.05),
+        ("q50", lambda value: value + 0.05),
+        ("q95", lambda value: value + 0.05),
+        ("p_exceed", lambda _value: 0.75),
+    ),
+)
+def test_prediction_digest_binds_every_scientific_output_column(
+    column: str, operation,
+) -> None:
+    arm = DC.declared_arms()[0]
+    baseline = DC.normalise_prediction_frame(
+        _tiny_predictions(arm, 0), arm=arm, seed=0
+    )
+    attacked = baseline.copy()
+    attacked.loc[0, column] = operation(attacked.loc[0, column])
+    attacked = DC.normalise_prediction_frame(attacked, arm=arm, seed=0)
+    assert DC.prediction_content_digest(attacked) != DC.prediction_content_digest(
+        baseline
+    )
+
+
+def test_metric_recomputation_rejects_finite_inputs_with_overflowing_error() -> None:
+    arm = DC.declared_arms()[0]
+    frame = _tiny_predictions(arm, 0)
+    frame["y_true"] = -1e308
+    frame["y_pred"] = 1e308
+    with pytest.raises(
+        DevelopmentControlsContractError, match="overflows finite metric"
+    ):
+        DC.recompute_metric_summary({(arm.arm_id, 0): frame})
+
+
+def test_canonical_registry_replaces_float32_equivalent_attacker_truth() -> None:
+    arm = DC.declared_arms()[0]
+    frame = _tiny_predictions(arm, 0)
+    registry = frame[[
+        "split", "site_id", "horizon", "issue_date", "target_date", "y_true"
+    ]].copy()
+    canonical_truth = registry["y_true"].astype("float32").astype("float64")
+    frame["y_true"] = np.nextafter(canonical_truth, np.inf)
+    normalised = DC.normalise_prediction_frame(
+        frame, arm=arm, seed=0, canonical_registry=registry
+    )
+    canonical = registry.sort_values(
+        ["split", "site_id", "horizon", "issue_date", "target_date"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    assert np.array_equal(
+        normalised["y_true"].to_numpy(), canonical["y_true"].to_numpy()
+    )
+
+
 def test_immutable_prediction_cache_rejects_corrupt_or_stale_bytes(tmp_path: Path) -> None:
     arm = DC.declared_arms()[0]
     seed = arm.seeds[0]
@@ -299,10 +377,14 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(tmp_path: P
             audit=audit,
             budget=budget,
             summaries=summaries,
+            train_examples=3,
+            canonical_registry_sha256="0" * 64,
+            canonical_train_registry_sha256="1" * 64,
         )
     assert not blocked_dir.exists()
 
-    combined, budget_path, report_path = DC.publish_final_artifacts(
+    combined, budget_path, summary_path, report_path, semantic_audit_path = (
+        DC.publish_final_artifacts(
         run_dir=tmp_path,
         identity=_identity(),
         arms=arms,
@@ -311,15 +393,21 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(tmp_path: P
         audit=audit,
         budget=budget,
         summaries=summaries,
-    )
+        train_examples=3,
+        canonical_registry_sha256="0" * 64,
+        canonical_train_registry_sha256="1" * 64,
+    ))
     combined_frame = pd.read_parquet(combined)
     assert len(combined_frame) == 31 * 9
     assert len(combined_frame[["model", "seed"]].drop_duplicates()) == 31
     assert len(pd.read_csv(budget_path)) == 9
+    assert len(pd.read_csv(summary_path)) == 31 * 3 * 3
     report = report_path.read_text(encoding="utf-8")
     assert "not a blind or confirmatory test" in report
     assert "historical_tuning_budget_equalized" in report
-    for output in (combined, budget_path, report_path):
+    semantic = json.loads(semantic_audit_path.read_text(encoding="utf-8"))
+    assert semantic["training_replay_verified"] is False
+    for output in (combined, budget_path, summary_path, report_path, semantic_audit_path):
         metadata = json.loads(sidecar_path(output).read_text(encoding="utf-8"))
         assert metadata["extra"]["suite_pointer_written"] is False
     assert not any("pointer" in path.name.lower() for path in tmp_path.rglob("*"))
