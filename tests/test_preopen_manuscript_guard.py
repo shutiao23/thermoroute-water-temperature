@@ -117,6 +117,62 @@ def test_preopen_guard_static_entry_needs_no_site_packages(tmp_path):
     assert "PASS frozen PRE-OPEN manuscript sources" in completed.stdout
 
 
+@pytest.mark.parametrize(
+    ("forbidden_state", "error_fragment"),
+    (
+        ("authorization", "authorization exists"),
+        ("confirmation_namespace", "confirmation output namespace exists"),
+        (
+            "paper/ThermoRoute_paper.md",
+            "differs from its frozen SHA-256: paper/ThermoRoute_paper.md",
+        ),
+        (
+            "paper/cover_letter.md",
+            "differs from its frozen SHA-256: paper/cover_letter.md",
+        ),
+        (
+            "paper/highlights.md",
+            "differs from its frozen SHA-256: paper/highlights.md",
+        ),
+    ),
+)
+def test_render_subprocess_fails_before_docx_import_and_preserves_targets(
+    tmp_path, forbidden_state, error_fragment,
+):
+    _preopen_fixture(tmp_path)
+    sentinels = {
+        "paper/ThermoRoute_paper.docx": b"sentinel-main-docx\n",
+        "paper/cover_letter.docx": b"sentinel-cover-docx\n",
+        "paper/highlights.docx": b"sentinel-highlights-docx\n",
+    }
+    for relative, payload in sentinels.items():
+        (tmp_path / relative).write_bytes(payload)
+
+    if forbidden_state == "authorization":
+        forbidden = (
+            tmp_path / GUARD.EXPECTED_PHASE_RESOLVER["canonical_authorization"]
+        )
+        forbidden.parent.mkdir(parents=True)
+        forbidden.write_text("{}\n", encoding="utf-8")
+    elif forbidden_state == "confirmation_namespace":
+        forbidden = tmp_path / "outputs/confirmatory/arbitrary_namespace/marker.txt"
+        forbidden.parent.mkdir(parents=True)
+        forbidden.write_text("must refuse\n", encoding="utf-8")
+    else:
+        (tmp_path / forbidden_state).write_bytes(b"changed after PRE freeze\n")
+
+    completed = subprocess.run(
+        [sys.executable, "-S", str(RENDER_SCRIPT), "--root", str(tmp_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert error_fragment in completed.stderr
+    for relative, payload in sentinels.items():
+        assert (tmp_path / relative).read_bytes() == payload
+
+
 def test_preopen_guard_runs_before_python_docx_import():
     source = RENDER_SCRIPT.read_text(encoding="utf-8")
     guard_call = source.index(
