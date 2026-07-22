@@ -1,0 +1,1144 @@
+#!/usr/bin/env python3
+"""Validate the evidence-derived Route-A claim ledger and manuscript blocks.
+
+The validator has no command-line phase switch.  For the v2 ledger the phase is
+derived only from the canonical authorization, its canonical intent marker and
+``thermoroute.opening.validate_completed_receipt``.  Consequently an interrupted
+opening is not silently treated as either PRE or POST.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections import Counter, defaultdict
+from fnmatch import fnmatch
+import hashlib
+import importlib
+import json
+import math
+from pathlib import Path
+import re
+import sys
+from typing import Any, Mapping, Sequence
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_REGISTRY = ROOT / "protocols" / "route_a_claim_registry_v1.json"
+
+V1_FORMAT = "thermoroute.route-a-claim-registry.v1"
+V2_FORMAT = "thermoroute.route-a-claim-ledger.v2"
+PRE_PHASE = "PRE_CONFIRMATION_LABELS_SEALED"
+POST_PHASE = "POST_CONFIRMATION_VERIFIED"
+INDETERMINATE_PHASE = "INDETERMINATE_FAIL_CLOSED"
+AUTHORIZATION_FORMAT = "thermoroute.route-a-opening-authorization.v1"
+STATISTICS_FORMAT = "thermoroute.route-a-confirmatory-statistics.v1"
+
+BLOCK_START = re.compile(
+    r"^<!-- ROUTE_A_CLAIM (?P<claim_id>[A-Za-z0-9_.-]+) "
+    r"sha256=(?P<sha256>[0-9a-f]{64}) -->\n",
+    flags=re.MULTILINE,
+)
+BLOCK_END = "\n<!-- END ROUTE_A_CLAIM -->"
+BLOCK_TOKEN = "ROUTE_A_CLAIM"
+
+
+class ClaimRegistryError(RuntimeError):
+    """The claim evidence or registry is malformed or indeterminate."""
+
+
+def _canonical_json(value: object) -> str:
+    try:
+        return json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ClaimRegistryError("claim ledger contains non-canonical JSON") from exc
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _inside(root: Path, relative: object, *, require_file: bool = False) -> Path:
+    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+        raise ClaimRegistryError("claim-ledger path is not a non-empty relative path")
+    path = (root / relative).resolve()
+    if path != root and root not in path.parents:
+        raise ClaimRegistryError(f"claim-ledger path escapes repository: {relative}")
+    if require_file and not path.is_file():
+        raise ClaimRegistryError(f"required claim evidence is absent: {relative}")
+    return path
+
+
+def _load_json(path: Path, *, label: str) -> Mapping[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ClaimRegistryError(f"cannot read {label}: {path}") from exc
+    if not isinstance(value, Mapping):
+        raise ClaimRegistryError(f"{label} is not a JSON object")
+    return value
+
+
+def _load_registry(path: Path) -> Mapping[str, Any]:
+    document = _load_json(path, label="claim registry")
+    format_name = document.get("format")
+    if format_name not in {V1_FORMAT, V2_FORMAT}:
+        raise ClaimRegistryError("unsupported claim-registry format")
+    claims = document.get("claims")
+    if format_name == V1_FORMAT:
+        if not isinstance(claims, list) or not claims:
+            raise ClaimRegistryError("claim registry is empty")
+        identifiers = [str(claim.get("claim_id", "")) for claim in claims]
+        if not all(identifiers) or len(identifiers) != len(set(identifiers)):
+            raise ClaimRegistryError("claim identifiers are empty or duplicated")
+        return document
+
+    required = {
+        "format", "scope", "protocol_binding", "documents", "phase_resolver",
+        "permanent_constraints", "claim_templates", "result_claim_specs",
+        "required_documents", "required_postopen_coverage",
+        "required_permanent_coverage", "decision_rule", "free_text_lints",
+        "free_text_policy",
+    }
+    if set(document) != required:
+        raise ClaimRegistryError("v2 claim-ledger top-level schema changed")
+    if document.get("scope") != "Route A only":
+        raise ClaimRegistryError("v2 claim ledger has an unsupported scope")
+    patterns = document.get("documents")
+    if not isinstance(patterns, list) or not patterns or not all(
+        isinstance(item, str) and item for item in patterns
+    ):
+        raise ClaimRegistryError("document registry is malformed")
+    required_documents = document.get("required_documents")
+    if not isinstance(required_documents, list) or not required_documents or not all(
+        isinstance(item, str) and item and not any(character in item for character in "*?[")
+        for item in required_documents
+    ):
+        raise ClaimRegistryError("exact required-document registry is malformed")
+    if len(required_documents) != len(set(required_documents)) or any(
+        not any(fnmatch(item, pattern) for pattern in patterns)
+        for item in required_documents
+    ):
+        raise ClaimRegistryError("required documents are duplicated or outside scan scope")
+    resolver = document.get("phase_resolver")
+    if not isinstance(resolver, Mapping) or resolver.get("mode") != (
+        "DERIVE_NEVER_CLI_OVERRIDE"
+    ):
+        raise ClaimRegistryError("claim phase is not evidence-derived")
+    authorization = resolver.get("canonical_authorization")
+    namespace_glob = resolver.get("namespace_glob")
+    if (
+        authorization != "data_usgs/confirmatory_opening_authorization_v1.json"
+        or namespace_glob != "outputs/confirmatory/route_a_*"
+        or set(resolver) != {"mode", "canonical_authorization", "namespace_glob"}
+    ):
+        raise ClaimRegistryError("phase resolver does not use canonical Route-A paths")
+
+    constraints = document.get("permanent_constraints")
+    templates = document.get("claim_templates")
+    specs = document.get("result_claim_specs")
+    coverage = document.get("required_postopen_coverage")
+    permanent_coverage = document.get("required_permanent_coverage")
+    lints = document.get("free_text_lints")
+    decision_rule = document.get("decision_rule")
+    if not isinstance(constraints, list) or not constraints:
+        raise ClaimRegistryError("permanent constraint registry is empty")
+    if not isinstance(templates, Mapping) or not templates:
+        raise ClaimRegistryError("claim-template registry is empty")
+    if not isinstance(specs, list) or len(specs) != 5:
+        raise ClaimRegistryError("result claim registry must contain exactly five specs")
+    if not isinstance(coverage, Mapping) or set(coverage) != {
+        "claim_ids", "multiplicity", "phase"
+    }:
+        raise ClaimRegistryError("post-opening coverage contract is malformed")
+    if (
+        coverage.get("multiplicity") != "EACH_EXACTLY_ONCE"
+        or coverage.get("phase") != POST_PHASE
+    ):
+        raise ClaimRegistryError("post-opening coverage is not exact-once POST")
+    claim_ids = coverage.get("claim_ids")
+    if not isinstance(claim_ids, list) or len(claim_ids) != 5:
+        raise ClaimRegistryError("post-opening coverage must name exactly five claims")
+    if len(set(str(value) for value in claim_ids)) != 5:
+        raise ClaimRegistryError("post-opening coverage claim IDs are duplicated")
+    spec_ids = [str(spec.get("claim_id", "")) for spec in specs]
+    if spec_ids != [str(value) for value in claim_ids]:
+        raise ClaimRegistryError("result specs and exact coverage order differ")
+    if not isinstance(lints, list) or not lints:
+        raise ClaimRegistryError("free-text lint registry is empty")
+    if document.get("free_text_policy") != (
+        "ALL_FORMAL_ROUTE_A_RESULTS_MUST_USE_STRUCTURED_CLAIM_BLOCKS; regexes "
+        "are defense-in-depth lint and are not semantic proof that arbitrary "
+        "prose contains no paraphrased result claim"
+    ):
+        raise ClaimRegistryError("formal-result/free-text trust boundary changed")
+    expected_decision_rule = {
+        "protocol_predicates": [
+            {
+                "pointer": (
+                    "/primary_inference_contract/"
+                    "confirmatory_claim_decision_contract/"
+                    "all_five_tests_must_be_rendered_exactly_once"
+                ),
+                "operator": "equals",
+                "expected": True,
+            },
+            {
+                "pointer": (
+                    "/primary_inference_contract/"
+                    "confirmatory_claim_decision_contract/supported_if_and_only_if"
+                ),
+                "operator": "contains",
+                "expected": "ci_high_c < margin_c",
+            },
+            {
+                "pointer": (
+                    "/primary_inference_contract/"
+                    "confirmatory_claim_decision_contract/"
+                    "noninferiority_wording_limit"
+                ),
+                "operator": "contains",
+                "expected": "may not say equivalent, parity",
+            },
+        ],
+        "support_requires": [
+            "status == ESTIMABLE",
+            "p_holm <= 0.05",
+            "ci_high_c < margin_c",
+        ],
+        "p_ci_disagreement": "EVIDENCE_CONFLICT_NOT_SUPPORTED",
+        "coherent_failure": "NOT_ESTABLISHED",
+        "nonestimable": "NOT_ESTIMABLE",
+        "h1_interpretation": (
+            "margin-0 superiority for the named comparison only"
+        ),
+        "h2_interpretation": (
+            "satisfies only the preregistered +0.05 degrees C numerical "
+            "non-inferiority ceiling; never equivalence or parity"
+        ),
+    }
+    if decision_rule != expected_decision_rule:
+        raise ClaimRegistryError("confirmatory claim decision rule changed")
+    if any(
+        template_id not in templates
+        for template_id in (
+            "SUPERIORITY_SUPPORTED", "NONINFERIORITY_SUPPORTED",
+            "EVIDENCE_CONFLICT_NOT_SUPPORTED", "NOT_ESTABLISHED",
+            "NOT_ESTIMABLE",
+        )
+    ):
+        raise ClaimRegistryError("decision rule lacks a fixed result template")
+
+    all_entries: list[Mapping[str, Any]] = []
+    for constraint in constraints:
+        if not isinstance(constraint, Mapping):
+            raise ClaimRegistryError("permanent constraint is not an object")
+        entry = constraint.get("claim")
+        predicates = constraint.get("protocol_predicates")
+        if (
+            set(constraint) != {"constraint_id", "protocol_predicates", "claim", "lint_regex"}
+            or not str(constraint.get("constraint_id", ""))
+            or not isinstance(predicates, list)
+            or not predicates
+            or not isinstance(entry, Mapping)
+        ):
+            raise ClaimRegistryError("permanent constraint schema is malformed")
+        all_entries.append(entry)
+        regexes = constraint.get("lint_regex")
+        if not isinstance(regexes, list) or not all(isinstance(item, str) for item in regexes):
+            raise ClaimRegistryError("permanent-constraint lint registry is malformed")
+    all_entries.extend(spec for spec in specs if isinstance(spec, Mapping))
+    if len(all_entries) != len(constraints) + len(specs):
+        raise ClaimRegistryError("claim entry registry is malformed")
+    entry_ids = []
+    for entry in all_entries:
+        _validate_claim_entry(entry, templates=templates)
+        entry_ids.append(str(entry["claim_id"]))
+    if len(entry_ids) != len(set(entry_ids)):
+        raise ClaimRegistryError("v2 claim IDs are duplicated")
+    if spec_ids != entry_ids[-5:]:
+        raise ClaimRegistryError("result claim registry is not exact")
+    permanent_ids = [
+        str(constraint["claim"]["claim_id"]) for constraint in constraints
+    ]
+    if (
+        not isinstance(permanent_coverage, Mapping)
+        or set(permanent_coverage) != {"claim_ids", "multiplicity", "phases"}
+        or permanent_coverage.get("claim_ids") != permanent_ids
+        or permanent_coverage.get("multiplicity") != "EACH_EXACTLY_ONCE"
+        or permanent_coverage.get("phases") != [PRE_PHASE, POST_PHASE]
+    ):
+        raise ClaimRegistryError("permanent limitation coverage is not exact-once")
+    for entry in all_entries:
+        if any(
+            not any(fnmatch(target, pattern) for pattern in patterns)
+            for target in entry["render_targets"]
+        ):
+            raise ClaimRegistryError("claim render target is outside canonical documents")
+        if entry["kind"] == "CONFIRMATORY_RESULT" and len(entry["render_targets"]) != 1:
+            raise ClaimRegistryError("exact-once result claim must have one render target")
+    return document
+
+
+def _validate_claim_entry(
+    entry: Mapping[str, Any], *, templates: Mapping[str, Any]
+) -> None:
+    required = {
+        "claim_id", "scope", "kind", "polarity", "phase_allowed",
+        "template_id", "evidence", "render_targets",
+    }
+    if set(entry) != required:
+        raise ClaimRegistryError("claim entry fields differ from ledger v2")
+    if not all(str(entry.get(key, "")).strip() for key in (
+        "claim_id", "scope", "kind", "polarity", "template_id"
+    )):
+        raise ClaimRegistryError("claim entry contains an empty identity field")
+    phases = entry.get("phase_allowed")
+    if not isinstance(phases, list) or not phases or set(phases) - {
+        PRE_PHASE, POST_PHASE
+    }:
+        raise ClaimRegistryError("claim entry has an invalid phase allowance")
+    evidence = entry.get("evidence")
+    targets = entry.get("render_targets")
+    if not isinstance(evidence, Mapping) or not evidence:
+        raise ClaimRegistryError("claim entry lacks structured evidence")
+    if not isinstance(targets, list) or not targets or not all(
+        isinstance(value, str) and value for value in targets
+    ):
+        raise ClaimRegistryError("claim entry lacks render targets")
+    if entry["kind"] == "NEGATED_LIMITATION":
+        if entry["polarity"] != "NEGATED" or entry["template_id"] not in templates:
+            raise ClaimRegistryError("limitation claim is not a fixed negated template")
+        if evidence.get("artifact") != "protocol":
+            raise ClaimRegistryError("limitation claim is not protocol-backed")
+    elif entry["kind"] == "CONFIRMATORY_RESULT":
+        if (
+            entry["polarity"] != "AUTO_FROM_VERIFIED_STATISTICS"
+            or entry["template_id"] != "AUTO_CONFIRMATORY_DECISION"
+            or phases != [POST_PHASE]
+            or set(evidence) != {"artifact", "test_id"}
+            or evidence.get("artifact") != "statistics"
+        ):
+            raise ClaimRegistryError("result claim is not statistics-derived POST-only")
+    else:
+        raise ClaimRegistryError("unsupported structured claim kind")
+
+
+def _documents(root: Path, patterns: Sequence[str]) -> list[Path]:
+    candidates = [path for path in root.rglob("*") if path.is_file()]
+    selected = {
+        path
+        for path in candidates
+        if any(fnmatch(path.relative_to(root).as_posix(), pattern) for pattern in patterns)
+    }
+    return sorted(selected)
+
+
+def _json_pointer(document: object, pointer: object) -> object:
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise ClaimRegistryError("protocol predicate has an invalid JSON pointer")
+    current = document
+    for raw in pointer[1:].split("/"):
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, Mapping) and token in current:
+            current = current[token]
+        elif isinstance(current, list) and token.isdigit() and int(token) < len(current):
+            current = current[int(token)]
+        else:
+            raise ClaimRegistryError(f"protocol predicate pointer is absent: {pointer}")
+    return current
+
+
+def _validate_protocol_binding(root: Path, registry: Mapping[str, Any]) -> Mapping[str, Any]:
+    binding = registry.get("protocol_binding")
+    if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
+        raise ClaimRegistryError("protocol binding is malformed")
+    expected_sha = binding.get("sha256")
+    if not isinstance(expected_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
+        raise ClaimRegistryError("protocol binding lacks an exact SHA-256")
+    path = _inside(root, binding.get("path"), require_file=True)
+    if _sha256_file(path) != expected_sha:
+        raise ClaimRegistryError("claim ledger protocol SHA-256 changed")
+    protocol = _load_json(path, label="claim-ledger protocol")
+    def validate_predicate(predicate: object, *, label: str) -> None:
+        if not isinstance(predicate, Mapping) or set(predicate) != {
+            "pointer", "operator", "expected"
+        }:
+            raise ClaimRegistryError("protocol predicate schema is malformed")
+        actual = _json_pointer(protocol, predicate["pointer"])
+        operator = predicate["operator"]
+        expected = predicate["expected"]
+        passed = False
+        if operator == "equals":
+            passed = actual == expected
+        elif operator == "contains":
+            passed = isinstance(actual, str) and isinstance(expected, str) and expected in actual
+        elif operator == "contains_all":
+            passed = (
+                isinstance(actual, list)
+                and isinstance(expected, list)
+                and all(value in actual for value in expected)
+            )
+        else:
+            raise ClaimRegistryError(f"unsupported protocol predicate operator: {operator}")
+        if not passed:
+            raise ClaimRegistryError(
+                f"protocol no longer supports {label}: {predicate['pointer']}"
+            )
+
+    for constraint in registry["permanent_constraints"]:
+        for predicate in constraint["protocol_predicates"]:
+            validate_predicate(
+                predicate, label=f"permanent constraint {constraint['constraint_id']}"
+            )
+    for predicate in registry["decision_rule"]["protocol_predicates"]:
+        validate_predicate(predicate, label="confirmatory claim decision rule")
+    return protocol
+
+
+def _opening_api(root: Path) -> tuple[Any, Any]:
+    """Load the repository's frozen verifier, never a caller-supplied phase."""
+    source = (root / "src").resolve()
+    if not source.is_dir():
+        raise ClaimRegistryError("Route-A opening verifier source is absent")
+    source_text = str(source)
+    inserted = source_text not in sys.path
+    if inserted:
+        sys.path.insert(0, source_text)
+    try:
+        module = importlib.import_module("thermoroute.opening")
+    except Exception as exc:  # dependency/import failure makes phase unknowable
+        raise ClaimRegistryError("cannot load the canonical opening verifier") from exc
+    finally:
+        if inserted and sys.path and sys.path[0] == source_text:
+            sys.path.pop(0)
+    module_path = Path(getattr(module, "__file__", "")).resolve()
+    if module_path != (source / "thermoroute" / "opening.py").resolve():
+        raise ClaimRegistryError("imported opening verifier is noncanonical")
+    return module.validate_authorization, module.validate_completed_receipt
+
+
+def _validate_authorization(
+    authorization_path: Path, *, root: Path, allow_gitless_archive: bool
+) -> Mapping[str, Any]:
+    validate, _ = _opening_api(root)
+    try:
+        return validate(
+            authorization_path,
+            root=root,
+            require_clean_source=False,
+            allow_gitless_archive=allow_gitless_archive,
+        )
+    except Exception as exc:
+        raise ClaimRegistryError("canonical opening authorization did not verify") from exc
+
+
+def _validate_completed_receipt(
+    authorization_path: Path, *, root: Path, allow_gitless_archive: bool
+) -> Mapping[str, Any]:
+    _, validate = _opening_api(root)
+    try:
+        return validate(
+            authorization_path,
+            root=root,
+            allow_gitless_archive=allow_gitless_archive,
+        )
+    except Exception as exc:
+        raise ClaimRegistryError("canonical completed receipt did not verify") from exc
+
+
+def _canonical_state(authorization: Mapping[str, Any], *, root: Path) -> Mapping[str, str]:
+    if (
+        authorization.get("format") != AUTHORIZATION_FORMAT
+        or authorization.get("status") != "AUTHORIZED_LABELS_STILL_SEALED"
+    ):
+        raise ClaimRegistryError("canonical authorization identity/status is invalid")
+    state = authorization.get("state_paths")
+    if not isinstance(state, Mapping):
+        raise ClaimRegistryError("canonical authorization lacks state paths")
+    namespace = state.get("namespace")
+    if not isinstance(namespace, str) or not re.fullmatch(r"[0-9a-f]{24}", namespace):
+        raise ClaimRegistryError("Route-A state namespace is malformed")
+    base = f"outputs/confirmatory/route_a_{namespace}"
+    expected = {
+        "run_directory": base,
+        "intent": f"{base}/opening_intent_v1.json",
+        "statistics": f"{base}/trusted/statistics_v1.json",
+        "report": f"{base}/trusted/report_v1.md",
+        "receipt": f"{base}/opening_receipt_v1.json",
+        "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
+    }
+    for key, relative in expected.items():
+        if state.get(key) != relative:
+            raise ClaimRegistryError(f"authorization has noncanonical state path: {key}")
+        _inside(root, relative)
+    return {str(key): str(value) for key, value in state.items()}
+
+
+def _namespace_entries(root: Path, namespace_glob: str) -> list[Path]:
+    entries: list[Path] = []
+    for directory in root.glob(namespace_glob):
+        if directory.is_file():
+            entries.append(directory)
+        elif directory.is_dir():
+            entries.extend(path for path in directory.rglob("*") if path.is_file())
+    return sorted(entries)
+
+
+def resolve_phase(
+    *, root: Path, registry: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """Derive PRE/POST; every partial or unverifiable state raises."""
+    root = root.resolve()
+    resolver = registry["phase_resolver"]
+    authorization_relative = resolver["canonical_authorization"]
+    authorization_path = _inside(root, authorization_relative)
+    namespace_entries = _namespace_entries(root, resolver["namespace_glob"])
+    if not authorization_path.exists():
+        if namespace_entries:
+            raise ClaimRegistryError(
+                "Route-A phase is INDETERMINATE: namespace artifacts exist without "
+                "the canonical authorization"
+            )
+        return {"phase": PRE_PHASE, "authorization": None, "receipt": None}
+    if not authorization_path.is_file():
+        raise ClaimRegistryError("Route-A phase is INDETERMINATE: authorization is not a file")
+    authorization = _load_json(authorization_path, label="canonical authorization")
+    source = authorization.get("source")
+    if (
+        not isinstance(source, Mapping)
+        or source.get("authorization_path") != authorization_relative
+    ):
+        raise ClaimRegistryError("canonical authorization points to another authorization")
+    binding = authorization.get("protocol")
+    expected_binding = registry["protocol_binding"]
+    if (
+        not isinstance(binding, Mapping)
+        or binding.get("path") != expected_binding["path"]
+        or binding.get("sha256") != expected_binding["sha256"]
+    ):
+        raise ClaimRegistryError("authorization and claim ledger bind different protocols")
+    state = _canonical_state(authorization, root=root)
+    intent_path = _inside(root, state["intent"])
+    receipt_path = _inside(root, state["receipt"])
+    intent_exists = intent_path.is_file()
+    receipt_exists = receipt_path.is_file()
+    if intent_exists != receipt_exists:
+        raise ClaimRegistryError(
+            "Route-A phase is INDETERMINATE: intent/receipt completion is partial"
+        )
+    if not intent_exists:
+        if namespace_entries:
+            raise ClaimRegistryError(
+                "Route-A phase is INDETERMINATE: namespace artifacts exist before intent"
+            )
+        allow_gitless = not (root / ".git").exists()
+        preflight = _validate_authorization(
+            authorization_path, root=root, allow_gitless_archive=allow_gitless
+        )
+        return {
+            "phase": PRE_PHASE,
+            "authorization": authorization,
+            "preflight": preflight,
+            "receipt": None,
+        }
+    allow_gitless = not (root / ".git").exists()
+    receipt = _validate_completed_receipt(
+        authorization_path, root=root, allow_gitless_archive=allow_gitless
+    )
+    return {
+        "phase": POST_PHASE,
+        "authorization": authorization,
+        "authorization_path": authorization_path,
+        "receipt": receipt,
+        "state": state,
+    }
+
+
+def _holm(raw: Sequence[float]) -> list[float]:
+    order = sorted(range(len(raw)), key=lambda index: (raw[index], index))
+    adjusted = [0.0] * len(raw)
+    running = 0.0
+    count = len(raw)
+    for rank, index in enumerate(order):
+        running = max(running, min(1.0, (count - rank) * raw[index]))
+        adjusted[index] = running
+    return adjusted
+
+
+def _finite_number(value: object, *, label: str) -> float:
+    if isinstance(value, bool):
+        raise ClaimRegistryError(f"statistics {label} is boolean, not numeric")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ClaimRegistryError(f"statistics {label} is not numeric") from exc
+    if not math.isfinite(number):
+        raise ClaimRegistryError(f"statistics {label} is not finite")
+    return number
+
+
+def _load_verified_statistics(
+    *, root: Path, registry: Mapping[str, Any], phase: Mapping[str, Any], protocol: Mapping[str, Any]
+) -> tuple[Mapping[str, Any], str]:
+    if phase.get("phase") != POST_PHASE:
+        raise ClaimRegistryError("result statistics requested outside verified POST")
+    receipt = phase.get("receipt")
+    state = phase.get("state")
+    if not isinstance(receipt, Mapping) or not isinstance(state, Mapping):
+        raise ClaimRegistryError("verified POST lacks receipt/state evidence")
+    artifacts = receipt.get("artifacts")
+    binding = artifacts.get("statistics") if isinstance(artifacts, Mapping) else None
+    if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
+        raise ClaimRegistryError("receipt lacks an exact statistics binding")
+    if binding.get("path") != state.get("statistics"):
+        raise ClaimRegistryError("receipt statistics path is noncanonical")
+    statistics_path = _inside(root, binding["path"], require_file=True)
+    if _sha256_file(statistics_path) != binding.get("sha256"):
+        raise ClaimRegistryError("receipt-bound statistics SHA-256 changed")
+    statistics = _load_json(statistics_path, label="receipt-bound statistics")
+    if statistics.get("format") != STATISTICS_FORMAT:
+        raise ClaimRegistryError("receipt-bound statistics format changed")
+    inference = protocol.get("primary_inference_contract")
+    if not isinstance(inference, Mapping):
+        raise ClaimRegistryError("bound protocol lacks primary inference contract")
+    protocol_ci = inference.get("confidence_interval")
+    protocol_p = inference.get("one_sided_p_value")
+    statistics_ci = statistics.get("confidence_interval")
+    statistics_p = statistics.get("p_value")
+    if (
+        not isinstance(protocol_ci, Mapping)
+        or not isinstance(protocol_p, Mapping)
+        or not isinstance(statistics_ci, Mapping)
+        or statistics_ci.get("method") != protocol_ci.get("method")
+        or statistics_ci.get("draws") != protocol_ci.get("draws")
+        or not isinstance(statistics_p, Mapping)
+        or statistics_p.get("method") != protocol_p.get("method")
+        or statistics_p.get("maximum_configurations_for_frozen_cohort")
+        != protocol_p.get("maximum_configurations_for_frozen_cohort")
+        or statistics_p.get("monte_carlo_used") is not False
+        or statistics_p.get("assumption") != protocol_p.get("null_assumption")
+        or statistics_p.get("enumeration_rule") != protocol_p.get("enumeration_rule")
+        or statistics_p.get("legacy_seed_field") != protocol_p.get("legacy_seed_field")
+        or statistics.get("multiplicity") != "Holm step-down across exactly five tests"
+    ):
+        raise ClaimRegistryError("statistics inference method differs from the protocol")
+    rows = statistics.get("tests")
+    if not isinstance(rows, list) or len(rows) != 5:
+        raise ClaimRegistryError("receipt-bound statistics must contain exactly five tests")
+    formal_tests = receipt.get("formal_tests")
+    if formal_tests != rows:
+        raise ClaimRegistryError("statistics tests differ from receipt formal_tests")
+    family = inference.get("confirmatory_family")
+    if not isinstance(family, list) or len(family) != 5:
+        raise ClaimRegistryError("bound protocol lacks the exact five-test family")
+    protocol_ids = [str(item.get("test_id", "")) for item in family]
+    required_claims = registry["required_postopen_coverage"]["claim_ids"]
+    result_specs = registry["result_claim_specs"]
+    spec_test_ids = [str(item["evidence"]["test_id"]) for item in result_specs]
+    if spec_test_ids != protocol_ids or len(set(protocol_ids)) != 5:
+        raise ClaimRegistryError("claim coverage differs from the protocol five-test family")
+    if [str(item["claim_id"]) for item in result_specs] != required_claims:
+        raise ClaimRegistryError("claim coverage registry changed")
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise ClaimRegistryError("statistics test row is not an object")
+        test_id = str(row.get("test_id", ""))
+        if not test_id or test_id in by_id:
+            raise ClaimRegistryError("statistics test IDs are empty or duplicated")
+        by_id[test_id] = row
+    if list(by_id) != protocol_ids:
+        raise ClaimRegistryError("statistics does not cover the exact five tests in order")
+    raw_values: list[float] = []
+    exact_row_keys = {
+        "test_id", "candidate", "reference", "horizon", "margin_c",
+        "effect_convention", "status", "median_effect_c", "ci_low_c",
+        "ci_high_c", "n_stations", "n_clusters", "win_rate",
+        "p_one_sided_raw", "bootstrap_seed",
+        "sign_flip_seed_legacy_ignored", "sign_flip_configurations",
+        "p_holm", "reject_at_0_05", "confidence_bound_supports_margin",
+    }
+    for test, row in zip(family, rows):
+        if set(row) != exact_row_keys:
+            raise ClaimRegistryError(
+                f"statistics row schema changed for {test.get('test_id', '<unknown>')}"
+            )
+        expected_identity = {
+            "test_id": test["test_id"],
+            "candidate": test["candidate"],
+            "reference": test["reference"],
+            "horizon": int(test["horizon"]),
+            "margin_c": float(test["margin_c"]),
+        }
+        for key, value in expected_identity.items():
+            actual = row.get(key)
+            if key == "margin_c":
+                actual = _finite_number(actual, label=f"{test['test_id']}.{key}")
+            if actual != value:
+                raise ClaimRegistryError(f"statistics identity changed for {test['test_id']}: {key}")
+        status = row.get("status")
+        if row.get("effect_convention") != (
+            "station_RMSE_ThermoRoute-minus-reference"
+        ):
+            raise ClaimRegistryError("statistics effect convention changed")
+        if (
+            row.get("bootstrap_seed") != test.get("bootstrap_seed")
+            or row.get("sign_flip_seed_legacy_ignored") != test.get("sign_flip_seed")
+        ):
+            raise ClaimRegistryError("statistics frozen seed identity changed")
+        raw = _finite_number(row.get("p_one_sided_raw"), label=f"{test['test_id']}.p_raw")
+        holm = _finite_number(row.get("p_holm"), label=f"{test['test_id']}.p_holm")
+        if not 0.0 <= raw <= 1.0 or not 0.0 <= holm <= 1.0:
+            raise ClaimRegistryError("statistics p-value lies outside [0,1]")
+        raw_values.append(raw)
+        if status == "ESTIMABLE":
+            effect = _finite_number(row.get("median_effect_c"), label="median_effect_c")
+            ci_low = _finite_number(row.get("ci_low_c"), label="ci_low_c")
+            ci_high = _finite_number(row.get("ci_high_c"), label="ci_high_c")
+            win_rate = _finite_number(row.get("win_rate"), label="win_rate")
+            n_stations_value = _finite_number(row.get("n_stations"), label="n_stations")
+            n_clusters_value = _finite_number(row.get("n_clusters"), label="n_clusters")
+            if not n_stations_value.is_integer() or not n_clusters_value.is_integer():
+                raise ClaimRegistryError("statistics sample counts are not integers")
+            n_stations, n_clusters = int(n_stations_value), int(n_clusters_value)
+            if (
+                n_stations <= 0
+                or n_clusters < 2
+                or not math.isfinite(effect)
+                or ci_low > ci_high
+                or not 0.0 <= win_rate <= 1.0
+            ):
+                raise ClaimRegistryError("estimable statistics has invalid sample counts")
+            configurations_value = _finite_number(
+                row.get("sign_flip_configurations"), label="sign_flip_configurations"
+            )
+            if not configurations_value.is_integer():
+                raise ClaimRegistryError("sign-flip configuration count is not an integer")
+            configurations = int(configurations_value)
+            if configurations != 1 << n_clusters:
+                raise ClaimRegistryError("exact sign-flip configuration count changed")
+            if row.get("reject_at_0_05") is not (holm <= 0.05):
+                raise ClaimRegistryError("statistics reject flag differs from Holm p-value")
+            if row.get("confidence_bound_supports_margin") is not (
+                ci_high < float(test["margin_c"])
+            ):
+                raise ClaimRegistryError("statistics CI/margin flag is inconsistent")
+        elif status == "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS":
+            for key in ("median_effect_c", "ci_low_c", "ci_high_c", "win_rate"):
+                if row.get(key) is not None:
+                    raise ClaimRegistryError("non-estimable statistics reports an effect")
+            n_stations_value = _finite_number(row.get("n_stations"), label="n_stations")
+            n_clusters_value = _finite_number(row.get("n_clusters"), label="n_clusters")
+            if (
+                not n_stations_value.is_integer()
+                or not n_clusters_value.is_integer()
+                or n_stations_value < 0
+                or n_clusters_value < 0
+            ):
+                raise ClaimRegistryError("non-estimable attrition counts are invalid")
+            if (
+                raw != 1.0
+                or row.get("reject_at_0_05") is not False
+                or row.get("confidence_bound_supports_margin") is not False
+                or row.get("sign_flip_configurations") is not None
+            ):
+                raise ClaimRegistryError("non-estimable statistics reports support")
+        else:
+            raise ClaimRegistryError(f"unsupported confirmatory status: {status}")
+    expected_holm = _holm(raw_values)
+    for row, expected in zip(rows, expected_holm):
+        actual = _finite_number(row.get("p_holm"), label="p_holm")
+        if actual != expected:
+            raise ClaimRegistryError("Holm values are not the exact five-test adjustment")
+    return statistics, str(binding["sha256"])
+
+
+def _number(value: object) -> str:
+    if value is None:
+        return "NA"
+    number = _finite_number(value, label="rendered number")
+    return json.dumps(number, allow_nan=False, separators=(",", ":"))
+
+
+def _result_verdict(row: Mapping[str, Any]) -> str:
+    if row["status"] != "ESTIMABLE":
+        return "NOT_ESTIMABLE"
+    p_support = row["reject_at_0_05"] is True
+    interval_support = row["confidence_bound_supports_margin"] is True
+    if p_support != interval_support:
+        return "EVIDENCE_CONFLICT_NOT_SUPPORTED"
+    if not p_support:
+        return "NOT_ESTABLISHED"
+    return "SUPERIORITY_SUPPORTED" if float(row["margin_c"]) == 0.0 else (
+        "NONINFERIORITY_SUPPORTED"
+    )
+
+
+def _render_result_text(row: Mapping[str, Any], templates: Mapping[str, Any]) -> tuple[str, str]:
+    verdict = _result_verdict(row)
+    template = templates.get(verdict)
+    if not isinstance(template, str) or not template:
+        raise ClaimRegistryError(f"missing fixed result template: {verdict}")
+    if verdict == "NOT_ESTIMABLE":
+        values = {
+            "test_id": row["test_id"],
+            "candidate": row["candidate"],
+            "reference": row["reference"],
+            "horizon": int(row["horizon"]),
+            "margin_c": _number(row["margin_c"]),
+            "n_stations": int(row["n_stations"]),
+            "n_clusters": int(row["n_clusters"]),
+        }
+    else:
+        values = {
+            "test_id": row["test_id"],
+            "candidate": row["candidate"],
+            "reference": row["reference"],
+            "horizon": int(row["horizon"]),
+            "margin_c": _number(row["margin_c"]),
+            "effect_c": _number(row["median_effect_c"]),
+            "ci_low_c": _number(row["ci_low_c"]),
+            "ci_high_c": _number(row["ci_high_c"]),
+            "p_raw": _number(row["p_one_sided_raw"]),
+            "p_holm": _number(row["p_holm"]),
+            "n_stations": int(row["n_stations"]),
+            "n_clusters": int(row["n_clusters"]),
+        }
+    try:
+        return template.format_map(values), verdict
+    except (KeyError, ValueError) as exc:
+        raise ClaimRegistryError(f"result template cannot render: {verdict}") from exc
+
+
+def _claim_body(text: str, entry: Mapping[str, Any]) -> str:
+    return f"{text}\n<!-- ROUTE_A_CLAIM_ENTRY {_canonical_json(entry)} -->"
+
+
+def _claim_block(claim_id: str, body: str) -> bytes:
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return (
+        f"<!-- ROUTE_A_CLAIM {claim_id} sha256={digest} -->\n"
+        f"{body}\n<!-- END ROUTE_A_CLAIM -->"
+    ).encode("utf-8")
+
+
+def _expected_claims(
+    *, registry: Mapping[str, Any], phase: str, statistics: Mapping[str, Any] | None
+) -> Mapping[str, Mapping[str, Any]]:
+    templates = registry["claim_templates"]
+    expected: dict[str, Mapping[str, Any]] = {}
+    for constraint in registry["permanent_constraints"]:
+        spec = constraint["claim"]
+        template = templates.get(spec["template_id"])
+        if not isinstance(template, str) or not template:
+            raise ClaimRegistryError("fixed limitation template is absent")
+        entry = dict(spec)
+        body = _claim_body(template, entry)
+        expected[str(spec["claim_id"])] = {
+            "spec": spec, "body": body, "block": _claim_block(str(spec["claim_id"]), body)
+        }
+    if phase == POST_PHASE:
+        if statistics is None:
+            raise ClaimRegistryError("POST claim rendering lacks verified statistics")
+        by_id = {str(row["test_id"]): row for row in statistics["tests"]}
+        for spec in registry["result_claim_specs"]:
+            test_id = str(spec["evidence"]["test_id"])
+            text, verdict = _render_result_text(by_id[test_id], templates)
+            entry = dict(spec)
+            entry["polarity"] = verdict
+            entry["template_id"] = verdict
+            body = _claim_body(text, entry)
+            expected[str(spec["claim_id"])] = {
+                "spec": spec, "body": body, "block": _claim_block(str(spec["claim_id"]), body)
+            }
+    return expected
+
+
+def render_result_claim_blocks(
+    *, root: Path, registry_path: Path
+) -> Mapping[str, bytes]:
+    """Return, but never write, deterministic POST blocks grouped by target."""
+    root = root.resolve()
+    registry = _load_registry(registry_path.resolve())
+    if registry.get("format") != V2_FORMAT:
+        raise ClaimRegistryError("result block rendering requires claim-ledger v2")
+    protocol = _validate_protocol_binding(root, registry)
+    phase = resolve_phase(root=root, registry=registry)
+    if phase["phase"] != POST_PHASE:
+        raise ClaimRegistryError("result blocks exist only after a verified opening")
+    statistics, _ = _load_verified_statistics(
+        root=root, registry=registry, phase=phase, protocol=protocol
+    )
+    expected = _expected_claims(
+        registry=registry, phase=POST_PHASE, statistics=statistics
+    )
+    grouped: dict[str, list[bytes]] = defaultdict(list)
+    result_ids = set(registry["required_postopen_coverage"]["claim_ids"])
+    for claim_id in registry["required_postopen_coverage"]["claim_ids"]:
+        if claim_id not in result_ids:  # defensive, registry validation also closes this
+            raise ClaimRegistryError("result block coverage changed during rendering")
+        spec = expected[claim_id]["spec"]
+        for target in spec["render_targets"]:
+            grouped[str(target)].append(expected[claim_id]["block"])
+    return {target: b"\n\n".join(blocks) for target, blocks in sorted(grouped.items())}
+
+
+def _parse_blocks(text: str) -> tuple[list[Mapping[str, Any]], str, list[str]]:
+    blocks: list[Mapping[str, Any]] = []
+    spans: list[tuple[int, int]] = []
+    malformed: list[str] = []
+    position = 0
+    while True:
+        start = BLOCK_START.search(text, position)
+        if start is None:
+            break
+        end_index = text.find(BLOCK_END, start.end())
+        if end_index < 0:
+            malformed.append(f"unterminated block {start.group('claim_id')}")
+            position = start.end()
+            continue
+        body = text[start.end():end_index]
+        stop = end_index + len(BLOCK_END)
+        blocks.append({
+            "claim_id": start.group("claim_id"),
+            "sha256": start.group("sha256"),
+            "body": body,
+            "start": start.start(),
+            "stop": stop,
+        })
+        spans.append((start.start(), stop))
+        position = stop
+    outside_parts = []
+    cursor = 0
+    for start, stop in spans:
+        outside_parts.append(text[cursor:start])
+        outside_parts.append("\n")
+        cursor = stop
+    outside_parts.append(text[cursor:])
+    outside = "".join(outside_parts)
+    if BLOCK_TOKEN in outside:
+        malformed.append("malformed ROUTE_A_CLAIM marker")
+    return blocks, outside, malformed
+
+
+def _compile_lint(pattern: str, *, lint_id: str) -> re.Pattern[str]:
+    try:
+        return re.compile(pattern, flags=re.IGNORECASE | re.DOTALL)
+    except re.error as exc:
+        raise ClaimRegistryError(f"{lint_id} has invalid lint regex: {pattern}") from exc
+
+
+def _validate_v1(
+    *, root: Path, registry: Mapping[str, Any], documents: list[Path], require_complete: bool
+) -> list[str]:
+    """Compatibility reader; v1 can lint but can never prove a pending opening."""
+    violations: list[str] = []
+    for claim in registry["claims"]:
+        claim_id = str(claim["claim_id"])
+        regexes = claim.get("forbidden_regex", [])
+        if not isinstance(regexes, list) or not all(isinstance(value, str) for value in regexes):
+            raise ClaimRegistryError(f"{claim_id} forbidden_regex is malformed")
+        compiled = [_compile_lint(pattern, lint_id=claim_id) for pattern in regexes]
+        for path in documents:
+            text = path.read_text(encoding="utf-8", errors="strict")
+            for pattern, regex in zip(regexes, compiled):
+                match = regex.search(text)
+                if match is not None:
+                    line = text.count("\n", 0, match.start()) + 1
+                    violations.append(
+                        f"{claim_id}: {path.relative_to(root)}:{line}: {pattern}"
+                    )
+        if require_complete and claim.get("status") == "PENDING_SINGLE_OPENING":
+            violations.append(
+                f"{claim_id}: legacy v1 artifact existence cannot establish a "
+                "verified completed opening; upgrade to claim-ledger v2"
+            )
+    return violations
+
+
+def validate_claims(
+    *, root: Path, registry_path: Path, require_complete: bool = False
+) -> list[str]:
+    """Validate claims without accepting a phase, receipt or statistics argument."""
+    root = root.resolve()
+    registry = _load_registry(registry_path.resolve())
+    patterns = registry.get("documents")
+    if not isinstance(patterns, list) or not all(isinstance(value, str) for value in patterns):
+        raise ClaimRegistryError("document registry is malformed")
+    documents = _documents(root, patterns)
+    if not documents:
+        raise ClaimRegistryError("claim scan selected no documents")
+    if registry.get("format") == V1_FORMAT:
+        return _validate_v1(
+            root=root,
+            registry=registry,
+            documents=documents,
+            require_complete=require_complete,
+        )
+
+    protocol = _validate_protocol_binding(root, registry)
+    phase_evidence = resolve_phase(root=root, registry=registry)
+    phase = str(phase_evidence["phase"])
+    if phase not in {PRE_PHASE, POST_PHASE}:
+        raise ClaimRegistryError(f"Route-A phase is {INDETERMINATE_PHASE}")
+    if require_complete and phase != POST_PHASE:
+        return ["PHASE: --require-complete requires a verified completed receipt"]
+    expected_document_relatives = set(registry["required_documents"])
+    if phase == POST_PHASE:
+        state = phase_evidence.get("state")
+        if not isinstance(state, Mapping) or not isinstance(state.get("report"), str):
+            raise ClaimRegistryError("verified POST lacks its canonical trusted report")
+        expected_document_relatives.add(str(state["report"]))
+    actual_document_relatives = {
+        path.relative_to(root).as_posix() for path in documents
+    }
+    if actual_document_relatives != expected_document_relatives:
+        missing = sorted(expected_document_relatives - actual_document_relatives)
+        extra = sorted(actual_document_relatives - expected_document_relatives)
+        raise ClaimRegistryError(
+            f"canonical claim document closure changed (missing={missing}, extra={extra})"
+        )
+    statistics: Mapping[str, Any] | None = None
+    if phase == POST_PHASE:
+        statistics, _ = _load_verified_statistics(
+            root=root,
+            registry=registry,
+            phase=phase_evidence,
+            protocol=protocol,
+        )
+    expected = _expected_claims(registry=registry, phase=phase, statistics=statistics)
+    expected_entries = {
+        str(item["claim"]["claim_id"]): item["claim"]
+        for item in registry["permanent_constraints"]
+    }
+    expected_entries.update({str(item["claim_id"]): item for item in registry["result_claim_specs"]})
+    occurrences: dict[str, list[str]] = defaultdict(list)
+    outside_by_path: dict[Path, str] = {}
+    violations: list[str] = []
+    for path in documents:
+        relative = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8", errors="strict")
+        blocks, outside, malformed = _parse_blocks(text)
+        outside_by_path[path] = outside
+        violations.extend(f"BLOCK: {relative}: {message}" for message in malformed)
+        for block in blocks:
+            claim_id = str(block["claim_id"])
+            occurrence = f"{relative}:{text.count(chr(10), 0, int(block['start'])) + 1}"
+            occurrences[claim_id].append(relative)
+            if claim_id not in expected_entries:
+                violations.append(f"BLOCK: {occurrence}: unknown claim ID {claim_id}")
+                continue
+            spec = expected_entries[claim_id]
+            if phase not in spec["phase_allowed"]:
+                violations.append(
+                    f"BLOCK: {occurrence}: {claim_id} is not allowed in phase {phase}"
+                )
+                continue
+            if relative not in spec["render_targets"]:
+                violations.append(
+                    f"BLOCK: {occurrence}: {claim_id} has an undeclared render target"
+                )
+            actual_digest = hashlib.sha256(str(block["body"]).encode("utf-8")).hexdigest()
+            if block["sha256"] != actual_digest:
+                violations.append(f"BLOCK: {occurrence}: {claim_id} body hash is invalid")
+            expected_claim = expected.get(claim_id)
+            if expected_claim is None or block["body"] != expected_claim["body"]:
+                violations.append(
+                    f"BLOCK: {occurrence}: {claim_id} differs from deterministic evidence rendering"
+                )
+    for claim_id, targets in occurrences.items():
+        counts = Counter(targets)
+        for target, count in counts.items():
+            if count > 1:
+                violations.append(
+                    f"COVERAGE: {claim_id} appears {count} times in {target}; expected at most once"
+                )
+    if phase == POST_PHASE:
+        for claim_id in registry["required_postopen_coverage"]["claim_ids"]:
+            count = len(occurrences.get(str(claim_id), []))
+            if count != 1:
+                violations.append(
+                    f"COVERAGE: POST claim {claim_id} appears {count} times; expected exactly once"
+                )
+    else:
+        result_ids = set(registry["required_postopen_coverage"]["claim_ids"])
+        for claim_id in result_ids:
+            if occurrences.get(str(claim_id)):
+                violations.append(f"COVERAGE: PRE phase contains result claim {claim_id}")
+    for claim_id in registry["required_permanent_coverage"]["claim_ids"]:
+        count = len(occurrences.get(str(claim_id), []))
+        if count != 1:
+            violations.append(
+                f"COVERAGE: permanent limitation {claim_id} appears {count} times; "
+                "expected exactly once"
+            )
+
+    # Fixed negative sentences are the only authoritative free-text exceptions.
+    limitation_templates = {
+        str(registry["claim_templates"][constraint["claim"]["template_id"]])
+        for constraint in registry["permanent_constraints"]
+    }
+    lint_groups: list[tuple[str, str]] = []
+    for constraint in registry["permanent_constraints"]:
+        lint_groups.extend(
+            (str(constraint["constraint_id"]), str(pattern))
+            for pattern in constraint["lint_regex"]
+        )
+    for lint in registry["free_text_lints"]:
+        if not isinstance(lint, Mapping) or set(lint) != {"lint_id", "regex"}:
+            raise ClaimRegistryError("free-text lint schema is malformed")
+        lint_groups.append((str(lint["lint_id"]), str(lint["regex"])))
+    compiled = [
+        (lint_id, pattern, _compile_lint(pattern, lint_id=lint_id))
+        for lint_id, pattern in lint_groups
+    ]
+    for path, outside in outside_by_path.items():
+        lint_text = outside
+        for template in limitation_templates:
+            lint_text = lint_text.replace(template, " ")
+        for lint_id, pattern, regex in compiled:
+            match = regex.search(lint_text)
+            if match is not None:
+                line = lint_text.count("\n", 0, match.start()) + 1
+                violations.append(
+                    f"LINT {lint_id}: {path.relative_to(root)}:{line}: {pattern}"
+                )
+    return violations
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY)
+    parser.add_argument("--require-complete", action="store_true")
+    args = parser.parse_args()
+    try:
+        violations = validate_claims(
+            root=args.root,
+            registry_path=args.registry,
+            require_complete=args.require_complete,
+        )
+    except ClaimRegistryError as exc:
+        print(f"claim-registry validation failed: {exc}", file=sys.stderr)
+        return 2
+    if violations:
+        print("Route-A claim violations:", file=sys.stderr)
+        for violation in violations:
+            print(f"- {violation}", file=sys.stderr)
+        return 1
+    print("Route-A claims OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

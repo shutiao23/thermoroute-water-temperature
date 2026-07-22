@@ -1,0 +1,519 @@
+{
+  "format": "thermoroute.route-a-claim-ledger.v2",
+  "scope": "Route A only",
+  "protocol_binding": {
+    "path": "protocols/route_a_confirmatory_v1.json",
+    "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+  },
+  "documents": [
+    "README.md",
+    "paper/ThermoRoute_paper.md",
+    "paper/highlights.md",
+    "paper/cover_letter.md",
+    "paper/agu_submission/ThermoRoute_WRR.tex",
+    "outputs/confirmatory/route_a_*/trusted/report_v1.md"
+  ],
+  "required_documents": [
+    "README.md",
+    "paper/ThermoRoute_paper.md",
+    "paper/highlights.md",
+    "paper/cover_letter.md",
+    "paper/agu_submission/ThermoRoute_WRR.tex"
+  ],
+  "phase_resolver": {
+    "mode": "DERIVE_NEVER_CLI_OVERRIDE",
+    "canonical_authorization": "data_usgs/confirmatory_opening_authorization_v1.json",
+    "namespace_glob": "outputs/confirmatory/route_a_*"
+  },
+  "permanent_constraints": [
+    {
+      "constraint_id": "P01_NOT_UNGAUGED",
+      "protocol_predicates": [
+        {
+          "pointer": "/external_new_gage_inference_contract/ungauged_claim_allowed",
+          "operator": "equals",
+          "expected": false
+        },
+        {
+          "pointer": "/external_new_gage_inference_contract/observed_wtemp_history_through_issue_date",
+          "operator": "equals",
+          "expected": true
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NOT_UNGAUGED",
+        "scope": "Route-A external history-dependent new-gage evaluation",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NOT_UNGAUGED",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P01_NOT_UNGAUGED"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "\\bungauged\\b",
+        "\\bungaged\\b",
+        "unseen basin",
+        "leave[- ]river[- ]out"
+      ]
+    },
+    {
+      "constraint_id": "P02_NO_NETWORK_ROUTING_PROOF",
+      "protocol_predicates": [
+        {
+          "pointer": "/primary_inference_contract/exploratory_spatial_inference_sensitivity/limitations",
+          "operator": "contains",
+          "expected": "not proof of independent river-network components"
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NO_NETWORK_ROUTING_PROOF",
+        "scope": "Route-A physics-inspired architecture and HUC2 sensitivity",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NO_NETWORK_ROUTING_PROOF",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P02_NO_NETWORK_ROUTING_PROOF"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "(explicit|learned|physical) river[- ]network routing",
+        "router.{0,30}(proves|identifies|recovers).{0,30}(travel time|advection)",
+        "kappa.{0,30}(residence time|physical memory)",
+        "no.{0,30}(held[- ]out )?(gage|site).{0,30}(shares?|same).{0,20}river"
+      ]
+    },
+    {
+      "constraint_id": "P03_NOT_OPERATIONAL_REPLAY",
+      "protocol_predicates": [
+        {
+          "pointer": "/primary_historical_input_contract/evaluation_type",
+          "operator": "equals",
+          "expected": "ONE_SHOT_RETROSPECTIVE_HISTORICAL_INFORMATION"
+        },
+        {
+          "pointer": "/primary_historical_input_contract/operational_replay_claim_allowed",
+          "operator": "equals",
+          "expected": false
+        },
+        {
+          "pointer": "/primary_historical_input_contract/horizon_specific_future_nwp_consumed",
+          "operator": "equals",
+          "expected": false
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NOT_OPERATIONAL_REPLAY",
+        "scope": "Route-A retrospective forecast evaluation",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NOT_OPERATIONAL_REPLAY",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P03_NOT_OPERATIONAL_REPLAY"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "operational(ly)? (ready|validated|replay|forecast skill)",
+        "reanalysis.{0,50}(stand(s|ing)? in for|replace(s|d)? by).{0,30}(NWP|weather forecast)",
+        "model ranking.{0,20}(unaffected|unchanged).{0,30}(NWP|forecast)"
+      ]
+    },
+    {
+      "constraint_id": "P04_NO_REGULATORY_ECOLOGICAL_MEANING",
+      "protocol_predicates": [
+        {
+          "pointer": "/primary_inference_contract/probabilistic_event_contract/external_event",
+          "operator": "contains",
+          "expected": "not site-local, biologically meaningful, ecologically comparable, or regulatory"
+        },
+        {
+          "pointer": "/primary_inference_contract/noninferiority_margin_rationale",
+          "operator": "contains",
+          "expected": "no ecological or regulatory importance claim"
+        },
+        {
+          "pointer": "/daily_outcome_quality_contract/request_statistic_code",
+          "operator": "equals",
+          "expected": "00003_daily_mean"
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NO_REGULATORY_ECOLOGICAL_MEANING",
+        "scope": "Route-A daily-mean statistical thresholds and numerical margin",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NO_REGULATORY_ECOLOGICAL_MEANING",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P04_NO_REGULATORY_ECOLOGICAL_MEANING"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "EPA.{0,30}7DADM",
+        "regulatory (meaning|compliance|threshold|value)",
+        "(18|20).{0,8}(°|degrees?)?C.{0,40}(compliance|regulatory|EPA)",
+        "7[- ]day average daily maximum.{0,30}(forecast|skill|compliance)"
+      ]
+    },
+    {
+      "constraint_id": "P05_NO_SAFETY_GUARANTEE",
+      "protocol_predicates": [
+        {
+          "pointer": "/primary_inference_contract/failure_to_reject_is_equivalence",
+          "operator": "equals",
+          "expected": false
+        },
+        {
+          "pointer": "/primary_inference_contract/noninferiority_margin_rationale",
+          "operator": "contains",
+          "expected": "strict numerical ceiling"
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NO_SAFETY_GUARANTEE",
+        "scope": "Route-A bounded residual and confirmatory decisions",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NO_SAFETY_GUARANTEE",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P05_NO_SAFETY_GUARANTEE"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "provably safe",
+        "safety guarantee",
+        "guaranteed (safe|non[- ]degradation|improvement)",
+        "distribution[- ]free safety"
+      ]
+    },
+    {
+      "constraint_id": "P06_NO_CAUSAL_MECHANISM",
+      "protocol_predicates": [
+        {
+          "pointer": "/daily_outcome_quality_contract/approved_only_target_sensitivity/role",
+          "operator": "equals",
+          "expected": "EXPLORATORY_DESCRIPTIVE_NOT_IN_CONFIRMATORY_FAMILY"
+        },
+        {
+          "pointer": "/primary_inference_contract/probabilistic_event_contract/role",
+          "operator": "equals",
+          "expected": "DESCRIPTIVE_NOT_IN_CONFIRMATORY_FIVE_TEST_FAMILY"
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NO_CAUSAL_MECHANISM",
+        "scope": "Route-A architecture controls and predictor sensitivities",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NO_CAUSAL_MECHANISM",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P06_NO_CAUSAL_MECHANISM"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "(confirms|proves|identifies).{0,35}(energy budget|hydrologic mechanism|causal mechanism|travel time)",
+        "causal (effect|importance|contribution)"
+      ]
+    },
+    {
+      "constraint_id": "P07_NOT_NATIONALLY_REPRESENTATIVE",
+      "protocol_predicates": [
+        {
+          "pointer": "/primary_inference_contract/primary_estimand/population",
+          "operator": "contains",
+          "expected": "fixed 120-site canonical development registry"
+        },
+        {
+          "pointer": "/primary_inference_contract/primary_estimand/interpretation_limit",
+          "operator": "contains",
+          "expected": "not performance over every calendar day or every U.S. river"
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NOT_NATIONALLY_REPRESENTATIVE",
+        "scope": "Route-A fixed availability-enriched site cohort",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NOT_NATIONALLY_REPRESENTATIVE",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P07_NOT_NATIONALLY_REPRESENTATIVE"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "representative of (all )?(U\\.S\\.|United States|national) (rivers|streams)",
+        "nationally representative"
+      ]
+    },
+    {
+      "constraint_id": "P08_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM",
+      "protocol_predicates": [
+        {
+          "pointer": "/primary_inference_contract/probabilistic_event_contract/inference_prohibited",
+          "operator": "contains_all",
+          "expected": [
+            "conditional_coverage_claim"
+          ]
+        },
+        {
+          "pointer": "/primary_inference_contract/probabilistic_event_contract/metrics",
+          "operator": "contains_all",
+          "expected": [
+            "equal_weight_three_quantile_pinball_mean_not_CRPS"
+          ]
+        }
+      ],
+      "claim": {
+        "claim_id": "LIMIT_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM",
+        "scope": "Route-A descriptive probability evaluation",
+        "kind": "NEGATED_LIMITATION",
+        "polarity": "NEGATED",
+        "phase_allowed": [
+          "PRE_CONFIRMATION_LABELS_SEALED",
+          "POST_CONFIRMATION_VERIFIED"
+        ],
+        "template_id": "NEGATED_LIMITATION_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM",
+        "evidence": {
+          "artifact": "protocol",
+          "constraint_id": "P08_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM"
+        },
+        "render_targets": [
+          "paper/ThermoRoute_paper.md"
+        ]
+      },
+      "lint_regex": [
+        "ACI.{0,60}(buys?|achieves?|provides?).{0,40}conditional coverage",
+        "conditional coverage.{0,60}(uniformity|guarantee|achiev|provid|buy)",
+        "(?<!not )\\bCRPS\\b"
+      ]
+    }
+  ],
+  "claim_templates": {
+    "NEGATED_LIMITATION_NOT_UNGAUGED": "Route A is history-dependent and uses target-site water-temperature observations through each issue date; it does not establish ungauged prediction.",
+    "NEGATED_LIMITATION_NO_NETWORK_ROUTING_PROOF": "Route A does not establish independent river-network separation, physical river-network routing, or hydraulic travel time.",
+    "NEGATED_LIMITATION_NOT_OPERATIONAL_REPLAY": "Route A is a one-shot retrospective historical-information evaluation, not an operational replay with archived as-issued predictor vintages or future NWP.",
+    "NEGATED_LIMITATION_NO_REGULATORY_ECOLOGICAL_MEANING": "Route A uses daily-mean statistical thresholds and a numerical non-inferiority margin; neither has ecological, biological, or regulatory meaning.",
+    "NEGATED_LIMITATION_NO_SAFETY_GUARANTEE": "Route A provides no physical, deployment, regulatory, or distribution-free safety guarantee, and failure to reject is not equivalence.",
+    "NEGATED_LIMITATION_NO_CAUSAL_MECHANISM": "Route-A architecture controls and predictor sensitivities are descriptive or exploratory and do not identify causal mechanisms.",
+    "NEGATED_LIMITATION_NOT_NATIONALLY_REPRESENTATIVE": "Route A evaluates a fixed availability-enriched 120-site cohort and is not nationally representative of all U.S. rivers or all calendar days.",
+    "NEGATED_LIMITATION_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM": "Route A does not establish conditional coverage, and its equal-weight three-quantile pinball summary is not CRPS.",
+    "SUPERIORITY_SUPPORTED": "Route A {test_id}: SUPERIORITY_SUPPORTED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; station-median RMSE effect={effect_c} °C, 95% whole-HUC2 cluster-bootstrap CI=[{ci_low_c}, {ci_high_c}] °C, exact whole-HUC2 sign-flip raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
+    "NONINFERIORITY_SUPPORTED": "Route A {test_id}: NONINFERIORITY_SUPPORTED for {candidate} versus {reference} at horizon {horizon} only against the preregistered {margin_c} °C numerical ceiling; station-median RMSE effect={effect_c} °C, 95% whole-HUC2 cluster-bootstrap CI=[{ci_low_c}, {ci_high_c}] °C, exact whole-HUC2 sign-flip raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters. This does not establish equivalence or parity.",
+    "NOT_ESTABLISHED": "Route A {test_id}: NOT_ESTABLISHED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; station-median RMSE effect={effect_c} °C, 95% whole-HUC2 cluster-bootstrap CI=[{ci_low_c}, {ci_high_c}] °C, exact whole-HUC2 sign-flip raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
+    "EVIDENCE_CONFLICT_NOT_SUPPORTED": "Route A {test_id}: EVIDENCE_CONFLICT_NOT_SUPPORTED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C because the Holm-adjusted exact sign-flip decision and the preregistered whole-HUC2 cluster-bootstrap confidence-bound rule disagree; station-median RMSE effect={effect_c} °C, 95% CI=[{ci_low_c}, {ci_high_c}] °C, raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
+    "NOT_ESTIMABLE": "Route A {test_id}: NOT_ESTIMABLE under the preregistered reportability rule for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; n={n_stations} stations in {n_clusters} clusters."
+  },
+  "result_claim_specs": [
+    {
+      "claim_id": "RESULT_H1_H1_VS_DAMPED",
+      "scope": "Route-A primary confirmatory five-test family",
+      "kind": "CONFIRMATORY_RESULT",
+      "polarity": "AUTO_FROM_VERIFIED_STATISTICS",
+      "phase_allowed": [
+        "POST_CONFIRMATION_VERIFIED"
+      ],
+      "template_id": "AUTO_CONFIRMATORY_DECISION",
+      "evidence": {
+        "artifact": "statistics",
+        "test_id": "H1-h1-vs-damped"
+      },
+      "render_targets": [
+        "paper/ThermoRoute_paper.md"
+      ]
+    },
+    {
+      "claim_id": "RESULT_H1_H3_VS_DAMPED",
+      "scope": "Route-A primary confirmatory five-test family",
+      "kind": "CONFIRMATORY_RESULT",
+      "polarity": "AUTO_FROM_VERIFIED_STATISTICS",
+      "phase_allowed": [
+        "POST_CONFIRMATION_VERIFIED"
+      ],
+      "template_id": "AUTO_CONFIRMATORY_DECISION",
+      "evidence": {
+        "artifact": "statistics",
+        "test_id": "H1-h3-vs-damped"
+      },
+      "render_targets": [
+        "paper/ThermoRoute_paper.md"
+      ]
+    },
+    {
+      "claim_id": "RESULT_H1_H7_VS_DAMPED",
+      "scope": "Route-A primary confirmatory five-test family",
+      "kind": "CONFIRMATORY_RESULT",
+      "polarity": "AUTO_FROM_VERIFIED_STATISTICS",
+      "phase_allowed": [
+        "POST_CONFIRMATION_VERIFIED"
+      ],
+      "template_id": "AUTO_CONFIRMATORY_DECISION",
+      "evidence": {
+        "artifact": "statistics",
+        "test_id": "H1-h7-vs-damped"
+      },
+      "render_targets": [
+        "paper/ThermoRoute_paper.md"
+      ]
+    },
+    {
+      "claim_id": "RESULT_H2_H3_VS_LIGHTGBM",
+      "scope": "Route-A primary confirmatory five-test family",
+      "kind": "CONFIRMATORY_RESULT",
+      "polarity": "AUTO_FROM_VERIFIED_STATISTICS",
+      "phase_allowed": [
+        "POST_CONFIRMATION_VERIFIED"
+      ],
+      "template_id": "AUTO_CONFIRMATORY_DECISION",
+      "evidence": {
+        "artifact": "statistics",
+        "test_id": "H2-h3-vs-lightgbm"
+      },
+      "render_targets": [
+        "paper/ThermoRoute_paper.md"
+      ]
+    },
+    {
+      "claim_id": "RESULT_H2_H7_VS_LIGHTGBM",
+      "scope": "Route-A primary confirmatory five-test family",
+      "kind": "CONFIRMATORY_RESULT",
+      "polarity": "AUTO_FROM_VERIFIED_STATISTICS",
+      "phase_allowed": [
+        "POST_CONFIRMATION_VERIFIED"
+      ],
+      "template_id": "AUTO_CONFIRMATORY_DECISION",
+      "evidence": {
+        "artifact": "statistics",
+        "test_id": "H2-h7-vs-lightgbm"
+      },
+      "render_targets": [
+        "paper/ThermoRoute_paper.md"
+      ]
+    }
+  ],
+  "required_postopen_coverage": {
+    "claim_ids": [
+      "RESULT_H1_H1_VS_DAMPED",
+      "RESULT_H1_H3_VS_DAMPED",
+      "RESULT_H1_H7_VS_DAMPED",
+      "RESULT_H2_H3_VS_LIGHTGBM",
+      "RESULT_H2_H7_VS_LIGHTGBM"
+    ],
+    "multiplicity": "EACH_EXACTLY_ONCE",
+    "phase": "POST_CONFIRMATION_VERIFIED"
+  },
+  "required_permanent_coverage": {
+    "claim_ids": [
+      "LIMIT_NOT_UNGAUGED",
+      "LIMIT_NO_NETWORK_ROUTING_PROOF",
+      "LIMIT_NOT_OPERATIONAL_REPLAY",
+      "LIMIT_NO_REGULATORY_ECOLOGICAL_MEANING",
+      "LIMIT_NO_SAFETY_GUARANTEE",
+      "LIMIT_NO_CAUSAL_MECHANISM",
+      "LIMIT_NOT_NATIONALLY_REPRESENTATIVE",
+      "LIMIT_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM"
+    ],
+    "multiplicity": "EACH_EXACTLY_ONCE",
+    "phases": [
+      "PRE_CONFIRMATION_LABELS_SEALED",
+      "POST_CONFIRMATION_VERIFIED"
+    ]
+  },
+  "decision_rule": {
+    "protocol_predicates": [
+      {
+        "pointer": "/primary_inference_contract/confirmatory_claim_decision_contract/all_five_tests_must_be_rendered_exactly_once",
+        "operator": "equals",
+        "expected": true
+      },
+      {
+        "pointer": "/primary_inference_contract/confirmatory_claim_decision_contract/supported_if_and_only_if",
+        "operator": "contains",
+        "expected": "ci_high_c < margin_c"
+      },
+      {
+        "pointer": "/primary_inference_contract/confirmatory_claim_decision_contract/noninferiority_wording_limit",
+        "operator": "contains",
+        "expected": "may not say equivalent, parity"
+      }
+    ],
+    "support_requires": [
+      "status == ESTIMABLE",
+      "p_holm <= 0.05",
+      "ci_high_c < margin_c"
+    ],
+    "p_ci_disagreement": "EVIDENCE_CONFLICT_NOT_SUPPORTED",
+    "coherent_failure": "NOT_ESTABLISHED",
+    "nonestimable": "NOT_ESTIMABLE",
+    "h1_interpretation": "margin-0 superiority for the named comparison only",
+    "h2_interpretation": "satisfies only the preregistered +0.05 degrees C numerical non-inferiority ceiling; never equivalence or parity"
+  },
+  "free_text_lints": [
+    {
+      "lint_id": "LINT_2019_2020_NOT_BLIND",
+      "regex": "2019.{0,12}2020.{0,30}(blind|untouched|one[- ]shot)|(blind|untouched|one[- ]shot).{0,30}2019.{0,12}2020"
+    },
+    {
+      "lint_id": "LINT_UNSTRUCTURED_ROUTE_A_RESULT",
+      "regex": "((Route[- ]A|confirmatory (evaluation|test|opening|analysis|result)|one[- ]time opening|2021.{0,3}2023|\\bH[12][-_ ][A-Za-z0-9_-]+).{0,100}(confirms?|confirmed|establish(es|ed)?|demonstrates?|supports?|achieves?|outperforms?|superior(ity)?|non[- ]inferior(ity)?|NOT_ESTABLISHED|NOT_ESTIMABLE))|((confirms?|confirmed|establish(es|ed)?|demonstrates?|supports?|achieves?|outperforms?|superior(ity)?|non[- ]inferior(ity)?|NOT_ESTABLISHED|NOT_ESTIMABLE).{0,100}(Route[- ]A|confirmatory (evaluation|test|opening|analysis|result)|one[- ]time opening|2021.{0,3}2023|\\bH[12][-_ ][A-Za-z0-9_-]+))"
+    },
+    {
+      "lint_id": "LINT_PROBABILITY_DECISION_OVERCLAIM",
+      "regex": "conditionally calibrated|guaranteed coverage|optimal management value|proven economic benefit"
+    }
+  ],
+  "free_text_policy": "ALL_FORMAL_ROUTE_A_RESULTS_MUST_USE_STRUCTURED_CLAIM_BLOCKS; regexes are defense-in-depth lint and are not semantic proof that arbitrary prose contains no paraphrased result claim"
+}
