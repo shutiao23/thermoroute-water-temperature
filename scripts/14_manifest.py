@@ -54,10 +54,8 @@ SOURCE_PATTERNS = (
     ".github/workflows/*.yaml",
     "pyproject.toml",
     "requirements.txt",
-    "requirements-lock.txt",
-    "requirements-lock-py312-hashed.txt",
+    "requirements-lock*.txt",
     "README.md",
-    ".zenodo.json",
     "paper/**/*.md",
     "paper/**/*.tex",
     "paper/**/*.bib",
@@ -115,8 +113,7 @@ RUN_SOURCE_PATTERNS = (
     ".github/workflows/*.yaml",
     "pyproject.toml",
     "requirements.txt",
-    "requirements-lock.txt",
-    "requirements-lock-py312-hashed.txt",
+    "requirements-lock*.txt",
 )
 
 DIRECT_DISTRIBUTIONS = (
@@ -313,9 +310,15 @@ def _current_truth(root: Path) -> dict[str, str]:
 
 
 def _run_source_sha256(root: Path) -> str:
+    # Run identity deliberately uses the same inclusion semantics as
+    # thermoroute.repro, chronology, the isolated opening contract, and the
+    # release verifier.  The broader manifest inventory may omit retired
+    # evidence directories, but protected source bytes must not diverge here.
     files: dict[str, str] = {}
-    for path in _iter_files(root, RUN_SOURCE_PATTERNS):
-        files[path.relative_to(root).as_posix()] = sha256_file(path)
+    for pattern in RUN_SOURCE_PATTERNS:
+        for path in root.glob(pattern):
+            if path.is_file() and "__pycache__" not in path.parts:
+                files[path.relative_to(root).as_posix()] = sha256_file(path)
     return sha256_json(dict(sorted(files.items())))
 
 

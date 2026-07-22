@@ -1596,7 +1596,7 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
     extra_binding = json.loads(json.dumps(marker))
     extra_binding["authorized_worktree_dirt_policy"][
         "committed_document_diff"
-    ].append({"path": ".zenodo.json", "sha256": "1" * 64, "bytes": 1})
+    ].append({"path": "paper/extra.md", "sha256": "1" * 64, "bytes": 1})
     with pytest.raises(ValueError, match="diff differs"):
         verifier._verify_git_history_evidence(
             relocated, extra_binding, verifier.POSTOPEN_PROFILE

@@ -128,7 +128,6 @@ REQUIRED_MEMBERS = {
     "requirements.txt",
     "requirements-lock.txt",
     REPRODUCIBILITY_LOCK,
-    ".zenodo.json",
     ".github/workflows/ci.yml",
     "src/thermoroute/config.py",
     "scripts/run_all.sh",
@@ -1206,10 +1205,10 @@ def _postopen_revision_contract(
         if require_git:
             raise ValueError("authorization lacks the computational Git commit")
         compute_commit = "0" * 40
-    whitelist = [".zenodo.json", "README.md", "paper/**"]
+    whitelist = ["README.md", "paper/**"]
 
     def allowed_document(relative: str) -> bool:
-        return relative in {"README.md", ".zenodo.json"} or relative.startswith("paper/")
+        return relative == "README.md" or relative.startswith("paper/")
 
     def git(*arguments: str) -> subprocess.CompletedProcess[Any]:
         return _run_git(root, *arguments, text=True)
@@ -3549,7 +3548,7 @@ def _verify_git_history_evidence(
                     for status, relative in _git_commit_name_status(bare, commit)
                     if status not in {"A", "M"}
                     or not (
-                        relative in {"README.md", ".zenodo.json"}
+                        relative == "README.md"
                         or relative.startswith("paper/")
                     )
                 ]
@@ -3582,7 +3581,7 @@ def _verify_git_history_evidence(
                     status not in {"A", "M"}
                     or relative in observed
                     or not (
-                        relative in {"README.md", ".zenodo.json"}
+                        relative == "README.md"
                         or relative.startswith("paper/")
                     )
                 ):
@@ -3941,7 +3940,7 @@ def _verify_archived_revision_contract(
     compute = str(authorization.get("source", {}).get("git_commit_before_authorization", ""))
     expected_static = {
         "compute_commit": compute,
-        "committed_document_whitelist": [".zenodo.json", "README.md", "paper/**"],
+        "committed_document_whitelist": ["README.md", "paper/**"],
         "tracked_changes_allowed": False,
         "staged_changes_allowed": False,
         "untracked_exact": [str(marker["authorization"]["path"])],
@@ -3960,7 +3959,7 @@ def _verify_archived_revision_contract(
         if not isinstance(binding, Mapping):
             raise ValueError("committed document binding is malformed")
         path = str(binding.get("path", ""))
-        if not (path in {"README.md", ".zenodo.json"} or path.startswith("paper/")):
+        if not (path == "README.md" or path.startswith("paper/")):
             raise ValueError("committed document diff leaves its whitelist")
         if path in paths:
             raise ValueError("committed document diff duplicates a path")

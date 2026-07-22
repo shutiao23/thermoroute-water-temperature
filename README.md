@@ -204,6 +204,13 @@ It does not protect against an owner rewriting local Git history. No remote push
 public registration, or external artifact publication is performed by this
 workflow.
 
+The release archive produced by `scripts/make_release_archive.sh` is a local
+verification artifact, not permission to redistribute every bundled dataset and
+not a public release. Zenodo deposit metadata is intentionally disabled while
+creator identities and the redistribution terms for each data category remain
+unverified. A `.zenodo.json` file may be restored only after verified creators and
+separate, accurate data-license metadata are available.
+
 ## License
 
 Code is provided under the repository license. Data redistribution and provider

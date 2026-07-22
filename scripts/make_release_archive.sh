@@ -90,7 +90,7 @@ else
 fi
 
 required=(
-  pyproject.toml requirements.txt requirements-lock.txt requirements-lock-py312-hashed.txt README.md LICENSE .zenodo.json
+  pyproject.toml requirements.txt requirements-lock.txt requirements-lock-py312-hashed.txt README.md LICENSE
   data/b1.csv data/s2.csv data/p3.csv
   data_usgs/panel_usgs_120v2.parquet
   data_usgs/station_registry_v1.csv
@@ -119,7 +119,7 @@ for path in src scripts tests paper .github protocols; do
   fi
 done
 
-VERSION="$(python3 -c "import json; print(json.load(open('.zenodo.json'))['version'])")"
+VERSION="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
 DIST_DIR="$ROOT_DIR/dist"
 OUT="$DIST_DIR/thermoroute_release_v${VERSION}_${PROFILE}.zip"
 SHA_FILE="${OUT}.sha256"
@@ -154,8 +154,8 @@ copy_path() {
 for path in src scripts tests paper .github protocols; do
   copy_path "$path"
 done
-for path in README.md LICENSE .zenodo.json .gitignore pyproject.toml \
-            requirements.txt requirements-lock.txt; do
+for path in README.md LICENSE .gitignore pyproject.toml requirements.txt \
+            requirements-lock*.txt; do
   copy_path "$path"
 done
 mkdir -p "$STAGE/data"

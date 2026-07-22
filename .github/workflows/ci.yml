@@ -31,13 +31,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ "${{ matrix.deps }}" = "locked" ]; then
-            pip install --require-hashes -r requirements-lock-py312-hashed.txt
+            python -m pip install --require-hashes -r requirements-lock-py312-hashed.txt
           else
-            pip install -r requirements.txt
+            python -m pip install -r requirements.txt
+            # Floors exercises loose runtime minima, but the declared build
+            # backend remains exact even when build isolation is disabled.
+            python -m pip install --no-deps setuptools==81.0.0
           fi
+          python -c "from importlib.metadata import version; assert version('setuptools') == '81.0.0', version('setuptools')"
           # Do not let editable installation resolve or fetch a second dependency
           # graph after the locked environment has been installed.
-          pip install --no-build-isolation --no-deps -e .
+          python -m pip install --no-build-isolation --no-deps -e .
       - name: Import smoke test
         run: |
           python -c "from thermoroute import config, data, features, datasets, baselines, air2stream, thermoroute, train, conformal, metrics, results, significance, decision, usgs; print('imports OK')"

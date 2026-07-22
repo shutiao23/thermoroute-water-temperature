@@ -1088,8 +1088,7 @@ def _is_document_only_postopening_descendant(
             except UnicodeDecodeError:
                 return False
             if status not in {"A", "M"} or not (
-                relative in {"README.md", ".zenodo.json"}
-                or relative.startswith("paper/")
+                relative == "README.md" or relative.startswith("paper/")
             ):
                 return False
     return True
