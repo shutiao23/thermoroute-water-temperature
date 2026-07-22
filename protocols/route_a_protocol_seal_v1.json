@@ -1,0 +1,38 @@
+{
+  "format": "thermoroute.route-a-protocol-seal.v1",
+  "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+  "protocol_id": "route-a-confirmatory-v1",
+  "recorded_date": "2026-07-22",
+  "original_preregistration": {
+    "commit": "6fce087d579d5730c1afb51a4c219e401237fc2b",
+    "markdown": {
+      "path": "protocols/route_a_confirmatory_protocol.md",
+      "sha256": "09c7b809c4ba961540cdd66915f5275e114909ee375508b53fe12d29ef0d6174"
+    }
+  },
+  "final_prelabel_protocol": {
+    "commit": "be782b7d2f54b85523b413f79b376433ee304791",
+    "json": {
+      "path": "protocols/route_a_confirmatory_v1.json",
+      "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+    },
+    "markdown": {
+      "path": "protocols/route_a_confirmatory_protocol.md",
+      "sha256": "9954e630b74e544af51ae17937a28ac9f2f5375c21de6dcaa6b8735502a1fa29"
+    }
+  },
+  "history_contract": {
+    "original_commit_must_be_ancestor_of_final_commit": true,
+    "final_commit_must_be_ancestor_of_authorization_commit": true,
+    "git_show_bytes_must_match_every_declared_hash": true,
+    "current_protocol_bytes_must_match_final_commit": true
+  },
+  "prelabel_attestation": {
+    "post_2020_wtemp_requested_or_inspected": false,
+    "post_2020_flow_or_wlevel_requested_or_inspected": false,
+    "confirmation_outcome_artifact_present": false,
+    "external_timestamp_or_public_preregistration": false,
+    "independent_custodian_or_worm_storage": false,
+    "scope": "repository-internal Git and SHA-256 evidence for an honest owner; not proof against owner-controlled history rewriting"
+  }
+}
