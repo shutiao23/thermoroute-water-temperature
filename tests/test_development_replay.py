@@ -26,14 +26,31 @@ from thermoroute.development_replay import (  # noqa: E402
     DevelopmentReplayIOGuard,
     LEARNED_EXTERNAL,
     LEARNED_TEMPORAL,
+    REPLAY_ALLOWED_CONFIRMATION_READ_PATHS,
     REPLAY_ENTRYPOINT,
-    REPLAY_FORBIDDEN_READ_PREFIXES,
+    REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS,
+    _confirmation_read_policy_attestation,
     _execution_identity,
+    _is_forbidden_confirmation_read,
     _load_suite,
     _member_seeds,
     _validate_formal_pycache_prefix,
     validate_development_replay_receipt,
     write_replay_receipt,
+)
+
+
+FORBIDDEN_CONFIRMATION_READ_PATHS = (
+    "data_usgs/confirmatory_predictors/temporal.parquet",
+    "data_usgs/confirmatory_outcomes/water_temperature.parquet",
+    "data_usgs/confirmatory_candidate_sites_v1.csv",
+    "data_usgs/confirmatory_site_registry_v1.csv",
+    "data_usgs/confirmatory_opening_authorization_v1.json",
+    "data_usgs/confirmatory_model_suite_v1.json.backup",
+    "data_usgs/raw_snapshots/confirmatory-candidates-v1/response.bin",
+    "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/response.bin",
+    "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1/response.bin",
+    "outputs/confirmatory/route_a_fixture/opening_receipt_v1.json",
 )
 from thermoroute.model_suite import ModelSuiteError  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
@@ -82,7 +99,7 @@ def _receipt(root: Path, suite: Path) -> dict:
             "network_access_allowed": False,
             "subprocess_allowed": False,
             "repository_writes_allowed": False,
-            "forbidden_read_prefixes": list(REPLAY_FORBIDDEN_READ_PREFIXES),
+            "confirmation_read_policy": _confirmation_read_policy_attestation(),
             "repo_read_path_count": len(read_paths),
             "repo_read_paths_sha256": sha256_json(read_paths),
             "repo_read_paths": read_paths,
@@ -120,7 +137,8 @@ def _suite(root: Path, *, source_sha256: str | None = None) -> Path:
     entrypoint = root / REPLAY_ENTRYPOINT
     entrypoint.parent.mkdir(parents=True, exist_ok=True)
     entrypoint.write_text("# replay fixture\n", encoding="utf-8")
-    suite = root / "suite.json"
+    suite = root / REPLAY_ALLOWED_CONFIRMATION_READ_PATHS[0]
+    suite.parent.mkdir(parents=True, exist_ok=True)
     suite.write_text(json.dumps({
         "fixture": True,
         "training_device": "cpu",
@@ -164,6 +182,11 @@ def test_development_replay_receipt_is_source_suite_and_model_closed(tmp_path):
         receipt, root=tmp_path, suite_path=suite
     )
     assert len(validated["models"]) == 13
+    io_guard = validated["execution_attestation"]["io_guard"]
+    assert REPLAY_ALLOWED_CONFIRMATION_READ_PATHS[0] in io_guard["repo_read_paths"]
+    assert io_guard["confirmation_read_policy"] == (
+        _confirmation_read_policy_attestation()
+    )
     assert validated["execution_attestation"]["fresh_pycache_policy"] == {
         "required": True,
         "controller_created_initially_empty_prefix": True,
@@ -194,12 +217,15 @@ def test_development_replay_receipt_never_overwrites_different_bytes(tmp_path):
         write_replay_receipt(path, {"value": 2})
 
 
-def test_development_replay_receipt_rejects_confirmation_read_evidence(tmp_path):
+@pytest.mark.parametrize("forged_path", FORBIDDEN_CONFIRMATION_READ_PATHS)
+def test_development_replay_receipt_rejects_confirmation_read_evidence(
+    tmp_path, forged_path,
+):
     suite = _suite(tmp_path)
     receipt = tmp_path / "receipt.json"
     document = _receipt(tmp_path, suite)
     paths = [*document["execution_attestation"]["io_guard"]["repo_read_paths"],
-             "outputs/confirmatory/labels.parquet"]
+             forged_path]
     paths = sorted(paths)
     document["execution_attestation"]["io_guard"].update({
         "repo_read_paths": paths,
@@ -212,6 +238,30 @@ def test_development_replay_receipt_rejects_confirmation_read_evidence(tmp_path)
     })
     write_replay_receipt(receipt, document)
     with pytest.raises(ModelSuiteError, match="read-path evidence"):
+        validate_development_replay_receipt(
+            receipt, root=tmp_path, suite_path=suite
+        )
+
+
+def test_development_replay_receipt_rejects_forged_confirmation_allowlist(tmp_path):
+    suite = _suite(tmp_path)
+    receipt = tmp_path / "receipt.json"
+    document = _receipt(tmp_path, suite)
+    io_guard = document["execution_attestation"]["io_guard"]
+    forged_path = "data_usgs/confirmatory_outcomes/water_temperature.parquet"
+    paths = sorted([*io_guard["repo_read_paths"], forged_path])
+    io_guard["confirmation_read_policy"]["allowed_exact_paths"].append(forged_path)
+    io_guard.update({
+        "repo_read_paths": paths,
+        "repo_read_path_count": len(paths),
+        "repo_read_paths_sha256": sha256_json(paths),
+    })
+    document["receipt_self_sha256"] = sha256_json({
+        key: value for key, value in document.items()
+        if key != "receipt_self_sha256"
+    })
+    write_replay_receipt(receipt, document)
+    with pytest.raises(ModelSuiteError, match="I/O guard attestation"):
         validate_development_replay_receipt(
             receipt, root=tmp_path, suite_path=suite
         )
@@ -256,16 +306,40 @@ def test_member_seed_mapping_is_explicit_and_fails_on_ambiguity():
         )
 
 
-def test_development_replay_io_guard_blocks_confirmation_reads_and_repo_writes(
-    tmp_path,
+@pytest.mark.parametrize("relative", FORBIDDEN_CONFIRMATION_READ_PATHS)
+def test_development_replay_io_guard_blocks_all_confirmation_namespaces(
+    tmp_path, relative,
 ):
-    forbidden = tmp_path / "outputs" / "confirmatory" / "labels.parquet"
+    forbidden = tmp_path / relative
     forbidden.parent.mkdir(parents=True)
     forbidden.write_bytes(b"sealed")
-    writable = tmp_path / "unexpected.txt"
     guard = DevelopmentReplayIOGuard(tmp_path)
     with guard, pytest.raises(PermissionError, match="confirmation path"):
         forbidden.read_bytes()
+    assert _is_forbidden_confirmation_read(relative)
+
+
+def test_development_replay_io_guard_allows_only_exact_model_suite(tmp_path):
+    suite_relative = REPLAY_ALLOWED_CONFIRMATION_READ_PATHS[0]
+    suite = tmp_path / suite_relative
+    suite.parent.mkdir(parents=True)
+    suite.write_bytes(b"frozen suite")
+    guard = DevelopmentReplayIOGuard(tmp_path)
+    with guard:
+        assert suite.read_bytes() == b"frozen suite"
+    assert not _is_forbidden_confirmation_read(suite_relative)
+    assert guard.attestation()["repo_read_paths"] == [suite_relative]
+    assert guard.attestation()["confirmation_read_policy"] == {
+        **_confirmation_read_policy_attestation(),
+        "denied_namespace_stems": list(
+            REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS
+        ),
+    }
+
+
+def test_development_replay_io_guard_blocks_repository_writes(tmp_path):
+    writable = tmp_path / "unexpected.txt"
+    guard = DevelopmentReplayIOGuard(tmp_path)
     with guard, pytest.raises(PermissionError, match="may not write"):
         writable.write_text("mutation", encoding="utf-8")
     assert not writable.exists()

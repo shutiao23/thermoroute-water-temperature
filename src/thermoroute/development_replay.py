@@ -52,12 +52,20 @@ DEVELOPMENT_REPLAY_EXECUTION_FORMAT = (
     "thermoroute.route-a-development-replay-execution.v1"
 )
 DEVELOPMENT_REPLAY_IO_GUARD_FORMAT = (
-    "thermoroute.route-a-development-replay-io-guard.v1"
+    "thermoroute.route-a-development-replay-io-guard.v2"
+)
+DEVELOPMENT_REPLAY_CONFIRMATION_READ_POLICY_FORMAT = (
+    "thermoroute.route-a-development-replay-confirmation-read-policy.v1"
 )
 REPLAY_ENTRYPOINT = "scripts/27_verify_development_replay.py"
-REPLAY_FORBIDDEN_READ_PREFIXES = (
+REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS = (
     "data_usgs/confirmatory",
+    "data_usgs/raw_snapshots/confirmatory",
+    "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1",
     "outputs/confirmatory",
+)
+REPLAY_ALLOWED_CONFIRMATION_READ_PATHS = (
+    "data_usgs/confirmatory_model_suite_v1.json",
 )
 LEARNED_TEMPORAL = (
     "LightGBM", "LSTM", "ThermoRoute", "DampedPriorOnly",
@@ -65,6 +73,30 @@ LEARNED_TEMPORAL = (
     "TR-noTCN", "TR-unbounded",
 )
 LEARNED_EXTERNAL = ("LightGBM", "LSTM", "ThermoRoute")
+
+
+def _confirmation_read_policy_attestation() -> dict[str, Any]:
+    """Return the exact allow-before-deny confirmation-read policy."""
+    return {
+        "format": DEVELOPMENT_REPLAY_CONFIRMATION_READ_POLICY_FORMAT,
+        "mode": "DENY_NAMESPACE_STEMS_EXCEPT_EXACT_ALLOWLIST",
+        "path_representation": "RESOLVED_REPOSITORY_RELATIVE_POSIX",
+        "deny_match": "STRING_STARTSWITH",
+        "denied_namespace_stems": list(
+            REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS
+        ),
+        "allowed_exact_paths": list(REPLAY_ALLOWED_CONFIRMATION_READ_PATHS),
+    }
+
+
+def _is_forbidden_confirmation_read(relative: str) -> bool:
+    """Apply exact-suite allowlisting before namespace-stem denial."""
+    if relative in REPLAY_ALLOWED_CONFIRMATION_READ_PATHS:
+        return False
+    return any(
+        relative.startswith(stem)
+        for stem in REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS
+    )
 
 
 class DevelopmentReplayIOGuard:
@@ -130,10 +162,7 @@ class DevelopmentReplayIOGuard:
                 raise PermissionError(
                     f"development replay may not write repository path: {relative}"
                 )
-            if any(
-                relative == prefix or relative.startswith(f"{prefix}/")
-                for prefix in REPLAY_FORBIDDEN_READ_PREFIXES
-            ):
+            if _is_forbidden_confirmation_read(relative):
                 raise PermissionError(
                     f"development replay may not read confirmation path: {relative}"
                 )
@@ -166,7 +195,7 @@ class DevelopmentReplayIOGuard:
             "network_access_allowed": False,
             "subprocess_allowed": False,
             "repository_writes_allowed": False,
-            "forbidden_read_prefixes": list(REPLAY_FORBIDDEN_READ_PREFIXES),
+            "confirmation_read_policy": _confirmation_read_policy_attestation(),
             "repo_read_path_count": len(paths),
             "repo_read_paths_sha256": sha256_json(paths),
             "repo_read_paths": paths,
@@ -772,14 +801,26 @@ def validate_development_replay_receipt(
                 f"development replay execution identity changed: {key}"
             )
     io_guard = execution.get("io_guard")
+    expected_io_guard_keys = {
+        "format",
+        "network_access_allowed",
+        "subprocess_allowed",
+        "repository_writes_allowed",
+        "confirmation_read_policy",
+        "repo_read_path_count",
+        "repo_read_paths_sha256",
+        "repo_read_paths",
+        "violations",
+    }
     if (
         not isinstance(io_guard, Mapping)
+        or set(io_guard) != expected_io_guard_keys
         or io_guard.get("format") != DEVELOPMENT_REPLAY_IO_GUARD_FORMAT
         or io_guard.get("network_access_allowed") is not False
         or io_guard.get("subprocess_allowed") is not False
         or io_guard.get("repository_writes_allowed") is not False
-        or io_guard.get("forbidden_read_prefixes")
-        != list(REPLAY_FORBIDDEN_READ_PREFIXES)
+        or io_guard.get("confirmation_read_policy")
+        != _confirmation_read_policy_attestation()
         or io_guard.get("violations") != []
     ):
         raise ModelSuiteError("development replay I/O guard attestation changed")
@@ -790,11 +831,7 @@ def validate_development_replay_receipt(
         or read_paths != sorted(set(read_paths))
         or io_guard.get("repo_read_path_count") != len(read_paths)
         or io_guard.get("repo_read_paths_sha256") != sha256_json(read_paths)
-        or any(
-            value == prefix or value.startswith(f"{prefix}/")
-            for value in read_paths
-            for prefix in REPLAY_FORBIDDEN_READ_PREFIXES
-        )
+        or any(_is_forbidden_confirmation_read(value) for value in read_paths)
     ):
         raise ModelSuiteError("development replay read-path evidence is malformed")
     if not isinstance(execution.get("security_boundary"), str):
