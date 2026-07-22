@@ -169,6 +169,7 @@ from thermoroute.registry import (
     enforce_common_forecast_keys,
     restrict_tabular_to_window_registry,
 )
+from thermoroute.quantiles import repair_lightgbm_quantiles
 from thermoroute.thermoroute import ThermoRoute
 from thermoroute.train import (
     configure_deterministic_runtime,
@@ -632,17 +633,18 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                 **quantile_models,
                 "event": classifier,
             }
-            stacked = np.sort(np.vstack([
-                quantile_predictions["q05"], quantile_predictions["q50"],
+            q05, q50, q95 = repair_lightgbm_quantiles(
+                quantile_predictions["q05"],
+                quantile_predictions["q50"],
                 quantile_predictions["q95"],
-            ]), axis=0)
+            )
             frames.append(R.make_pred_frame(
                 model="LightGBM", scope=scope, feature_set="USGS", seed=seed,
                 site_id=st_arr, horizon=np.full(len(ev), h),
                 split=ev["split"].to_numpy(), issue_date=ev["issue_date"].to_numpy(),
                 target_date=ev["target_date"].to_numpy(), y_true=ev["y"].to_numpy(float),
-                y_pred=point.predict(Xev, num_threads=1), q05=stacked[0],
-                q50=stacked[1], q95=stacked[2],
+                y_pred=point.predict(Xev, num_threads=1), q05=q05,
+                q50=q50, q95=q95,
                 p_exceed=(
                     classifier.predict(Xev, num_threads=1)
                     if isinstance(classifier, lgb.Booster)
@@ -1074,6 +1076,7 @@ def main():
         lgb_bundle,
         models=lightgbm_models,
         parity_inputs=lightgbm_parity_inputs,
+        quantile_audit_inputs=lightgbm_evaluation_design,
         metadata={
             "run_id": identity.run_id,
             "raw_feature_order": list(wd.var_names),

@@ -155,7 +155,9 @@ class TrainConfig:
     grad_clip: float = 1.0
     lambda_event: float = 0.3       # weight on the exceedance BCE
     lambda_residual: float = 1e-2   # L1 keeping the net close to the physics prior
-    lambda_crossing: float = 1.0    # quantile non-crossing penalty
+    # Serialization compatibility only: neural quantiles are ordered by
+    # construction, so the corresponding loss term is identically zero.
+    lambda_crossing: float = 1.0
 
 
 TRAIN = TrainConfig()

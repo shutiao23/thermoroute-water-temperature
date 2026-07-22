@@ -85,6 +85,10 @@ def composite_loss(out, y: Tensor, ybin: Tensor, cfg: C.TrainConfig) -> Tensor:
     lq = (pinball_loss(y, out.q05, 0.05)
           + pinball_loss(y, out.q50, 0.50)
           + pinball_loss(y, out.q95, 0.95))
+    # Every supported neural forecaster constructs q05=q50-softplus(.) and
+    # q95=q50+softplus(.).  This compatibility term is therefore identically
+    # zero; it is retained only so historical TrainConfig fields remain
+    # explicit, not because it supplies an effective non-crossing penalty.
     cross = (torch.relu(out.q05 - out.q50) + torch.relu(out.q50 - out.q95)).mean()
     evt = nn.functional.binary_cross_entropy_with_logits(out.exceed_logit, ybin)
     finite_prior = torch.isfinite(out.prior)

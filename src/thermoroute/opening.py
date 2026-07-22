@@ -95,6 +95,7 @@ from .probability import (
     predict_frozen_seasonal_event_reference,
     validate_frozen_seasonal_event_reference,
 )
+from .quantiles import QuantileIdentityError, repair_lightgbm_quantiles
 from .provenance import canonical_json_bytes, sha256_file
 from .registry import targets_match_at_model_precision
 from .repro import (
@@ -5274,13 +5275,27 @@ def _score_lightgbm_bundle(
             point[selected, column] += np.asarray(
                 heads["point"].predict(design, num_threads=1), dtype=float
             )
-            raw_quantiles = np.vstack([
-                np.asarray(heads[name].predict(design, num_threads=1), dtype=float)
-                for name in ("q05", "q50", "q95")
-            ])
-            ordered = np.sort(raw_quantiles, axis=0)
-            for row, name in enumerate(("q05", "q50", "q95")):
-                quantiles[name][selected, column] += ordered[row]
+            try:
+                repaired = repair_lightgbm_quantiles(
+                    np.asarray(
+                        heads["q05"].predict(design, num_threads=1), dtype=float
+                    ),
+                    np.asarray(
+                        heads["q50"].predict(design, num_threads=1), dtype=float
+                    ),
+                    np.asarray(
+                        heads["q95"].predict(design, num_threads=1), dtype=float
+                    ),
+                )
+            except QuantileIdentityError as exc:
+                raise OpeningContractError(
+                    f"{cohort}/LightGBM/{member_name}/h{horizon} "
+                    "produced invalid nominal quantile heads"
+                ) from exc
+            for values, name in zip(
+                repaired, ("q05", "q50", "q95"), strict=True
+            ):
+                quantiles[name][selected, column] += values
             event[selected, column] += np.asarray(
                 heads["event"].predict(design, num_threads=1), dtype=float
             )

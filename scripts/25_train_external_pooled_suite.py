@@ -439,6 +439,7 @@ def main() -> None:
     lgb_manifest = save_lightgbm_bundle(
         C.MODELS / f"external_lightgbm_bundle_{identity.run_id}",
         models=lgb_models, parity_inputs=lgb_native_probe,
+        quantile_audit_inputs=lgb_evaluation_design,
         metadata={
             "run_id": identity.run_id,
             "raw_feature_order": list(wd.var_names),

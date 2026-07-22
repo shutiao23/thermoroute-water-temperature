@@ -105,6 +105,11 @@ For issue time `t` and horizon `h`, the point forecast has four main pieces:
 The learned models emit an MSE point and distinct pinball q05/q50/q95 heads. CQR
 fitted on 2018 widens q05/q95 only; q50 is not adjusted. Member-wise averaged
 quantiles are engineering ensemble summaries, not mixture-distribution quantiles.
+Neural quantiles are ordered by construction, so their retained crossing-loss
+field is compatibility-only and contributes zero. LightGBM's independently fit
+heads are never sorted: the bundle records raw development crossings by member
+and horizon, clips q05/q95 to the nominal raw q50 when necessary, and leaves q50
+exactly unchanged.
 Exceedance events use a frozen seasonal statistical reference derived without
 target-period labels. Probability,
 spatial-influence, exact-qualifier, and architecture-control outputs are descriptive

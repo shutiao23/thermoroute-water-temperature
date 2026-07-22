@@ -264,6 +264,11 @@ The learned models emit a separate MSE point forecast and pinball-trained 0.05,
 0.50, and 0.95 quantile heads. Split conformalized quantile regression fitted on
 2018 widens only the nominal q05--q95 interval; q50 is not CQR-adjusted. Ensemble
 quantiles are member-wise averages, not quantiles of a mixture distribution.
+Neural heads are ordered by construction, making the retained crossing-loss
+term identically zero and compatibility-only. Independently fitted LightGBM
+heads are not sorted: raw development crossings are recorded by member and
+horizon, q05 and q95 are clipped to the nominal raw q50 if needed, and q50 is
+left exactly unchanged.
 Temporal CQR offsets are station-by-horizon, whereas external offsets are pooled
 by horizon. A separate event head uses each temporal station\textquotesingle s 2006--2015 q90, or
 one pooled development-training q90 in the external arm, and one Platt calibrator

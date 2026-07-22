@@ -20,6 +20,7 @@ import lightgbm as lgb
 from . import config as C
 from . import features as F
 from . import results as R
+from .quantiles import repair_lightgbm_quantiles
 from .weighting import station_equal_sample_weight as _station_equal_sample_weight
 
 
@@ -214,9 +215,12 @@ def run_lightgbm(tabs, thresholds, feature_set: str = "V3",
                 for q in C.QUANTILES:
                     mq = _lgb_fit(Xtr, ytr, Xva, yva, "quantile", alpha=q)
                     preds[q] = mq.predict(Xall)
-                # enforce monotonicity
-                stacked = np.sort(np.vstack([preds[0.05], preds[0.50], preds[0.95]]), axis=0)
-                frame["q05"], frame["q50"], frame["q95"] = stacked[0], stacked[1], stacked[2]
+                # Keep the three nominal heads identifiable.  Sorting would
+                # silently turn another head into q50 whenever values cross.
+                q05, q50, q95 = repair_lightgbm_quantiles(
+                    preds[0.05], preds[0.50], preds[0.95]
+                )
+                frame["q05"], frame["q50"], frame["q95"] = q05, q50, q95
                 # exceedance probability from a binary classifier
                 thr = thresholds[st]
                 clf = lgb.LGBMClassifier(

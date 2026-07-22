@@ -23,7 +23,7 @@ from .repro import atomic_write_json, canonical_json, sha256_file
 CHECKPOINT_VERSION = "thermoroute.training-checkpoint.v3"
 CHECKPOINT_METADATA_VERSION = "thermoroute.training-checkpoint-metadata.v2"
 BUNDLE_VERSION = "thermoroute.inference-bundle.v2"
-NEURAL_OUTPUT_HEAD_SCHEMA_FORMAT = "thermoroute.neural-output-heads.v2"
+NEURAL_OUTPUT_HEAD_SCHEMA_FORMAT = "thermoroute.neural-output-heads.v3"
 
 
 def neural_output_head_schema() -> dict[str, Any]:
@@ -43,6 +43,7 @@ def neural_output_head_schema() -> dict[str, Any]:
         "quantiles": {"q05": 0.05, "q50": 0.50, "q95": 0.95},
         "quantile_objective": "pinball",
         "quantile_ordering": "q05<=q50<=q95_by_construction",
+        "crossing_loss_role": "identically_zero_serialization_compatibility_only",
         "point_relationship": "independent_not_sorted_with_quantiles",
     }
 

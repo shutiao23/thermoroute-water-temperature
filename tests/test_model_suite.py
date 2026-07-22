@@ -33,8 +33,13 @@ from thermoroute.model_suite import (  # noqa: E402
     save_lightgbm_bundle,
     validate_model_suite_document,
     validate_development_prediction_binding,
+    verify_lightgbm_prediction_parity,
     _create_json_or_require_identical,
     _learned_metadata_runtime_sha256,
+)
+from thermoroute.quantiles import (  # noqa: E402
+    LIGHTGBM_QUANTILE_REPAIR_METHOD,
+    repair_lightgbm_quantiles,
 )
 from thermoroute.train import LSTMForecaster  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
@@ -72,6 +77,23 @@ def _lgb_metadata(columns):
     }
 
 
+def _lgb_audit_inputs(X, horizons=(1, 3, 7)):
+    issue_dates = pd.date_range("2019-01-01", periods=len(X), freq="D")
+    return {
+        horizon: (
+            pd.DataFrame({
+                "site_id": "fixture-site",
+                "split": "test",
+                "issue_date": issue_dates,
+                "target_date": issue_dates + pd.to_timedelta(horizon, unit="D"),
+                "y": 0.0,
+            }),
+            X,
+        )
+        for horizon in horizons
+    }
+
+
 def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(tmp_path):
     rng = np.random.default_rng(7)
     X = pd.DataFrame(rng.normal(size=(80, 3)), columns=["a", "b", "c"])
@@ -89,6 +111,7 @@ def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(tm
         tmp_path / "lgb",
         models=models,
         metadata=_lgb_metadata(X.columns),
+        quantile_audit_inputs=_lgb_audit_inputs(X),
         parity_inputs={horizon: X.iloc[:13] for horizon in (1, 3, 7)},
     )
     restored, metadata = load_lightgbm_bundle(manifest)
@@ -112,6 +135,103 @@ def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(tm
     model_path.write_text(model_path.read_text(encoding="utf-8") + "\n# tampered\n")
     with pytest.raises(ModelSuiteError, match="checksum"):
         load_lightgbm_bundle(manifest)
+
+
+def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
+    tmp_path,
+):
+    X = pd.DataFrame({
+        "a": np.arange(12.0),
+        "b": np.arange(12.0) % 3,
+        "c": np.ones(12),
+    })
+
+    def constant(value):
+        return lgb.LGBMRegressor(
+            n_estimators=2, min_child_samples=1, verbosity=-1, n_jobs=1,
+        ).fit(X, np.full(len(X), value, dtype=float))
+
+    point = constant(0.5)
+    q05 = constant(3.0)
+    q50 = constant(1.0)
+    q95 = constant(2.0)
+    event = constant(0.25)
+    models = {
+        f"seed{seed}": {
+            horizon: {
+                "point": point, "q05": q05, "q50": q50,
+                "q95": q95, "event": event,
+            }
+            for horizon in (1, 3, 7)
+        }
+        for seed in range(5)
+    }
+    evaluation_design = _lgb_audit_inputs(X)
+    manifest = save_lightgbm_bundle(
+        tmp_path / "crossed-lgb",
+        models=models,
+        metadata=_lgb_metadata(X.columns),
+        quantile_audit_inputs=evaluation_design,
+        parity_inputs={horizon: X.iloc[:4] for horizon in (1, 3, 7)},
+    )
+    _, metadata = load_lightgbm_bundle(manifest)
+    assert metadata["quantile_repair"]["method"] == (
+        LIGHTGBM_QUANTILE_REPAIR_METHOD
+    )
+    raw_audit = metadata["raw_quantile_crossing_audit"]["members"]
+    for seed in range(5):
+        for horizon in (1, 3, 7):
+            summary = raw_audit[f"seed{seed}"][str(horizon)]
+            assert summary["any_crossing_count"] == len(X)
+            assert summary["any_crossing_rate"] == 1.0
+            assert summary["maximum_crossing_gap_c"] == pytest.approx(2.0)
+
+    expected_rows = []
+    for seed in range(5):
+        for horizon, (registry, _design) in evaluation_design.items():
+            for row in registry.itertuples(index=False):
+                expected_rows.append({
+                    "seed": seed,
+                    "site_id": row.site_id,
+                    "horizon": horizon,
+                    "split": row.split,
+                    "issue_date": row.issue_date,
+                    "target_date": row.target_date,
+                    "y_true": row.y,
+                    "y_pred": 0.5,
+                    "q05": 1.0,
+                    "q50": 1.0,
+                    "q95": 2.0,
+                    "p_exceed": 0.25,
+                })
+    difference = verify_lightgbm_prediction_parity(
+        manifest,
+        evaluation_design=evaluation_design,
+        expected=pd.DataFrame(expected_rows),
+        member_seeds={f"seed{seed}": seed for seed in range(5)},
+        atol=1e-12,
+    )
+    assert difference == 0.0
+
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    document["raw_quantile_crossing_audit"]["members"]["seed0"]["1"][
+        "any_crossing_rate"
+    ] = 0.0
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(ModelSuiteError, match="raw quantile audit self hash"):
+        load_lightgbm_bundle(manifest)
+
+
+def test_median_preserving_repair_never_reassigns_nominal_q50():
+    raw_q05 = np.array([4.0, -3.0, 5.0, 1.0])
+    raw_q50 = np.array([2.0, -0.0, 3.0, 2.0], dtype="<f4")
+    raw_q95 = np.array([1.0, 4.0, 2.0, 2.0])
+    q05, q50, q95 = repair_lightgbm_quantiles(raw_q05, raw_q50, raw_q95)
+    assert q50.dtype == raw_q50.dtype
+    assert q50.tobytes() == raw_q50.tobytes()
+    assert np.array_equal(q05, np.minimum(raw_q05, raw_q50))
+    assert np.array_equal(q95, np.maximum(raw_q95, raw_q50))
+    assert (q05 <= q50).all() and (q50 <= q95).all()
 
 
 def _lstm_metadata():
@@ -394,6 +514,7 @@ def test_lightgbm_declared_member_count_rejects_a_missing_seed(tmp_path):
     with pytest.raises(ModelSuiteError, match="member registry"):
         save_lightgbm_bundle(
             tmp_path / "missing", models=models, metadata=metadata,
+            quantile_audit_inputs=_lgb_audit_inputs(X),
             parity_inputs={horizon: X.iloc[:3] for horizon in (1, 3, 7)},
         )
 
@@ -418,17 +539,20 @@ def test_lightgbm_bundle_never_overwrites_a_content_address(tmp_path):
     target = tmp_path / "immutable-lgb"
     manifest = save_lightgbm_bundle(
         target, models=suite(one), metadata=_lgb_metadata(X.columns),
+        quantile_audit_inputs=_lgb_audit_inputs(X),
         parity_inputs={horizon: X.iloc[:3] for horizon in (1, 3, 7)},
     )
     original = manifest.read_bytes()
     # A byte-identical retry is a cache hit, not a rewrite.
     save_lightgbm_bundle(
         target, models=suite(one), metadata=_lgb_metadata(X.columns),
+        quantile_audit_inputs=_lgb_audit_inputs(X),
         parity_inputs={horizon: X.iloc[:3] for horizon in (1, 3, 7)},
     )
     with pytest.raises(FileExistsError, match="non-identical"):
         save_lightgbm_bundle(
             target, models=suite(two), metadata=_lgb_metadata(X.columns),
+            quantile_audit_inputs=_lgb_audit_inputs(X),
             parity_inputs={horizon: X.iloc[:3] for horizon in (1, 3, 7)},
         )
     assert manifest.read_bytes() == original

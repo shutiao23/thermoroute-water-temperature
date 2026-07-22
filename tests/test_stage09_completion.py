@@ -35,6 +35,11 @@ from thermoroute.repro import (  # noqa: E402
     sha256_json,
     source_tree_hash,
 )
+from thermoroute.quantiles import (  # noqa: E402
+    LIGHTGBM_QUANTILE_REPAIR_METHOD,
+    RAW_QUANTILE_CROSSING_AUDIT_FORMAT,
+    lightgbm_quantile_repair_contract,
+)
 
 
 def _load_script(relative: str, name: str):
@@ -62,6 +67,42 @@ def _rehash_receipt(document: dict[str, Any]) -> None:
         if key != "receipt_self_sha256"
     }
     document["receipt_self_sha256"] = sha256_json(stable)
+
+
+def _lightgbm_quantile_metadata() -> dict[str, Any]:
+    summary = {
+        "rows": 1,
+        "forecast_key_sha256": "a" * 64,
+        "raw_prediction_sha256": "b" * 64,
+        "q05_above_q50_count": 0,
+        "q50_above_q95_count": 0,
+        "any_crossing_count": 0,
+        "any_crossing_rate": 0.0,
+        "maximum_crossing_gap_c": 0.0,
+    }
+    members = [f"seed{seed}" for seed in C.USGS_SEEDS]
+    audit = {
+        "format": RAW_QUANTILE_CROSSING_AUDIT_FORMAT,
+        "scope": "development_export_rows_before_repair",
+        "key_columns": [
+            "site_id", "horizon", "split", "issue_date", "target_date",
+        ],
+        "repair_method": LIGHTGBM_QUANTILE_REPAIR_METHOD,
+        "members": {
+            member: {
+                str(horizon): dict(summary) for horizon in C.HORIZONS
+            }
+            for member in members
+        },
+    }
+    return {
+        "members": members,
+        "horizons": list(C.HORIZONS),
+        "quantile_repair": lightgbm_quantile_repair_contract(),
+        "raw_quantile_crossing_audit": {
+            **audit, "audit_sha256": sha256_json(audit),
+        },
+    }
 
 
 def _stage09_fixture(root: Path) -> dict[str, Any]:
@@ -165,7 +206,7 @@ def _stage09_fixture(root: Path) -> dict[str, Any]:
     })
     lightgbm_manifest = _write_bytes(
         root / "outputs" / "models" / "lightgbm-fixture" / "manifest.json",
-        b"{}\n",
+        json.dumps(_lightgbm_quantile_metadata()).encode("utf-8"),
     )
     entries.append({
         "model_id": "LightGBM",
@@ -250,6 +291,7 @@ def _stage09_fixture(root: Path) -> dict[str, Any]:
         ),
         "thermoroute_pointer": thermoroute_pointer,
         "lightgbm_pointer": lightgbm_pointer,
+        "lightgbm_manifest": lightgbm_manifest,
         "run_id": identity.run_id,
     }
 
@@ -387,6 +429,50 @@ def test_stage09_receipt_roundtrip_and_stage24_gate(tmp_path):
     )
     assert stage9["run_id"] == fixture["run_id"]
     assert receipt_binding == file_binding(tmp_path, fixture["receipt"])
+
+
+def test_stage09_receipt_rejects_missing_raw_quantile_audit(tmp_path):
+    fixture = _stage09_fixture(tmp_path)
+    manifest = json.loads(
+        fixture["lightgbm_manifest"].read_text(encoding="utf-8")
+    )
+    manifest.pop("raw_quantile_crossing_audit")
+    fixture["lightgbm_manifest"].write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    new_binding = file_binding(tmp_path, fixture["lightgbm_manifest"])
+
+    components = json.loads(fixture["components"].read_text(encoding="utf-8"))
+    lightgbm_entry = next(
+        entry for entry in components["models"]
+        if entry["model_id"] == "LightGBM"
+    )
+    lightgbm_entry["artifact"] = new_binding
+    fixture["components"].write_text(
+        json.dumps(components), encoding="utf-8"
+    )
+    pointer = json.loads(
+        fixture["lightgbm_pointer"].read_text(encoding="utf-8")
+    )
+    pointer["manifest"] = new_binding
+    fixture["lightgbm_pointer"].write_text(
+        json.dumps(pointer), encoding="utf-8"
+    )
+    receipt = json.loads(fixture["receipt"].read_text(encoding="utf-8"))
+    receipt["artifacts"]["components_pointer"] = file_binding(
+        tmp_path, fixture["components"]
+    )
+    receipt["artifacts"]["lightgbm_pointer"] = file_binding(
+        tmp_path, fixture["lightgbm_pointer"]
+    )
+    _rehash_receipt(receipt)
+    with pytest.raises(ModelSuiteError, match="raw quantile audit schema"):
+        validate_stage09_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+            document=receipt,
+        )
 
 
 def test_stage09_receipt_rejects_manifest_config_hash_or_run_id_forgery(tmp_path):

@@ -40,6 +40,15 @@ from .development_controls_gate import (
     validate_stage09b_completion_receipt,
 )
 from .provenance import sha256_file
+from .quantiles import (
+    LIGHTGBM_QUANTILE_REPAIR_METHOD,
+    RAW_QUANTILE_CROSSING_AUDIT_FORMAT,
+    QuantileIdentityError,
+    lightgbm_quantile_repair_contract,
+    raw_quantile_crossing_summary,
+    repair_lightgbm_quantiles,
+    validate_raw_quantile_crossing_summary,
+)
 from .repro import (
     RUN_SCHEMA_VERSION,
     atomic_write_bytes,
@@ -52,7 +61,7 @@ from .repro import (
 from .weighting import STATION_EQUAL_WEIGHTING, STATION_SUMMARY_EQUAL_WEIGHTING
 
 
-LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v1"
+LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
 MODEL_SUITE_FORMAT = "thermoroute.route-a-model-suite.v1"
 MODEL_SUITE_POINTER_FORMAT = "thermoroute.route-a-model-suite-pointer.v1"
 COMPONENT_POINTER_FORMAT = "thermoroute.route-a-model-components.v1"
@@ -80,6 +89,9 @@ DEVELOPMENT_PREDICTOR_BRIDGE_PATH = (
 )
 
 LIGHTGBM_HEADS = ("point", "q05", "q50", "q95", "event")
+LIGHTGBM_QUANTILE_AUDIT_KEY_COLUMNS = (
+    "site_id", "horizon", "split", "issue_date", "target_date",
+)
 LSTM_VALIDATION_GRID = (
     {"d": 64, "layers": 1, "dropout": 0.0, "station_embed_dim": 8,
      "use_derived_context": False, "anchor": "persistence"},
@@ -519,20 +531,195 @@ def _normalise_lightgbm_models(
     return normalised
 
 
+def _normalise_lightgbm_quantile_audit_inputs(
+    values: Mapping[Any, tuple[pd.DataFrame, Any]],
+    horizons: Sequence[int],
+) -> dict[int, tuple[pd.DataFrame, Any]]:
+    expected = tuple(int(value) for value in horizons)
+    if not isinstance(values, Mapping):
+        raise ModelSuiteError("LightGBM quantile audit inputs are not a mapping")
+    provided: dict[int, tuple[pd.DataFrame, Any]] = {}
+    for raw_horizon, value in values.items():
+        if isinstance(raw_horizon, bool):
+            raise ModelSuiteError("LightGBM quantile audit horizon is boolean")
+        horizon = int(raw_horizon)
+        if horizon in provided:
+            raise ModelSuiteError("LightGBM quantile audit duplicates a horizon")
+        if not isinstance(value, (tuple, list)) or len(value) != 2:
+            raise ModelSuiteError("LightGBM quantile audit input is malformed")
+        registry, design = value
+        if not isinstance(registry, pd.DataFrame):
+            raise ModelSuiteError("LightGBM quantile audit registry is not tabular")
+        registry = registry.reset_index(drop=True).copy()
+        required = {"site_id", "split", "issue_date", "target_date"}
+        missing = required - set(registry)
+        if missing:
+            raise ModelSuiteError(
+                f"LightGBM quantile audit registry lacks {sorted(missing)}"
+            )
+        if len(registry) < 1 or len(registry) != len(design):
+            raise ModelSuiteError(
+                "LightGBM quantile audit registry and design lengths differ"
+            )
+        if registry[["site_id", "split"]].isna().any().any():
+            raise ModelSuiteError("LightGBM quantile audit keys contain nulls")
+        if "horizon" in registry and not registry["horizon"].astype(int).eq(
+            int(horizon)
+        ).all():
+            raise ModelSuiteError("LightGBM quantile audit horizon column changed")
+        registry["site_id"] = registry["site_id"].astype(str)
+        registry["split"] = registry["split"].astype(str)
+        registry["horizon"] = int(horizon)
+        for column in ("issue_date", "target_date"):
+            registry[column] = pd.to_datetime(registry[column], errors="raise")
+        key_columns = list(LIGHTGBM_QUANTILE_AUDIT_KEY_COLUMNS)
+        if (
+            registry["site_id"].str.strip().eq("").any()
+            or registry["split"].str.strip().eq("").any()
+            or registry[key_columns].isna().any().any()
+            or registry.duplicated(key_columns).any()
+        ):
+            raise ModelSuiteError("LightGBM quantile audit keys are invalid")
+        provided[horizon] = (registry, design)
+    if set(provided) != set(expected) or len(provided) != len(expected):
+        raise ModelSuiteError(
+            "LightGBM quantile audit inputs do not cover every horizon"
+        )
+    return provided
+
+
+def _build_lightgbm_raw_crossing_audit(
+    models: Mapping[str, Mapping[int, Mapping[str, lgb.Booster]]],
+    values: Mapping[Any, tuple[pd.DataFrame, Any]],
+    *,
+    members: Sequence[str],
+    horizons: Sequence[int],
+) -> dict[str, Any]:
+    """Evaluate every nominal quantile head before the frozen repair."""
+    inputs = _normalise_lightgbm_quantile_audit_inputs(values, horizons)
+    audits: dict[str, dict[str, dict[str, Any]]] = {}
+    for member in members:
+        audits[str(member)] = {}
+        for horizon in horizons:
+            registry, design = inputs[int(horizon)]
+            key_digest = canonical_frame_digest(
+                registry, LIGHTGBM_QUANTILE_AUDIT_KEY_COLUMNS
+            )
+            heads = models[str(member)][int(horizon)]
+            raw = {
+                name: np.asarray(
+                    heads[name].predict(design, num_threads=1), dtype=float
+                )
+                for name in ("q05", "q50", "q95")
+            }
+            if any(len(prediction) != len(registry) for prediction in raw.values()):
+                raise ModelSuiteError(
+                    f"LightGBM {member}/h{horizon} raw quantile rows changed"
+                )
+            try:
+                audits[str(member)][str(int(horizon))] = (
+                    raw_quantile_crossing_summary(
+                        raw["q05"], raw["q50"], raw["q95"],
+                        forecast_key_sha256=key_digest,
+                    )
+                )
+            except QuantileIdentityError as exc:
+                raise ModelSuiteError(
+                    f"LightGBM {member}/h{horizon} raw quantile audit failed"
+                ) from exc
+    document = {
+        "format": RAW_QUANTILE_CROSSING_AUDIT_FORMAT,
+        "scope": "development_export_rows_before_repair",
+        "key_columns": list(LIGHTGBM_QUANTILE_AUDIT_KEY_COLUMNS),
+        "repair_method": LIGHTGBM_QUANTILE_REPAIR_METHOD,
+        "members": audits,
+    }
+    return {**document, "audit_sha256": sha256_json(document)}
+
+
+def _validate_lightgbm_quantile_metadata(manifest: Mapping[str, Any]) -> None:
+    if manifest.get("quantile_repair") != lightgbm_quantile_repair_contract():
+        raise ModelSuiteError("LightGBM quantile repair contract changed")
+    members = tuple(str(value) for value in manifest.get("members", ()))
+    try:
+        horizons = tuple(int(value) for value in manifest.get("horizons", ()))
+    except (TypeError, ValueError) as exc:
+        raise ModelSuiteError("LightGBM raw quantile audit horizons are invalid") from exc
+    if (
+        not members
+        or len(members) != len(set(members))
+        or not horizons
+        or len(horizons) != len(set(horizons))
+    ):
+        raise ModelSuiteError("LightGBM raw quantile audit registry is invalid")
+    audit = manifest.get("raw_quantile_crossing_audit")
+    expected_fields = {
+        "format", "scope", "key_columns", "repair_method", "members",
+        "audit_sha256",
+    }
+    if not isinstance(audit, Mapping) or set(audit) != expected_fields:
+        raise ModelSuiteError("LightGBM raw quantile audit schema is not exact")
+    if (
+        audit.get("format") != RAW_QUANTILE_CROSSING_AUDIT_FORMAT
+        or audit.get("scope") != "development_export_rows_before_repair"
+        or tuple(audit.get("key_columns", ()))
+        != LIGHTGBM_QUANTILE_AUDIT_KEY_COLUMNS
+        or audit.get("repair_method") != LIGHTGBM_QUANTILE_REPAIR_METHOD
+    ):
+        raise ModelSuiteError("LightGBM raw quantile audit contract changed")
+    stable_audit = {
+        key: value for key, value in audit.items() if key != "audit_sha256"
+    }
+    if audit.get("audit_sha256") != sha256_json(stable_audit):
+        raise ModelSuiteError("LightGBM raw quantile audit self hash changed")
+    member_audits = audit.get("members")
+    if not isinstance(member_audits, Mapping) or set(member_audits) != set(members):
+        raise ModelSuiteError("LightGBM raw quantile audit member registry changed")
+    expected_horizons = {str(horizon) for horizon in horizons}
+    horizon_keys: dict[str, tuple[int, str]] = {}
+    for member in members:
+        values = member_audits[member]
+        if not isinstance(values, Mapping) or set(values) != expected_horizons:
+            raise ModelSuiteError(
+                f"LightGBM {member} raw quantile audit horizons changed"
+            )
+        for horizon in expected_horizons:
+            try:
+                validate_raw_quantile_crossing_summary(values[horizon])
+            except QuantileIdentityError as exc:
+                raise ModelSuiteError(
+                    f"LightGBM {member}/h{horizon} raw crossing audit is invalid"
+                ) from exc
+            rows_and_keys = (
+                int(values[horizon]["rows"]),
+                str(values[horizon]["forecast_key_sha256"]),
+            )
+            if horizon in horizon_keys and horizon_keys[horizon] != rows_and_keys:
+                raise ModelSuiteError(
+                    f"LightGBM h{horizon} raw audit keys differ across members"
+                )
+            horizon_keys[horizon] = rows_and_keys
+
+
 def save_lightgbm_bundle(
     directory: str | Path,
     *,
     models: Mapping[str, Mapping[int | str, Mapping[str, Any]]],
     metadata: Mapping[str, Any],
+    quantile_audit_inputs: Mapping[
+        int | str, tuple[pd.DataFrame, Any]
+    ],
     parity_inputs: Mapping[int | str, Any] | None = None,
     parity_atol: float = 1e-12,
 ) -> Path:
     """Save point/quantile/event boosters and prove native-text round-trip parity.
 
     ``metadata`` must describe both the raw seven-variable information set and
-    the exact engineered design columns.  No Python object is pickled.  When
-    ``parity_inputs`` is supplied, every head is reconstructed from disk and
-    compared with its in-memory booster before the manifest is finalised.
+    the exact engineered design columns.  ``quantile_audit_inputs`` is the full
+    exported development registry/design used to record every raw crossing
+    before repair.  No Python object is pickled.  When ``parity_inputs`` is
+    supplied, every head is reconstructed from disk and compared with its
+    in-memory booster before the manifest is finalised.
     """
     required = {
         "run_id", "raw_feature_order", "design_feature_order", "horizons",
@@ -547,6 +734,12 @@ def save_lightgbm_bundle(
     missing = required - set(metadata)
     if missing:
         raise ModelSuiteError(f"LightGBM metadata missing: {sorted(missing)}")
+    reserved = {"quantile_repair", "raw_quantile_crossing_audit"} & set(metadata)
+    if reserved:
+        raise ModelSuiteError(
+            "LightGBM caller cannot override generated quantile metadata: "
+            f"{sorted(reserved)}"
+        )
     raw_order = tuple(str(value) for value in metadata["raw_feature_order"])
     design_order = tuple(str(value) for value in metadata["design_feature_order"])
     horizons = tuple(int(value) for value in metadata["horizons"])
@@ -582,6 +775,22 @@ def save_lightgbm_bundle(
     declared_count = int(metadata.get("member_count", len(members)))
     if declared_members != members or declared_count != len(members):
         raise ModelSuiteError("LightGBM member registry is inconsistent")
+    original_boosters: dict[str, dict[int, dict[str, lgb.Booster]]] = {
+        member: {
+            horizon: {
+                head: _booster(normalised[member][horizon][head])
+                for head in LIGHTGBM_HEADS
+            }
+            for horizon in horizons
+        }
+        for member in members
+    }
+    raw_crossing_audit = _build_lightgbm_raw_crossing_audit(
+        original_boosters,
+        quantile_audit_inputs,
+        members=members,
+        horizons=horizons,
+    )
     destination = Path(directory)
     destination.parent.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(
@@ -590,16 +799,12 @@ def save_lightgbm_bundle(
     ))
 
     bindings: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
-    original_boosters: dict[str, dict[int, dict[str, lgb.Booster]]] = {}
     for member in members:
         bindings[member] = {}
-        original_boosters[member] = {}
         for horizon in horizons:
             bindings[member][str(horizon)] = {}
-            original_boosters[member][horizon] = {}
             for head in LIGHTGBM_HEADS:
-                booster = _booster(normalised[member][horizon][head])
-                original_boosters[member][horizon][head] = booster
+                booster = original_boosters[member][horizon][head]
                 path = directory / f"{member}_h{horizon}_{head}.txt"
                 atomic_write_bytes(path, booster.model_to_string().encode("utf-8"))
                 bindings[member][str(horizon)][head] = {
@@ -616,6 +821,8 @@ def save_lightgbm_bundle(
         "heads": list(LIGHTGBM_HEADS),
         "members": list(members),
         "member_count": len(members),
+        "quantile_repair": lightgbm_quantile_repair_contract(),
+        "raw_quantile_crossing_audit": raw_crossing_audit,
         "models": bindings,
         # Kept as a first-class index for the opening preflight contract.
         "point_models": {
@@ -739,6 +946,7 @@ def load_lightgbm_bundle(
     if (not members or len(members) != len(set(members))
             or int(manifest.get("member_count", -1)) != len(members)):
         raise ModelSuiteError("LightGBM member registry is incomplete")
+    _validate_lightgbm_quantile_metadata(manifest)
     if not isinstance(bindings, Mapping) or set(bindings) != set(members):
         raise ModelSuiteError("LightGBM model registry differs from its members")
     output: dict[str, dict[int, dict[str, lgb.Booster]]] = {}
@@ -808,6 +1016,16 @@ def verify_lightgbm_prediction_parity(
     models, metadata = load_lightgbm_bundle(manifest_path)
     if set(models) != set(member_seeds):
         raise ModelSuiteError("LightGBM parity member registry differs from bundle")
+    measured_crossing_audit = _build_lightgbm_raw_crossing_audit(
+        models,
+        evaluation_design,
+        members=tuple(str(value) for value in metadata["members"]),
+        horizons=tuple(int(value) for value in metadata["horizons"]),
+    )
+    if measured_crossing_audit != metadata.get("raw_quantile_crossing_audit"):
+        raise ModelSuiteError(
+            "LightGBM raw crossing audit differs from native-model replay"
+        )
     keys = ["seed", "site_id", "horizon", "split", "issue_date", "target_date"]
     values = ["y_true", "y_pred", "q05", "q50", "q95", "p_exceed"]
     reference = expected.copy()
@@ -823,11 +1041,16 @@ def verify_lightgbm_prediction_parity(
             if len(registry) != len(X):
                 raise ModelSuiteError("LightGBM parity design and registry lengths differ")
             heads = models[member][horizon]
-            quantiles = np.sort(np.vstack([
-                heads["q05"].predict(X, num_threads=1),
-                heads["q50"].predict(X, num_threads=1),
-                heads["q95"].predict(X, num_threads=1),
-            ]), axis=0)
+            try:
+                q05, q50, q95 = repair_lightgbm_quantiles(
+                    heads["q05"].predict(X, num_threads=1),
+                    heads["q50"].predict(X, num_threads=1),
+                    heads["q95"].predict(X, num_threads=1),
+                )
+            except QuantileIdentityError as exc:
+                raise ModelSuiteError(
+                    f"LightGBM parity quantiles are invalid for {member}/h{horizon}"
+                ) from exc
             replay = pd.DataFrame({
                 "seed": int(seed),
                 "site_id": registry["site_id"].astype(str).to_numpy(),
@@ -837,7 +1060,7 @@ def verify_lightgbm_prediction_parity(
                 "target_date": pd.to_datetime(registry["target_date"]).to_numpy(),
                 "y_true": registry["y"].to_numpy(float),
                 "y_pred": heads["point"].predict(X, num_threads=1),
-                "q05": quantiles[0], "q50": quantiles[1], "q95": quantiles[2],
+                "q05": q05, "q50": q50, "q95": q95,
                 "p_exceed": heads["event"].predict(X, num_threads=1),
             })
             ref = reference[
@@ -1751,6 +1974,28 @@ def validate_stage09_completion_receipt(
         "member_count": 5,
     }:
         raise ModelSuiteError("Stage-9 LightGBM shortcut pointer changed")
+    lightgbm_manifest_path = _validated_file_binding(
+        root,
+        by_id["LightGBM"].get("artifact"),
+        label="Stage-9 LightGBM manifest",
+    )
+    try:
+        lightgbm_manifest = json.loads(
+            lightgbm_manifest_path.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError("Stage-9 LightGBM manifest is malformed") from exc
+    if not isinstance(lightgbm_manifest, Mapping):
+        raise ModelSuiteError("Stage-9 LightGBM manifest is malformed")
+    if (
+        tuple(lightgbm_manifest.get("members", ()))
+        != tuple(f"seed{seed}" for seed in C.USGS_SEEDS)
+        or tuple(lightgbm_manifest.get("horizons", ())) != tuple(C.HORIZONS)
+    ):
+        raise ModelSuiteError(
+            "Stage-9 LightGBM quantile audit registry is incomplete"
+        )
+    _validate_lightgbm_quantile_metadata(lightgbm_manifest)
     return receipt
 
 
