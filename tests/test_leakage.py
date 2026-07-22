@@ -21,10 +21,10 @@ from thermoroute import datasets as DS
 
 
 @pytest.fixture(autouse=True)
-def _cascade_station_registry(monkeypatch):
-    """Isolate cascade tests from model-opening helpers' global station map."""
+def _legacy_monitoring_station_registry(monkeypatch):
+    """Keep the legacy fixture aligned with its three ordinary station IDs."""
     monkeypatch.setattr(C, "STATIONS", tuple(C.RAW_FILES))
-    monkeypatch.setattr(C, "UPSTREAM", {"b1": None, "s2": "b1", "p3": "s2"})
+    monkeypatch.setattr(C, "UPSTREAM", {station: None for station in C.RAW_FILES})
 
 
 def _bundle():
