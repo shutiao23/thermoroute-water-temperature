@@ -11,6 +11,7 @@ Run with the Codex primary runtime Python because it provides python-docx:
     /path/to/codex-primary-runtime/dependencies/python/bin/python \
         scripts/29_render_preopen_manuscripts.py
 """
+# ruff: noqa: E402 -- the PRE guard must run before any python-docx import.
 
 from __future__ import annotations
 
@@ -23,6 +24,34 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+
+from _preopen_manuscript_guard import (
+    PreopenManuscriptGuardError,
+    assert_preopen_manuscript_render_allowed,
+)
+
+
+def _guard_before_docx_import(argv: Sequence[str]) -> Path:
+    """Resolve ``--root`` and enforce PRE state before importing python-docx."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path(__file__).resolve().parents[1],
+    )
+    known, _unknown = parser.parse_known_args(argv)
+    root = known.root.resolve()
+    try:
+        assert_preopen_manuscript_render_allowed(root)
+    except PreopenManuscriptGuardError as exc:
+        raise SystemExit(f"PRE-OPEN manuscript render refused: {exc}") from exc
+    return root
+
+
+_EARLY_GUARDED_ROOT: Path | None = None
+if __name__ == "__main__":
+    # This deliberately precedes every python-docx import below.
+    _EARLY_GUARDED_ROOT = _guard_before_docx_import(sys.argv[1:])
 
 from docx import Document
 from docx.document import Document as DocumentType
@@ -1199,6 +1228,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     root = args.root.resolve()
+    if _EARLY_GUARDED_ROOT != root:
+        assert_preopen_manuscript_render_allowed(root)
     outputs: tuple[tuple[Path, Preset], ...] = (
         (root / "paper/ThermoRoute_paper.docx", PRESETS["narrative_proposal"]),
         (root / "paper/cover_letter.docx", PRESETS["standard_business_brief"]),
