@@ -10,10 +10,12 @@ values with the frozen panel on the exact site/date registry.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 import os
 from pathlib import Path
+import stat
 import tempfile
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
@@ -32,13 +34,16 @@ from .historical_inputs import (
     _write_parquet,
     freeze_snapshot_index,
     load_coordinate_registry,
+    migrate_snapshot_index_metadata_v2,
 )
-from .provenance import SnapshotStore, canonical_json_bytes
-from .repro import source_tree_hash
+from .provenance import SnapshotStore, canonical_json_bytes, sha256_bytes, sha256_file
+from .repro import atomic_write_bytes, source_tree_hash
 from .usgs import (
     build_daymet_url,
     build_gridmet_wind_metadata_url,
     build_gridmet_wind_url,
+    parse_daymet_daily,
+    parse_gridmet_wind_daily,
     parse_gridmet_wind_metadata,
 )
 
@@ -58,6 +63,512 @@ _VALUE_ATOL = {
 
 class PredictorBridgeError(RuntimeError):
     """The development-to-confirmation predictor bridge is not auditable."""
+
+
+def _read_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PredictorBridgeError(f"{label} is missing or malformed: {path}") from exc
+    if not isinstance(value, dict):
+        raise PredictorBridgeError(f"{label} is not a JSON object: {path}")
+    return value
+
+
+def _resolve_manifest_binding(
+    root: Path, value: object, *, label: str,
+) -> Path:
+    """Resolve one exact, in-tree, single-link regular manifest binding."""
+    if not isinstance(value, Mapping) or set(value) != {"path", "sha256"}:
+        raise PredictorBridgeError(f"bridge {label} binding is malformed")
+    raw_path, digest = value.get("path"), value.get("sha256")
+    if not isinstance(raw_path, str) or Path(raw_path).is_absolute():
+        raise PredictorBridgeError(f"bridge {label} path is malformed")
+    relative = Path(raw_path)
+    candidate = root / relative
+    cursor = root
+    try:
+        for component in relative.parts:
+            cursor = cursor / component
+            if cursor.is_symlink():
+                raise PredictorBridgeError(f"bridge {label} path is linked")
+        status = candidate.lstat()
+        resolved = candidate.resolve(strict=True)
+    except PredictorBridgeError:
+        raise
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        raise PredictorBridgeError(f"bridge {label} path is absent or invalid") from exc
+    if (
+        not stat.S_ISREG(status.st_mode)
+        or status.st_nlink != 1
+        or root not in resolved.parents
+        or resolved.relative_to(root).as_posix() != raw_path
+        or digest != sha256_file(resolved)
+    ):
+        raise PredictorBridgeError(f"bridge {label} bytes/path changed")
+    return resolved
+
+
+def _offline_snapshot_registry(
+    index_path: str | Path,
+    *,
+    expected_provider: str,
+) -> dict[str, tuple[dict[str, Any], bytes]]:
+    """Validate an archived snapshot index down to request and metadata bytes."""
+    raw_index_path = Path(index_path)
+    if (
+        raw_index_path.is_symlink()
+        or not raw_index_path.is_file()
+        or not stat.S_ISREG(raw_index_path.stat().st_mode)
+        or raw_index_path.stat().st_nlink != 1
+    ):
+        raise PredictorBridgeError("predictor snapshot index is linked or non-regular")
+    index_path = raw_index_path.resolve()
+    index = _read_json_object(index_path, label="predictor snapshot index")
+    records = index.get("records")
+    if (
+        set(index) != {"schema_version", "snapshot_count", "records"}
+        or index.get("schema_version") != 2
+        or type(index.get("snapshot_count")) is not int
+        or not isinstance(records, list)
+        or index["snapshot_count"] != len(records)
+        or not records
+    ):
+        raise PredictorBridgeError("predictor snapshot index contract changed")
+    expected_record_fields = {
+        "provider", "request_sha256", "response_sha256", "retrieved_at_utc",
+        "byte_count", "request", "metadata_path", "response_path",
+        "metadata_sha256", "metadata_byte_count",
+    }
+    output: dict[str, tuple[dict[str, Any], bytes]] = {}
+    for record in records:
+        if not isinstance(record, Mapping) or set(record) != expected_record_fields:
+            raise PredictorBridgeError("predictor snapshot record contract changed")
+        request = record.get("request")
+        if not isinstance(request, Mapping):
+            raise PredictorBridgeError("predictor snapshot request is malformed")
+        request_document = dict(request)
+        request_sha = sha256_bytes(canonical_json_bytes(request_document))
+        provider = str(record.get("provider", ""))
+        response_sha = str(record.get("response_sha256", ""))
+        metadata_raw = record.get("metadata_path")
+        response_raw = record.get("response_path")
+        if (
+            provider != expected_provider
+            or request_document.get("provider") != expected_provider
+            or record.get("request_sha256") != request_sha
+            or request_sha in output
+            or not isinstance(metadata_raw, str)
+            or not isinstance(response_raw, str)
+            or Path(metadata_raw).is_absolute()
+            or Path(response_raw).is_absolute()
+            or type(record.get("byte_count")) is not int
+            or record["byte_count"] < 1
+            or pd.isna(pd.to_datetime(record.get("retrieved_at_utc"), utc=True, errors="coerce"))
+        ):
+            raise PredictorBridgeError("predictor snapshot identity is malformed")
+        _assert_safe_meteorology_url(str(request_document.get("url", "")))
+        expected_base = Path(expected_provider) / request_sha
+        if (
+            Path(metadata_raw) != expected_base / "metadata.json"
+            or Path(response_raw) != expected_base / "response.bin"
+        ):
+            raise PredictorBridgeError("predictor snapshot path is not content addressed")
+        metadata_path = (index_path.parent / metadata_raw).resolve()
+        response_path = (index_path.parent / response_raw).resolve()
+        linked_component = False
+        for relative in (Path(metadata_raw), Path(response_raw)):
+            cursor = index_path.parent
+            for component in relative.parts:
+                cursor = cursor / component
+                if cursor.is_symlink():
+                    linked_component = True
+                    break
+        if (
+            index_path.parent not in metadata_path.parents
+            or index_path.parent not in response_path.parents
+            or not metadata_path.is_file()
+            or not response_path.is_file()
+            or linked_component
+            or not stat.S_ISREG(metadata_path.stat().st_mode)
+            or not stat.S_ISREG(response_path.stat().st_mode)
+            or metadata_path.stat().st_nlink != 1
+            or response_path.stat().st_nlink != 1
+        ):
+            raise PredictorBridgeError("predictor snapshot path escapes or is absent")
+        payload = response_path.read_bytes()
+        metadata_bytes = metadata_path.read_bytes()
+        metadata = _read_json_object(metadata_path, label="predictor snapshot metadata")
+        metadata_fields = {
+            "schema_version", "request", "request_sha256", "retrieved_at_utc",
+            "http_status", "response_headers", "byte_count", "response_sha256",
+            "response_file",
+        }
+        critical = {
+            "schema_version": 1,
+            "request": request_document,
+            "request_sha256": request_sha,
+            "retrieved_at_utc": record["retrieved_at_utc"],
+            "http_status": 200,
+            "byte_count": len(payload),
+            "response_sha256": sha256_bytes(payload),
+            "response_file": "response.bin",
+        }
+        if (
+            set(metadata) != metadata_fields
+            or not isinstance(metadata.get("response_headers"), Mapping)
+            or any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in metadata["response_headers"].items()
+            )
+            or any(metadata.get(key) != value for key, value in critical.items())
+            or record.get("byte_count") != len(payload)
+            or response_sha != critical["response_sha256"]
+            or record.get("metadata_byte_count") != len(metadata_bytes)
+            or record.get("metadata_sha256") != sha256_bytes(metadata_bytes)
+        ):
+            raise PredictorBridgeError("predictor snapshot bytes/metadata/index disagree")
+        output[request_sha] = (request_document, payload)
+    return output
+
+
+def replay_predictor_bridge_offline(
+    *,
+    registry_path: str | Path,
+    request_map_path: str | Path,
+    daymet_index_path: str | Path,
+    gridmet_index_path: str | Path,
+    gridmet_schema_index_path: str | Path,
+    expected_sites: int = 120,
+) -> pd.DataFrame:
+    """Rebuild normalized bridge predictors solely from archived raw responses.
+
+    The current Daymet/gridMET parsers are applied to the exact indexed response
+    bytes.  Every request URL, request hash, response hash, retrieval timestamp,
+    byte count, provider, coordinate and request-map entry must agree before a
+    value is parsed.
+    """
+    registry = load_coordinate_registry(
+        registry_path, cohort="development_bridge", expected_count=expected_sites
+    )
+    request_map = _read_json_object(Path(request_map_path), label="bridge request map")
+    requests = request_map.get("requests")
+    provider_contract = request_map.get("gridmet_provider_contract")
+    if (
+        set(request_map) != {
+            "format", "outcome_values_requested_or_read", "interval",
+            "request_count", "requests", "gridmet_provider_contract",
+        }
+        or request_map.get("format")
+        != "thermoroute.development-predictor-bridge-requests.v1"
+        or request_map.get("outcome_values_requested_or_read") is not False
+        or request_map.get("interval") != {"start": "2018-01-01", "end": "2020-12-31"}
+        or type(request_map.get("request_count")) is not int
+        or request_map["request_count"] != expected_sites
+        or not isinstance(requests, list)
+        or len(requests) != expected_sites
+        or not isinstance(provider_contract, Mapping)
+    ):
+        raise PredictorBridgeError("bridge request map contract changed")
+    daymet = _offline_snapshot_registry(
+        daymet_index_path, expected_provider=DAYMET_PROVIDER
+    )
+    gridmet = _offline_snapshot_registry(
+        gridmet_index_path, expected_provider=GRIDMET_PROVIDER
+    )
+    schemas = _offline_snapshot_registry(
+        gridmet_schema_index_path, expected_provider=GRIDMET_SCHEMA_PROVIDER
+    )
+    if len(schemas) != 1:
+        raise PredictorBridgeError("gridMET schema snapshot registry changed")
+    schema_request_sha, (schema_request, schema_payload) = next(iter(schemas.items()))
+    expected_schema_url = build_gridmet_wind_metadata_url()
+    expected_schema_request = SnapshotStore.request_document(
+        provider=GRIDMET_SCHEMA_PROVIDER,
+        url=expected_schema_url,
+        headers={"User-Agent": USER_AGENT},
+    )
+    schema_metadata = parse_gridmet_wind_metadata(schema_payload)
+    schema_index = _read_json_object(Path(gridmet_schema_index_path), label="gridMET schema index")
+    schema_record = schema_index["records"][0]
+    expected_provider_contract = {
+        **schema_metadata,
+        "request_sha256": schema_request_sha,
+        "response_sha256": schema_record["response_sha256"],
+        "retrieved_at_utc": schema_record["retrieved_at_utc"],
+        "byte_count": schema_record["byte_count"],
+    }
+    if schema_request != expected_schema_request or dict(provider_contract) != expected_provider_contract:
+        raise PredictorBridgeError("gridMET provider schema lineage changed")
+
+    request_fields = {
+        "cohort", "site_no", "requested_lat", "requested_lon",
+        "contains_outcome", "contains_outcome_labels", "daymet", "gridmet",
+    }
+    source_fields = {
+        "request_sha256", "response_sha256", "retrieved_at_utc", "byte_count",
+    }
+    expected_sites_order = registry.frame.site_no.astype(str).tolist()
+    observed_sites: list[str] = []
+    frames: list[pd.DataFrame] = []
+    used_daymet: set[str] = set()
+    used_gridmet: set[str] = set()
+    for station, row in zip(registry.frame.itertuples(index=False), requests, strict=True):
+        if not isinstance(row, Mapping) or set(row) != request_fields:
+            raise PredictorBridgeError("bridge per-site request record changed")
+        site_no = str(station.site_no)
+        lat, lon = float(station.lat), float(station.lon)
+        observed_sites.append(str(row.get("site_no", "")))
+        if (
+            row.get("cohort") != "development_bridge"
+            or row.get("site_no") != site_no
+            or row.get("requested_lat") != lat
+            or row.get("requested_lon") != lon
+            or row.get("contains_outcome") is not False
+            or row.get("contains_outcome_labels") is not False
+        ):
+            raise PredictorBridgeError("bridge request map does not match station registry")
+        source_records: dict[str, Mapping[str, Any]] = {}
+        for label in ("daymet", "gridmet"):
+            source = row.get(label)
+            if not isinstance(source, Mapping) or set(source) != source_fields:
+                raise PredictorBridgeError("bridge source request binding changed")
+            source_records[label] = source
+        daymet_url = build_daymet_url(lat, lon, "2018-01-01", "2020-12-31")
+        gridmet_url = build_gridmet_wind_url(lat, lon, "2018-01-01", "2020-12-31")
+        expected_requests = {
+            "daymet": SnapshotStore.request_document(
+                provider=DAYMET_PROVIDER, url=daymet_url,
+                headers={"User-Agent": USER_AGENT},
+            ),
+            "gridmet": SnapshotStore.request_document(
+                provider=GRIDMET_PROVIDER, url=gridmet_url,
+                headers={"User-Agent": USER_AGENT},
+            ),
+        }
+        payloads: dict[str, bytes] = {}
+        for label, snapshots, used in (
+            ("daymet", daymet, used_daymet),
+            ("gridmet", gridmet, used_gridmet),
+        ):
+            source = source_records[label]
+            request_sha = str(source["request_sha256"])
+            if request_sha not in snapshots:
+                raise PredictorBridgeError("bridge request map references absent raw bytes")
+            request, payload = snapshots[request_sha]
+            index_path = Path(daymet_index_path if label == "daymet" else gridmet_index_path)
+            index_record = next(
+                item for item in _read_json_object(index_path, label="bridge source index")["records"]
+                if item["request_sha256"] == request_sha
+            )
+            if (
+                request != expected_requests[label]
+                or any(source[field] != index_record[field] for field in source_fields)
+            ):
+                raise PredictorBridgeError("bridge request URL or raw lineage changed")
+            payloads[label] = payload
+            used.add(request_sha)
+        daily = parse_daymet_daily(
+            payloads["daymet"], start="2018-01-01", end="2020-12-31"
+        )
+        wind = parse_gridmet_wind_daily(
+            payloads["gridmet"], start="2018-01-01", end="2020-12-31",
+            scale_factor=float(provider_contract["scale_factor"]),
+            add_offset=float(provider_contract["add_offset"]),
+        )
+        if not daily.index.equals(wind.index):
+            raise PredictorBridgeError(f"raw provider calendars disagree for {site_no}")
+        frame = daily.copy()
+        frame["WDSP"] = wind.to_numpy(float)
+        frame = frame.reset_index()
+        frame.insert(0, "site_no", site_no)
+        frames.append(frame[["site_no", "DATE", *BRIDGE_FIELDS]])
+    if (
+        observed_sites != expected_sites_order
+        or used_daymet != set(daymet)
+        or used_gridmet != set(gridmet)
+    ):
+        raise PredictorBridgeError("bridge request/raw registry is incomplete or has extras")
+    return _normalise_table(pd.concat(frames, ignore_index=True), label="offline raw replay")
+
+
+def migrate_development_bridge_metadata_indexes_v2(
+    *, repo_root: str | Path, manifest_path: str | Path,
+) -> dict[str, Any]:
+    """Version legacy raw indexes and re-prove refreshed predictors offline.
+
+    No network endpoint and no target-outcome table is accessed.  Legacy v1
+    indexes remain in place; the bridge manifest is atomically rebound to new
+    create-only ``snapshot_index_v2.json`` files only after current-parser replay
+    exactly matches the already frozen refreshed Parquet values.
+    """
+    root = Path(repo_root).resolve()
+    manifest_path = Path(manifest_path).resolve()
+    if root not in manifest_path.parents:
+        raise PredictorBridgeError("bridge manifest escapes repository")
+    manifest = _read_json_object(manifest_path, label="development bridge manifest")
+    raw = manifest.get("raw_snapshot_indexes")
+    if (
+        set(manifest) != {
+            "format", "status", "outcome_values_requested_or_read",
+            "source_tree_sha256", "panel", "registry", "normalized", "report",
+            "request_map", "raw_snapshot_indexes", "gate",
+        }
+        or manifest.get("format") != BRIDGE_FORMAT
+        or manifest.get("status") != "PASS_EXACT_PRODUCT_BRIDGE"
+        or manifest.get("outcome_values_requested_or_read") is not False
+        or not isinstance(raw, Mapping)
+        or set(raw) != {"daymet", "gridmet", "gridmet_schema"}
+    ):
+        raise PredictorBridgeError("development bridge manifest is not migratable")
+
+    def bound_path(value: object, *, label: str) -> Path:
+        return _resolve_manifest_binding(root, value, label=label)
+
+    upgraded_bindings: dict[str, dict[str, str]] = {}
+    canonical_raw_roots = {
+        "daymet": root / (
+            "data_usgs/raw_snapshots/development-predictor-bridge-v1/daymet-v1"
+        ),
+        "gridmet": root / (
+            "data_usgs/raw_snapshots/development-predictor-bridge-v1/gridmet-v1"
+        ),
+        "gridmet_schema": root / (
+            "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
+            "gridmet-schema-v1"
+        ),
+    }
+    for label in ("daymet", "gridmet", "gridmet_schema"):
+        old_index = bound_path(raw[label], label=f"raw/{label}")
+        if (
+            old_index.parent != canonical_raw_roots[label].resolve()
+            or old_index.name not in {"snapshot_index.json", "snapshot_index_v2.json"}
+        ):
+            raise PredictorBridgeError("bridge raw index path is not versioned canonically")
+        upgraded = migrate_snapshot_index_metadata_v2(
+            SnapshotStore(old_index.parent, offline=True)
+        )
+        upgraded_bindings[label] = {
+            "path": upgraded.relative_to(root).as_posix(),
+            "sha256": sha256_file(upgraded),
+        }
+
+    registry = bound_path(manifest.get("registry"), label="registry")
+    request_map = bound_path(manifest.get("request_map"), label="request_map")
+    normalized = manifest.get("normalized")
+    if not isinstance(normalized, Mapping) or set(normalized) != {"frozen", "refreshed"}:
+        raise PredictorBridgeError("bridge normalized bindings are malformed")
+    refreshed_path = bound_path(normalized["refreshed"], label="normalized/refreshed")
+    replayed = replay_predictor_bridge_offline(
+        registry_path=registry,
+        request_map_path=request_map,
+        daymet_index_path=root / upgraded_bindings["daymet"]["path"],
+        gridmet_index_path=root / upgraded_bindings["gridmet"]["path"],
+        gridmet_schema_index_path=root / upgraded_bindings["gridmet_schema"]["path"],
+        expected_sites=120,
+    )
+    assert_exact_predictor_table(
+        replayed, pd.read_parquet(refreshed_path),
+        label="migrated raw replay versus frozen refreshed predictors",
+    )
+    updated = {**manifest, "raw_snapshot_indexes": upgraded_bindings}
+    atomic_write_bytes(manifest_path, canonical_json_bytes(updated))
+    return updated
+
+
+def validate_development_bridge_manifest_offline(
+    *, repo_root: str | Path, manifest_path: str | Path, expected_sites: int = 120,
+) -> dict[str, Any]:
+    """Fail before model training unless raw bytes reproduce all bridge products."""
+    root = Path(repo_root).resolve()
+    manifest_path = Path(manifest_path).resolve()
+    manifest = _read_json_object(manifest_path, label="development bridge manifest")
+    if (
+        root not in manifest_path.parents
+        or set(manifest) != {
+            "format", "status", "outcome_values_requested_or_read",
+            "source_tree_sha256", "panel", "registry", "normalized", "report",
+            "request_map", "raw_snapshot_indexes", "gate",
+        }
+        or manifest.get("format") != BRIDGE_FORMAT
+        or manifest.get("status") != "PASS_EXACT_PRODUCT_BRIDGE"
+        or manifest.get("outcome_values_requested_or_read") is not False
+        or manifest.get("gate") != {
+            "requires_status": "PASS_EXACT_PRODUCT_BRIDGE",
+            "failure_action": (
+                "do not freeze or open Route-A models; investigate product drift"
+            ),
+        }
+    ):
+        raise PredictorBridgeError("development bridge manifest contract changed")
+
+    def binding(value: object, *, label: str) -> Path:
+        return _resolve_manifest_binding(root, value, label=label)
+
+    panel_path = binding(manifest.get("panel"), label="panel")
+    registry_path = binding(manifest.get("registry"), label="registry")
+    request_map_path = binding(manifest.get("request_map"), label="request_map")
+    report_path = binding(manifest.get("report"), label="report")
+    normalized = manifest.get("normalized")
+    raw = manifest.get("raw_snapshot_indexes")
+    if (
+        not isinstance(normalized, Mapping)
+        or set(normalized) != {"frozen", "refreshed"}
+        or not isinstance(raw, Mapping)
+        or set(raw) != {"daymet", "gridmet", "gridmet_schema"}
+    ):
+        raise PredictorBridgeError("development bridge artifact registries changed")
+    frozen_path = binding(normalized["frozen"], label="normalized/frozen")
+    refreshed_path = binding(normalized["refreshed"], label="normalized/refreshed")
+    raw_paths = {
+        label: binding(raw[label], label=f"raw/{label}")
+        for label in ("daymet", "gridmet", "gridmet_schema")
+    }
+    expected_raw_paths = {
+        "daymet": root / (
+            "data_usgs/raw_snapshots/development-predictor-bridge-v1/daymet-v1/"
+            "snapshot_index_v2.json"
+        ),
+        "gridmet": root / (
+            "data_usgs/raw_snapshots/development-predictor-bridge-v1/gridmet-v1/"
+            "snapshot_index_v2.json"
+        ),
+        "gridmet_schema": root / (
+            "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
+            "gridmet-schema-v1/snapshot_index_v2.json"
+        ),
+    }
+    if any(
+        raw_paths[label] != expected_raw_paths[label].resolve()
+        for label in raw_paths
+    ):
+        raise PredictorBridgeError("bridge does not bind metadata-byte index v2")
+    replayed = replay_predictor_bridge_offline(
+        registry_path=registry_path,
+        request_map_path=request_map_path,
+        daymet_index_path=raw_paths["daymet"],
+        gridmet_index_path=raw_paths["gridmet"],
+        gridmet_schema_index_path=raw_paths["gridmet_schema"],
+        expected_sites=expected_sites,
+    )
+    registry = pd.read_csv(
+        registry_path,
+        dtype={"site_no": "string", "legacy_site_id": "string"},
+        keep_default_na=False,
+    )
+    expected_frozen = frozen_bridge_slice(pd.read_parquet(panel_path), registry)
+    frozen = assert_exact_predictor_table(
+        expected_frozen, pd.read_parquet(frozen_path),
+        label="stored frozen predictor table",
+    )
+    refreshed = assert_exact_predictor_table(
+        replayed, pd.read_parquet(refreshed_path),
+        label="stored refreshed predictor table",
+    )
+    expected_report = compare_predictor_bridge(frozen, refreshed)
+    if _read_json_object(report_path, label="development bridge report") != expected_report:
+        raise PredictorBridgeError("development bridge report is not parser-replay-derived")
+    return expected_report
 
 
 def _finite_or_none(value: float) -> float | None:
@@ -120,6 +631,24 @@ def frozen_bridge_slice(
     if selected.site_no.isna().any():
         raise PredictorBridgeError("frozen panel contains an unmapped legacy site")
     return _normalise_table(selected.drop(columns="site_id"), label="frozen panel")
+
+
+def assert_exact_predictor_table(
+    expected: pd.DataFrame, observed: pd.DataFrame, *, label: str,
+) -> pd.DataFrame:
+    """Require identical normalized keys and IEEE-754 values (NaNs included)."""
+    left = _normalise_table(expected, label=f"expected {label}")
+    right = _normalise_table(observed, label=f"observed {label}")
+    if not left[["site_no", "DATE"]].equals(right[["site_no", "DATE"]]):
+        raise PredictorBridgeError(f"{label} key registry differs from raw replay")
+    for field in BRIDGE_FIELDS:
+        if not np.array_equal(
+            left[field].to_numpy(dtype="float64"),
+            right[field].to_numpy(dtype="float64"),
+            equal_nan=True,
+        ):
+            raise PredictorBridgeError(f"{label}/{field} differs from raw replay")
+    return right
 
 
 def _shift_metric(

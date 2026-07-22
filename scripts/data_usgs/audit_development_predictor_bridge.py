@@ -16,6 +16,7 @@ from thermoroute.historical_inputs import HistoricalInputError  # noqa: E402
 from thermoroute.predictor_bridge import (  # noqa: E402
     PredictorBridgeError,
     acquire_predictor_bridge,
+    migrate_development_bridge_metadata_indexes_v2,
 )
 from thermoroute.provenance import ProvenanceError  # noqa: E402
 
@@ -44,6 +45,14 @@ def main() -> None:
     )
     parser.add_argument("--offline", action="store_true")
     parser.add_argument(
+        "--migrate-metadata-index-v2",
+        action="store_true",
+        help=(
+            "offline-only: preserve legacy indexes, create metadata-byte-bound v2 "
+            "indexes, replay current parsers, and atomically rebind the manifest"
+        ),
+    )
+    parser.add_argument(
         "--prefetch-only",
         action="store_true",
         help=(
@@ -56,19 +65,28 @@ def main() -> None:
     parser.add_argument("--prefetch-workers", type=int, default=4)
     args = parser.parse_args()
     try:
-        manifest = acquire_predictor_bridge(
-            repo_root=ROOT,
-            panel_path=args.panel,
-            registry_path=args.registry,
-            snapshot_root=args.snapshot_root,
-            output_dir=args.output_dir,
-            manifest_path=args.manifest,
-            offline=args.offline,
-            retries=args.retries,
-            request_interval=args.request_interval,
-            prefetch_only=args.prefetch_only,
-            prefetch_workers=args.prefetch_workers,
-        )
+        if args.migrate_metadata_index_v2:
+            if args.prefetch_only:
+                parser.error(
+                    "--migrate-metadata-index-v2 and --prefetch-only are mutually exclusive"
+                )
+            manifest = migrate_development_bridge_metadata_indexes_v2(
+                repo_root=ROOT, manifest_path=args.manifest,
+            )
+        else:
+            manifest = acquire_predictor_bridge(
+                repo_root=ROOT,
+                panel_path=args.panel,
+                registry_path=args.registry,
+                snapshot_root=args.snapshot_root,
+                output_dir=args.output_dir,
+                manifest_path=args.manifest,
+                offline=args.offline,
+                retries=args.retries,
+                request_interval=args.request_interval,
+                prefetch_only=args.prefetch_only,
+                prefetch_workers=args.prefetch_workers,
+            )
     except (PredictorBridgeError, HistoricalInputError, ProvenanceError, ValueError) as exc:
         parser.exit(2, f"FAIL-CLOSED: {exc}\n")
     print(json.dumps({

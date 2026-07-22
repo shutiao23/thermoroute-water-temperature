@@ -123,8 +123,15 @@ def formal_numerical_policy() -> dict[str, Any]:
     return policy
 
 
-def assert_formal_numerical_policy() -> dict[str, Any]:
-    """Fail before training when effective thread/determinism knobs drift."""
+def assert_formal_numerical_policy(
+    *, require_hash_randomization: bool | None = None,
+) -> dict[str, Any]:
+    """Fail before training when effective thread/determinism knobs drift.
+
+    ``python -I`` intentionally chooses a fresh hash secret.  Formal entry
+    points may require that effective state while still obtaining stable run
+    identities from canonical sorting rather than from a fixed secret.
+    """
     policy = formal_numerical_policy()
     if any(
         policy["thread_environment"].get(name) != "1"
@@ -137,6 +144,12 @@ def assert_formal_numerical_policy() -> dict[str, Any]:
         "canonical-sort-identity-collections-independent-of-hash-secret"
     ):
         raise RuntimeError("formal run requires hash-order-independent identities")
+    if (
+        require_hash_randomization is not None
+        and policy["python_hash_randomization_enabled"] is not require_hash_randomization
+    ):
+        expected = "enabled" if require_hash_randomization else "disabled"
+        raise RuntimeError(f"formal run requires Python hash randomization {expected}")
     torch_policy = policy.get("torch")
     expected_torch = {
         "num_threads": 1,

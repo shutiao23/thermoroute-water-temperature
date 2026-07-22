@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import asdict
 import hashlib
 import json
 import os
@@ -18,6 +19,96 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_SCRIPT = ROOT / "scripts" / "14_manifest.py"
 VERIFY_SCRIPT = ROOT / "scripts" / "verify_release.py"
 ZIP_SCRIPT = ROOT / "scripts" / "deterministic_zip.py"
+
+
+def _stage09b_fixture_config(
+    expected_bridge: dict[str, str], *, eval_batch_size: int = 2,
+) -> dict[str, object]:
+    """Build the real formal Stage-09b configuration for release fixtures."""
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from thermoroute import config as C
+        from thermoroute.development_controls import (
+            DEVELOPMENT_DISCLOSURE,
+            FULL_VARIABLES,
+            TRAIN_CONFIG,
+            architecture_template,
+            assert_parameter_budgets,
+            declared_arms,
+            expected_member_registry,
+        )
+    finally:
+        sys.path.pop(0)
+    arms = declared_arms()
+    hash_policy = (
+        "canonical-sort-identity-collections-independent-of-hash-secret"
+    )
+    formal_policy = {
+        "thread_environment": {
+            name: "1" for name in (
+                "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+            )
+        },
+        "cublas_workspace_config": ":4096:8",
+        "python_hash_environment_declaration": "0",
+        "python_hash_randomization_enabled": True,
+        "python_hash_policy": hash_policy,
+        "required": {
+            "threads": 1,
+            "cublas_workspace_config": ":4096:8",
+            "python_hash_policy": hash_policy,
+            "torch_deterministic_algorithms": True,
+            "tf32": False,
+            "float32_matmul_precision": "highest",
+        },
+        "torch": {
+            "num_threads": 1,
+            "num_interop_threads": 1,
+            "deterministic_algorithms": True,
+            "cudnn_deterministic": True,
+            "cudnn_benchmark": False,
+            "cuda_matmul_allow_tf32": False,
+            "cudnn_allow_tf32": False,
+            "float32_matmul_precision": "highest",
+        },
+    }
+    return {
+        "stage": "09b_development_controls",
+        "format": "thermoroute.development-controls.v2",
+        "execution_role": (
+            "prelabel_relative_to_unopened_post_2020_confirmation"
+        ),
+        "evidence_role": "development_only_exploratory",
+        "development_disclosure": DEVELOPMENT_DISCLOSURE,
+        "panel_date_range": ["2006-01-01", "2020-12-31"],
+        "development_evaluation_interval": list(C.SPLIT.test),
+        "blind_or_confirmatory": False,
+        "suite_pointer_written": False,
+        "training_device": "cpu",
+        "variables": list(FULL_VARIABLES),
+        "context_length": C.CONTEXT_LENGTH,
+        "horizons": list(C.HORIZONS),
+        "time_split": C.SPLIT.as_dict(),
+        "station_sampling": "balanced",
+        "selection_metric": "station_macro",
+        "train_config": asdict(TRAIN_CONFIG),
+        "arms": [asdict(arm) for arm in arms],
+        "expected_member_registry": [
+            list(member) for member in expected_member_registry(arms)
+        ],
+        "parameter_counts": assert_parameter_budgets(arms, n_stations=120),
+        "architecture_templates": {
+            arm.arm_id: architecture_template(arm, n_stations=120)
+            for arm in arms
+        },
+        "parameter_match_tolerance_fraction": 0.02,
+        "architecture_candidates_per_arm": 1,
+        "historical_tuning_budget_equalized": False,
+        "development_predictor_bridge": expected_bridge,
+        "formal_numerical_policy": formal_policy,
+        "eval_batch_size": eval_batch_size,
+    }
 
 
 def _load_script(path: Path, name: str):
@@ -65,6 +156,56 @@ def _write_bytes(root: Path, relative: str, payload: bytes = b"fixture\n") -> Pa
 def _binding(verifier, root: Path, relative: str) -> dict[str, str]:
     path = root / relative
     return {"path": relative, "sha256": verifier.sha256_file(path)}
+
+
+@pytest.mark.parametrize(
+    "alias",
+    (
+        "./artifacts/value.bin",
+        "artifacts//value.bin",
+        "artifacts/subdir/../value.bin",
+    ),
+)
+def test_release_binding_reader_rejects_noncanonical_paths(tmp_path, alias):
+    verifier = _load_script(VERIFY_SCRIPT, "verify_release_noncanonical_alias")
+    artifact = _write_bytes(tmp_path, "artifacts/value.bin", b"bound bytes\n")
+    binding = {"path": alias, "sha256": verifier.sha256_file(artifact)}
+
+    with pytest.raises(ValueError, match="not canonical"):
+        verifier._add_binding(
+            tmp_path, {}, "fixture", binding, label="fixture binding"
+        )
+
+
+def test_release_binding_reader_rejects_symlink_alias(tmp_path):
+    verifier = _load_script(VERIFY_SCRIPT, "verify_release_symlink_alias")
+    artifact = _write_bytes(tmp_path, "artifacts/value.bin", b"bound bytes\n")
+    alias = tmp_path / "artifacts" / "alias.bin"
+    alias.symlink_to(artifact.name)
+    binding = {
+        "path": "artifacts/alias.bin",
+        "sha256": verifier.sha256_file(artifact),
+    }
+
+    with pytest.raises(ValueError, match="symlink"):
+        verifier._add_binding(
+            tmp_path, {}, "fixture", binding, label="fixture binding"
+        )
+
+
+def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
+    verifier = _load_script(VERIFY_SCRIPT, "verify_release_hardlink")
+    artifact = _write_bytes(tmp_path, "artifacts/value.bin", b"bound bytes\n")
+    os.link(artifact, tmp_path / "artifacts" / "duplicate.bin")
+    binding = {
+        "path": "artifacts/value.bin",
+        "sha256": verifier.sha256_file(artifact),
+    }
+
+    with pytest.raises(ValueError, match="hard-linked"):
+        verifier._add_binding(
+            tmp_path, {}, "fixture", binding, label="fixture binding"
+        )
 
 
 def _chronology_binding(verifier, root: Path, relative: str) -> dict[str, object]:
@@ -494,7 +635,6 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 architecture_budget_rows,
                 budget_csv_bytes,
                 declared_arms,
-                prediction_content_digest,
                 recompute_metric_summary,
                 render_report,
                 summary_csv_bytes,
@@ -502,16 +642,25 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         finally:
             sys.path.pop(0)
 
-        identity = {
-            "run_id": "stage09b-fixture",
+        expected_members = verifier._stage09b_release_members()
+        controls_config = _stage09b_fixture_config(
+            _binding(verifier, root, bridge_path), eval_batch_size=2,
+        )
+        identity_without_run = {
             "panel_sha256": bridge["panel"]["sha256"],
             "registry_sha256": bridge["registry"]["sha256"],
-            "config_sha256": "d" * 64,
+            "config_sha256": verifier._sha256_json(controls_config),
             "source_sha256": source_sha256,
             "runtime_sha256": runtime_sha256,
             "schema_version": "thermoroute.run.v1",
         }
-        expected_members = verifier._stage09b_release_members()
+        identity = {
+            "run_id": verifier._sha256_json(identity_without_run)[:20],
+            **identity_without_run,
+        }
+        run_dir = (
+            f"outputs/runs/09b_development_controls/{identity['run_id']}"
+        )
         matrix_audit = {
             "expected_members": 31,
             "prediction_rows": 31 * 9,
@@ -519,38 +668,71 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "splits": ["calib", "test", "val"],
             "reference_member": "PlainMLP-7var/seed0",
         }
-        controls_config = {
-            "stage": "09b_development_controls",
-            "format": "thermoroute.development-controls.v2",
-            "training_device": "cpu",
-            "panel_date_range": ["2006-01-01", "2020-12-31"],
-            "blind_or_confirmatory": False,
-            "suite_pointer_written": False,
-            "expected_member_registry": [
-                [arm, seed] for arm, seed in expected_members
-            ],
-            "development_predictor_bridge": _binding(verifier, root, bridge_path),
-        }
-        run_manifest_path = "outputs/runs/09b-fixture/run.json"
+        run_manifest_path = f"{run_dir}/run.json"
         _write_bytes(root, run_manifest_path, json.dumps({
+            "schema_version": "thermoroute.run.v1",
             "identity": identity,
             "resolved_config": controls_config,
-        }).encode())
-        arm_features = {
-            "PlainMLP-7var": "all_7_variables",
-            "PlainCausalTCN-7var": "all_7_variables",
-            **{
-                f"ThermoRoute-ladder-{rung}": f"feature_ladder_{rung}"
-                for rung in (
-                    "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
-                    "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
-                )
+            "created_utc": "2026-07-22T00:00:00+00:00",
+            "environment": {},
+            "git": {},
+            "provenance": {
+                "development_only": True,
+                "post_2020_outcomes_requested_or_read": False,
+                "suite_pointer_written": False,
+                "training_device": "cpu",
             },
+        }).encode())
+        arm_documents = {
+            str(arm["arm_id"]): arm for arm in controls_config["arms"]
+        }
+        arm_features = {
+            arm_id: str(document["feature_set"])
+            for arm_id, document in arm_documents.items()
         }
         member_registry = []
         member_frames = {}
+        base_parents = {
+            "frozen_panel": identity["panel_sha256"],
+            "frozen_station_registry": identity["registry_sha256"],
+            "development_predictor_bridge": verifier.sha256_file(root / bridge_path),
+        }
         for arm_id, seed in expected_members:
-            relative = f"outputs/runs/09b-fixture/members/{arm_id}/seed{seed}.parquet"
+            relative = f"{run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
+            checkpoint_relative = f"{run_dir}/checkpoints/{arm_id}/seed{seed}.pt"
+            checkpoint = _write_bytes(
+                root, checkpoint_relative,
+                f"fixture checkpoint {arm_id}/seed{seed}\n".encode(),
+            )
+            checkpoint_sidecar_relative = checkpoint_relative + ".meta.json"
+            arm_document = arm_documents[arm_id]
+            arm_config = {
+                **controls_config,
+                "arm": arm_document,
+                "seed": seed,
+                "trainable_parameters": controls_config["parameter_counts"][arm_id],
+            }
+            expected_model_class = {
+                "PlainMLP": "thermoroute.neural_baselines.PlainMLPForecaster",
+                "PlainCausalTCN": (
+                    "thermoroute.neural_baselines.PlainCausalTCNForecaster"
+                ),
+                "ThermoRoute": "thermoroute.thermoroute.ThermoRoute",
+            }[str(arm_document["family"])]
+            _write_bytes(root, checkpoint_sidecar_relative, json.dumps({
+                "format": "thermoroute.training-checkpoint-metadata.v2",
+                "checkpoint_format": "thermoroute.training-checkpoint.v3",
+                "run_id": identity["run_id"],
+                "epoch": 4,
+                "checkpoint_bytes": checkpoint.stat().st_size,
+                "checkpoint_sha256": verifier.sha256_file(checkpoint),
+                "resolved_config_sha256": verifier._sha256_json(arm_config),
+                "extra_sha256": "e" * 64,
+                "model_class": expected_model_class,
+                "optimizer_class": "torch.optim.adamw.AdamW",
+                "scheduler_class": "torch.optim.lr_scheduler.ReduceLROnPlateau",
+                "scheduler_present": True,
+            }).encode())
             records = []
             for split_index, split in enumerate(("val", "calib", "test")):
                 for horizon in (1, 3, 7):
@@ -582,30 +764,74 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             frame.to_parquet(prediction, index=False)
             member_frames[(arm_id, seed)] = frame
             sidecar_relative = relative + ".meta.json"
+            checkpoint_binding = _binding(
+                verifier, root, checkpoint_relative,
+            )
+            checkpoint_sidecar_binding = _binding(
+                verifier, root, checkpoint_sidecar_relative,
+            )
+            member_parents = {
+                **base_parents,
+                "training_checkpoint": checkpoint_binding["sha256"],
+                "training_checkpoint_sidecar": checkpoint_sidecar_binding["sha256"],
+            }
+            training_summary = {
+                "best_validation_metric": 0.25,
+                "selected_epoch": 2,
+                "checkpoint_final_epoch": 4,
+            }
+            member_extra = {
+                "format": "thermoroute.development-control-arm.v2",
+                "arm_id": arm_id,
+                "family": arm_document["family"],
+                "feature_set": arm_document["feature_set"],
+                "variables": arm_document["variables"],
+                "seed": seed,
+                "trainable_parameters": controls_config["parameter_counts"][arm_id],
+                "architecture": controls_config["architecture_templates"][arm_id],
+                "training_device": "cpu",
+                "station_balanced": True,
+                "selection_metric": "station_macro",
+                "train_config": controls_config["train_config"],
+                "context_length": 32,
+                "horizons": [1, 3, 7],
+                "development_only": True,
+                "development_evaluation_interval": [
+                    "2019-01-01", "2020-12-31"
+                ],
+                "blind_or_confirmatory": False,
+                "suite_pointer_written": False,
+                "eval_batch_size": 2,
+                "training_summary": training_summary,
+            }
             _write_bytes(root, sidecar_relative, json.dumps({
+                "schema_version": "thermoroute.artifact.v1",
                 "kind": "development_control_arm_predictions",
+                "artifact": prediction.name,
                 "artifact_sha256": verifier.sha256_file(prediction),
+                "artifact_bytes": prediction.stat().st_size,
+                "content_schema": "thermoroute.predictions.v1",
                 "run": identity,
-                "extra": {
-                    "arm_id": arm_id,
-                    "seed": seed,
-                    "training_device": "cpu",
-                    "development_only": True,
-                    "blind_or_confirmatory": False,
-                },
+                "parents": dict(sorted(member_parents.items())),
+                "extra": member_extra,
+                "created_utc": "2026-07-22T00:00:00+00:00",
             }).encode())
             member_registry.append({
                 "arm_id": arm_id,
                 "seed": seed,
+                "checkpoint": checkpoint_binding,
+                "checkpoint_sidecar": checkpoint_sidecar_binding,
                 "prediction": _binding(verifier, root, relative),
                 "prediction_sidecar": _binding(verifier, root, sidecar_relative),
             })
         final_paths = {
-            "predictions": "outputs/runs/09b-fixture/controls.parquet",
-            "architecture_budget": "outputs/runs/09b-fixture/budget.csv",
-            "metric_summary": "outputs/runs/09b-fixture/metric_summary.csv",
-            "report": "outputs/runs/09b-fixture/report.md",
-            "semantic_audit": "outputs/runs/09b-fixture/semantic_audit.json",
+            "predictions": f"{run_dir}/development_controls_predictions.parquet",
+            "architecture_budget": (
+                f"{run_dir}/development_controls_architecture_budget.csv"
+            ),
+            "metric_summary": f"{run_dir}/development_controls_metric_summary.csv",
+            "report": f"{run_dir}/development_controls_report.md",
+            "semantic_audit": f"{run_dir}/development_controls_semantic_audit.json",
         }
         combined = pd.concat(
             [member_frames[member] for member in expected_members], ignore_index=True
@@ -632,34 +858,114 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 summary=summary,
             ).encode("utf-8"),
         )
-        final_kinds = {
-            "predictions": "development_controls_combined_predictions",
-            "architecture_budget": "development_controls_budget",
-            "metric_summary": "development_controls_metric_summary",
-            "report": "development_controls_report",
-            "semantic_audit": "development_controls_semantic_audit",
+        final_specs = {
+            "predictions": (
+                "development_controls_combined_predictions",
+                "thermoroute.predictions.v1", "combined_predictions",
+            ),
+            "architecture_budget": (
+                "development_controls_budget", "text/csv", "architecture_budget",
+            ),
+            "metric_summary": (
+                "development_controls_metric_summary", "text/csv", "metric_summary",
+            ),
+            "report": (
+                "development_controls_report", "text/markdown", "report",
+            ),
+            "semantic_audit": (
+                "development_controls_semantic_audit", "application/json",
+                "semantic_audit",
+            ),
         }
-        for name in ("predictions", "architecture_budget", "metric_summary", "report"):
+        final_parents = {
+            **base_parents,
+            **{
+                f"arm::{entry['arm_id']}::seed{entry['seed']}::prediction": (
+                    entry["prediction"]["sha256"]
+                )
+                for entry in member_registry
+            },
+            **{
+                f"arm::{entry['arm_id']}::seed{entry['seed']}::checkpoint": (
+                    entry["checkpoint"]["sha256"]
+                )
+                for entry in member_registry
+            },
+            **{
+                f"arm::{entry['arm_id']}::seed{entry['seed']}::checkpoint_sidecar": (
+                    entry["checkpoint_sidecar"]["sha256"]
+                )
+                for entry in member_registry
+            },
+        }
+
+        def write_final_sidecar(name: str) -> None:
             relative = final_paths[name]
+            artifact = root / relative
+            kind, content_schema, role = final_specs[name]
             _write_bytes(root, relative + ".meta.json", json.dumps({
-                "kind": final_kinds[name],
-                "artifact_sha256": verifier.sha256_file(root / relative),
+                "schema_version": "thermoroute.artifact.v1",
+                "kind": kind,
+                "artifact": artifact.name,
+                "artifact_sha256": verifier.sha256_file(artifact),
+                "artifact_bytes": artifact.stat().st_size,
+                "content_schema": content_schema,
                 "run": identity,
-                "extra": {
-                    "expected_members": 31,
-                    "development_only": True,
-                    "blind_or_confirmatory": False,
-                    "evidence_scope": "prediction_artifact_closure",
-                    "training_replay_verified": False,
-                },
+                "parents": dict(sorted(final_parents.items())),
+                "extra": verifier._stage09b_expected_final_extra(
+                    matrix_audit, role=role,
+                ),
+                "created_utc": "2026-07-22T00:00:00+00:00",
             }).encode())
+
+        for name in ("predictions", "architecture_budget", "metric_summary", "report"):
+            write_final_sidecar(name)
+
+        canonical_evaluation = verifier._normalise_stage09b_release_prediction(
+            member_frames[expected_members[0]],
+            arm_id=expected_members[0][0],
+            seed=expected_members[0][1],
+            feature_set=arm_features[expected_members[0][0]],
+            reference=None,
+        )[["split", "site_id", "horizon", "issue_date", "target_date", "y_true"]]
+        canonical_evaluation_sha256 = verifier._stage09b_window_registry_digest(
+            canonical_evaluation
+        )
+        canonical_train_sha256 = verifier._stage09b_window_registry_digest(
+            canonical_evaluation
+        )
+
+        def fixture_canonical_windows(*_args, **_kwargs):
+            return (
+                canonical_evaluation.copy(), 9,
+                canonical_evaluation_sha256, canonical_train_sha256,
+                ("01073319",),
+            )
+
+        verifier._stage09b_rebuild_canonical_windows = fixture_canonical_windows
         semantic_members = []
         for entry in member_registry:
             prediction = root / entry["prediction"]["path"]
             prediction_sidecar = root / entry["prediction_sidecar"]["path"]
+            checkpoint = root / entry["checkpoint"]["path"]
+            checkpoint_sidecar = root / entry["checkpoint_sidecar"]["path"]
+            member = (entry["arm_id"], entry["seed"])
+            normalised = verifier._normalise_stage09b_release_prediction(
+                member_frames[member], arm_id=entry["arm_id"], seed=entry["seed"],
+                feature_set=arm_features[entry["arm_id"]],
+                reference=canonical_evaluation,
+            )
             semantic_members.append({
                 "arm_id": entry["arm_id"],
                 "seed": entry["seed"],
+                "checkpoint": {
+                    "sha256": verifier.sha256_file(checkpoint),
+                    "bytes": checkpoint.stat().st_size,
+                },
+                "checkpoint_sidecar": {
+                    "sha256": verifier.sha256_file(checkpoint_sidecar),
+                    "bytes": checkpoint_sidecar.stat().st_size,
+                },
                 "prediction": {
                     "sha256": verifier.sha256_file(prediction),
                     "bytes": prediction.stat().st_size,
@@ -668,14 +974,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                     "sha256": verifier.sha256_file(prediction_sidecar),
                     "bytes": prediction_sidecar.stat().st_size,
                 },
-                "normalised_prediction_sha256": prediction_content_digest(
-                    member_frames[(entry["arm_id"], entry["seed"])]
-                    .sort_values(
-                        ["split", "site_id", "horizon", "issue_date", "target_date"],
-                        kind="mergesort",
-                    )
-                    .reset_index(drop=True)
+                "normalised_prediction_sha256": (
+                    verifier._stage09b_prediction_content_digest(normalised)
                 ),
+                "best_model_state_prediction_replay_verified": True,
             })
         derived = {}
         for label, name in (
@@ -697,18 +999,19 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 },
             }
         semantic = {
-            "format": "thermoroute.development-controls-semantic-audit.v1",
-            "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+            "format": "thermoroute.development-controls-semantic-audit.v2",
+            "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
             "run_id": identity["run_id"],
-            "evidence_scope": "prediction_artifact_closure",
+            "evidence_scope": "best_model_state_prediction_replay",
+            "best_model_state_prediction_replay_verified": True,
             "training_replay_verified": False,
             "post_2020_outcomes_requested_or_read": False,
             "matrix_audit": matrix_audit,
             "canonical_window_registry": {
-                "sha256": "a" * 64,
+                "sha256": canonical_evaluation_sha256,
                 "common_forecast_keys": 9,
                 "train_examples_per_epoch": 9,
-                "train_registry_sha256": "b" * 64,
+                "train_registry_sha256": canonical_train_sha256,
             },
             "members": semantic_members,
             "derived_artifacts": derived,
@@ -717,19 +1020,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         _write_bytes(
             root, final_paths["semantic_audit"], json.dumps(semantic).encode()
         )
-        semantic_relative = final_paths["semantic_audit"]
-        _write_bytes(root, semantic_relative + ".meta.json", json.dumps({
-            "kind": final_kinds["semantic_audit"],
-            "artifact_sha256": verifier.sha256_file(root / semantic_relative),
-            "run": identity,
-            "extra": {
-                "expected_members": 31,
-                "development_only": True,
-                "blind_or_confirmatory": False,
-                "evidence_scope": "prediction_artifact_closure",
-                "training_replay_verified": False,
-            },
-        }).encode())
+        write_final_sidecar("semantic_audit")
         controls_artifacts = {
             "run_manifest": _binding(verifier, root, run_manifest_path),
             "frozen_panel_spec": _binding(
@@ -759,13 +1050,14 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             ),
         }
         controls = {
-            "format": "thermoroute.stage09b-completion-receipt.v2",
-            "status": "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+            "format": "thermoroute.stage09b-completion-receipt.v3",
+            "status": "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
             "stage": "09b_development_controls",
             "run_id": identity["run_id"],
             "run_identity": identity,
             "formal_configuration": controls_config,
-            "evidence_scope": "prediction_artifact_closure",
+            "evidence_scope": "best_model_state_prediction_replay",
+            "best_model_state_prediction_replay_verified": True,
             "training_replay_verified": False,
             "matrix_audit": matrix_audit,
             "member_registry": member_registry,
@@ -2630,19 +2922,30 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     for name in ("daymet", "gridmet", "gridmet_schema"):
         index = (
             "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
-            f"{name}/snapshot_index.json"
+            f"{name}/snapshot_index_v2.json"
         )
         metadata = str(PurePosixPath(index).parent / "metadata.json")
         response = str(PurePosixPath(index).parent / "response.bin")
-        write_json(metadata, {})
+        metadata_path = write_json(metadata, {})
         _write_bytes(source, response, f"{name} raw\n".encode())
         write_json(
             index,
             {
+                "schema_version": 2,
+                "snapshot_count": 1,
                 "records": [{
+                    "provider": name,
+                    "request_sha256": hashlib.sha256(
+                        f"{name} request".encode()
+                    ).hexdigest(),
                     "metadata_path": "metadata.json",
                     "response_path": "response.bin",
                     "response_sha256": verifier.sha256_file(source / response),
+                    "metadata_sha256": verifier.sha256_file(metadata_path),
+                    "metadata_byte_count": metadata_path.stat().st_size,
+                    "retrieved_at_utc": "2026-07-22T00:00:00+00:00",
+                    "byte_count": (source / response).stat().st_size,
+                    "request": {"provider": name},
                 }]
             },
         )
@@ -2753,14 +3056,33 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             f"{stage09b_run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
         )
         member_sidecar = f"{member_path}.meta.json"
+        checkpoint_path = (
+            f"{stage09b_run_dir}/checkpoints/{arm_id}/seed{seed}.pt"
+        )
+        checkpoint_sidecar = f"{checkpoint_path}.meta.json"
         _write_bytes(source, member_path, f"{arm_id}/seed{seed}\n".encode())
         _write_bytes(source, member_sidecar, b"{}\n")
-        stage09b_member_paths.update({member_path, member_sidecar})
+        _write_bytes(
+            source,
+            checkpoint_path,
+            f"checkpoint:{arm_id}:seed{seed}\n".encode(),
+        )
+        _write_bytes(source, checkpoint_sidecar, b"{}\n")
+        stage09b_member_paths.update({
+            member_path,
+            member_sidecar,
+            checkpoint_path,
+            checkpoint_sidecar,
+        })
         stage09b_members.append({
             "arm_id": arm_id,
             "seed": seed,
             "prediction": _binding(verifier, source, member_path),
             "prediction_sidecar": _binding(verifier, source, member_sidecar),
+            "checkpoint": _binding(verifier, source, checkpoint_path),
+            "checkpoint_sidecar": _binding(
+                verifier, source, checkpoint_sidecar
+            ),
         })
         semantic_members.append({
             "arm_id": arm_id,
@@ -2773,9 +3095,18 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
                 "sha256": verifier.sha256_file(source / member_sidecar),
                 "bytes": (source / member_sidecar).stat().st_size,
             },
+            "checkpoint": {
+                "sha256": verifier.sha256_file(source / checkpoint_path),
+                "bytes": (source / checkpoint_path).stat().st_size,
+            },
+            "checkpoint_sidecar": {
+                "sha256": verifier.sha256_file(source / checkpoint_sidecar),
+                "bytes": (source / checkpoint_sidecar).stat().st_size,
+            },
             "normalised_prediction_sha256": hashlib.sha256(
                 f"normalised:{arm_id}:{seed}".encode()
             ).hexdigest(),
+            "best_model_state_prediction_replay_verified": True,
         })
 
     stage09b_matrix = {
@@ -2793,11 +3124,12 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         }
 
     semantic_audit = {
-        "format": "thermoroute.development-controls-semantic-audit.v1",
-        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "format": "thermoroute.development-controls-semantic-audit.v2",
+        "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "run_id": stage09b_run_id,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
         "training_replay_verified": False,
+        "best_model_state_prediction_replay_verified": True,
         "post_2020_outcomes_requested_or_read": False,
         "matrix_audit": stage09b_matrix,
         "canonical_window_registry": {
@@ -2845,14 +3177,15 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     _write_bytes(source, stage09b_artifacts["semantic_audit_sidecar"], b"{}\n")
     stage09b_receipt_path = "outputs/models/route_a_stage09b_completion.json"
     stage09b_receipt = {
-        "format": "thermoroute.stage09b-completion-receipt.v2",
-        "status": "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+        "format": "thermoroute.stage09b-completion-receipt.v3",
+        "status": "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "stage": "09b_development_controls",
         "run_id": stage09b_run_id,
         "run_identity": {"run_id": stage09b_run_id},
         "formal_configuration": {"fixture": True},
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
         "training_replay_verified": False,
+        "best_model_state_prediction_replay_verified": True,
         "matrix_audit": stage09b_matrix,
         "member_registry": stage09b_members,
         "artifacts": {

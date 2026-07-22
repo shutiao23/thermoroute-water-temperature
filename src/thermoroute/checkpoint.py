@@ -11,6 +11,7 @@ from pathlib import Path
 import random
 import re
 import shutil
+import stat
 import tempfile
 from typing import Any, Mapping
 
@@ -662,11 +663,161 @@ def _load_checkpoint_metadata(
     return metadata
 
 
+def _assert_single_regular_file(path: Path, *, label: str) -> None:
+    """Reject symlinks, hard links, devices, directories, and absent files."""
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symbolic link")
+    try:
+        status = path.stat()
+    except OSError as exc:
+        raise ValueError(f"{label} is missing or unreadable") from exc
+    if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
+        raise ValueError(f"{label} must be one unlinked regular file")
+
+
+def _handle_checkpoint_transaction_temps(path: Path, *, recover: bool) -> None:
+    """Reject or remove only this checkpoint transaction's orphan temp files.
+
+    A complete temp is never promoted: canonical publication is exclusively the
+    atomic rename in the original writer.  Recovery may delete an orphan only
+    when it is a same-owner, single-link regular file opened no-follow from the
+    exact parent directory.  This models an honest owner process crash; it is
+    not a defence against the same UID deliberately replacing both evidence
+    files with a forged, internally valid higher-epoch transaction.
+    """
+    parent = path.parent
+    if not parent.exists():
+        return
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError("checkpoint parent directory is linked or non-directory")
+    sidecar = checkpoint_sidecar_path(path)
+    prefixes = (f".{path.name}.", f".{sidecar.name}.")
+    try:
+        with os.scandir(parent) as entries:
+            names = sorted(
+                entry.name
+                for entry in entries
+                if entry.name.endswith(".tmp")
+                and any(entry.name.startswith(prefix) for prefix in prefixes)
+            )
+    except OSError as exc:
+        raise ValueError("checkpoint transaction directory cannot be inspected") from exc
+    if not names:
+        return
+    if not recover:
+        raise ValueError("checkpoint transaction has an unhandled orphan temp file")
+    directory_flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        directory_flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        directory_flags |= os.O_NOFOLLOW
+    try:
+        directory_fd = os.open(parent, directory_flags)
+    except OSError as exc:
+        raise ValueError("checkpoint transaction directory cannot be opened safely") from exc
+    try:
+        for name in names:
+            try:
+                status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise ValueError("checkpoint orphan temp cannot be inspected") from exc
+            owner_matches = not hasattr(os, "getuid") or status.st_uid == os.getuid()
+            if (
+                not stat.S_ISREG(status.st_mode)
+                or status.st_nlink != 1
+                or not owner_matches
+            ):
+                raise ValueError("checkpoint orphan temp is linked, non-regular, or foreign")
+            file_flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                file_flags |= os.O_NOFOLLOW
+            try:
+                file_fd = os.open(name, file_flags, dir_fd=directory_fd)
+            except OSError as exc:
+                raise ValueError("checkpoint orphan temp cannot be opened safely") from exc
+            try:
+                opened = os.fstat(file_fd)
+                if (
+                    opened.st_dev != status.st_dev
+                    or opened.st_ino != status.st_ino
+                    or opened.st_nlink != 1
+                    or not stat.S_ISREG(opened.st_mode)
+                ):
+                    raise ValueError("checkpoint orphan temp changed during inspection")
+            finally:
+                os.close(file_fd)
+            os.unlink(name, dir_fd=directory_fd)
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _read_checkpoint_payload(
+    path: Path, *, map_location: str | torch.device,
+    expected_bytes: int | None = None,
+    expected_sha256: str | None = None,
+) -> tuple[Any, int, str]:
+    """Hash and weights-only-load the same no-follow file descriptor."""
+    _assert_single_regular_file(path, label="checkpoint payload")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("checkpoint payload cannot be opened safely") from exc
+    try:
+        with os.fdopen(descriptor, "rb") as handle:
+            status = os.fstat(handle.fileno())
+            if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
+                raise ValueError("checkpoint payload changed into a linked/non-regular file")
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+            observed_sha256 = digest.hexdigest()
+            if expected_bytes is not None and status.st_size != expected_bytes:
+                raise ValueError("checkpoint byte length does not match its sidecar")
+            if expected_sha256 is not None and observed_sha256 != expected_sha256:
+                raise ValueError("checkpoint content digest does not match its sidecar")
+            handle.seek(0)
+            try:
+                payload = torch.load(
+                    handle, map_location=map_location, weights_only=True,
+                )
+            except Exception as exc:
+                raise ValueError("checkpoint cannot be safely deserialized") from exc
+    except BaseException:
+        # ``fdopen`` owns and closes the descriptor once entered.  It may fail
+        # before ownership transfers only in exceptional interpreter states.
+        raise
+    return payload, int(status.st_size), observed_sha256
+
+
+def _checkpoint_metadata_for_payload(
+    payload: Mapping[str, Any], *, checkpoint_bytes: int, checkpoint_sha256: str,
+) -> dict[str, Any]:
+    return {
+        "format": CHECKPOINT_METADATA_VERSION,
+        "checkpoint_format": CHECKPOINT_VERSION,
+        "run_id": str(payload["run_id"]),
+        "epoch": int(payload["epoch"]),
+        "checkpoint_bytes": checkpoint_bytes,
+        "checkpoint_sha256": checkpoint_sha256,
+        "resolved_config_sha256": str(payload["resolved_config_sha256"]),
+        "extra_sha256": str(payload["extra_sha256"]),
+        "model_class": str(payload["model_class"]),
+        "optimizer_class": str(payload["optimizer_class"]),
+        "scheduler_class": payload["scheduler_class"],
+        "scheduler_present": bool(payload["scheduler_present"]),
+    }
+
+
 def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
                              optimizer: torch.optim.Optimizer,
                              scheduler: Any | None, expected_run_id: str,
                              expected_resolved_config: Mapping[str, Any],
-                             map_location: str | torch.device = "cpu") -> ResumeState:
+                             map_location: str | torch.device = "cpu",
+                             recover_missing_sidecar: bool = False) -> ResumeState:
     """Restore a validated checkpoint without allowing arbitrary pickle globals."""
     path = Path(path)
     if type(expected_run_id) is not str or not expected_run_id:
@@ -674,34 +825,38 @@ def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
     expected_config_json, expected_config_sha256 = _canonical_mapping(
         expected_resolved_config, label="expected_resolved_config"
     )
-    metadata = _load_checkpoint_metadata(
-        path,
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        expected_run_id=expected_run_id,
-        expected_config_sha256=expected_config_sha256,
+    _handle_checkpoint_transaction_temps(
+        path, recover=recover_missing_sidecar,
     )
-    try:
-        with path.open("rb") as handle:
-            stat = os.fstat(handle.fileno())
-            digest = hashlib.sha256()
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-            if stat.st_size != metadata["checkpoint_bytes"]:
-                raise ValueError("checkpoint byte length does not match its sidecar")
-            if digest.hexdigest() != metadata["checkpoint_sha256"]:
-                raise ValueError("checkpoint content digest does not match its sidecar")
-            handle.seek(0)
-            payload = torch.load(
-                handle,
-                map_location=map_location,
-                weights_only=True,
-            )
-    except ValueError:
-        raise
-    except Exception as exc:
-        raise ValueError("checkpoint cannot be safely deserialized") from exc
+    sidecar = checkpoint_sidecar_path(path)
+    if sidecar.is_symlink():
+        raise ValueError("checkpoint sidecar must not be a symbolic link")
+    metadata: dict[str, Any] | None = None
+    if sidecar.exists():
+        _assert_single_regular_file(sidecar, label="checkpoint sidecar")
+        metadata = _load_checkpoint_metadata(
+            path,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            expected_run_id=expected_run_id,
+            expected_config_sha256=expected_config_sha256,
+        )
+    elif not recover_missing_sidecar:
+        raise ValueError("checkpoint sidecar is missing or invalid")
+
+    payload, payload_bytes, payload_sha256 = _read_checkpoint_payload(
+        path,
+        map_location=map_location,
+        expected_bytes=(
+            int(metadata["checkpoint_bytes"])
+            if metadata is not None and not recover_missing_sidecar else None
+        ),
+        expected_sha256=(
+            str(metadata["checkpoint_sha256"])
+            if metadata is not None and not recover_missing_sidecar else None
+        ),
+    )
     config, extra = _validate_checkpoint_payload(
         payload,
         model=model,
@@ -710,12 +865,50 @@ def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
         expected_run_id=expected_run_id,
         expected_config_json=expected_config_json,
     )
-    if payload["epoch"] != metadata["epoch"]:
-        raise ValueError("checkpoint epoch does not match its sidecar")
-    if payload["resolved_config_sha256"] != metadata["resolved_config_sha256"]:
-        raise ValueError("checkpoint config lineage does not match its sidecar")
-    if payload["extra_sha256"] != metadata["extra_sha256"]:
-        raise ValueError("checkpoint extra-state lineage does not match its sidecar")
+    expected_metadata = _checkpoint_metadata_for_payload(
+        payload,
+        checkpoint_bytes=payload_bytes,
+        checkpoint_sha256=payload_sha256,
+    )
+    if metadata is None:
+        # The only missing-sidecar recovery state is a complete validated
+        # payload.  A broken link is rejected above rather than treated absent.
+        atomic_write_json(sidecar, expected_metadata)
+        _assert_single_regular_file(sidecar, label="recovered checkpoint sidecar")
+        metadata = _load_checkpoint_metadata(
+            path, model=model, optimizer=optimizer, scheduler=scheduler,
+            expected_run_id=expected_run_id,
+            expected_config_sha256=expected_config_sha256,
+        )
+    elif metadata != expected_metadata:
+        if not recover_missing_sidecar:
+            if metadata["checkpoint_bytes"] != payload_bytes:
+                raise ValueError("checkpoint byte length does not match its sidecar")
+            if metadata["checkpoint_sha256"] != payload_sha256:
+                raise ValueError("checkpoint content digest does not match its sidecar")
+        # Repeated atomic checkpoint publication has one legitimate two-file
+        # kill window: the new, higher-epoch payload replaced the old payload,
+        # while the old, otherwise-valid sidecar remains.  Require both a
+        # strictly older epoch and a different payload digest.  This does not
+        # launder malformed sidecars, wrong run/config/component lineage, or a
+        # same-epoch metadata edit.
+        recoverable_stale_pair = (
+            recover_missing_sidecar
+            and metadata["epoch"] < expected_metadata["epoch"]
+            and metadata["checkpoint_sha256"]
+            != expected_metadata["checkpoint_sha256"]
+        )
+        if not recoverable_stale_pair:
+            raise ValueError("checkpoint payload/sidecar transaction is inconsistent")
+        atomic_write_json(sidecar, expected_metadata)
+        _assert_single_regular_file(sidecar, label="recovered checkpoint sidecar")
+        metadata = _load_checkpoint_metadata(
+            path, model=model, optimizer=optimizer, scheduler=scheduler,
+            expected_run_id=expected_run_id,
+            expected_config_sha256=expected_config_sha256,
+        )
+    if metadata != expected_metadata:
+        raise ValueError("checkpoint recovery sidecar does not match the payload")
     # Every field, tensor schema, lineage binding, and RNG state has been checked
     # above.  No mutable training object is touched before this point.
     model.load_state_dict(payload["model_state"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -55,6 +56,7 @@ def _load_script(relative: str, name: str):
 
 DC = _load_script("scripts/09b_development_controls.py", "stage09b_receipt_fixture")
 STAGE24 = _load_script("scripts/24_freeze_model_suite.py", "stage24_controls_fixture")
+VERIFY_RELEASE = _load_script("scripts/verify_release.py", "stage09b_release_fixture")
 
 
 def _binding(root: Path, path: Path) -> dict[str, str]:
@@ -62,6 +64,18 @@ def _binding(root: Path, path: Path) -> dict[str, str]:
         "path": path.resolve().relative_to(root.resolve()).as_posix(),
         "sha256": sha256_file(path),
     }
+
+
+def test_stage09b_binding_rejects_hardlinked_artifact(tmp_path: Path) -> None:
+    artifact = tmp_path / "artifact.bin"
+    artifact.write_bytes(b"bound bytes\n")
+    binding = _binding(tmp_path, artifact)
+    os.link(artifact, tmp_path / "duplicate.bin")
+
+    with pytest.raises(DevelopmentControlsGateError, match="canonical path"):
+        CONTROLS_GATE._validated_binding(
+            tmp_path, binding, label="fixture artifact"
+        )
 
 
 def _rehash(document: dict[str, Any]) -> None:
@@ -94,7 +108,7 @@ def _formal_policy() -> dict[str, Any]:
         },
         "cublas_workspace_config": ":4096:8",
         "python_hash_environment_declaration": "0",
-        "python_hash_randomization_enabled": False,
+        "python_hash_randomization_enabled": True,
         "python_hash_policy": (
             "canonical-sort-identity-collections-independent-of-hash-secret"
         ),
@@ -264,12 +278,22 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         response.write_bytes(f"{label} predictor response fixture".encode())
         metadata = response_dir / "metadata.json"
         metadata.write_text("{}\n", encoding="utf-8")
-        snapshot = snapshot_dir / "snapshot_index.json"
-        snapshot.write_text(json.dumps({"records": [{
+        snapshot = snapshot_dir / "snapshot_index_v2.json"
+        metadata_bytes = metadata.read_bytes()
+        snapshot.write_text(json.dumps({
+            "schema_version": 2,
+            "snapshot_count": 1,
+            "records": [{
+            "provider": "provider",
+            "request_sha256": "a" * 64,
             "byte_count": response.stat().st_size,
+            "metadata_byte_count": len(metadata_bytes),
+            "metadata_sha256": sha256_file(metadata),
             "metadata_path": metadata.relative_to(snapshot_dir).as_posix(),
+            "request": {"provider": "provider", "url": "https://example.com"},
             "response_path": response.relative_to(snapshot_dir).as_posix(),
             "response_sha256": sha256_file(response),
+            "retrieved_at_utc": "2026-07-22T00:00:00+00:00",
         }]}), encoding="utf-8")
         snapshots[label] = snapshot
     bridge = data / "development_predictor_bridge_v1.json"
@@ -326,6 +350,7 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         "historical_tuning_budget_equalized": False,
         "development_predictor_bridge": _binding(root, bridge),
         "formal_numerical_policy": _formal_policy(),
+        "eval_batch_size": 2,
     }
     identity_parts = {
         "schema_version": RUN_SCHEMA_VERSION,
@@ -366,7 +391,21 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         parameters = DC.parameter_count(arm, n_stations=120)
         for seed in arm.seeds:
             path = run_dir / "arm_predictions" / arm.arm_id / f"seed{seed}.parquet"
+            checkpoint = run_dir / "checkpoints" / arm.arm_id / f"seed{seed}.pt"
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_bytes(
+                f"fixture checkpoint {arm.arm_id}/seed{seed}\n".encode()
+            )
+            checkpoint_metadata = checkpoint.with_name(
+                checkpoint.name + ".meta.json"
+            )
+            checkpoint_metadata.write_text("{}\n", encoding="utf-8")
             frame = _prediction(arm, seed, sites)
+            member_parents = {
+                **parents,
+                "training_checkpoint": sha256_file(checkpoint),
+                "training_checkpoint_sidecar": sha256_file(checkpoint_metadata),
+            }
             DC.write_arm_prediction(
                 frame,
                 path,
@@ -375,7 +414,8 @@ def _build_fixture(root: Path) -> dict[str, Any]:
                 seed=seed,
                 parameters=parameters,
                 n_stations=120,
-                parents=parents,
+                eval_batch_size=2,
+                parents=member_parents,
                 training_summary={
                     "best_validation_metric": 0.25,
                     "selected_epoch": 2,
@@ -443,6 +483,10 @@ def stage09b_base(tmp_path_factory) -> Path:
         CONTROLS_GATE.rebuild_canonical_window_contract,
         CONTROLS_GATE.frozen_bridge_slice,
         CONTROLS_GATE.compare_predictor_bridge,
+        CONTROLS_GATE.replay_predictor_bridge_offline,
+        CONTROLS_GATE._rebuild_member_replay_inputs,
+        CONTROLS_GATE.DS.build_windows,
+        CONTROLS_GATE._replay_member_best_state,
     )
     CONTROLS_GATE.rebuild_canonical_window_contract = (
         lambda **_kwargs: _fixture_window_contract(sites)
@@ -451,6 +495,26 @@ def stage09b_base(tmp_path_factory) -> Path:
         _fixture_bridge_frame()
     )
     CONTROLS_GATE.compare_predictor_bridge = _fixture_bridge_report
+    CONTROLS_GATE.replay_predictor_bridge_offline = lambda **_kwargs: (
+        _fixture_bridge_frame()
+    )
+    CONTROLS_GATE._rebuild_member_replay_inputs = lambda **_kwargs: (
+        pd.DataFrame(), object(), object(), {site: 1.0 for site in sites}
+    )
+    CONTROLS_GATE.DS.build_windows = lambda *_args, **_kwargs: object()
+    CONTROLS_GATE._replay_member_best_state = (
+        lambda *, arm, seed, contract, **_kwargs: (
+            DC.normalise_prediction_frame(
+                _prediction(arm, seed, sites), arm=arm, seed=seed,
+                allowed_sites=set(sites), canonical_registry=contract.registry,
+            ),
+            {
+                "best_validation_metric": 0.25,
+                "selected_epoch": 2,
+                "checkpoint_final_epoch": 4,
+            },
+        )
+    )
     try:
         _build_fixture(root)
     finally:
@@ -458,6 +522,10 @@ def stage09b_base(tmp_path_factory) -> Path:
             CONTROLS_GATE.rebuild_canonical_window_contract,
             CONTROLS_GATE.frozen_bridge_slice,
             CONTROLS_GATE.compare_predictor_bridge,
+            CONTROLS_GATE.replay_predictor_bridge_offline,
+            CONTROLS_GATE._rebuild_member_replay_inputs,
+            CONTROLS_GATE.DS.build_windows,
+            CONTROLS_GATE._replay_member_best_state,
         ) = originals
     return root
 
@@ -477,6 +545,34 @@ def _scoped_data_replay_stubs(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         CONTROLS_GATE, "compare_predictor_bridge", _fixture_bridge_report
+    )
+    monkeypatch.setattr(
+        CONTROLS_GATE, "replay_predictor_bridge_offline",
+        lambda **_kwargs: _fixture_bridge_frame(),
+    )
+    monkeypatch.setattr(
+        CONTROLS_GATE, "_rebuild_member_replay_inputs",
+        lambda **_kwargs: (
+            pd.DataFrame(), object(), object(), {site: 1.0 for site in sites}
+        ),
+    )
+    monkeypatch.setattr(
+        CONTROLS_GATE.DS, "build_windows", lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        CONTROLS_GATE,
+        "_replay_member_best_state",
+        lambda *, arm, seed, contract, **_kwargs: (
+            DC.normalise_prediction_frame(
+                _prediction(arm, seed, sites), arm=arm, seed=seed,
+                allowed_sites=set(sites), canonical_registry=contract.registry,
+            ),
+            {
+                "best_validation_metric": 0.25,
+                "selected_epoch": 2,
+                "checkpoint_final_epoch": 4,
+            },
+        ),
     )
 
 
@@ -510,6 +606,15 @@ def test_stage09b_receipt_requires_exact_31_member_closure(fixture) -> None:
     assert receipt["matrix_audit"]["expected_members"] == 31
     assert receipt["matrix_audit"]["prediction_rows"] == (
         31 * receipt["matrix_audit"]["common_forecast_keys"]
+    )
+    assert receipt["best_model_state_prediction_replay_verified"] is True
+    assert receipt["training_replay_verified"] is False
+    assert all(
+        set(entry) == {
+            "arm_id", "seed", "checkpoint", "checkpoint_sidecar",
+            "prediction", "prediction_sidecar",
+        }
+        for entry in receipt["member_registry"]
     )
     loaded, binding = STAGE24._load_verified_stage09b(
         fixture["receipt"], root=fixture["root"]
@@ -624,7 +729,9 @@ def test_self_consistent_member_scientific_output_forgery_fails_closed(
     _rehash(forged)
     with pytest.raises(
         DevelopmentControlsGateError,
-        match="final artifact closure|summary|combined|semantic",
+        match=(
+            "checkpoint best_model_state|final artifact closure|summary|combined|semantic"
+        ),
     ):
         validate_stage09b_completion_receipt(
             fixture["receipt"], root=fixture["root"], document=forged
@@ -672,7 +779,7 @@ def test_rehashed_metric_summary_forgery_is_recomputed_and_rejected(fixture) -> 
 def test_formal_numerical_policy_rejects_each_previously_unchecked_field() -> None:
     attacks = (
         ("python_hash_environment_declaration", "ATTACK"),
-        ("python_hash_randomization_enabled", True),
+        ("python_hash_randomization_enabled", False),
         ("required.cublas_workspace_config", "ATTACK"),
         ("required.float32_matmul_precision", "ATTACK"),
         ("torch.cudnn_deterministic", False),
@@ -687,6 +794,97 @@ def test_formal_numerical_policy_rejects_each_previously_unchecked_field() -> No
         target[parts[-1]] = value
         with pytest.raises(DevelopmentControlsGateError, match="numerical policy"):
             CONTROLS_GATE._validate_formal_policy(policy)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("best_validation_metric", True),
+        ("best_validation_metric", float("nan")),
+        ("best_validation_metric", -0.01),
+        ("selected_epoch", True),
+        ("checkpoint_final_epoch", None),
+    ),
+)
+def test_member_training_summary_attacks_fail_closed(fixture, field, value) -> None:
+    forged = fixture["document"]
+    entry = forged["member_registry"][0]
+    metadata_path = fixture["root"] / entry["prediction_sidecar"]["path"]
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["extra"]["training_summary"][field] = value
+    metadata_path.write_text(
+        json.dumps(metadata, sort_keys=True, allow_nan=True) + "\n", encoding="utf-8"
+    )
+    entry["prediction_sidecar"] = _binding(fixture["root"], metadata_path)
+    _rehash(forged)
+    with pytest.raises(DevelopmentControlsGateError, match="training summary"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=forged
+        )
+
+
+def test_eval_batch_size_and_checkpoint_member_path_are_exact_identity(fixture) -> None:
+    changed_batch = fixture["document"]
+    changed_batch["formal_configuration"]["eval_batch_size"] += 1
+    _rehash(changed_batch)
+    with pytest.raises(DevelopmentControlsGateError, match="identity|configuration|run"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=changed_batch
+        )
+
+    forged_path = json.loads(fixture["receipt"].read_text(encoding="utf-8"))
+    forged_path["member_registry"][0]["checkpoint"] = (
+        forged_path["member_registry"][1]["checkpoint"]
+    )
+    _rehash(forged_path)
+    with pytest.raises(DevelopmentControlsGateError, match="path registry"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=forged_path
+        )
+
+
+def test_outer_release_rejects_one_site_or_noncanonical_window_inputs(
+    tmp_path: Path,
+) -> None:
+    panel = tmp_path / "panel.parquet"
+    registry = tmp_path / "registry.csv"
+    spec = tmp_path / "spec.json"
+    pd.DataFrame({
+        "DATE": [pd.Timestamp("2019-01-01")],
+        "site_id": ["legacy"],
+        "WTEMP": [1.0],
+    }).to_parquet(panel, index=False)
+    pd.DataFrame({
+        "site_no": ["01234567"], "legacy_site_id": ["legacy"],
+    }).to_csv(registry, index=False)
+    spec.write_text(json.dumps({
+        "schema_version": 1,
+        "evidence_role": "development_exploratory",
+        "panel": {
+            "path": panel.name, "sha256": sha256_file(panel),
+            "date_start": "2019-01-01", "date_end": "2019-01-01",
+            "row_count": 1, "station_count": 1,
+        },
+        "station_registry": {
+            "path": registry.name, "sha256": sha256_file(registry),
+            "station_count": 1,
+        },
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="specification changed"):
+        VERIFY_RELEASE._stage09b_rebuild_canonical_windows(panel, registry, spec)
+
+
+def test_stage09b_gate_rejects_unbound_checkpoint_transaction_temp(fixture) -> None:
+    run_dir = (
+        fixture["root"] / "outputs" / "runs" / "09b_development_controls"
+        / fixture["run_id"]
+    )
+    orphan = run_dir / "checkpoints" / ".seed0.pt.crashed.tmp"
+    orphan.write_bytes(b"complete-but-unpublished checkpoint temp")
+    with pytest.raises(DevelopmentControlsGateError, match="transaction temp"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"]
+        )
 
 
 def test_post_validation_artifact_mutation_is_rejected_on_revalidation(fixture) -> None:

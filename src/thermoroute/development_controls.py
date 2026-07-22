@@ -643,9 +643,10 @@ def render_report(
 
 Run ID: `{run_id}`
 
-Status: **COMPLETE PREDICTION-ARTIFACT CLOSURE**. This verifies the stored
-prediction matrix and derived artifacts; it is not a checkpoint-backed training
-replay and is not part of the sealed confirmatory model suite.
+Status: **COMPLETE BEST-MODEL-STATE PREDICTION REPLAY**. Every stored prediction
+member is reproduced from the safely loaded checkpoint `best_model_state` and
+derived artifacts are regenerated. This is not optimiser-step/trajectory replay
+and is not part of the sealed confirmatory model suite.
 
 > {DEVELOPMENT_DISCLOSURE}
 
@@ -684,7 +685,8 @@ already-inspected 2019--2020 development partition, never a blind test.
 ## Interpretation boundary
 
 These artifacts diagnose architecture and cumulative feature contribution on
-historical development data. They do not prove that the declared training was
-replayed, and cannot establish prospective, operational, causal, safety, or
-confirmatory performance. They do not modify the frozen Route-A suite pointer.
+historical development data. They verify best-state prediction replay, not the
+full training trajectory, and cannot establish prospective, operational, causal,
+safety, or confirmatory performance. They do not modify the frozen Route-A suite
+pointer.
 """

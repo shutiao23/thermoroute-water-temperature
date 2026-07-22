@@ -804,7 +804,13 @@ def _collect_development_bridge(
             output, root, commit, binding,
             label=f"development predictor bridge raw/{name}",
         )
-        _collect_snapshot_files(output, root, commit, index_path)
+        if PurePosixPath(index_path).name != "snapshot_index_v2.json":
+            raise ChronologyError(
+                "development predictor bridge lacks metadata-byte-bound index v2"
+            )
+        _collect_snapshot_files(
+            output, root, commit, index_path, require_metadata_binding=True,
+        )
     for name in ("report", "request_map"):
         _declared_root_binding(
             output, root, commit, bridge.get(name),
@@ -833,8 +839,8 @@ def _collect_preopening_receipts(
         (
             "stage09b_development_controls",
             STAGE09B_RECEIPT_PATH,
-            "thermoroute.stage09b-completion-receipt.v2",
-            "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+            "thermoroute.stage09b-completion-receipt.v3",
+            "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         ),
     ):
         receipt_path = _declared_root_binding(
@@ -873,14 +879,17 @@ def _collect_preopening_receipts(
                 "format", "status", "stage", "run_id", "run_identity",
                 "formal_configuration", "evidence_scope",
                 "training_replay_verified", "matrix_audit", "member_registry",
+                "best_model_state_prediction_replay_verified",
                 "artifacts", "post_2020_outcomes_requested_or_read",
                 "receipt_self_sha256",
             }
             if (
                 set(receipt) != expected_receipt_keys
                 or receipt.get("stage") != "09b_development_controls"
-                or receipt.get("evidence_scope") != "prediction_artifact_closure"
+                or receipt.get("evidence_scope")
+                != "best_model_state_prediction_replay"
                 or receipt.get("training_replay_verified") is not False
+                or receipt.get("best_model_state_prediction_replay_verified") is not True
                 or receipt.get("post_2020_outcomes_requested_or_read") is not False
                 or not isinstance(receipt.get("run_id"), str)
                 or not receipt["run_id"]
@@ -946,12 +955,13 @@ def _collect_preopening_receipts(
         members = receipt.get("member_registry")
         if not isinstance(members, list) or len(members) != len(STAGE09B_MEMBERS):
             raise ChronologyError("Stage-09b receipt does not bind 31 exact members")
-        member_paths: dict[tuple[str, int], tuple[str, str]] = {}
+        member_paths: dict[tuple[str, int], tuple[str, str, str, str]] = {}
         for member, expected_member in zip(members, STAGE09B_MEMBERS):
             if (
                 not isinstance(member, Mapping)
                 or set(member) != {
-                    "arm_id", "seed", "prediction", "prediction_sidecar"
+                    "arm_id", "seed", "checkpoint", "checkpoint_sidecar",
+                    "prediction", "prediction_sidecar"
                 }
                 or (member.get("arm_id"), member.get("seed")) != expected_member
             ):
@@ -961,8 +971,12 @@ def _collect_preopening_receipts(
                 f"{run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
             )
             expected_sidecar = f"{expected_prediction}.meta.json"
+            expected_checkpoint = f"{run_dir}/checkpoints/{arm_id}/seed{seed}.pt"
+            expected_checkpoint_sidecar = f"{expected_checkpoint}.meta.json"
             observed_paths = []
-            for label in ("prediction", "prediction_sidecar"):
+            for label in (
+                "prediction", "prediction_sidecar", "checkpoint", "checkpoint_sidecar"
+            ):
                 binding = member.get(label)
                 if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
                     raise ChronologyError("Stage-09b member binding is not exact")
@@ -970,9 +984,15 @@ def _collect_preopening_receipts(
                     output, root, commit, member.get(label),
                     label=f"Stage-09b member {label}",
                 ))
-            if observed_paths != [expected_prediction, expected_sidecar]:
+            if observed_paths != [
+                expected_prediction, expected_sidecar,
+                expected_checkpoint, expected_checkpoint_sidecar,
+            ]:
                 raise ChronologyError("Stage-09b member path is noncanonical")
-            member_paths[expected_member] = (expected_prediction, expected_sidecar)
+            member_paths[expected_member] = (
+                expected_prediction, expected_sidecar,
+                expected_checkpoint, expected_checkpoint_sidecar,
+            )
         semantic_path = resolved.get("semantic_audit")
         assert semantic_path is not None
         semantic = _json_from_git(
@@ -983,17 +1003,20 @@ def _collect_preopening_receipts(
         expected_semantic_keys = {
             "format", "status", "run_id", "evidence_scope",
             "training_replay_verified", "post_2020_outcomes_requested_or_read",
+            "best_model_state_prediction_replay_verified",
             "matrix_audit", "canonical_window_registry", "members",
             "derived_artifacts", "semantic_audit_self_sha256",
         }
         if (
             set(semantic) != expected_semantic_keys
             or semantic.get("format")
-            != "thermoroute.development-controls-semantic-audit.v1"
-            or semantic.get("status") != "PASS_PREDICTION_ARTIFACT_CLOSURE"
+            != "thermoroute.development-controls-semantic-audit.v2"
+            or semantic.get("status")
+            != "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY"
             or semantic.get("run_id") != run_id
-            or semantic.get("evidence_scope") != "prediction_artifact_closure"
+            or semantic.get("evidence_scope") != "best_model_state_prediction_replay"
             or semantic.get("training_replay_verified") is not False
+            or semantic.get("best_model_state_prediction_replay_verified") is not True
             or semantic.get("post_2020_outcomes_requested_or_read") is not False
             or semantic.get("matrix_audit") != receipt.get("matrix_audit")
             or semantic_self != _repro_sha256_json(stable_semantic)
@@ -1030,7 +1053,9 @@ def _collect_preopening_receipts(
             return {"sha256": binding["sha256"], "bytes": binding["byte_count"]}
 
         for row, expected_member in zip(semantic_members, STAGE09B_MEMBERS):
-            prediction_path, sidecar_path = member_paths[expected_member]
+            prediction_path, sidecar_path, checkpoint_path, checkpoint_sidecar = (
+                member_paths[expected_member]
+            )
             digest = row.get("normalised_prediction_sha256") if isinstance(
                 row, Mapping
             ) else None
@@ -1038,11 +1063,16 @@ def _collect_preopening_receipts(
                 not isinstance(row, Mapping)
                 or set(row) != {
                     "arm_id", "seed", "prediction", "prediction_sidecar",
+                    "checkpoint", "checkpoint_sidecar",
                     "normalised_prediction_sha256",
+                    "best_model_state_prediction_replay_verified",
                 }
                 or (row.get("arm_id"), row.get("seed")) != expected_member
                 or row.get("prediction") != descriptor(prediction_path)
                 or row.get("prediction_sidecar") != descriptor(sidecar_path)
+                or row.get("checkpoint") != descriptor(checkpoint_path)
+                or row.get("checkpoint_sidecar") != descriptor(checkpoint_sidecar)
+                or row.get("best_model_state_prediction_replay_verified") is not True
                 or not isinstance(digest, str)
                 or len(digest) != 64
                 or any(character not in "0123456789abcdef" for character in digest)
@@ -1217,21 +1247,57 @@ def _collect_snapshot_files(
     root: Path,
     commit: str,
     index_path: str,
+    *,
+    require_metadata_binding: bool = False,
 ) -> set[str]:
     document = _json_from_git(root, commit, index_path, label="raw snapshot index")
     records = document.get("records")
-    if not isinstance(records, list) or not records:
+    if (
+        not isinstance(records, list) or not records
+        or (
+            require_metadata_binding
+            and (
+                set(document) != {"schema_version", "snapshot_count", "records"}
+                or document.get("schema_version") != 2
+                or type(document.get("snapshot_count")) is not int
+                or document["snapshot_count"] != len(records)
+            )
+        )
+    ):
         raise ChronologyError(f"snapshot index is empty or malformed: {index_path}")
     linked: set[str] = set()
     for record in records:
         if not isinstance(record, Mapping):
             raise ChronologyError("snapshot-index record is not an object")
+        if require_metadata_binding and (
+            set(record) != {
+                "provider", "request_sha256", "response_sha256",
+                "metadata_sha256", "metadata_byte_count", "retrieved_at_utc",
+                "byte_count", "request", "metadata_path", "response_path",
+            }
+            or not isinstance(record.get("metadata_sha256"), str)
+            or len(record["metadata_sha256"]) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in record["metadata_sha256"]
+            )
+            or type(record.get("metadata_byte_count")) is not int
+            or record["metadata_byte_count"] < 1
+        ):
+            raise ChronologyError("snapshot-index metadata binding is malformed")
         for field in ("metadata_path", "response_path"):
             if field not in record:
                 raise ChronologyError(f"snapshot record lacks {field}")
             path = _join_relative(index_path, record[field])
-            expected = record.get("response_sha256") if field == "response_path" else None
+            expected = record.get(
+                "response_sha256" if field == "response_path" else "metadata_sha256"
+            )
             _add_binding(output, root, commit, path, expected_sha256=expected)
+            expected_bytes = record.get(
+                "byte_count" if field == "response_path" else "metadata_byte_count"
+            )
+            if require_metadata_binding and output[path]["byte_count"] != expected_bytes:
+                raise ChronologyError(f"snapshot {field} byte count changed")
             linked.add(path)
     return linked
 

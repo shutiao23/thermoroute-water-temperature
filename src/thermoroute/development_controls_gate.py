@@ -1,10 +1,11 @@
-"""Fail-closed Stage-09b prediction-artifact completion gate.
+"""Fail-closed Stage-09b best-model-state prediction-replay gate.
 
 The gate replays data preparation and window construction from the frozen
 2006--2020 panel.  It then validates every semantic prediction field, derives
 metrics again, regenerates the report byte-for-byte, and proves that the
 combined Parquet is a full-column copy of all 31 immutable member artifacts.
-It deliberately makes no checkpoint-backed training-replay claim.
+Each member prediction is also regenerated from the safely loaded checkpoint
+``best_model_state``.  The gate makes no full training-trajectory replay claim.
 """
 
 from __future__ import annotations
@@ -20,9 +21,14 @@ from typing import Any
 
 import pandas as pd
 import pyarrow.parquet as pq
+import torch
 
 from . import config as C
+from . import data as D
+from . import datasets as DS
+from . import features as F
 from . import results as R
+from .checkpoint import checkpoint_sidecar_path, load_training_checkpoint
 from .development_controls import (
     DEVELOPMENT_DISCLOSURE,
     FULL_VARIABLES,
@@ -34,6 +40,7 @@ from .development_controls import (
     architecture_template,
     assert_parameter_budgets,
     budget_csv_bytes,
+    build_arm_model,
     declared_arms,
     expected_member_registry,
     normalise_prediction_frame,
@@ -44,8 +51,10 @@ from .development_controls import (
     summary_csv_bytes,
 )
 from .predictor_bridge import (
+    assert_exact_predictor_table,
     compare_predictor_bridge,
     frozen_bridge_slice,
+    replay_predictor_bridge_offline,
 )
 from .repro import (
     RUN_SCHEMA_VERSION,
@@ -57,19 +66,20 @@ from .repro import (
     source_tree_hash,
     validate_artifact_sidecar,
 )
+from .train import export_predictions
 
 
-STAGE09B_COMPLETION_FORMAT = "thermoroute.stage09b-completion-receipt.v2"
-STAGE09B_COMPLETION_STATUS = "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE"
+STAGE09B_COMPLETION_FORMAT = "thermoroute.stage09b-completion-receipt.v3"
+STAGE09B_COMPLETION_STATUS = "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY"
 STAGE09B_COMPLETION_RECEIPT_PATH = "outputs/models/route_a_stage09b_completion.json"
 STAGE09B_STAGE = "09b_development_controls"
 STAGE09B_FINAL_FORMAT = "thermoroute.development-controls.v2"
 STAGE09B_MEMBER_PREDICTION_KIND = "development_control_arm_predictions"
-STAGE09B_MEMBER_EXTRA_FORMAT = "thermoroute.development-control-arm.v1"
+STAGE09B_MEMBER_EXTRA_FORMAT = "thermoroute.development-control-arm.v2"
 STAGE09B_FINAL_PREDICTION_KIND = "development_controls_combined_predictions"
 STAGE09B_SUMMARY_KIND = "development_controls_metric_summary"
 STAGE09B_SEMANTIC_AUDIT_KIND = "development_controls_semantic_audit"
-STAGE09B_SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v1"
+STAGE09B_SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v2"
 STAGE09B_FINAL_ARTIFACTS = (
     "run_manifest", "frozen_panel_spec", "panel", "registry", "predictor_bridge",
     "predictions", "prediction_sidecar", "architecture_budget",
@@ -123,7 +133,11 @@ def _validated_binding(root: Path, value: object, *, label: str) -> Path:
     path = (root / raw).resolve()
     if path != root and root not in path.parents:
         raise DevelopmentControlsGateError(f"{label} path escapes repository")
-    if not path.is_file() or dict(value) != _file_binding(root, path):
+    if (
+        not path.is_file()
+        or path.stat().st_nlink != 1
+        or dict(value) != _file_binding(root, path)
+    ):
         raise DevelopmentControlsGateError(f"{label} checksum or canonical path changed")
     return path
 
@@ -181,7 +195,7 @@ def _validate_formal_policy(value: object) -> None:
         or any(threads.get(name) != "1" for name in names)
         or value.get("cublas_workspace_config") != ":4096:8"
         or value.get("python_hash_environment_declaration") != "0"
-        or value.get("python_hash_randomization_enabled") is not False
+        or value.get("python_hash_randomization_enabled") is not True
         or value.get("python_hash_policy")
         != "canonical-sort-identity-collections-independent-of-hash-secret"
         or not isinstance(required, Mapping)
@@ -211,7 +225,7 @@ def _validate_formal_configuration(value: object) -> dict[str, Any]:
         "parameter_counts", "architecture_templates",
         "parameter_match_tolerance_fraction", "architecture_candidates_per_arm",
         "historical_tuning_budget_equalized", "development_predictor_bridge",
-        "formal_numerical_policy",
+        "formal_numerical_policy", "eval_batch_size",
     }
     expected_templates = {
         arm.arm_id: architecture_template(arm, n_stations=120) for arm in arms
@@ -246,6 +260,8 @@ def _validate_formal_configuration(value: object) -> dict[str, Any]:
         or value.get("parameter_match_tolerance_fraction") != 0.02
         or value.get("architecture_candidates_per_arm") != 1
         or value.get("historical_tuning_budget_equalized") is not False
+        or type(value.get("eval_batch_size")) is not int
+        or value["eval_batch_size"] < 1
         or not isinstance(bridge, Mapping)
         or set(bridge) != {"path", "sha256"}
     ):
@@ -425,15 +441,15 @@ def _validate_data_contract(
     expected_raw_paths = {
         "daymet": (
             "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
-            "daymet-v1/snapshot_index.json"
+            "daymet-v1/snapshot_index_v2.json"
         ),
         "gridmet": (
             "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
-            "gridmet-v1/snapshot_index.json"
+            "gridmet-v1/snapshot_index_v2.json"
         ),
         "gridmet_schema": (
             "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
-            "gridmet-schema-v1/snapshot_index.json"
+            "gridmet-schema-v1/snapshot_index_v2.json"
         ),
     }
     if not isinstance(raw_indexes, Mapping) or set(raw_indexes) != set(expected_raw_paths):
@@ -458,7 +474,18 @@ def _validate_data_contract(
         )
         expected_frozen = frozen_bridge_slice(panel, stable_registry)
         frozen = pd.read_parquet(normalised_paths["frozen"])
-        refreshed = pd.read_parquet(normalised_paths["refreshed"])
+        stored_refreshed = pd.read_parquet(normalised_paths["refreshed"])
+        refreshed = replay_predictor_bridge_offline(
+            registry_path=paths["registry"],
+            request_map_path=request_map_path,
+            daymet_index_path=(root / expected_raw_paths["daymet"]),
+            gridmet_index_path=(root / expected_raw_paths["gridmet"]),
+            gridmet_schema_index_path=(root / expected_raw_paths["gridmet_schema"]),
+            expected_sites=120,
+        )
+        assert_exact_predictor_table(
+            refreshed, stored_refreshed, label="stored refreshed predictor table"
+        )
         frozen_attestation = compare_predictor_bridge(expected_frozen, frozen)
         report = compare_predictor_bridge(frozen, refreshed)
     except Exception as exc:
@@ -492,7 +519,7 @@ def _validate_data_contract(
 
 
 def _expected_member_extra(
-    arm: ArmSpec, *, seed: int, n_stations: int,
+    arm: ArmSpec, *, seed: int, n_stations: int, eval_batch_size: int,
 ) -> dict[str, Any]:
     return {
         "format": STAGE09B_MEMBER_EXTRA_FORMAT,
@@ -517,6 +544,7 @@ def _expected_member_extra(
         "development_evaluation_interval": list(C.SPLIT.test),
         "blind_or_confirmatory": False,
         "suite_pointer_written": False,
+        "eval_batch_size": int(eval_batch_size),
     }
 
 
@@ -530,17 +558,104 @@ def _validate_training_summary(value: object) -> None:
         value["checkpoint_final_epoch"],
     )
     if (
-        not isinstance(best, (int, float)) or not math.isfinite(float(best))
+        type(best) not in {int, float} or not math.isfinite(float(best))
+        or float(best) < 0.0
         or type(selected) is not int or selected < 0
-        or (final is not None and (type(final) is not int or final < selected))
+        or type(final) is not int or final < selected
     ):
         raise DevelopmentControlsGateError("Stage-09b training summary is malformed")
+
+
+def _replay_member_best_state(
+    *, checkpoint: Path, arm: ArmSpec, seed: int, wd: DS.WindowedData,
+    thresholds: dict[str, float], identity: Mapping[str, Any],
+    config: Mapping[str, Any], contract: CanonicalWindowContract,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Safely reproduce one member from checkpoint ``best_model_state``."""
+    model = build_arm_model(arm, seed=seed, n_stations=len(contract.stations)).to("cpu")
+    optimizer = torch.optim.AdamW(
+        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        lr=TRAIN_CONFIG.lr, weight_decay=TRAIN_CONFIG.weight_decay,
+    )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.5, patience=4,
+    )
+    arm_config = {
+        **dict(config),
+        "arm": asdict(arm),
+        "seed": int(seed),
+        "trainable_parameters": architecture_configuration(
+            arm, seed=seed, n_stations=len(contract.stations)
+        )["trainable_parameters"],
+    }
+    try:
+        resumed = load_training_checkpoint(
+            checkpoint, model=model, optimizer=optimizer, scheduler=scheduler,
+            expected_run_id=str(identity["run_id"]),
+            expected_resolved_config=arm_config, map_location="cpu",
+            recover_missing_sidecar=False,
+        )
+        if resumed.best_model_state is None:
+            raise ValueError("checkpoint lacks best_model_state")
+        model.load_state_dict(resumed.best_model_state)
+        frame = export_predictions(
+            model, wd, thresholds, torch.device("cpu"), arm.arm_id,
+            "development_only_2006_2020", arm.feature_set, seed,
+            batch_size=int(config["eval_batch_size"]),
+            splits=("val", "calib", "test"),
+        )
+        frame["model"] = arm.arm_id
+        frame["scope"] = "development_only_2006_2020"
+        frame["feature_set"] = arm.feature_set
+        frame["seed"] = int(seed)
+        normalised = normalise_prediction_frame(
+            frame, arm=arm, seed=seed, allowed_sites=set(contract.stations),
+            canonical_registry=contract.registry,
+        )
+    except Exception as exc:
+        raise DevelopmentControlsGateError(
+            f"Stage-09b {arm.arm_id}/seed{seed} best-state replay failed"
+        ) from exc
+    return normalised, {
+        "best_validation_metric": float(resumed.best_metric),
+        "selected_epoch": int(resumed.best_epoch),
+        "checkpoint_final_epoch": int(resumed.epoch),
+    }
+
+
+def _rebuild_member_replay_inputs(
+    *, panel_path: Path, frozen_spec_path: Path, stations: Sequence[str],
+) -> tuple[pd.DataFrame, D.SplitMasks, F.HarmonicClimatology, dict[str, float]]:
+    """Rebuild all train-fit inputs used by checkpoint best-state export."""
+    bundle = D.prepare_dataset_from_panel(
+        str(panel_path), frozen_spec=frozen_spec_path, stable_site_ids=True,
+    )
+    panel_raw = bundle["panel_raw"]
+    panel = bundle["panel"]
+    masks = bundle["masks"]
+    if not isinstance(panel_raw, pd.DataFrame) or not isinstance(panel, pd.DataFrame):
+        raise TypeError("panel preparation returned invalid tables")
+    if not isinstance(masks, D.SplitMasks):
+        raise TypeError("panel preparation returned invalid split masks")
+    climatology = F.HarmonicClimatology.fit(panel_raw, masks.train)
+    thresholds = {
+        site: float(
+            panel_raw.loc[
+                masks.train & panel_raw["site_id"].astype(str).eq(site), "WTEMP"
+            ].quantile(C.EXCEEDANCE_QUANTILE)
+        )
+        for site in stations
+    }
+    if any(not math.isfinite(value) for value in thresholds.values()):
+        raise ValueError("non-finite train threshold")
+    return panel, masks, climatology, thresholds
 
 
 def _validate_member_predictions(
     *, root: Path, member_registry: Sequence[Mapping[str, Any]],
     identity: Mapping[str, Any], expected_parents: Mapping[str, str],
-    contract: CanonicalWindowContract,
+    contract: CanonicalWindowContract, config: Mapping[str, Any],
+    panel_path: Path, frozen_spec_path: Path,
 ) -> tuple[dict[tuple[str, int], int], dict[tuple[str, int], str], pd.DataFrame]:
     expected = expected_stage09b_members()
     arms = {arm.arm_id: arm for arm in declared_arms()}
@@ -550,9 +665,19 @@ def _validate_member_predictions(
     summaries: list[pd.DataFrame] = []
     run_identity = RunIdentity(**identity)
     allowed_sites = set(contract.stations)
+    try:
+        panel, masks, climatology, thresholds = _rebuild_member_replay_inputs(
+            panel_path=panel_path, frozen_spec_path=frozen_spec_path,
+            stations=contract.stations,
+        )
+    except Exception as exc:
+        raise DevelopmentControlsGateError("Stage-09b replay inputs cannot be rebuilt") from exc
+    active_variables: tuple[str, ...] | None = None
+    active_windows: DS.WindowedData | None = None
     for entry in member_registry:
         if not isinstance(entry, Mapping) or set(entry) != {
-            "arm_id", "seed", "prediction", "prediction_sidecar",
+            "arm_id", "seed", "checkpoint", "checkpoint_sidecar",
+            "prediction", "prediction_sidecar",
         }:
             raise DevelopmentControlsGateError("Stage-09b member receipt schema changed")
         arm_id, seed = entry.get("arm_id"), entry.get("seed")
@@ -564,11 +689,27 @@ def _validate_member_predictions(
         metadata_path = _validated_binding(
             root, entry["prediction_sidecar"], label=f"member sidecar {member}",
         )
+        checkpoint = _validated_binding(
+            root, entry["checkpoint"], label=f"member checkpoint {member}",
+        )
+        checkpoint_metadata = _validated_binding(
+            root, entry["checkpoint_sidecar"],
+            label=f"member checkpoint sidecar {member}",
+        )
         expected_path = (
             root / "outputs" / "runs" / STAGE09B_STAGE / identity["run_id"]
             / "arm_predictions" / arm_id / f"seed{seed}.parquet"
         ).resolve()
-        if prediction != expected_path or metadata_path != sidecar_path(prediction).resolve():
+        expected_checkpoint = (
+            root / "outputs" / "runs" / STAGE09B_STAGE / identity["run_id"]
+            / "checkpoints" / arm_id / f"seed{seed}.pt"
+        ).resolve()
+        if (
+            prediction != expected_path
+            or metadata_path != sidecar_path(prediction).resolve()
+            or checkpoint != expected_checkpoint
+            or checkpoint_metadata != checkpoint_sidecar_path(checkpoint).resolve()
+        ):
             raise DevelopmentControlsGateError("Stage-09b member path registry changed")
         try:
             metadata = validate_artifact_sidecar(
@@ -577,16 +718,46 @@ def _validate_member_predictions(
             )
         except (OSError, ValueError) as exc:
             raise DevelopmentControlsGateError("Stage-09b member sidecar is invalid") from exc
-        static = _expected_member_extra(arms[arm_id], seed=seed, n_stations=120)
+        static = _expected_member_extra(
+            arms[arm_id], seed=seed, n_stations=120,
+            eval_batch_size=int(config["eval_batch_size"]),
+        )
         extra = metadata.get("extra")
+        member_parents = {
+            **dict(expected_parents),
+            "training_checkpoint": sha256_file(checkpoint),
+            "training_checkpoint_sidecar": sha256_file(checkpoint_metadata),
+        }
         if (
-            metadata.get("parents") != dict(sorted(expected_parents.items()))
+            metadata.get("parents") != dict(sorted(member_parents.items()))
             or not isinstance(extra, dict)
             or set(extra) != {*static, "training_summary"}
             or any(extra.get(key) != value for key, value in static.items())
         ):
             raise DevelopmentControlsGateError("Stage-09b member architecture/sidecar changed")
         _validate_training_summary(extra["training_summary"])
+        if active_variables != arms[arm_id].variables:
+            try:
+                active_windows = DS.build_windows(
+                    panel, masks, climatology, context=C.CONTEXT_LENGTH,
+                    horizons=C.HORIZONS, variables=arms[arm_id].variables,
+                    require_observed_target=True,
+                )
+            except Exception as exc:
+                raise DevelopmentControlsGateError(
+                    "Stage-09b member windows cannot be rebuilt"
+                ) from exc
+            active_variables = arms[arm_id].variables
+        assert active_windows is not None
+        replayed, replay_summary = _replay_member_best_state(
+            checkpoint=checkpoint, arm=arms[arm_id], seed=seed,
+            wd=active_windows, thresholds=thresholds, identity=identity,
+            config=config, contract=contract,
+        )
+        if dict(extra["training_summary"]) != replay_summary:
+            raise DevelopmentControlsGateError(
+                "Stage-09b training summary differs from checkpoint"
+            )
         try:
             if pq.ParquetFile(prediction).schema_arrow.names != R.PRED_COLS:
                 raise DevelopmentControlsGateError("Stage-09b member schema changed")
@@ -603,6 +774,10 @@ def _validate_member_predictions(
             ) from exc
         counts[member] = len(normalised)
         digests[member] = prediction_content_digest(normalised)
+        if digests[member] != prediction_content_digest(replayed):
+            raise DevelopmentControlsGateError(
+                "Stage-09b prediction differs from checkpoint best_model_state"
+            )
         summaries.append(recompute_metric_summary({member: normalised}))
     if tuple(observed) != expected:
         raise DevelopmentControlsGateError("Stage-09b receipt does not bind exactly 31 members")
@@ -624,76 +799,92 @@ def _expected_final_extra(audit: Mapping[str, Any], *, role: str) -> dict[str, A
         "development_only": True,
         "blind_or_confirmatory": False,
         "suite_pointer_written": False,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
     }
 
 
 def _validate_combined_predictions(
-    path: Path, *, contract: CanonicalWindowContract,
-    member_digests: Mapping[tuple[str, int], str],
+    path: Path, *, root: Path, member_registry: Sequence[Mapping[str, Any]],
 ) -> None:
+    import pyarrow as pa
+
     expected = expected_stage09b_members()
-    arms = {arm.arm_id: arm for arm in declared_arms()}
-    member_index = 0
-    current_member: tuple[str, int] | None = None
-    current_frames: list[pd.DataFrame] = []
-
-    def finish_member() -> None:
-        nonlocal member_index, current_member, current_frames
-        if current_member is None:
-            return
-        if member_index >= len(expected) or current_member != expected[member_index]:
-            raise DevelopmentControlsGateError("Stage-09b combined member order changed")
-        frame = pd.concat(current_frames, ignore_index=True)
-        try:
-            normalised = normalise_prediction_frame(
-                frame, arm=arms[current_member[0]], seed=current_member[1],
-                allowed_sites=set(contract.stations),
-                canonical_registry=contract.registry,
-            )
-        except Exception as exc:
-            raise DevelopmentControlsGateError("combined prediction semantics changed") from exc
-        if prediction_content_digest(normalised) != member_digests[current_member]:
-            raise DevelopmentControlsGateError(
-                "Stage-09b combined predictions differ in a prediction column"
-            )
-        member_index += 1
-        current_member = None
-        current_frames = []
-
     try:
-        parquet = pq.ParquetFile(path)
-        if parquet.schema_arrow.names != R.PRED_COLS:
+        combined = pq.ParquetFile(path)
+        if combined.schema_arrow.names != R.PRED_COLS:
             raise DevelopmentControlsGateError("Stage-09b combined schema changed")
-        for batch in parquet.iter_batches(columns=R.PRED_COLS, batch_size=65_536):
-            frame = batch.to_pandas()
-            models = frame["model"].astype(str).to_numpy()
-            seeds = pd.to_numeric(frame["seed"], errors="raise").astype(int).to_numpy()
-            starts = [0]
-            starts.extend(
-                index for index in range(1, len(frame))
-                if models[index] != models[index - 1] or seeds[index] != seeds[index - 1]
+        iterator = iter(combined.iter_batches(columns=R.PRED_COLS, batch_size=65_536))
+        current: Any | None = None
+        current_offset = 0
+
+        def take(rows: int) -> Any:
+            nonlocal current, current_offset
+            pieces: list[Any] = []
+            remaining = rows
+            while remaining:
+                if current is None or current_offset == current.num_rows:
+                    try:
+                        current = next(iterator)
+                    except StopIteration as exc:
+                        raise DevelopmentControlsGateError(
+                            "Stage-09b combined predictions end early"
+                        ) from exc
+                    current_offset = 0
+                count = min(remaining, current.num_rows - current_offset)
+                pieces.append(current.slice(current_offset, count))
+                current_offset += count
+                remaining -= count
+            return pa.Table.from_batches(pieces).combine_chunks()
+
+        if len(member_registry) != len(expected):
+            raise DevelopmentControlsGateError("Stage-09b combined member registry changed")
+        for entry, member in zip(member_registry, expected, strict=True):
+            if (entry.get("arm_id"), entry.get("seed")) != member:
+                raise DevelopmentControlsGateError("Stage-09b combined member order changed")
+            source = _validated_binding(
+                root, entry["prediction"], label=f"combined source member {member}",
             )
-            starts.append(len(frame))
-            for start, stop in zip(starts[:-1], starts[1:], strict=True):
-                member = (str(models[start]), int(seeds[start]))
-                if current_member is not None and member != current_member:
-                    finish_member()
-                if current_member is None:
-                    current_member = member
-                current_frames.append(frame.iloc[start:stop].copy())
-        finish_member()
+            member_file = pq.ParquetFile(source)
+            if member_file.schema_arrow.names != R.PRED_COLS:
+                raise DevelopmentControlsGateError("Stage-09b member schema changed")
+            for batch in member_file.iter_batches(columns=R.PRED_COLS, batch_size=65_536):
+                expected_table = pa.Table.from_batches([batch]).combine_chunks()
+                if not take(batch.num_rows).equals(expected_table, check_metadata=False):
+                    raise DevelopmentControlsGateError(
+                        "Stage-09b combined predictions differ in a prediction column"
+                    )
+        if current is not None and current_offset < current.num_rows:
+            raise DevelopmentControlsGateError("Stage-09b combined predictions have extras")
+        try:
+            next(iterator)
+        except StopIteration:
+            pass
+        else:
+            raise DevelopmentControlsGateError("Stage-09b combined predictions have extras")
     except DevelopmentControlsGateError:
         raise
     except Exception as exc:
         raise DevelopmentControlsGateError("Stage-09b combined predictions are unreadable") from exc
-    if member_index != len(expected):
-        raise DevelopmentControlsGateError("Stage-09b combined predictions omit members")
 
 
 def _descriptor(path: Path) -> dict[str, Any]:
     return {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+
+
+def _assert_no_transaction_temps(run_dir: Path) -> None:
+    if not run_dir.is_dir():
+        raise DevelopmentControlsGateError("Stage-09b run directory is absent")
+    for path in run_dir.rglob("*"):
+        name = path.name
+        if (
+            (name.startswith(".") and name.endswith(".tmp"))
+            or name.endswith(".recovery-probe")
+        ):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b run retains an unbound transaction temp: {path}"
+            )
 
 
 def _expected_semantic_audit(
@@ -703,9 +894,10 @@ def _expected_semantic_audit(
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
         "format": STAGE09B_SEMANTIC_AUDIT_FORMAT,
-        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "run_id": run_id,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
         "post_2020_outcomes_requested_or_read": False,
         "matrix_audit": dict(audit),
@@ -719,11 +911,14 @@ def _expected_semantic_audit(
             {
                 "arm_id": str(entry["arm_id"]),
                 "seed": int(entry["seed"]),
+                "checkpoint": _descriptor(paths_from_entry[2]),
+                "checkpoint_sidecar": _descriptor(paths_from_entry[3]),
                 "prediction": _descriptor(paths_from_entry[0]),
                 "prediction_sidecar": _descriptor(paths_from_entry[1]),
                 "normalised_prediction_sha256": member_digests[
                     (str(entry["arm_id"]), int(entry["seed"]))
                 ],
+                "best_model_state_prediction_replay_verified": True,
             }
             for entry in member_registry
             for paths_from_entry in [(
@@ -734,6 +929,14 @@ def _expected_semantic_audit(
                     Path(paths["run_manifest"]).parents[0]
                     / "arm_predictions" / str(entry["arm_id"])
                     / f"seed{int(entry['seed'])}.parquet"
+                ),
+                Path(paths["run_manifest"]).parents[0]
+                / "checkpoints" / str(entry["arm_id"])
+                / f"seed{int(entry['seed'])}.pt",
+                checkpoint_sidecar_path(
+                    Path(paths["run_manifest"]).parents[0]
+                    / "checkpoints" / str(entry["arm_id"])
+                    / f"seed{int(entry['seed'])}.pt"
                 ),
             )]
         ],
@@ -803,12 +1006,25 @@ def build_stage09b_completion_receipt(
         "run_id": run_id,
         "run_identity": identity,
         "formal_configuration": config,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
         "matrix_audit": json.loads(json.dumps(dict(matrix_audit), sort_keys=True, allow_nan=False)),
         "member_registry": [
             {
                 "arm_id": arm_id, "seed": seed,
+                "checkpoint": _file_binding(
+                    root,
+                    Path(member_paths[(arm_id, seed)]).parents[2]
+                    / "checkpoints" / arm_id / f"seed{seed}.pt",
+                ),
+                "checkpoint_sidecar": _file_binding(
+                    root,
+                    checkpoint_sidecar_path(
+                        Path(member_paths[(arm_id, seed)]).parents[2]
+                        / "checkpoints" / arm_id / f"seed{seed}.pt"
+                    ),
+                ),
                 "prediction": _file_binding(root, member_paths[(arm_id, seed)]),
                 "prediction_sidecar": _file_binding(
                     root, sidecar_path(member_paths[(arm_id, seed)]),
@@ -835,6 +1051,7 @@ def validate_stage09b_completion_receipt(
     expected_keys = {
         "format", "status", "stage", "run_id", "run_identity",
         "formal_configuration", "evidence_scope", "training_replay_verified",
+        "best_model_state_prediction_replay_verified",
         "matrix_audit", "member_registry", "artifacts",
         "post_2020_outcomes_requested_or_read", "receipt_self_sha256",
     }
@@ -847,8 +1064,9 @@ def validate_stage09b_completion_receipt(
         or receipt.get("status") != STAGE09B_COMPLETION_STATUS
         or receipt.get("stage") != STAGE09B_STAGE
         or not isinstance(run_id, str) or not run_id
-        or receipt.get("evidence_scope") != "prediction_artifact_closure"
+        or receipt.get("evidence_scope") != "best_model_state_prediction_replay"
         or receipt.get("training_replay_verified") is not False
+        or receipt.get("best_model_state_prediction_replay_verified") is not True
         or receipt.get("post_2020_outcomes_requested_or_read") is not False
     ):
         raise DevelopmentControlsGateError("Stage-09b receipt is not an exact closure PASS")
@@ -862,6 +1080,7 @@ def validate_stage09b_completion_receipt(
     expected_run_dir = (
         root / "outputs" / "runs" / STAGE09B_STAGE / str(run_id)
     ).resolve()
+    _assert_no_transaction_temps(expected_run_dir)
     expected_final_paths = {
         "run_manifest": expected_run_dir / "run.json",
         "predictions": expected_run_dir / "development_controls_predictions.parquet",
@@ -903,7 +1122,8 @@ def validate_stage09b_completion_receipt(
     }
     counts, member_digests, summary = _validate_member_predictions(
         root=root, member_registry=members, identity=identity,
-        expected_parents=parents, contract=contract,
+        expected_parents=parents, contract=contract, config=config,
+        panel_path=paths["panel"], frozen_spec_path=paths["frozen_panel_spec"],
     )
     audit = receipt.get("matrix_audit")
     expected_members = expected_stage09b_members()
@@ -925,7 +1145,21 @@ def validate_stage09b_completion_receipt(
     final_parents = {
         **parents,
         **{
-            f"arm::{entry['arm_id']}::seed{entry['seed']}": entry["prediction"]["sha256"]
+            f"arm::{entry['arm_id']}::seed{entry['seed']}::prediction": (
+                entry["prediction"]["sha256"]
+            )
+            for entry in members
+        },
+        **{
+            f"arm::{entry['arm_id']}::seed{entry['seed']}::checkpoint": (
+                entry["checkpoint"]["sha256"]
+            )
+            for entry in members
+        },
+        **{
+            f"arm::{entry['arm_id']}::seed{entry['seed']}::checkpoint_sidecar": (
+                entry["checkpoint_sidecar"]["sha256"]
+            )
             for entry in members
         },
     }
@@ -962,7 +1196,7 @@ def validate_stage09b_completion_receipt(
     if paths["report"].read_bytes() != expected_report:
         raise DevelopmentControlsGateError("Stage-09b report is not summary-derived")
     _validate_combined_predictions(
-        paths["predictions"], contract=contract, member_digests=member_digests,
+        paths["predictions"], root=root, member_registry=members,
     )
     expected_semantic = _expected_semantic_audit(
         run_id=run_id, audit=audit, contract=contract,

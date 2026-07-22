@@ -65,6 +65,7 @@ def _isolate_project_bytecode() -> None:
         )
         if (
             flags != (1, 1, 1, True, 0)
+            or not bool(sys.flags.hash_randomization)
             or prefix != expected
             or not expected.is_dir()
             or expected == ROOT
@@ -122,6 +123,10 @@ from thermoroute import datasets as DS  # noqa: E402
 from thermoroute import features as F  # noqa: E402
 from thermoroute import results as R  # noqa: E402
 from thermoroute.evidence import FrozenPanelSpec  # noqa: E402
+from thermoroute.checkpoint import (  # noqa: E402
+    checkpoint_sidecar_path,
+    load_training_checkpoint,
+)
 from thermoroute.development_controls_gate import (  # noqa: E402
     STAGE09B_COMPLETION_RECEIPT_PATH,
     build_stage09b_completion_receipt,
@@ -157,6 +162,10 @@ from thermoroute.model_suite import (  # noqa: E402
     ModelSuiteError,
     development_predictor_bridge_binding,
 )
+from thermoroute.predictor_bridge import (  # noqa: E402
+    PredictorBridgeError,
+    validate_development_bridge_manifest_offline,
+)
 from thermoroute.registry import FORECAST_KEY, targets_match_at_model_precision  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     RunIdentity,
@@ -169,16 +178,21 @@ from thermoroute.repro import (  # noqa: E402
     sidecar_path,
     validate_artifact_sidecar,
 )
-from thermoroute.train import FitResult, configure_deterministic_runtime, fit_model  # noqa: E402
+from thermoroute.train import (  # noqa: E402
+    FitResult,
+    configure_deterministic_runtime,
+    export_predictions,
+    fit_model,
+)
 
 
 PREDICTION_KIND = "development_control_arm_predictions"
-PREDICTION_EXTRA_FORMAT = "thermoroute.development-control-arm.v1"
+PREDICTION_EXTRA_FORMAT = "thermoroute.development-control-arm.v2"
 FINAL_PREDICTION_KIND = "development_controls_combined_predictions"
 FINAL_FORMAT = "thermoroute.development-controls.v2"
 SUMMARY_KIND = "development_controls_metric_summary"
 SEMANTIC_AUDIT_KIND = "development_controls_semantic_audit"
-SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v1"
+SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v2"
 
 
 class ControlExperimentError(RuntimeError):
@@ -215,6 +229,7 @@ def _arm_extra_static(
     seed: int,
     parameters: int,
     n_stations: int,
+    eval_batch_size: int,
 ) -> dict[str, Any]:
     return {
         "format": PREDICTION_EXTRA_FORMAT,
@@ -239,6 +254,7 @@ def _arm_extra_static(
         "development_evaluation_interval": list(C.SPLIT.test),
         "blind_or_confirmatory": False,
         "suite_pointer_written": False,
+        "eval_batch_size": int(eval_batch_size),
     }
 
 
@@ -252,11 +268,15 @@ def _validate_training_summary(value: object) -> dict[str, Any]:
     best = value["best_validation_metric"]
     selected = value["selected_epoch"]
     final = value["checkpoint_final_epoch"]
-    if not isinstance(best, (int, float)) or not math.isfinite(float(best)):
+    if (
+        type(best) not in {int, float}
+        or not math.isfinite(float(best))
+        or float(best) < 0.0
+    ):
         raise ControlExperimentError("cached arm best validation metric is invalid")
     if type(selected) is not int or selected < 0:
         raise ControlExperimentError("cached arm selected epoch is invalid")
-    if final is not None and (type(final) is not int or final < selected):
+    if type(final) is not int or final < selected:
         raise ControlExperimentError("cached arm final checkpoint epoch is invalid")
     return value
 
@@ -278,6 +298,7 @@ def read_arm_prediction(
     seed: int,
     parameters: int,
     n_stations: int,
+    eval_batch_size: int,
     parents: Mapping[str, str],
 ) -> pd.DataFrame | None:
     """Load an exact cache hit; reject partial, corrupt, or stale cache state."""
@@ -304,6 +325,7 @@ def read_arm_prediction(
         seed=seed,
         parameters=parameters,
         n_stations=n_stations,
+        eval_batch_size=eval_batch_size,
     )
     if not isinstance(extra, dict) or set(extra) != {*expected_static, "training_summary"}:
         raise ControlExperimentError(f"cached arm metadata schema changed: {path}")
@@ -347,6 +369,7 @@ def write_arm_prediction(
     seed: int,
     parameters: int,
     n_stations: int,
+    eval_batch_size: int,
     parents: Mapping[str, str],
     training_summary: Mapping[str, Any],
 ) -> None:
@@ -373,6 +396,7 @@ def write_arm_prediction(
         seed=seed,
         parameters=parameters,
         n_stations=n_stations,
+        eval_batch_size=eval_batch_size,
     )
     extra["training_summary"] = dict(training_summary)
     seal_artifact(
@@ -385,10 +409,55 @@ def write_arm_prediction(
     )
 
 
-def _checkpoint_final_epoch(path: Path) -> int | None:
+def recover_arm_prediction_sidecar(
+    path: Path,
+    replayed: pd.DataFrame,
+    *,
+    identity: RunIdentity,
+    arm: ArmSpec,
+    seed: int,
+    parameters: int,
+    n_stations: int,
+    eval_batch_size: int,
+    parents: Mapping[str, str],
+    training_summary: Mapping[str, Any],
+) -> None:
+    """Recover only artifact-present/sidecar-absent exact crash state."""
+    if not path.is_file() or sidecar_path(path).exists():
+        raise ControlExperimentError("arm recovery requires only the prediction artifact")
+    try:
+        observed = pd.read_parquet(path, columns=R.PRED_COLS)
+        _assert_exact_prediction_replay(observed, replayed, arm=arm, seed=seed)
+    except Exception as exc:
+        if isinstance(exc, ControlExperimentError):
+            raise
+        raise ControlExperimentError("orphan prediction is semantically invalid") from exc
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.replay.", suffix=".tmp", dir=path.parent,
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        replayed.loc[:, R.PRED_COLS].to_parquet(temporary, index=False)
+        if sha256_file(temporary) != sha256_file(path):
+            raise ControlExperimentError("orphan prediction bytes differ from exact replay")
+    finally:
+        temporary.unlink(missing_ok=True)
+    extra = _arm_extra_static(
+        arm, seed=seed, parameters=parameters, n_stations=n_stations,
+        eval_batch_size=eval_batch_size,
+    )
+    extra["training_summary"] = dict(training_summary)
+    seal_artifact(
+        path, identity, kind=PREDICTION_KIND, schema=R.PREDICTION_SCHEMA_VERSION,
+        parents=parents, extra=extra,
+    )
+
+
+def _checkpoint_final_epoch(path: Path) -> int:
     metadata_path = path.with_name(path.name + ".meta.json")
     if not path.is_file() or not metadata_path.is_file():
-        return None
+        raise ControlExperimentError(f"checkpoint or sidecar is absent: {path}")
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -397,6 +466,104 @@ def _checkpoint_final_epoch(path: Path) -> int | None:
     if type(epoch) is not int or epoch < 0:
         raise ControlExperimentError(f"checkpoint epoch is invalid: {metadata_path}")
     return epoch
+
+
+def _member_parents(
+    parents: Mapping[str, str], checkpoint_path: Path,
+) -> dict[str, str]:
+    metadata_path = checkpoint_sidecar_path(checkpoint_path)
+    if not checkpoint_path.is_file() or not metadata_path.is_file():
+        raise ControlExperimentError("member checkpoint transaction is incomplete")
+    return {
+        **dict(parents),
+        "training_checkpoint": sha256_file(checkpoint_path),
+        "training_checkpoint_sidecar": sha256_file(metadata_path),
+    }
+
+
+def replay_best_model_state_prediction(
+    *,
+    checkpoint_path: Path,
+    arm: ArmSpec,
+    seed: int,
+    wd: DS.WindowedData,
+    thresholds: dict[str, float],
+    n_stations: int,
+    identity: RunIdentity,
+    run_config: Mapping[str, Any],
+    eval_batch_size: int,
+    recover_missing_checkpoint_sidecar: bool = False,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Safely load one checkpoint best state and reproduce exported predictions."""
+    parameters = parameter_count(arm, n_stations=n_stations)
+    arm_config = {
+        **dict(run_config),
+        "arm": asdict(arm),
+        "seed": int(seed),
+        "trainable_parameters": parameters,
+    }
+    model = build_arm_model(arm, seed=seed, n_stations=n_stations).to("cpu")
+    optimizer = torch.optim.AdamW(
+        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        lr=TRAIN_CONFIG.lr,
+        weight_decay=TRAIN_CONFIG.weight_decay,
+    )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.5, patience=4,
+    )
+    try:
+        resumed = load_training_checkpoint(
+            checkpoint_path,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            expected_run_id=identity.run_id,
+            expected_resolved_config=arm_config,
+            map_location="cpu",
+            recover_missing_sidecar=recover_missing_checkpoint_sidecar,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        raise ControlExperimentError(
+            f"{arm.arm_id}/seed{seed} checkpoint replay failed"
+        ) from exc
+    if resumed.best_model_state is None:  # defensive; v3 validation forbids this
+        raise ControlExperimentError("checkpoint has no best_model_state")
+    model.load_state_dict(resumed.best_model_state)
+    frame = export_predictions(
+        model,
+        wd,
+        thresholds,
+        torch.device("cpu"),
+        arm.arm_id,
+        DEVELOPMENT_SCOPE,
+        arm.feature_set,
+        seed,
+        batch_size=eval_batch_size,
+        splits=("val", "calib", "test"),
+    )
+    frame["model"] = arm.arm_id
+    frame["scope"] = DEVELOPMENT_SCOPE
+    frame["feature_set"] = arm.feature_set
+    frame["seed"] = int(seed)
+    _validate_arm_frame(frame, arm, seed)
+    summary = {
+        "best_validation_metric": float(resumed.best_metric),
+        "selected_epoch": int(resumed.best_epoch),
+        "checkpoint_final_epoch": int(resumed.epoch),
+    }
+    _validate_training_summary(summary)
+    return frame, summary
+
+
+def _assert_exact_prediction_replay(
+    observed: pd.DataFrame, replayed: pd.DataFrame, *, arm: ArmSpec, seed: int,
+) -> None:
+    left = normalise_prediction_frame(observed, arm=arm, seed=seed)
+    right = normalise_prediction_frame(replayed, arm=arm, seed=seed)
+    if prediction_content_digest(left) != prediction_content_digest(right):
+        raise ControlExperimentError(
+            f"{arm.arm_id}/seed{seed} prediction differs from checkpoint best state"
+        )
 
 
 def train_arm_group(
@@ -419,18 +586,6 @@ def train_arm_group(
         parameters = parameter_count(arm, n_stations=n_stations)
         for seed in arm.seeds:
             prediction_path = run_dir / "arm_predictions" / arm.arm_id / f"seed{seed}.parquet"
-            cached = read_arm_prediction(
-                prediction_path,
-                identity=identity,
-                arm=arm,
-                seed=seed,
-                parameters=parameters,
-                n_stations=n_stations,
-                parents=parents,
-            )
-            if cached is not None:
-                paths.append(prediction_path)
-                continue
             checkpoint_path = run_dir / "checkpoints" / arm.arm_id / f"seed{seed}.pt"
             arm_config = {
                 **dict(run_config),
@@ -441,6 +596,39 @@ def train_arm_group(
 
             def factory(arm: ArmSpec = arm, seed: int = seed) -> torch.nn.Module:
                 return build_arm_model(arm, seed=seed, n_stations=n_stations)
+
+            artifact_exists = prediction_path.exists()
+            sidecar_exists = sidecar_path(prediction_path).exists()
+            if sidecar_exists and not artifact_exists:
+                raise ControlExperimentError(
+                    f"prediction sidecar exists without artifact: {prediction_path}"
+                )
+            if artifact_exists and not sidecar_exists:
+                replayed, training_summary = replay_best_model_state_prediction(
+                    checkpoint_path=checkpoint_path, arm=arm, seed=seed, wd=wd,
+                    thresholds=thresholds, n_stations=n_stations, identity=identity,
+                    run_config=run_config, eval_batch_size=eval_batch_size,
+                    recover_missing_checkpoint_sidecar=True,
+                )
+                member_lineage = _member_parents(parents, checkpoint_path)
+                recover_arm_prediction_sidecar(
+                    prediction_path, replayed, identity=identity, arm=arm, seed=seed,
+                    parameters=parameters, n_stations=n_stations,
+                    eval_batch_size=eval_batch_size, parents=member_lineage,
+                    training_summary=training_summary,
+                )
+                paths.append(prediction_path)
+                continue
+            if artifact_exists and sidecar_exists:
+                member_lineage = _member_parents(parents, checkpoint_path)
+                cached = read_arm_prediction(
+                    prediction_path, identity=identity, arm=arm, seed=seed,
+                    parameters=parameters, n_stations=n_stations,
+                    eval_batch_size=eval_batch_size, parents=member_lineage,
+                )
+                assert cached is not None
+                paths.append(prediction_path)
+                continue
 
             result = fit_function(
                 factory,
@@ -467,20 +655,33 @@ def train_arm_group(
             result.pred["scope"] = DEVELOPMENT_SCOPE
             result.pred["feature_set"] = arm.feature_set
             result.pred["seed"] = int(seed)
-            training_summary = {
-                "best_validation_metric": float(result.best_val),
-                "selected_epoch": int(result.epochs),
-                "checkpoint_final_epoch": _checkpoint_final_epoch(checkpoint_path),
-            }
+            replayed, training_summary = replay_best_model_state_prediction(
+                checkpoint_path=checkpoint_path, arm=arm, seed=seed, wd=wd,
+                thresholds=thresholds, n_stations=n_stations, identity=identity,
+                run_config=run_config, eval_batch_size=eval_batch_size,
+                recover_missing_checkpoint_sidecar=True,
+            )
+            _assert_exact_prediction_replay(
+                result.pred, replayed, arm=arm, seed=seed,
+            )
+            if (
+                float(result.best_val) != training_summary["best_validation_metric"]
+                or int(result.epochs) != training_summary["selected_epoch"]
+                or _checkpoint_final_epoch(checkpoint_path)
+                != training_summary["checkpoint_final_epoch"]
+            ):
+                raise ControlExperimentError("fit result differs from final checkpoint")
+            member_lineage = _member_parents(parents, checkpoint_path)
             write_arm_prediction(
-                result.pred,
+                replayed,
                 prediction_path,
                 identity=identity,
                 arm=arm,
                 seed=seed,
                 parameters=parameters,
                 n_stations=n_stations,
-                parents=parents,
+                eval_batch_size=eval_batch_size,
+                parents=member_lineage,
                 training_summary=training_summary,
             )
             paths.append(prediction_path)
@@ -561,6 +762,7 @@ def validate_prediction_paths(
     identity: RunIdentity,
     parents: Mapping[str, str],
     n_stations: int,
+    eval_batch_size: int,
     allowed_sites: set[str],
     canonical_registry: pd.DataFrame | None = None,
 ) -> tuple[MatrixAudit, dict[tuple[str, int], Path], list[dict[str, Any]]]:
@@ -592,6 +794,10 @@ def validate_prediction_paths(
         path = expected_paths[(arm_id, seed)]
         assert path is not None
         arm = arm_by_id[arm_id]
+        checkpoint_path = (
+            path.parents[2] / "checkpoints" / arm_id / f"seed{seed}.pt"
+        )
+        member_lineage = _member_parents(parents, checkpoint_path)
         frame = read_arm_prediction(
             path,
             identity=identity,
@@ -599,7 +805,8 @@ def validate_prediction_paths(
             seed=seed,
             parameters=parameter_count(arm, n_stations=n_stations),
             n_stations=n_stations,
-            parents=parents,
+            eval_batch_size=eval_batch_size,
+            parents=member_lineage,
         )
         assert frame is not None
         try:
@@ -682,12 +889,17 @@ def _stream_combined_predictions(
     schema: pa.Schema | None = None
     try:
         for member in members:
-            frame = pd.read_parquet(members[member], columns=R.PRED_COLS)
-            table = pa.Table.from_pandas(frame, preserve_index=False, schema=schema, safe=True)
-            if writer is None:
-                schema = table.schema
-                writer = pq.ParquetWriter(temporary_path, schema, compression="zstd")
-            writer.write_table(table)
+            parquet = pq.ParquetFile(members[member])
+            if parquet.schema_arrow.names != R.PRED_COLS:
+                raise ControlExperimentError("member schema changed during streaming publish")
+            for batch in parquet.iter_batches(columns=R.PRED_COLS, batch_size=65_536):
+                table = pa.Table.from_batches([batch])
+                if writer is None:
+                    schema = table.schema
+                    writer = pq.ParquetWriter(temporary_path, schema, compression="zstd")
+                elif table.schema != schema:
+                    raise ControlExperimentError("member Arrow schema changed")
+                writer.write_table(table)
         if writer is None:
             raise ControlExperimentError("cannot publish an empty prediction matrix")
         writer.close()
@@ -699,6 +911,55 @@ def _stream_combined_predictions(
         if writer is not None:
             writer.close()
         temporary_path.unlink(missing_ok=True)
+
+
+def _validate_combined_exact(
+    path: Path, members: Mapping[tuple[str, int], Path],
+) -> int:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    combined = pq.ParquetFile(path)
+    if combined.schema_arrow.names != R.PRED_COLS:
+        raise ControlExperimentError("combined prediction schema changed")
+    iterator = iter(combined.iter_batches(columns=R.PRED_COLS, batch_size=65_536))
+    current: Any | None = None
+    offset = 0
+    total = 0
+
+    def take(rows: int) -> Any:
+        nonlocal current, offset
+        pieces: list[Any] = []
+        remaining = rows
+        while remaining:
+            if current is None or offset == current.num_rows:
+                try:
+                    current = next(iterator)
+                except StopIteration as exc:
+                    raise ControlExperimentError("combined predictions end early") from exc
+                offset = 0
+            count = min(remaining, current.num_rows - offset)
+            pieces.append(current.slice(offset, count))
+            offset += count
+            remaining -= count
+        return pa.Table.from_batches(pieces).combine_chunks()
+
+    for member in expected_member_registry():
+        source = pq.ParquetFile(members[member])
+        if source.schema_arrow.names != R.PRED_COLS:
+            raise ControlExperimentError("member prediction schema changed")
+        for batch in source.iter_batches(columns=R.PRED_COLS, batch_size=65_536):
+            expected = pa.Table.from_batches([batch]).combine_chunks()
+            if not take(batch.num_rows).equals(expected, check_metadata=False):
+                raise ControlExperimentError("combined predictions differ from members")
+            total += batch.num_rows
+    if current is not None and offset < current.num_rows:
+        raise ControlExperimentError("combined predictions contain extra rows")
+    try:
+        next(iterator)
+    except StopIteration:
+        return total
+    raise ControlExperimentError("combined predictions contain extra rows")
 
 
 def _final_extra(audit: MatrixAudit, *, artifact_role: str) -> dict[str, Any]:
@@ -713,7 +974,8 @@ def _final_extra(audit: MatrixAudit, *, artifact_role: str) -> dict[str, Any]:
         "development_only": True,
         "blind_or_confirmatory": False,
         "suite_pointer_written": False,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
     }
 
@@ -734,9 +996,10 @@ def _semantic_audit_document(
 
     document: dict[str, Any] = {
         "format": SEMANTIC_AUDIT_FORMAT,
-        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "run_id": identity.run_id,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
         "post_2020_outcomes_requested_or_read": False,
         "matrix_audit": asdict(audit),
@@ -750,11 +1013,22 @@ def _semantic_audit_document(
             {
                 "arm_id": arm_id,
                 "seed": seed,
+                "checkpoint": descriptor(
+                    member_paths[(arm_id, seed)].parents[2]
+                    / "checkpoints" / arm_id / f"seed{seed}.pt"
+                ),
+                "checkpoint_sidecar": descriptor(
+                    checkpoint_sidecar_path(
+                        member_paths[(arm_id, seed)].parents[2]
+                        / "checkpoints" / arm_id / f"seed{seed}.pt"
+                    )
+                ),
                 "prediction": descriptor(member_paths[(arm_id, seed)]),
                 "prediction_sidecar": descriptor(
                     sidecar_path(member_paths[(arm_id, seed)])
                 ),
                 "normalised_prediction_sha256": member_digests[(arm_id, seed)],
+                "best_model_state_prediction_replay_verified": True,
             }
             for arm_id, seed in expected_member_registry()
         ],
@@ -806,13 +1080,27 @@ def publish_final_artifacts(
     final_parents = {
         **dict(member_parents),
         **{
-            f"arm::{arm_id}::seed{seed}": sha256_file(path)
+            f"arm::{arm_id}::seed{seed}::prediction": sha256_file(path)
             for (arm_id, seed), path in member_paths.items()
+        },
+        **{
+            f"arm::{arm_id}::seed{seed}::checkpoint": sha256_file(
+                run_dir / "checkpoints" / arm_id / f"seed{seed}.pt"
+            )
+            for arm_id, seed in expected_member_registry(arms)
+        },
+        **{
+            f"arm::{arm_id}::seed{seed}::checkpoint_sidecar": sha256_file(
+                checkpoint_sidecar_path(
+                    run_dir / "checkpoints" / arm_id / f"seed{seed}.pt"
+                )
+            )
+            for arm_id, seed in expected_member_registry(arms)
         },
     }
     arm_by_id = {arm.arm_id: arm for arm in arms}
-    normalised_frames: dict[tuple[str, int], pd.DataFrame] = {}
     member_digests: dict[tuple[str, int], str] = {}
+    recomputed_parts: list[pd.DataFrame] = []
     for member in expected_member_registry(arms):
         frame = pd.read_parquet(member_paths[member], columns=R.PRED_COLS)
         try:
@@ -821,9 +1109,12 @@ def publish_final_artifacts(
             )
         except (TypeError, ValueError) as exc:
             raise ControlExperimentError(f"member semantic validation failed: {exc}") from exc
-        normalised_frames[member] = normalised
         member_digests[member] = prediction_content_digest(normalised)
-    recomputed_summary = recompute_metric_summary(normalised_frames)
+        recomputed_parts.append(recompute_metric_summary({member: normalised}))
+        del frame, normalised
+    recomputed_summary = pd.concat(recomputed_parts, ignore_index=True).sort_values(
+        ["arm_id", "seed", "split", "horizon"], kind="mergesort"
+    ).reset_index(drop=True)
     declared_summary = pd.DataFrame.from_records(summaries)
     if list(declared_summary.columns) != list(recomputed_summary.columns):
         declared_summary = declared_summary.reindex(columns=recomputed_summary.columns)
@@ -835,7 +1126,6 @@ def publish_final_artifacts(
             raise ControlExperimentError("metric summary is not prediction-derived")
     except (TypeError, ValueError) as exc:
         raise ControlExperimentError("metric summary is malformed") from exc
-    del normalised_frames
     report_bytes = render_report(
         run_id=identity.run_id, audit=audit, budget=budget,
         summary=recomputed_summary,
@@ -849,63 +1139,53 @@ def publish_final_artifacts(
         (summary_path, SUMMARY_KIND, "text/csv", "metric_summary"),
         (report_path, "development_controls_report", "text/markdown", "report"),
     )
-    existing = [
-        path.exists() or sidecar_path(path).exists()
-        for path in (
-            prediction_path, budget_path, summary_path, report_path,
-            semantic_audit_path,
-        )
-    ]
-    if any(existing):
-        if not all(existing):
-            raise ControlExperimentError("partial final publication state exists")
-        for path, kind, schema, role in (*base_specs, (
-            semantic_audit_path, SEMANTIC_AUDIT_KIND,
-            "application/json", "semantic_audit",
-        )):
-            metadata = validate_artifact_sidecar(
-                path, identity=identity, schema=schema, kind=kind
-            )
-            if metadata["parents"] != dict(sorted(final_parents.items())):
-                raise ControlExperimentError(f"final artifact parent lineage changed: {path}")
-            if metadata["extra"] != _final_extra(audit, artifact_role=role):
-                raise ControlExperimentError(f"final artifact metadata changed: {path}")
-        expected_semantic = _semantic_audit_document(
-            identity=identity, audit=audit, train_examples=train_examples,
-            canonical_registry_sha256=canonical_registry_sha256,
-            canonical_train_registry_sha256=canonical_train_registry_sha256,
-            member_paths=member_paths, member_digests=member_digests,
-            final_paths={
-                "architecture_budget": budget_path,
-                "combined_predictions": prediction_path,
-                "metric_summary": summary_path,
-                "report": report_path,
-            },
-        )
-        if semantic_audit_path.read_bytes() != (
-            json.dumps(expected_semantic, indent=2, sort_keys=True, allow_nan=False)
-            + "\n"
-        ).encode("utf-8"):
-            raise ControlExperimentError("semantic audit changed")
-        return prediction_path, budget_path, summary_path, report_path, semantic_audit_path
+    exact_bytes = {
+        budget_path: budget_csv_bytes(budget),
+        summary_path: summary_csv_bytes(recomputed_summary),
+        report_path: report_bytes,
+    }
+    for artifact, metadata_path in (
+        (prediction_path, sidecar_path(prediction_path)),
+        *((path, sidecar_path(path)) for path in exact_bytes),
+        (semantic_audit_path, sidecar_path(semantic_audit_path)),
+    ):
+        if metadata_path.exists() and not artifact.exists():
+            raise ControlExperimentError(f"sidecar exists without artifact: {artifact}")
 
-    _stream_combined_predictions(member_paths, prediction_path)
-    import pyarrow.parquet as pq
-
-    if pq.ParquetFile(prediction_path).metadata.num_rows != audit.prediction_rows:
+    if not prediction_path.exists():
+        _stream_combined_predictions(member_paths, prediction_path)
+    elif not sidecar_path(prediction_path).exists():
+        # For the one recoverable crash window, require byte identity with a
+        # freshly streamed reconstruction before blessing the orphan artifact.
+        probe = prediction_path.with_name(f".{prediction_path.name}.recovery-probe")
+        try:
+            _stream_combined_predictions(member_paths, probe)
+            if sha256_file(probe) != sha256_file(prediction_path):
+                raise ControlExperimentError("orphan combined artifact bytes changed")
+        finally:
+            probe.unlink(missing_ok=True)
+    if _validate_combined_exact(prediction_path, member_paths) != audit.prediction_rows:
         raise ControlExperimentError("combined prediction row count changed during publication")
-    _create_only_bytes(budget_csv_bytes(budget), budget_path)
-    _create_only_bytes(summary_csv_bytes(recomputed_summary), summary_path)
-    _create_only_bytes(report_bytes, report_path)
+    for path, payload in exact_bytes.items():
+        if path.exists():
+            if path.read_bytes() != payload:
+                raise ControlExperimentError(f"existing final artifact changed: {path}")
+        else:
+            _create_only_bytes(payload, path)
     for path, kind, schema, role in base_specs:
-        seal_artifact(
-            path,
-            identity,
-            kind=kind,
-            schema=schema,
-            parents=final_parents,
-            extra=_final_extra(audit, artifact_role=role),
+        if not sidecar_path(path).exists():
+            seal_artifact(
+                path, identity, kind=kind, schema=schema, parents=final_parents,
+                extra=_final_extra(audit, artifact_role=role),
+            )
+        metadata = validate_artifact_sidecar(
+            path, identity=identity, schema=schema, kind=kind,
         )
+        if (
+            metadata["parents"] != dict(sorted(final_parents.items()))
+            or metadata["extra"] != _final_extra(audit, artifact_role=role)
+        ):
+            raise ControlExperimentError(f"final artifact metadata changed: {path}")
     semantic_document = _semantic_audit_document(
         identity=identity, audit=audit, train_examples=train_examples,
         canonical_registry_sha256=canonical_registry_sha256,
@@ -918,16 +1198,29 @@ def publish_final_artifacts(
             "report": report_path,
         },
     )
-    _create_only_bytes(
-        (json.dumps(semantic_document, indent=2, sort_keys=True, allow_nan=False) + "\n")
-        .encode("utf-8"),
-        semantic_audit_path,
+    semantic_bytes = (
+        json.dumps(semantic_document, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode("utf-8")
+    if semantic_audit_path.exists():
+        if semantic_audit_path.read_bytes() != semantic_bytes:
+            raise ControlExperimentError("semantic audit changed")
+    else:
+        _create_only_bytes(semantic_bytes, semantic_audit_path)
+    if not sidecar_path(semantic_audit_path).exists():
+        seal_artifact(
+            semantic_audit_path, identity, kind=SEMANTIC_AUDIT_KIND,
+            schema="application/json", parents=final_parents,
+            extra=_final_extra(audit, artifact_role="semantic_audit"),
+        )
+    metadata = validate_artifact_sidecar(
+        semantic_audit_path, identity=identity, schema="application/json",
+        kind=SEMANTIC_AUDIT_KIND,
     )
-    seal_artifact(
-        semantic_audit_path, identity, kind=SEMANTIC_AUDIT_KIND,
-        schema="application/json", parents=final_parents,
-        extra=_final_extra(audit, artifact_role="semantic_audit"),
-    )
+    if (
+        metadata["parents"] != dict(sorted(final_parents.items()))
+        or metadata["extra"] != _final_extra(audit, artifact_role="semantic_audit")
+    ):
+        raise ControlExperimentError("semantic audit metadata changed")
     return prediction_path, budget_path, summary_path, report_path, semantic_audit_path
 
 
@@ -959,7 +1252,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--eval-batch-size",
         type=int,
         default=4096,
-        help="CPU validation/export batch size; does not change the train budget",
+        help="CPU validation/export batch size; part of the scientific run identity",
     )
     parser.add_argument("--verbose", action="store_true", help="print epoch diagnostics")
     args = parser.parse_args(argv)
@@ -971,7 +1264,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     configure_deterministic_runtime()
-    runtime_policy = assert_formal_numerical_policy()
+    runtime_policy = assert_formal_numerical_policy(require_hash_randomization=True)
     if torch.device("cpu").type != "cpu":  # pragma: no cover - defensive declaration
         raise ControlExperimentError("development controls require CPU execution")
 
@@ -995,6 +1288,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ModelSuiteError as exc:
         raise ControlExperimentError(
             "development controls require PASS_EXACT_PRODUCT_BRIDGE"
+        ) from exc
+    try:
+        validate_development_bridge_manifest_offline(
+            repo_root=ROOT,
+            manifest_path=ROOT / predictor_bridge["path"],
+            expected_sites=120,
+        )
+    except PredictorBridgeError as exc:
+        raise ControlExperimentError(
+            "development predictor bridge raw replay failed before training"
         ) from exc
 
     arms = declared_arms()
@@ -1033,6 +1336,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "historical_tuning_budget_equalized": False,
         "development_predictor_bridge": predictor_bridge,
         "formal_numerical_policy": runtime_policy,
+        "eval_batch_size": int(args.eval_batch_size),
     }
     identity = resolve_run_identity(
         root=ROOT,
@@ -1157,6 +1461,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         identity=identity,
         parents=parents,
         n_stations=len(stations),
+        eval_batch_size=args.eval_batch_size,
         allowed_sites=set(stations),
         canonical_registry=canonical_registry,
     )

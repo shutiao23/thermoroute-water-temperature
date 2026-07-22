@@ -112,7 +112,11 @@ def test_isolated_python_uses_random_hash_secret_but_identity_hash_is_stable():
     code = (
         "import sys;"
         f"sys.path.insert(0,{str(ROOT / 'src')!r});"
-        "from thermoroute.repro import sha256_json;"
+        "from thermoroute.repro import (assert_formal_numerical_policy,"
+        "configure_deterministic_runtime,sha256_json);"
+        "configure_deterministic_runtime();"
+        "policy=assert_formal_numerical_policy(require_hash_randomization=True);"
+        "print(int(policy['python_hash_randomization_enabled']));"
         "print(hash('thermoroute-hash-probe'));"
         "print(sha256_json({'members': {'zeta','alpha','beta'}}))"
     )
@@ -127,7 +131,8 @@ def test_isolated_python_uses_random_hash_secret_but_identity_hash_is_stable():
             check=True,
             env=environment,
         )
-        hash_value, identity_value = result.stdout.strip().splitlines()
+        hash_flag, hash_value, identity_value = result.stdout.strip().splitlines()
+        assert hash_flag == "1"
         observations.append((hash_value, identity_value))
     # This is the negative control: -I ignored the apparent fixed-seed
     # declaration, so ordinary hash() values are intentionally not reproducible.
@@ -138,6 +143,7 @@ def test_isolated_python_uses_random_hash_secret_but_identity_hash_is_stable():
     assert formal_numerical_policy()["python_hash_policy"].startswith(
         "canonical-sort-identity-collections"
     )
+    assert formal_numerical_policy()["python_hash_randomization_enabled"] is True
 
 
 def _fixture(tmp_path: Path):
@@ -173,6 +179,20 @@ def test_run_identity_changes_with_data_config_and_source(tmp_path):
     source_changed = resolve_run_identity(root=root, panel=panel, registry=registry,
                                           config={"delta": 1.0})
     assert source_changed.run_id != first.run_id
+
+
+def test_eval_batch_size_is_a_scientific_run_identity_input(tmp_path):
+    root, panel, registry = _fixture(tmp_path)
+    first = resolve_run_identity(
+        root=root, panel=panel, registry=registry,
+        config={"stage": "09b_development_controls", "eval_batch_size": 2048},
+    )
+    second = resolve_run_identity(
+        root=root, panel=panel, registry=registry,
+        config={"stage": "09b_development_controls", "eval_batch_size": 4096},
+    )
+    assert first.config_sha256 != second.config_sha256
+    assert first.run_id != second.run_id
 
 
 def test_protocol_is_part_of_source_and_run_identity(tmp_path):

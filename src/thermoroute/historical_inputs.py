@@ -337,14 +337,17 @@ def _acquire_cohort(
     return combined, records
 
 
-def _build_snapshot_index(store: SnapshotStore) -> dict[str, Any]:
+def _build_snapshot_index(
+    store: SnapshotStore, *, bind_metadata_bytes: bool = False,
+) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     for metadata_path in sorted(store.root.glob("*/*/metadata.json")):
         response_path = metadata_path.parent / "response.bin"
         try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata_bytes = metadata_path.read_bytes()
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
             response = response_path.read_bytes()
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
+        except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise HistoricalInputError(f"incomplete raw snapshot: {metadata_path}") from exc
         request = metadata.get("request")
         if not isinstance(request, Mapping):
@@ -365,7 +368,7 @@ def _build_snapshot_index(store: SnapshotStore) -> dict[str, Any]:
         if pd.isna(retrieved) or int(metadata.get("http_status", -1)) != 200:
             raise HistoricalInputError(f"raw snapshot lacks a successful retrieval: {metadata_path}")
         _assert_safe_meteorology_url(str(request.get("url", "")))
-        records.append({
+        record = {
             "provider": str(request.get("provider", "")),
             "request_sha256": request_sha,
             "response_sha256": response_sha,
@@ -374,10 +377,18 @@ def _build_snapshot_index(store: SnapshotStore) -> dict[str, Any]:
             "request": dict(request),
             "metadata_path": str(metadata_path.relative_to(store.root)),
             "response_path": str(response_path.relative_to(store.root)),
-        })
+        }
+        if bind_metadata_bytes:
+            record["metadata_sha256"] = sha256_bytes(metadata_bytes)
+            record["metadata_byte_count"] = len(metadata_bytes)
+        records.append(record)
     if not records:
         raise HistoricalInputError(f"snapshot store is empty: {store.root}")
-    return {"schema_version": 1, "snapshot_count": len(records), "records": records}
+    return {
+        "schema_version": 2 if bind_metadata_bytes else 1,
+        "snapshot_count": len(records),
+        "records": records,
+    }
 
 
 def freeze_snapshot_index(
@@ -400,6 +411,55 @@ def freeze_snapshot_index(
         return path
     _exclusive_create(path, payload)
     return path
+
+
+def migrate_snapshot_index_metadata_v2(store: SnapshotStore) -> Path:
+    """Create a v2 index beside an immutable legacy v1 snapshot index.
+
+    The migration is offline and outcome-free: it reads only the existing HTTP
+    metadata/response pairs, proves that every legacy v1 record is unchanged,
+    and adds byte count/SHA-256 bindings for ``metadata.json``.  The v1 index is
+    retained; publication uses the create-only ``snapshot_index_v2.json``.
+    """
+    legacy_path = store.root / "snapshot_index.json"
+    try:
+        legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HistoricalInputError("legacy snapshot index is absent or malformed") from exc
+    if (
+        not isinstance(legacy, dict)
+        or set(legacy) != {"schema_version", "snapshot_count", "records"}
+        or legacy.get("schema_version") != 1
+        or type(legacy.get("snapshot_count")) is not int
+        or not isinstance(legacy.get("records"), list)
+        or legacy["snapshot_count"] != len(legacy["records"])
+    ):
+        raise HistoricalInputError("legacy snapshot index is not exact schema v1")
+    upgraded = _build_snapshot_index(store, bind_metadata_bytes=True)
+    projected_records = [
+        {
+            key: value for key, value in record.items()
+            if key not in {"metadata_sha256", "metadata_byte_count"}
+        }
+        for record in upgraded["records"]
+    ]
+    projection = {
+        "schema_version": 1,
+        "snapshot_count": upgraded["snapshot_count"],
+        "records": projected_records,
+    }
+    if projection != legacy:
+        raise HistoricalInputError(
+            "raw snapshots no longer project exactly to the immutable v1 index"
+        )
+    destination = store.root / "snapshot_index_v2.json"
+    payload = canonical_json_bytes(upgraded)
+    if destination.exists():
+        if destination.read_bytes() != payload:
+            raise HistoricalInputError("v2 snapshot index bytes changed")
+        return destination
+    _exclusive_create(destination, payload)
+    return destination
 
 
 def _table_summary(frame: pd.DataFrame) -> dict[str, Any]:

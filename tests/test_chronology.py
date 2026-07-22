@@ -87,20 +87,28 @@ def _snapshot(
     base = Path(index_path).parent
     metadata = (base / "provider" / "request" / "metadata.json").as_posix()
     response = (base / "provider" / "request" / "response.bin").as_posix()
-    _write(root, metadata, _json_bytes({"status": 200}))
+    metadata_payload = _json_bytes({"status": 200})
+    _write(root, metadata, metadata_payload)
     _write(root, response, payload)
     _write(
         root,
         index_path,
         _json_bytes(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "snapshot_count": 1,
                 "records": [
                     {
+                        "provider": "fixture-provider",
+                        "request_sha256": _sha(b"fixture-request"),
                         "metadata_path": str(Path(metadata).relative_to(base)),
                         "response_path": str(Path(response).relative_to(base)),
                         "response_sha256": _sha(payload),
+                        "metadata_sha256": _sha(metadata_payload),
+                        "metadata_byte_count": len(metadata_payload),
+                        "retrieved_at_utc": "2020-01-01T00:00:00+00:00",
+                        "byte_count": len(payload),
+                        "request": {"provider": "fixture-provider"},
                     }
                 ],
             }
@@ -214,7 +222,7 @@ def _seed_model_commit(
         bridge_normalized[name] = _binding(root, relative)
     bridge_indexes = {}
     for name in ("daymet", "gridmet", "gridmet_schema"):
-        relative = f"data_usgs/bridge/{name}/snapshot_index.json"
+        relative = f"data_usgs/bridge/{name}/snapshot_index_v2.json"
         _snapshot(root, relative, payload=f"{name} response".encode())
         bridge_indexes[name] = _binding(root, relative)
     _write(root, "data_usgs/bridge/report.json", "{}\n")
@@ -273,11 +281,19 @@ def _seed_model_commit(
             f"{stage09b_run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
         )
         prediction_sidecar = f"{prediction_path}.meta.json"
+        checkpoint_path = (
+            f"{stage09b_run_dir}/checkpoints/{arm_id}/seed{seed}.pt"
+        )
+        checkpoint_sidecar = f"{checkpoint_path}.meta.json"
         _write(root, prediction_path, f"{arm_id}/seed{seed}".encode())
         _write(root, prediction_sidecar, "{}\n")
+        _write(root, checkpoint_path, f"checkpoint:{arm_id}/seed{seed}".encode())
+        _write(root, checkpoint_sidecar, "{}\n")
         members.append({
             "arm_id": arm_id,
             "seed": seed,
+            "checkpoint": _binding(root, checkpoint_path),
+            "checkpoint_sidecar": _binding(root, checkpoint_sidecar),
             "prediction": _binding(root, prediction_path),
             "prediction_sidecar": _binding(root, prediction_sidecar),
         })
@@ -292,9 +308,18 @@ def _seed_model_commit(
                 "sha256": _file_sha(root, prediction_sidecar),
                 "bytes": (root / prediction_sidecar).stat().st_size,
             },
+            "checkpoint": {
+                "sha256": _file_sha(root, checkpoint_path),
+                "bytes": (root / checkpoint_path).stat().st_size,
+            },
+            "checkpoint_sidecar": {
+                "sha256": _file_sha(root, checkpoint_sidecar),
+                "bytes": (root / checkpoint_sidecar).stat().st_size,
+            },
             "normalised_prediction_sha256": _sha(
                 f"normalised:{arm_id}:{seed}".encode()
             ),
+            "best_model_state_prediction_replay_verified": True,
         })
     final_paths = {
         "predictions": f"{stage09b_run_dir}/development_controls_predictions.parquet",
@@ -333,10 +358,11 @@ def _seed_model_commit(
         "bytes": (root / relative).stat().st_size,
     }
     semantic = {
-        "format": "thermoroute.development-controls-semantic-audit.v1",
-        "status": "PASS_PREDICTION_ARTIFACT_CLOSURE",
+        "format": "thermoroute.development-controls-semantic-audit.v2",
+        "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "run_id": stage09b_run_id,
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
         "post_2020_outcomes_requested_or_read": False,
         "matrix_audit": matrix_audit,
@@ -371,13 +397,14 @@ def _seed_model_commit(
     _write(root, semantic_path, _json_bytes(semantic))
     _write(root, f"{semantic_path}.meta.json", "{}\n")
     stage09b = {
-        "format": "thermoroute.stage09b-completion-receipt.v2",
-        "status": "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+        "format": "thermoroute.stage09b-completion-receipt.v3",
+        "status": "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "stage": "09b_development_controls",
         "run_id": stage09b_run_id,
         "run_identity": {"run_id": stage09b_run_id},
         "formal_configuration": {"fixture": True},
-        "evidence_scope": "prediction_artifact_closure",
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
         "matrix_audit": matrix_audit,
         "member_registry": members,

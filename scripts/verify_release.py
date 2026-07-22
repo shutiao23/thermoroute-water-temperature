@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatch
 import hashlib
@@ -532,19 +533,39 @@ def _resolve_release_path(
 ) -> Path:
     if not isinstance(value, str) or not value or Path(value).is_absolute():
         raise ValueError(f"{label} path must be a non-empty release-relative path")
-    candidates = [(root / value).resolve()]
+    posix = PurePosixPath(value)
+    if (
+        "\\" in value
+        or posix.as_posix() != value
+        or any(part in {".", ".."} for part in posix.parts)
+    ):
+        raise ValueError(f"{label} path is not canonical: {value}")
+    root = root.resolve()
+    candidates = [root / Path(*posix.parts)]
     if base is not None:
-        candidate = (base / value).resolve()
+        base = base.resolve()
+        if base != root and root not in base.parents:
+            raise ValueError(f"{label} base escapes the release root")
+        candidate = base / Path(*posix.parts)
         if candidate not in candidates:
             candidates.append(candidate)
-    root = root.resolve()
     inside = [
         candidate for candidate in candidates
         if candidate == root or root in candidate.parents
     ]
     if not inside:
         raise ValueError(f"{label} path escapes the release root")
-    existing = [candidate for candidate in inside if candidate.is_file() or candidate.is_dir()]
+    existing: list[Path] = []
+    for candidate in inside:
+        state = _release_entry_state(root, candidate, label=label)
+        if state is None:
+            continue
+        if stat.S_ISREG(state.st_mode):
+            if state.st_nlink != 1:
+                raise ValueError(f"{label} artifact is hard-linked")
+        elif not stat.S_ISDIR(state.st_mode):
+            raise ValueError(f"{label} artifact is not a regular file or directory")
+        existing.append(candidate)
     if expected_sha256 is not None:
         matched = [
             candidate for candidate in existing
@@ -560,6 +581,40 @@ def _resolve_release_path(
         reason = "is absent" if not existing else "is ambiguous"
         raise ValueError(f"{label} path {reason}: {value}")
     return existing[0]
+
+
+def _release_entry_state(
+    root: Path,
+    path: Path,
+    *,
+    label: str,
+) -> os.stat_result | None:
+    """Lstat one release path without accepting aliases through symlinks."""
+    root = root.resolve()
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{label} artifact escapes the release root") from exc
+    current = root
+    try:
+        root_state = current.lstat()
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(root_state.st_mode):
+        raise ValueError(f"{label} release root is a symlink")
+    state = root_state
+    parts = relative.parts
+    for index, part in enumerate(parts):
+        current = current / part
+        try:
+            state = current.lstat()
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(state.st_mode):
+            raise ValueError(f"{label} path contains a symlink: {current}")
+        if index < len(parts) - 1 and not stat.S_ISDIR(state.st_mode):
+            raise ValueError(f"{label} path crosses a non-directory entry")
+    return state
 
 
 def _binding_for(root: Path, path: Path) -> dict[str, object]:
@@ -590,24 +645,34 @@ def _add_path(
     category: str,
     path: Path,
 ) -> list[Path]:
-    root, path = root.resolve(), path.resolve()
+    root = root.resolve()
+    if not path.is_absolute():
+        path = root / path
     if path != root and root not in path.parents:
         raise ValueError(f"{category} artifact escapes the release root")
-    if path.is_symlink():
-        raise ValueError(f"{category} artifact is a symlink")
-    if path.is_file():
+    state = _release_entry_state(root, path, label=category)
+    if state is None:
+        raise ValueError(f"{category} artifact is absent: {path}")
+    if stat.S_ISREG(state.st_mode):
+        if state.st_nlink != 1:
+            raise ValueError(f"{category} artifact is hard-linked")
         categories.setdefault(category, set()).add(path)
         return [path]
-    if not path.is_dir():
+    if not stat.S_ISDIR(state.st_mode):
         raise ValueError(f"{category} artifact is absent: {path}")
     files = []
     for member in sorted(path.rglob("*")):
-        if member.is_symlink():
-            raise ValueError(f"{category} directory contains a symlink: {member}")
-        if member.is_file():
-            categories.setdefault(category, set()).add(member.resolve())
-            files.append(member.resolve())
-        elif not member.is_dir():
+        member_state = _release_entry_state(root, member, label=category)
+        if member_state is None:
+            raise ValueError(f"{category} directory member disappeared: {member}")
+        if stat.S_ISREG(member_state.st_mode):
+            if member_state.st_nlink != 1:
+                raise ValueError(
+                    f"{category} directory contains a hard-linked file: {member}"
+                )
+            categories.setdefault(category, set()).add(member)
+            files.append(member)
+        elif not stat.S_ISDIR(member_state.st_mode):
             raise ValueError(f"{category} directory contains a non-regular entry")
     if not files:
         raise ValueError(f"{category} artifact directory is empty: {path}")
@@ -1449,6 +1514,200 @@ def _stage09b_release_members() -> tuple[tuple[str, int], ...]:
     )
 
 
+def _stage09b_formal_configuration(
+    value: object, *, expected_bridge: object,
+) -> dict[str, Any]:
+    """Validate every scientific configuration field without archive imports."""
+    if not isinstance(value, Mapping):
+        raise ValueError("Stage-09b formal configuration is malformed")
+    ladder = (
+        ("01_WTEMP", ("WTEMP",)),
+        ("02_plus_FLOW", ("WTEMP", "FLOW")),
+        ("03_plus_TEMP", ("WTEMP", "FLOW", "TEMP")),
+        ("04_plus_PRCP", ("WTEMP", "FLOW", "TEMP", "PRCP")),
+        ("05_plus_RHMEAN", ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN")),
+        ("06_plus_DH", ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH")),
+        (
+            "07_plus_WDSP",
+            ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"),
+        ),
+    )
+    full = list(ladder[-1][1])
+    arms = [
+        {
+            "arm_id": "PlainMLP-7var", "family": "PlainMLP",
+            "feature_set": "all_7_variables", "variables": full,
+            "seeds": [0, 1, 2, 3, 4],
+        },
+        {
+            "arm_id": "PlainCausalTCN-7var", "family": "PlainCausalTCN",
+            "feature_set": "all_7_variables", "variables": full,
+            "seeds": [0, 1, 2, 3, 4],
+        },
+        *[
+            {
+                "arm_id": f"ThermoRoute-ladder-{rung}", "family": "ThermoRoute",
+                "feature_set": f"feature_ladder_{rung}", "variables": list(variables),
+                "seeds": [0, 1, 2],
+            }
+            for rung, variables in ladder
+        ],
+    ]
+    train = {
+        "d_model": 40, "encoder_blocks": 2, "kernel_size": 3,
+        "dropout": 0.15, "n_experts": 3, "station_embed_dim": 8,
+        "lr": 0.002, "weight_decay": 0.0001, "batch_size": 1536,
+        "max_epochs": 80, "patience": 12, "grad_clip": 1.0,
+        "lambda_event": 0.3, "lambda_residual": 0.01,
+        "lambda_crossing": 1.0,
+    }
+    parameter_counts = {
+        "PlainMLP-7var": 38_545,
+        "PlainCausalTCN-7var": 38_031,
+        "ThermoRoute-ladder-01_WTEMP": 37_775,
+        "ThermoRoute-ladder-02_plus_FLOW": 37_896,
+        "ThermoRoute-ladder-03_plus_TEMP": 38_018,
+        "ThermoRoute-ladder-04_plus_PRCP": 38_139,
+        "ThermoRoute-ladder-05_plus_RHMEAN": 38_261,
+        "ThermoRoute-ladder-06_plus_DH": 38_383,
+        "ThermoRoute-ladder-07_plus_WDSP": 38_505,
+    }
+    neural_common = {
+        "format_version": 2,
+        "module": "thermoroute.neural_baselines",
+        "future_keys_never_read": ["y", "clim_tgt", "damped_prior", "target_date"],
+        "input_keys_read": ["X", "Mask", "station"],
+        "output_keys": ["point", "q_lo", "q_med", "q_hi", "event_logit"],
+        "point_objective": "mse_conditional_mean",
+        "q50_is_independent_from_point": True,
+        "quantile_levels": [0.05, 0.5, 0.95],
+        "budget_matching_note": (
+            "Match trainable parameters, optimiser steps, input schema, "
+            "early-stopping rule, and tuning budget externally; the constructor "
+            "defaults do not establish fairness."
+        ),
+        "initialization_seed_policy": "exact declared member seed",
+    }
+    templates: dict[str, Any] = {}
+    for arm in arms:
+        arm_id = str(arm["arm_id"])
+        variables = list(arm["variables"])
+        if arm["family"] == "PlainMLP":
+            templates[arm_id] = {
+                **neural_common,
+                "architecture_id": "plain_history_mlp_v2",
+                "class_name": "PlainMLPForecaster",
+                "constructor_kwargs": {
+                    "n_vars": 7, "context_length": 32, "horizons": [1, 3, 7],
+                    "n_stations": 120, "station_agnostic": False,
+                    "station_embed_dim": 8, "hidden_dim": 70, "depth": 2,
+                    "dropout": 0.15, "min_spread": 0.0001,
+                    "init_seed": "member_seed",
+                },
+                "trainable_parameters": parameter_counts[arm_id],
+            }
+        elif arm["family"] == "PlainCausalTCN":
+            templates[arm_id] = {
+                **neural_common,
+                "architecture_id": "plain_causal_tcn_v2",
+                "class_name": "PlainCausalTCNForecaster",
+                "constructor_kwargs": {
+                    "n_vars": 7, "context_length": 32, "horizons": [1, 3, 7],
+                    "n_stations": 120, "station_agnostic": False,
+                    "station_embed_dim": 8, "channels": 54, "blocks": 4,
+                    "kernel_size": 3, "dropout": 0.15, "min_spread": 0.0001,
+                    "init_seed": "member_seed",
+                },
+                "trainable_parameters": parameter_counts[arm_id],
+            }
+        else:
+            n_phys = sum(item in {"TEMP", "RHMEAN", "DH", "WDSP"} for item in variables)
+            templates[arm_id] = {
+                "format_version": 2,
+                "architecture_id": "thermoroute_full_v2",
+                "module": "thermoroute.thermoroute",
+                "class_name": "ThermoRoute",
+                "constructor_kwargs": {
+                    "n_vars": len(variables), "n_stations": 120,
+                    "horizons": [1, 3, 7], "train_config": train,
+                    "n_phys": n_phys, "station_agnostic": False,
+                    "delta_scale": 1.0, "safety_anchor": "damped",
+                },
+                "initialization_seed": "member_seed",
+                "trainable_parameters": parameter_counts[arm_id],
+                "input_variables": variables,
+                "initialization_seed_policy": "exact declared member seed",
+            }
+    hash_policy = "canonical-sort-identity-collections-independent-of-hash-secret"
+    formal_policy = {
+        "thread_environment": {
+            name: "1" for name in (
+                "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+            )
+        },
+        "cublas_workspace_config": ":4096:8",
+        "python_hash_environment_declaration": "0",
+        "python_hash_randomization_enabled": True,
+        "python_hash_policy": hash_policy,
+        "required": {
+            "threads": 1, "cublas_workspace_config": ":4096:8",
+            "python_hash_policy": hash_policy,
+            "torch_deterministic_algorithms": True, "tf32": False,
+            "float32_matmul_precision": "highest",
+        },
+        "torch": {
+            "num_threads": 1, "num_interop_threads": 1,
+            "deterministic_algorithms": True, "cudnn_deterministic": True,
+            "cudnn_benchmark": False, "cuda_matmul_allow_tf32": False,
+            "cudnn_allow_tf32": False, "float32_matmul_precision": "highest",
+        },
+    }
+    eval_batch_size = value.get("eval_batch_size")
+    if type(eval_batch_size) is not int or eval_batch_size < 1:
+        raise ValueError("Stage-09b eval batch size is absent from run identity")
+    expected = {
+        "stage": "09b_development_controls",
+        "format": "thermoroute.development-controls.v2",
+        "execution_role": "prelabel_relative_to_unopened_post_2020_confirmation",
+        "evidence_role": "development_only_exploratory",
+        "development_disclosure": (
+            "2019-2020 outcomes were already inspected during development; this is "
+            "exploratory development evidence, not a blind or confirmatory test."
+        ),
+        "panel_date_range": ["2006-01-01", "2020-12-31"],
+        "development_evaluation_interval": ["2019-01-01", "2020-12-31"],
+        "blind_or_confirmatory": False,
+        "suite_pointer_written": False,
+        "training_device": "cpu",
+        "variables": full,
+        "context_length": 32,
+        "horizons": [1, 3, 7],
+        "time_split": {
+            "train": ["2006-01-01", "2015-12-31"],
+            "val": ["2016-01-01", "2017-12-31"],
+            "calib": ["2018-01-01", "2018-12-31"],
+            "test": ["2019-01-01", "2020-12-31"],
+        },
+        "station_sampling": "balanced",
+        "selection_metric": "station_macro",
+        "train_config": train,
+        "arms": arms,
+        "expected_member_registry": [list(member) for member in _stage09b_release_members()],
+        "parameter_counts": parameter_counts,
+        "architecture_templates": templates,
+        "parameter_match_tolerance_fraction": 0.02,
+        "architecture_candidates_per_arm": 1,
+        "historical_tuning_budget_equalized": False,
+        "development_predictor_bridge": expected_bridge,
+        "formal_numerical_policy": formal_policy,
+        "eval_batch_size": eval_batch_size,
+    }
+    if dict(value) != expected:
+        raise ValueError("Stage-09b formal architecture/training configuration changed")
+    return expected
+
+
 def _validate_receipt_self_hash(receipt: Mapping[str, Any], *, label: str) -> None:
     stable = {
         key: value for key, value in receipt.items()
@@ -1466,6 +1725,182 @@ _STAGE09B_PREDICTION_COLUMNS = [
 _STAGE09B_KEY_COLUMNS = [
     "split", "site_id", "horizon", "issue_date", "target_date",
 ]
+
+
+def _stage09b_window_registry_digest(frame: Any) -> str:
+    """Independent implementation of the canonical window-registry digest."""
+    import numpy as np
+    import pandas as pd
+
+    columns = ["split", "site_id", "horizon", "issue_date", "target_date", "y_true"]
+    ordered = frame.loc[:, columns].copy()
+    ordered["split"] = ordered["split"].astype(str)
+    ordered["site_id"] = ordered["site_id"].astype(str)
+    ordered["horizon"] = pd.to_numeric(ordered["horizon"], errors="raise").astype("int64")
+    ordered["issue_date"] = pd.to_datetime(ordered["issue_date"], errors="raise")
+    ordered["target_date"] = pd.to_datetime(ordered["target_date"], errors="raise")
+    ordered["y_true"] = pd.to_numeric(ordered["y_true"], errors="raise").astype("float64")
+    key = ["split", "site_id", "horizon", "issue_date", "target_date"]
+    ordered = ordered.sort_values(key, kind="mergesort").reset_index(drop=True)
+    if ordered.duplicated(key).any() or not np.isfinite(ordered["y_true"]).all():
+        raise ValueError("Stage-09b canonical window registry is invalid")
+    digest = hashlib.sha256()
+    digest.update(b"thermoroute.window-registry-digest.v1")
+    digest.update(struct.pack("<Q", len(ordered)))
+    for column in columns:
+        encoded = column.encode("ascii")
+        digest.update(struct.pack("<Q", len(encoded)))
+        digest.update(encoded)
+        if column == "horizon":
+            digest.update(np.asarray(ordered[column], dtype="<i8").tobytes(order="C"))
+        elif column in {"issue_date", "target_date"}:
+            values = pd.to_datetime(ordered[column]).to_numpy(
+                dtype="datetime64[ns]"
+            ).astype("<i8", copy=False)
+            digest.update(values.tobytes(order="C"))
+        elif column == "y_true":
+            values = np.asarray(ordered[column], dtype="<f8").copy()
+            values[values == 0.0] = 0.0
+            digest.update(values.tobytes(order="C"))
+        else:
+            for value in ordered[column].astype(str):
+                payload = value.encode("utf-8")
+                digest.update(struct.pack("<Q", len(payload)))
+                digest.update(payload)
+    return digest.hexdigest()
+
+
+def _stage09b_rebuild_canonical_windows(
+    panel_path: Path, registry_path: Path, spec_path: Path,
+) -> tuple[Any, int, str, str, tuple[str, ...]]:
+    """Reconstruct train/evaluation keys directly from the frozen panel.
+
+    This outer-release implementation deliberately imports no archive module.
+    It uses only the frozen table, stable-ID map and the declared 32-day,
+    1/3/7-day, fully-observed-target split rules.
+    """
+    import numpy as np
+    import pandas as pd
+
+    spec = _load_json(spec_path, label="Stage-09b frozen panel specification")
+    panel_spec = spec.get("panel")
+    registry_spec = spec.get("station_registry")
+    if (
+        spec.get("schema_version") != 1
+        or spec.get("evidence_role") != "development_exploratory"
+        or not isinstance(panel_spec, Mapping)
+        or not isinstance(registry_spec, Mapping)
+        or panel_spec.get("date_start") != "2006-01-01"
+        or panel_spec.get("date_end") != "2020-12-31"
+        or panel_spec.get("row_count") != 657_480
+        or panel_spec.get("station_count") != 120
+        or registry_spec.get("station_count") != 120
+        or panel_spec.get("sha256") != sha256_file(panel_path)
+        or registry_spec.get("sha256") != sha256_file(registry_path)
+        or (spec_path.parent / str(panel_spec.get("path"))).resolve() != panel_path.resolve()
+        or (spec_path.parent / str(registry_spec.get("path"))).resolve()
+        != registry_path.resolve()
+    ):
+        raise ValueError("Stage-09b frozen panel specification changed")
+    registry = pd.read_csv(
+        registry_path,
+        usecols=["site_no", "legacy_site_id"],
+        dtype={"site_no": "string", "legacy_site_id": "string"},
+        keep_default_na=False,
+    )
+    registry["site_no"] = registry["site_no"].astype("string").str.strip()
+    registry["legacy_site_id"] = registry["legacy_site_id"].astype("string").str.strip()
+    if (
+        len(registry) != 120
+        or registry["site_no"].eq("").any()
+        or registry["legacy_site_id"].eq("").any()
+        or registry["site_no"].duplicated().any()
+        or registry["legacy_site_id"].duplicated().any()
+        or any(
+            not site.isdigit() or not 8 <= len(site) <= 15
+            for site in registry["site_no"].astype(str)
+        )
+    ):
+        raise ValueError("Stage-09b stable station registry changed")
+    mapping = dict(zip(
+        registry["legacy_site_id"].astype(str), registry["site_no"].astype(str),
+        strict=True,
+    ))
+    panel = pd.read_parquet(panel_path, columns=["DATE", "site_id", "WTEMP"])
+    panel["DATE"] = pd.to_datetime(panel["DATE"], errors="raise").dt.normalize()
+    panel["site_id"] = panel["site_id"].astype(str)
+    panel["WTEMP"] = pd.to_numeric(panel["WTEMP"], errors="coerce").astype("float64")
+    if (
+        len(panel) != 657_480
+        or panel.duplicated(["site_id", "DATE"]).any()
+        or set(panel["site_id"]) != set(mapping)
+        or panel["DATE"].min() != pd.Timestamp("2006-01-01")
+        or panel["DATE"].max() != pd.Timestamp("2020-12-31")
+    ):
+        raise ValueError("Stage-09b frozen panel dimensions/keys changed")
+    expected_dates = pd.date_range("2006-01-01", "2020-12-31", freq="D")
+    horizons = (1, 3, 7)
+    splits = {
+        "train": (pd.Timestamp("2006-01-01"), pd.Timestamp("2015-12-31")),
+        "val": (pd.Timestamp("2016-01-01"), pd.Timestamp("2017-12-31")),
+        "calib": (pd.Timestamp("2018-01-01"), pd.Timestamp("2018-12-31")),
+        "test": (pd.Timestamp("2019-01-01"), pd.Timestamp("2020-12-31")),
+    }
+    eval_frames: list[Any] = []
+    train_frames: list[Any] = []
+    train_examples = 0
+    for legacy, site_no in sorted(mapping.items(), key=lambda item: item[1]):
+        station = panel.loc[panel["site_id"].eq(legacy)].sort_values("DATE")
+        dates = pd.DatetimeIndex(station["DATE"])
+        truth = station["WTEMP"].to_numpy(dtype="float64")
+        if len(station) != len(expected_dates) or not dates.equals(expected_dates):
+            raise ValueError("Stage-09b panel is not an exact daily station rectangle")
+        candidate = np.arange(31, len(station) - 7, dtype=np.int64)
+        observed = np.isfinite(truth[candidate])
+        for horizon in horizons:
+            observed &= np.isfinite(truth[candidate + horizon])
+        for split, (lower, upper) in splits.items():
+            issue_dates = dates[candidate]
+            inside = (
+                (issue_dates >= lower)
+                & (issue_dates <= upper)
+                & (issue_dates + pd.Timedelta(days=7) <= upper)
+            )
+            selected = candidate[observed & np.asarray(inside)]
+            if split == "train":
+                train_examples += len(selected)
+            target_frames = train_frames if split == "train" else eval_frames
+            for horizon in horizons:
+                target_frames.append(pd.DataFrame({
+                    "split": split,
+                    "site_id": site_no,
+                    "horizon": horizon,
+                    "issue_date": dates[selected].to_numpy(),
+                    "target_date": dates[selected + horizon].to_numpy(),
+                    "y_true": truth[selected + horizon],
+                }))
+    evaluation = pd.concat(eval_frames, ignore_index=True).sort_values(
+        _STAGE09B_KEY_COLUMNS, kind="mergesort"
+    ).reset_index(drop=True)
+    training = pd.concat(train_frames, ignore_index=True).sort_values(
+        _STAGE09B_KEY_COLUMNS, kind="mergesort"
+    ).reset_index(drop=True)
+    stations = tuple(sorted(registry["site_no"].astype(str)))
+    if (
+        len(stations) != 120
+        or len(training) != train_examples * len(horizons)
+        or set(evaluation["split"]) != {"val", "calib", "test"}
+        or set(evaluation["site_id"]) != set(stations)
+        or set(training["site_id"]) != set(stations)
+    ):
+        raise ValueError("Stage-09b reconstructed window registry is incomplete")
+    return (
+        evaluation,
+        train_examples,
+        _stage09b_window_registry_digest(evaluation),
+        _stage09b_window_registry_digest(training),
+        stations,
+    )
 
 
 def _stage09b_prediction_content_digest(frame: Any) -> str:
@@ -1571,12 +2006,70 @@ def _normalise_stage09b_release_prediction(
                 reference[_STAGE09B_KEY_COLUMNS]
             )
             or not np.array_equal(
-                output["y_true"].to_numpy(dtype="<f8"),
-                reference["y_true"].to_numpy(dtype="<f8"),
+                output["y_true"].to_numpy(dtype="<f4"),
+                reference["y_true"].to_numpy(dtype="<f4"),
             )
         ):
             raise ValueError("Stage-09b member forecast registry/truth changed")
+        output["y_true"] = reference["y_true"].to_numpy(dtype="float64")
     return output
+
+
+def _stage09b_validate_combined_stream(
+    combined_path: Path,
+    member_paths: Mapping[tuple[str, int], Path],
+) -> int:
+    """Compare combined/member Parquet values in bounded Arrow batches."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    combined_file = pq.ParquetFile(combined_path)
+    if combined_file.schema_arrow.names != _STAGE09B_PREDICTION_COLUMNS:
+        raise ValueError("Stage-09b combined prediction schema changed")
+    combined_iterator = iter(combined_file.iter_batches(
+        columns=_STAGE09B_PREDICTION_COLUMNS, batch_size=65_536,
+    ))
+    current: Any | None = None
+    current_offset = 0
+    total = 0
+
+    def take(rows: int) -> Any:
+        nonlocal current, current_offset
+        pieces: list[Any] = []
+        remaining = rows
+        while remaining:
+            if current is None or current_offset == current.num_rows:
+                try:
+                    current = next(combined_iterator)
+                except StopIteration as exc:
+                    raise ValueError("Stage-09b combined predictions end early") from exc
+                current_offset = 0
+            count = min(remaining, current.num_rows - current_offset)
+            pieces.append(current.slice(current_offset, count))
+            current_offset += count
+            remaining -= count
+        return pa.Table.from_batches(pieces).combine_chunks()
+
+    for member in _stage09b_release_members():
+        path = member_paths[member]
+        member_file = pq.ParquetFile(path)
+        if member_file.schema_arrow.names != _STAGE09B_PREDICTION_COLUMNS:
+            raise ValueError("Stage-09b member prediction schema changed")
+        for batch in member_file.iter_batches(
+            columns=_STAGE09B_PREDICTION_COLUMNS, batch_size=65_536,
+        ):
+            expected = pa.Table.from_batches([batch]).combine_chunks()
+            observed = take(batch.num_rows)
+            if not observed.equals(expected, check_metadata=False):
+                raise ValueError("Stage-09b combined/member prediction columns differ")
+            total += batch.num_rows
+    if current is not None and current_offset < current.num_rows:
+        raise ValueError("Stage-09b combined predictions contain extra rows")
+    try:
+        next(combined_iterator)
+    except StopIteration:
+        return total
+    raise ValueError("Stage-09b combined predictions contain extra rows")
 
 
 def _stage09b_recompute_summary(frames: Mapping[tuple[str, int], Any]) -> Any:
@@ -1655,9 +2148,10 @@ def _stage09b_expected_report(
 
 Run ID: `{run_id}`
 
-Status: **COMPLETE PREDICTION-ARTIFACT CLOSURE**. This verifies the stored
-prediction matrix and derived artifacts; it is not a checkpoint-backed training
-replay and is not part of the sealed confirmatory model suite.
+Status: **COMPLETE BEST-MODEL-STATE PREDICTION REPLAY**. Every stored prediction
+member is reproduced from the safely loaded checkpoint `best_model_state` and
+derived artifacts are regenerated. This is not optimiser-step/trajectory replay
+and is not part of the sealed confirmatory model suite.
 
 > 2019-2020 outcomes were already inspected during development; this is exploratory development evidence, not a blind or confirmatory test.
 
@@ -1696,10 +2190,32 @@ already-inspected 2019--2020 development partition, never a blind test.
 ## Interpretation boundary
 
 These artifacts diagnose architecture and cumulative feature contribution on
-historical development data. They do not prove that the declared training was
-replayed, and cannot establish prospective, operational, causal, safety, or
-confirmatory performance. They do not modify the frozen Route-A suite pointer.
+historical development data. They verify best-state prediction replay, not the
+full training trajectory, and cannot establish prospective, operational, causal,
+safety, or confirmatory performance. They do not modify the frozen Route-A suite
+pointer.
 """.encode("utf-8")
+
+
+def _stage09b_expected_final_extra(
+    audit: Mapping[str, Any], *, role: str,
+) -> dict[str, Any]:
+    """Reconstruct the exact stable metadata written for a Stage-09b output."""
+    return {
+        "format": "thermoroute.development-controls.v2",
+        "artifact_role": role,
+        "expected_members": audit["expected_members"],
+        "prediction_rows": audit["prediction_rows"],
+        "common_forecast_keys_per_member": audit["common_forecast_keys"],
+        "splits": audit["splits"],
+        "reference_member": audit["reference_member"],
+        "development_only": True,
+        "blind_or_confirmatory": False,
+        "suite_pointer_written": False,
+        "evidence_scope": "best_model_state_prediction_replay",
+        "best_model_state_prediction_replay_verified": True,
+        "training_replay_verified": False,
+    }
 
 
 def _validate_preopening_completion_gates(
@@ -1770,6 +2286,7 @@ def _validate_preopening_completion_gates(
     control_keys = {
         "format", "status", "stage", "run_id", "run_identity",
         "formal_configuration", "evidence_scope", "training_replay_verified",
+        "best_model_state_prediction_replay_verified",
         "matrix_audit", "member_registry", "artifacts",
         "post_2020_outcomes_requested_or_read", "receipt_self_sha256",
     }
@@ -1784,12 +2301,14 @@ def _validate_preopening_completion_gates(
     config = controls.get("formal_configuration")
     if (
         set(controls) != control_keys
-        or controls.get("format") != "thermoroute.stage09b-completion-receipt.v2"
-        or controls.get("status") != "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE"
+        or controls.get("format") != "thermoroute.stage09b-completion-receipt.v3"
+        or controls.get("status")
+        != "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY"
         or controls.get("stage") != "09b_development_controls"
         or controls.get("post_2020_outcomes_requested_or_read") is not False
-        or controls.get("evidence_scope") != "prediction_artifact_closure"
+        or controls.get("evidence_scope") != "best_model_state_prediction_replay"
         or controls.get("training_replay_verified") is not False
+        or controls.get("best_model_state_prediction_replay_verified") is not True
         or not isinstance(identity, Mapping)
         or not isinstance(config, Mapping)
         or controls.get("run_id") != identity.get("run_id")
@@ -1798,17 +2317,33 @@ def _validate_preopening_completion_gates(
         != development.get("registry", {}).get("sha256")
         or identity.get("source_sha256") != development.get("source_sha256")
         or identity.get("runtime_sha256") != suite_runtime
-        or config.get("stage") != "09b_development_controls"
-        or config.get("training_device") != "cpu"
-        or config.get("panel_date_range") != ["2006-01-01", "2020-12-31"]
-        or config.get("blind_or_confirmatory") is not False
-        or config.get("suite_pointer_written") is not False
-        or config.get("expected_member_registry")
-        != [[arm, seed] for arm, seed in _stage09b_release_members()]
-        or config.get("development_predictor_bridge")
-        != development.get("predictor_bridge")
     ):
         raise ValueError("authorized Stage-09b completion receipt is stale or malformed")
+    config = _stage09b_formal_configuration(
+        config, expected_bridge=development.get("predictor_bridge")
+    )
+    identity_fields = {
+        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256", "schema_version",
+    }
+    if (
+        set(identity) != identity_fields
+        or identity.get("schema_version") != "thermoroute.run.v1"
+        or identity.get("config_sha256") != _sha256_json(config)
+        or any(
+            not re.fullmatch(r"[0-9a-f]{64}", str(identity.get(field, "")))
+            for field in identity_fields - {"run_id", "schema_version"}
+        )
+        or identity.get("run_id") != _sha256_json({
+            "schema_version": identity["schema_version"],
+            "panel_sha256": identity["panel_sha256"],
+            "registry_sha256": identity["registry_sha256"],
+            "config_sha256": identity["config_sha256"],
+            "source_sha256": identity["source_sha256"],
+            "runtime_sha256": identity["runtime_sha256"],
+        })[:20]
+    ):
+        raise ValueError("authorized Stage-09b run identity is not content addressed")
     _validate_receipt_self_hash(controls, label="Stage-09b receipt")
     artifacts = controls.get("artifacts")
     if not isinstance(artifacts, Mapping) or set(artifacts) != control_artifacts:
@@ -1824,6 +2359,35 @@ def _validate_preopening_completion_gates(
         label: add(binding, label=f"Stage-09b receipt {label}")
         for label, binding in artifacts.items()
     }
+    run_dir = (
+        root / "outputs" / "runs" / "09b_development_controls"
+        / str(identity["run_id"])
+    ).resolve()
+    for candidate in run_dir.rglob("*"):
+        if (
+            (candidate.name.startswith(".") and candidate.name.endswith(".tmp"))
+            or candidate.name.endswith(".recovery-probe")
+        ):
+            raise ValueError("Stage-09b run retains an unbound transaction temp")
+    canonical_final_paths = {
+        "run_manifest": run_dir / "run.json",
+        "frozen_panel_spec": (root / "data_usgs/frozen_panel_v1.json").resolve(),
+        "panel": (root / "data_usgs/panel_usgs_120v2.parquet").resolve(),
+        "registry": (root / "data_usgs/station_registry_v1.csv").resolve(),
+        "predictor_bridge": (
+            root / "data_usgs/development_predictor_bridge_v1.json"
+        ).resolve(),
+        "predictions": run_dir / "development_controls_predictions.parquet",
+        "architecture_budget": run_dir / "development_controls_architecture_budget.csv",
+        "metric_summary": run_dir / "development_controls_metric_summary.csv",
+        "report": run_dir / "development_controls_report.md",
+        "semantic_audit": run_dir / "development_controls_semantic_audit.json",
+    }
+    if any(
+        resolved_artifacts[label].resolve() != expected
+        for label, expected in canonical_final_paths.items()
+    ):
+        raise ValueError("Stage-09b final artifact path is noncanonical")
     for artifact, sidecar in (
         ("predictions", "prediction_sidecar"),
         ("architecture_budget", "architecture_budget_sidecar"),
@@ -1835,39 +2399,65 @@ def _validate_preopening_completion_gates(
             resolved_artifacts[artifact].name + ".meta.json"
         ):
             raise ValueError("Stage-09b final artifact/sidecar alignment changed")
-    for artifact, sidecar, kind in (
+    final_sidecar_specs = (
         (
             "predictions", "prediction_sidecar",
             "development_controls_combined_predictions",
+            "thermoroute.predictions.v1", "combined_predictions",
         ),
         (
             "architecture_budget", "architecture_budget_sidecar",
             "development_controls_budget",
+            "text/csv", "architecture_budget",
         ),
         (
             "metric_summary", "metric_summary_sidecar",
             "development_controls_metric_summary",
+            "text/csv", "metric_summary",
         ),
-        ("report", "report_sidecar", "development_controls_report"),
+        (
+            "report", "report_sidecar", "development_controls_report",
+            "text/markdown", "report",
+        ),
         (
             "semantic_audit", "semantic_audit_sidecar",
             "development_controls_semantic_audit",
+            "application/json", "semantic_audit",
         ),
-    ):
+    )
+    for artifact, sidecar, kind, content_schema, _role in final_sidecar_specs:
         metadata = _load_json(
             resolved_artifacts[sidecar], label=f"Stage-09b {artifact} sidecar"
         )
         extra = metadata.get("extra")
+        try:
+            created = datetime.fromisoformat(str(metadata.get("created_utc")))
+        except ValueError:
+            created = None
         if (
-            metadata.get("kind") != kind
+            set(metadata) != {
+                "schema_version", "kind", "artifact", "artifact_sha256",
+                "artifact_bytes", "content_schema", "run", "parents", "extra",
+                "created_utc",
+            }
+            or metadata.get("schema_version") != "thermoroute.artifact.v1"
+            or metadata.get("kind") != kind
+            or metadata.get("artifact") != resolved_artifacts[artifact].name
             or metadata.get("artifact_sha256") != artifacts[artifact].get("sha256")
+            or metadata.get("artifact_bytes") != resolved_artifacts[artifact].stat().st_size
+            or metadata.get("content_schema") != content_schema
             or metadata.get("run") != identity
+            or created is None
+            or created.tzinfo is None
+            or created.utcoffset() is None
+            or not isinstance(metadata.get("parents"), Mapping)
             or not isinstance(extra, Mapping)
             or extra.get("expected_members") != 31
             or extra.get("development_only") is not True
             or extra.get("blind_or_confirmatory") is not False
-            or extra.get("evidence_scope") != "prediction_artifact_closure"
+            or extra.get("evidence_scope") != "best_model_state_prediction_replay"
             or extra.get("training_replay_verified") is not False
+            or extra.get("best_model_state_prediction_replay_verified") is not True
         ):
             raise ValueError("authorized Stage-09b final sidecar changed")
     run_manifest = _load_json(
@@ -1876,8 +2466,30 @@ def _validate_preopening_completion_gates(
     if (
         run_manifest.get("identity") != identity
         or run_manifest.get("resolved_config") != config
+        or resolved_artifacts["run_manifest"].resolve()
+        != (
+            root / "outputs" / "runs" / "09b_development_controls"
+            / str(identity["run_id"]) / "run.json"
+        ).resolve()
+        or set(run_manifest) != {
+            "schema_version", "identity", "resolved_config", "created_utc",
+            "environment", "git", "provenance",
+        }
+        or run_manifest.get("schema_version") != "thermoroute.run.v1"
     ):
         raise ValueError("Stage-09b run manifest differs from its receipt")
+
+    (
+        canonical_evaluation,
+        canonical_train_examples,
+        canonical_evaluation_sha256,
+        canonical_train_sha256,
+        canonical_sites,
+    ) = _stage09b_rebuild_canonical_windows(
+        resolved_artifacts["panel"],
+        resolved_artifacts["registry"],
+        resolved_artifacts["frozen_panel_spec"],
+    )
 
     audit = controls.get("matrix_audit")
     members = controls.get("member_registry")
@@ -1889,8 +2501,7 @@ def _validate_preopening_completion_gates(
             "splits", "reference_member",
         }
         or audit.get("expected_members") != 31
-        or not isinstance(audit.get("common_forecast_keys"), int)
-        or audit["common_forecast_keys"] < 1
+        or audit.get("common_forecast_keys") != len(canonical_evaluation)
         or audit.get("prediction_rows") != 31 * audit["common_forecast_keys"]
         or audit.get("splits") != ["calib", "test", "val"]
         or audit.get("reference_member") != "PlainMLP-7var/seed0"
@@ -1900,9 +2511,15 @@ def _validate_preopening_completion_gates(
         raise ValueError("authorized Stage-09b matrix audit is incomplete")
     observed: list[tuple[str, int]] = []
     member_prediction_paths: dict[tuple[str, int], Path] = {}
+    member_checkpoint_paths: dict[tuple[str, int], Path] = {}
+    member_checkpoint_sidecars: dict[tuple[str, int], Path] = {}
+    arm_documents = {
+        str(arm["arm_id"]): dict(arm) for arm in config["arms"]
+    }
     for entry in members:
         if not isinstance(entry, Mapping) or set(entry) != {
-            "arm_id", "seed", "prediction", "prediction_sidecar",
+            "arm_id", "seed", "checkpoint", "checkpoint_sidecar",
+            "prediction", "prediction_sidecar",
         }:
             raise ValueError("authorized Stage-09b member binding is malformed")
         arm_id, seed = entry.get("arm_id"), entry.get("seed")
@@ -1919,8 +2536,78 @@ def _validate_preopening_completion_gates(
         )
         if member_sidecar != prediction.with_name(prediction.name + ".meta.json"):
             raise ValueError("authorized Stage-09b member sidecar path changed")
+        checkpoint = add(
+            entry["checkpoint"], label=f"Stage-09b {arm_id}/seed{seed} checkpoint"
+        )
+        checkpoint_sidecar = add(
+            entry["checkpoint_sidecar"],
+            label=f"Stage-09b {arm_id}/seed{seed} checkpoint sidecar",
+        )
+        expected_member_root = run_dir / "arm_predictions" / arm_id
+        expected_checkpoint_root = run_dir / "checkpoints" / arm_id
+        if (
+            prediction.resolve() != (expected_member_root / f"seed{seed}.parquet").resolve()
+            or checkpoint.resolve() != (expected_checkpoint_root / f"seed{seed}.pt").resolve()
+            or checkpoint_sidecar.resolve()
+            != checkpoint.with_name(checkpoint.name + ".meta.json").resolve()
+        ):
+            raise ValueError("authorized Stage-09b member/checkpoint path changed")
+        member_checkpoint_paths[(arm_id, seed)] = checkpoint
+        member_checkpoint_sidecars[(arm_id, seed)] = checkpoint_sidecar
+        checkpoint_metadata = _load_json(
+            checkpoint_sidecar, label="Stage-09b checkpoint sidecar"
+        )
+        arm_config = {
+            **config,
+            "arm": arm_documents[arm_id],
+            "seed": seed,
+            "trainable_parameters": config["parameter_counts"][arm_id],
+        }
+        expected_model_class = {
+            "PlainMLP": "thermoroute.neural_baselines.PlainMLPForecaster",
+            "PlainCausalTCN": "thermoroute.neural_baselines.PlainCausalTCNForecaster",
+            "ThermoRoute": "thermoroute.thermoroute.ThermoRoute",
+        }[str(arm_documents[arm_id]["family"])]
+        if (
+            set(checkpoint_metadata) != {
+                "format", "checkpoint_format", "run_id", "epoch",
+                "checkpoint_bytes", "checkpoint_sha256",
+                "resolved_config_sha256", "extra_sha256", "model_class",
+                "optimizer_class", "scheduler_class", "scheduler_present",
+            }
+            or checkpoint_metadata.get("format")
+            != "thermoroute.training-checkpoint-metadata.v2"
+            or checkpoint_metadata.get("checkpoint_format")
+            != "thermoroute.training-checkpoint.v3"
+            or checkpoint_metadata.get("run_id") != identity["run_id"]
+            or type(checkpoint_metadata.get("epoch")) is not int
+            or checkpoint_metadata["epoch"] < 0
+            or checkpoint_metadata.get("checkpoint_bytes") != checkpoint.stat().st_size
+            or checkpoint_metadata.get("checkpoint_sha256") != sha256_file(checkpoint)
+            or checkpoint_metadata.get("checkpoint_sha256")
+            != entry["checkpoint"].get("sha256")
+            or checkpoint_metadata.get("resolved_config_sha256")
+            != _sha256_json(arm_config)
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(checkpoint_metadata.get("extra_sha256", ""))
+            )
+            or checkpoint_metadata.get("model_class") != expected_model_class
+            or checkpoint_metadata.get("optimizer_class") != "torch.optim.adamw.AdamW"
+            or checkpoint_metadata.get("scheduler_class")
+            != "torch.optim.lr_scheduler.ReduceLROnPlateau"
+            or checkpoint_metadata.get("scheduler_present") is not True
+        ):
+            raise ValueError("authorized Stage-09b checkpoint metadata changed")
         metadata = _load_json(member_sidecar, label="Stage-09b member sidecar")
         extra = metadata.get("extra")
+        expected_parents = {
+            "frozen_panel": identity["panel_sha256"],
+            "frozen_station_registry": identity["registry_sha256"],
+            "development_predictor_bridge": artifacts["predictor_bridge"]["sha256"],
+            "training_checkpoint": entry["checkpoint"]["sha256"],
+            "training_checkpoint_sidecar": entry["checkpoint_sidecar"]["sha256"],
+        }
+        training_summary = extra.get("training_summary") if isinstance(extra, Mapping) else None
         if (
             metadata.get("kind") != "development_control_arm_predictions"
             or metadata.get("artifact_sha256") != entry["prediction"].get("sha256")
@@ -1931,10 +2618,58 @@ def _validate_preopening_completion_gates(
             or extra.get("training_device") != "cpu"
             or extra.get("development_only") is not True
             or extra.get("blind_or_confirmatory") is not False
+            or extra.get("eval_batch_size") != config["eval_batch_size"]
+            or metadata.get("parents") != dict(sorted(expected_parents.items()))
+            or not isinstance(training_summary, Mapping)
+            or set(training_summary) != {
+                "best_validation_metric", "selected_epoch", "checkpoint_final_epoch",
+            }
+            or type(training_summary.get("best_validation_metric")) not in {int, float}
+            or not math.isfinite(float(training_summary["best_validation_metric"]))
+            or float(training_summary["best_validation_metric"]) < 0.0
+            or type(training_summary.get("selected_epoch")) is not int
+            or training_summary["selected_epoch"] < 0
+            or training_summary.get("checkpoint_final_epoch")
+            != checkpoint_metadata["epoch"]
+            or training_summary["selected_epoch"] > checkpoint_metadata["epoch"]
         ):
             raise ValueError("authorized Stage-09b member sidecar changed")
     if tuple(observed) != expected_members:
         raise ValueError("authorized Stage-09b receipt does not bind exactly 31 members")
+
+    expected_final_parents = {
+        "frozen_panel": identity["panel_sha256"],
+        "frozen_station_registry": identity["registry_sha256"],
+        "development_predictor_bridge": artifacts["predictor_bridge"]["sha256"],
+        **{
+            f"arm::{entry['arm_id']}::seed{entry['seed']}::prediction": (
+                entry["prediction"]["sha256"]
+            )
+            for entry in members
+        },
+        **{
+            f"arm::{entry['arm_id']}::seed{entry['seed']}::checkpoint": (
+                entry["checkpoint"]["sha256"]
+            )
+            for entry in members
+        },
+        **{
+            f"arm::{entry['arm_id']}::seed{entry['seed']}::checkpoint_sidecar": (
+                entry["checkpoint_sidecar"]["sha256"]
+            )
+            for entry in members
+        },
+    }
+    for artifact, sidecar, _kind, _content_schema, role in final_sidecar_specs:
+        metadata = _load_json(
+            resolved_artifacts[sidecar], label=f"Stage-09b {artifact} sidecar"
+        )
+        if (
+            metadata.get("parents") != dict(sorted(expected_final_parents.items()))
+            or metadata.get("extra")
+            != _stage09b_expected_final_extra(audit, role=role)
+        ):
+            raise ValueError("authorized Stage-09b final parent closure changed")
 
     try:
         import pandas as pd
@@ -1950,9 +2685,8 @@ def _validate_preopening_completion_gates(
                 )
             },
         }
-        normalised_frames: dict[tuple[str, int], Any] = {}
         member_digests: dict[tuple[str, int], str] = {}
-        reference = None
+        summary_frames: list[Any] = []
         for member in expected_members:
             frame = pd.read_parquet(member_prediction_paths[member])
             normalised = _normalise_stage09b_release_prediction(
@@ -1960,46 +2694,25 @@ def _validate_preopening_completion_gates(
                 arm_id=member[0],
                 seed=member[1],
                 feature_set=features[member[0]],
-                reference=reference,
+                reference=canonical_evaluation,
             )
-            if reference is None:
-                reference = normalised
-            normalised_frames[member] = normalised
             member_digests[member] = _stage09b_prediction_content_digest(normalised)
-        recomputed_summary = _stage09b_recompute_summary(normalised_frames)
+            summary_frames.append(_stage09b_recompute_summary({member: normalised}))
+            del frame, normalised
+        recomputed_summary = pd.concat(summary_frames, ignore_index=True).sort_values(
+            ["arm_id", "seed", "split", "horizon"], kind="mergesort"
+        ).reset_index(drop=True)
         expected_summary_bytes = recomputed_summary.to_csv(
             index=False, float_format="%.17g", lineterminator="\n"
         ).encode("utf-8")
         if resolved_artifacts["metric_summary"].read_bytes() != expected_summary_bytes:
             raise ValueError("Stage-09b metric summary is not prediction-derived")
 
-        combined = pd.read_parquet(resolved_artifacts["predictions"])
-        if list(combined.columns) != _STAGE09B_PREDICTION_COLUMNS:
-            raise ValueError("Stage-09b combined prediction schema changed")
-        combined_members = [
-            (str(model), int(seed))
-            for model, seed in combined[["model", "seed"]]
-            .drop_duplicates(keep="first")
-            .itertuples(index=False, name=None)
-        ]
-        if tuple(combined_members) != expected_members:
-            raise ValueError("Stage-09b combined prediction member order changed")
-        if len(combined) != audit["prediction_rows"]:
+        combined_rows = _stage09b_validate_combined_stream(
+            resolved_artifacts["predictions"], member_prediction_paths,
+        )
+        if combined_rows != audit["prediction_rows"]:
             raise ValueError("Stage-09b combined prediction row count changed")
-        for member in expected_members:
-            selected = combined.loc[
-                combined["model"].astype(str).eq(member[0])
-                & pd.to_numeric(combined["seed"], errors="raise").eq(member[1])
-            ]
-            normalised = _normalise_stage09b_release_prediction(
-                selected,
-                arm_id=member[0],
-                seed=member[1],
-                feature_set=features[member[0]],
-                reference=reference,
-            )
-            if _stage09b_prediction_content_digest(normalised) != member_digests[member]:
-                raise ValueError("Stage-09b combined/member prediction columns differ")
     except ValueError:
         raise
     except Exception as exc:
@@ -2040,14 +2753,27 @@ def _validate_preopening_completion_gates(
     train_example_values = {
         int(row.get("train_examples_per_epoch", "-1")) for row in rows
     }
+    expected_arm_rows = {
+        str(arm["arm_id"]): arm for arm in config["arms"]
+    }
     if (
         not rows
         or tuple(rows[0]) != budget_columns
         or [row.get("arm_id") for row in rows] != list(expected_parameters)
-        or len(train_example_values) != 1
-        or next(iter(train_example_values), -1) < 1
+        or train_example_values != {canonical_train_examples}
         or any(
-            int(row.get("trainable_parameters", "-1")) != expected_parameters[row["arm_id"]]
+            row.get("family") != expected_arm_rows[row["arm_id"]]["family"]
+            or row.get("feature_set") != expected_arm_rows[row["arm_id"]]["feature_set"]
+            or row.get("variables")
+            != "+".join(expected_arm_rows[row["arm_id"]]["variables"])
+            or int(row.get("variable_count", "-1"))
+            != len(expected_arm_rows[row["arm_id"]]["variables"])
+            or int(row.get("seed_count", "-1"))
+            != len(expected_arm_rows[row["arm_id"]]["seeds"])
+            or row.get("seeds")
+            != ",".join(str(seed) for seed in expected_arm_rows[row["arm_id"]]["seeds"])
+            or int(row.get("trainable_parameters", "-1"))
+            != expected_parameters[row["arm_id"]]
             or int(row.get("thermoroute_full_reference_parameters", "-1")) != 38_505
             or int(row.get("parameter_difference_from_full_thermoroute", "-999999"))
             != expected_parameters[row["arm_id"]] - 38_505
@@ -2071,7 +2797,20 @@ def _validate_preopening_completion_gates(
             or int(row.get("maximum_optimizer_steps_per_seed", "-1"))
             != math.ceil(int(row["train_examples_per_epoch"]) / 1536) * 80
             or int(row.get("architecture_candidates_in_this_entrypoint", "-1")) != 1
-            or not isinstance(json.loads(row.get("architecture_configuration", "null")), dict)
+            or json.loads(row.get("architecture_configuration", "null"))
+            != config["architecture_templates"][row["arm_id"]]
+            or row.get("mlp_hidden_dim")
+            != ("70" if row["arm_id"] == "PlainMLP-7var" else "")
+            or row.get("mlp_depth")
+            != ("2" if row["arm_id"] == "PlainMLP-7var" else "")
+            or row.get("tcn_channels")
+            != ("54" if row["arm_id"] == "PlainCausalTCN-7var" else "")
+            or row.get("tcn_blocks")
+            != ("4" if row["arm_id"] == "PlainCausalTCN-7var" else "")
+            or row.get("tcn_kernel_size")
+            != ("3" if row["arm_id"] == "PlainCausalTCN-7var" else "")
+            or row.get("thermoroute_d_model")
+            != ("40" if row["arm_id"].startswith("ThermoRoute-") else "")
             or row.get("training_device") != "cpu"
             or row.get("historical_tuning_budget_equalized") != "False"
             or row.get("evidence_role") != "development_only_exploratory"
@@ -2129,12 +2868,22 @@ def _validate_preopening_completion_gates(
     derived = semantic.get("derived_artifacts")
     canonical_window = semantic.get("canonical_window_registry")
     if (
-        semantic.get("format")
-        != "thermoroute.development-controls-semantic-audit.v1"
-        or semantic.get("status") != "PASS_PREDICTION_ARTIFACT_CLOSURE"
+        set(semantic) != {
+            "format", "status", "run_id", "evidence_scope",
+            "training_replay_verified",
+            "best_model_state_prediction_replay_verified",
+            "post_2020_outcomes_requested_or_read", "matrix_audit",
+            "canonical_window_registry", "members", "derived_artifacts",
+            "semantic_audit_self_sha256",
+        }
+        or semantic.get("format")
+        != "thermoroute.development-controls-semantic-audit.v2"
+        or semantic.get("status")
+        != "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY"
         or semantic.get("run_id") != controls.get("run_id")
-        or semantic.get("evidence_scope") != "prediction_artifact_closure"
+        or semantic.get("evidence_scope") != "best_model_state_prediction_replay"
         or semantic.get("training_replay_verified") is not False
+        or semantic.get("best_model_state_prediction_replay_verified") is not True
         or semantic.get("post_2020_outcomes_requested_or_read") is not False
         or semantic.get("matrix_audit") != audit
         or semantic_self != _sha256_json(semantic_stable)
@@ -2146,15 +2895,12 @@ def _validate_preopening_completion_gates(
             "sha256", "common_forecast_keys", "train_examples_per_epoch",
             "train_registry_sha256",
         }
-        or not re.fullmatch(r"[0-9a-f]{64}", str(canonical_window.get("sha256", "")))
-        or not re.fullmatch(
-            r"[0-9a-f]{64}",
-            str(canonical_window.get("train_registry_sha256", "")),
-        )
+        or canonical_window.get("sha256") != canonical_evaluation_sha256
+        or canonical_window.get("train_registry_sha256") != canonical_train_sha256
         or canonical_window.get("common_forecast_keys")
         != audit["common_forecast_keys"]
         or canonical_window.get("train_examples_per_epoch")
-        != next(iter(train_example_values))
+        != canonical_train_examples
         or not isinstance(derived, Mapping)
         or set(derived) != {
             "architecture_budget", "combined_predictions", "metric_summary", "report"
@@ -2170,6 +2916,12 @@ def _validate_preopening_completion_gates(
         )
         if (
             not isinstance(semantic_member, Mapping)
+            or set(semantic_member) != {
+                "arm_id", "seed", "checkpoint", "checkpoint_sidecar",
+                "prediction", "prediction_sidecar",
+                "normalised_prediction_sha256",
+                "best_model_state_prediction_replay_verified",
+            }
             or semantic_member.get("arm_id") != receipt_member.get("arm_id")
             or semantic_member.get("seed") != receipt_member.get("seed")
             or semantic_member.get("prediction", {}).get("sha256")
@@ -2180,6 +2932,15 @@ def _validate_preopening_completion_gates(
             != prediction_path.stat().st_size
             or semantic_member.get("prediction_sidecar", {}).get("bytes")
             != prediction_sidecar_path.stat().st_size
+            or semantic_member.get("checkpoint", {}).get("sha256")
+            != receipt_member.get("checkpoint", {}).get("sha256")
+            or semantic_member.get("checkpoint_sidecar", {}).get("sha256")
+            != receipt_member.get("checkpoint_sidecar", {}).get("sha256")
+            or semantic_member.get("checkpoint", {}).get("bytes")
+            != member_checkpoint_paths[member].stat().st_size
+            or semantic_member.get("checkpoint_sidecar", {}).get("bytes")
+            != member_checkpoint_sidecars[member].stat().st_size
+            or semantic_member.get("best_model_state_prediction_replay_verified") is not True
             or semantic_member.get("normalised_prediction_sha256")
             != member_digests[member]
         ):
@@ -4120,8 +4881,8 @@ def _git_preopening_gate_dependency_paths(
         ),
         "stage09b_development_controls": (
             "outputs/models/route_a_stage09b_completion.json",
-            "thermoroute.stage09b-completion-receipt.v2",
-            "PASS_STAGE09B_PREDICTION_ARTIFACT_CLOSURE",
+            "thermoroute.stage09b-completion-receipt.v3",
+            "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         ),
     }
     if not isinstance(gates, Mapping) or set(gates) != set(expected_gates):
@@ -4189,10 +4950,23 @@ def _git_preopening_gate_dependency_paths(
                 "format", "status", "stage", "run_id", "run_identity",
                 "formal_configuration", "evidence_scope",
                 "training_replay_verified", "matrix_audit", "member_registry",
+                "best_model_state_prediction_replay_verified",
                 "artifacts", "post_2020_outcomes_requested_or_read",
                 "receipt_self_sha256",
             }
-            run_dir = f"outputs/runs/09b_development_controls/{run_id}"
+        run_dir = f"outputs/runs/09b_development_controls/{run_id}"
+        run_tree = _run_git(
+            bare, "ls-tree", "-r", "--name-only", commit, "--", run_dir,
+        )
+        if run_tree.returncode:
+            raise ValueError("cannot enumerate Git Stage-09b run directory")
+        for raw_path in run_tree.stdout.decode("utf-8").splitlines():
+            name = PurePosixPath(raw_path).name
+            if (
+                (name.startswith(".") and name.endswith(".tmp"))
+                or name.endswith(".recovery-probe")
+            ):
+                raise ValueError("Git Stage-09b run retains an unbound transaction temp")
             expected_artifact_paths = {
                 "run_manifest": f"{run_dir}/run.json",
                 "frozen_panel_spec": "data_usgs/frozen_panel_v1.json",
@@ -4235,8 +5009,10 @@ def _git_preopening_gate_dependency_paths(
             if (
                 set(receipt) != expected_receipt_keys
                 or receipt.get("stage") != "09b_development_controls"
-                or receipt.get("evidence_scope") != "prediction_artifact_closure"
+                or receipt.get("evidence_scope")
+                != "best_model_state_prediction_replay"
                 or receipt.get("training_replay_verified") is not False
+                or receipt.get("best_model_state_prediction_replay_verified") is not True
                 or receipt.get("post_2020_outcomes_requested_or_read") is not False
                 or not isinstance(receipt.get("run_identity"), Mapping)
                 or not isinstance(receipt.get("formal_configuration"), Mapping)
@@ -4286,13 +5062,17 @@ def _git_preopening_gate_dependency_paths(
         if not isinstance(members, list) or len(members) != len(expected_members):
             raise ValueError("Git Stage-09b member registry changed")
         member_descriptors: dict[
-            tuple[str, int], tuple[dict[str, object], dict[str, object]]
+            tuple[str, int], tuple[
+                dict[str, object], dict[str, object],
+                dict[str, object], dict[str, object],
+            ]
         ] = {}
         for member, (arm_id, seed) in zip(members, expected_members):
             if (
                 not isinstance(member, Mapping)
                 or set(member) != {
-                    "arm_id", "seed", "prediction", "prediction_sidecar"
+                    "arm_id", "seed", "checkpoint", "checkpoint_sidecar",
+                    "prediction", "prediction_sidecar",
                 }
                 or (member.get("arm_id"), member.get("seed")) != (arm_id, seed)
             ):
@@ -4300,10 +5080,13 @@ def _git_preopening_gate_dependency_paths(
             expected_prediction = (
                 f"{run_dir}/arm_predictions/{arm_id}/seed{seed}.parquet"
             )
+            expected_checkpoint = f"{run_dir}/checkpoints/{arm_id}/seed{seed}.pt"
             member_output: list[tuple[str, dict[str, object]]] = []
             for label, expected_path in (
                 ("prediction", expected_prediction),
                 ("prediction_sidecar", f"{expected_prediction}.meta.json"),
+                ("checkpoint", expected_checkpoint),
+                ("checkpoint_sidecar", f"{expected_checkpoint}.meta.json"),
             ):
                 binding = member[label]
                 if not isinstance(binding, Mapping) or set(binding) != {
@@ -4325,7 +5108,8 @@ def _git_preopening_gate_dependency_paths(
                     "bytes": len(blob.stdout),
                 }))
             member_descriptors[(arm_id, seed)] = (
-                member_output[0][1], member_output[1][1]
+                member_output[0][1], member_output[1][1],
+                member_output[2][1], member_output[3][1],
             )
         semantic_path = resolved.get("semantic_audit")
         if semantic_path is None:
@@ -4338,17 +5122,21 @@ def _git_preopening_gate_dependency_paths(
         expected_semantic_keys = {
             "format", "status", "run_id", "evidence_scope",
             "training_replay_verified", "post_2020_outcomes_requested_or_read",
+            "best_model_state_prediction_replay_verified",
             "matrix_audit", "canonical_window_registry", "members",
             "derived_artifacts", "semantic_audit_self_sha256",
         }
         if (
             set(semantic) != expected_semantic_keys
             or semantic.get("format")
-            != "thermoroute.development-controls-semantic-audit.v1"
-            or semantic.get("status") != "PASS_PREDICTION_ARTIFACT_CLOSURE"
+            != "thermoroute.development-controls-semantic-audit.v2"
+            or semantic.get("status")
+            != "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY"
             or semantic.get("run_id") != run_id
-            or semantic.get("evidence_scope") != "prediction_artifact_closure"
+            or semantic.get("evidence_scope")
+            != "best_model_state_prediction_replay"
             or semantic.get("training_replay_verified") is not False
+            or semantic.get("best_model_state_prediction_replay_verified") is not True
             or semantic.get("post_2020_outcomes_requested_or_read") is not False
             or semantic.get("matrix_audit") != receipt.get("matrix_audit")
             or semantic_hash != _sha256_json(stable_semantic)
@@ -4381,18 +5169,24 @@ def _git_preopening_gate_dependency_paths(
             digest = row.get("normalised_prediction_sha256") if isinstance(
                 row, Mapping
             ) else None
-            prediction_descriptor, sidecar_descriptor = member_descriptors[
-                expected_member
-            ]
+            (
+                prediction_descriptor, sidecar_descriptor,
+                checkpoint_descriptor, checkpoint_sidecar_descriptor,
+            ) = member_descriptors[expected_member]
             if (
                 not isinstance(row, Mapping)
                 or set(row) != {
                     "arm_id", "seed", "prediction", "prediction_sidecar",
                     "normalised_prediction_sha256",
+                    "checkpoint", "checkpoint_sidecar",
+                    "best_model_state_prediction_replay_verified",
                 }
                 or (row.get("arm_id"), row.get("seed")) != expected_member
                 or row.get("prediction") != prediction_descriptor
                 or row.get("prediction_sidecar") != sidecar_descriptor
+                or row.get("checkpoint") != checkpoint_descriptor
+                or row.get("checkpoint_sidecar") != checkpoint_sidecar_descriptor
+                or row.get("best_model_state_prediction_replay_verified") is not True
                 or not re.fullmatch(r"[0-9a-f]{64}", str(digest or ""))
             ):
                 raise ValueError("Git Stage-09b semantic member evidence changed")
@@ -4492,7 +5286,13 @@ def _reconstruct_model_dependency_paths(
             )
             output.add(relative)
             if field == "raw_snapshot_indexes":
-                output |= _snapshot_dependency_paths(bare, commit, relative)
+                if PurePosixPath(relative).name != "snapshot_index_v2.json":
+                    raise ValueError(
+                        "Git development bridge lacks metadata-byte-bound raw index v2"
+                    )
+                output |= _snapshot_dependency_paths(
+                    bare, commit, relative, require_metadata_binding=True,
+                )
     for field in ("report", "request_map"):
         output.add(
             _git_declared_binding_path(
@@ -4645,16 +5445,41 @@ def _reconstruct_model_dependency_paths(
 
 
 def _snapshot_dependency_paths(
-    bare: Path, commit: str, index_path: str
+    bare: Path, commit: str, index_path: str, *,
+    require_metadata_binding: bool = False,
 ) -> set[str]:
     index = _git_json_document(bare, commit, index_path, label="snapshot index")
     records = index.get("records")
-    if not isinstance(records, list) or not records:
+    if (
+        not isinstance(records, list) or not records
+        or (
+            require_metadata_binding
+            and (
+                set(index) != {"schema_version", "snapshot_count", "records"}
+                or index.get("schema_version") != 2
+                or type(index.get("snapshot_count")) is not int
+                or index["snapshot_count"] != len(records)
+            )
+        )
+    ):
         raise ValueError(f"Git snapshot index is empty or malformed: {index_path}")
     output: set[str] = set()
     for record in records:
         if not isinstance(record, Mapping):
             raise ValueError("Git snapshot-index record is malformed")
+        if require_metadata_binding and (
+            set(record) != {
+                "provider", "request_sha256", "response_sha256",
+                "metadata_sha256", "metadata_byte_count", "retrieved_at_utc",
+                "byte_count", "request", "metadata_path", "response_path",
+            }
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(record.get("metadata_sha256", ""))
+            )
+            or type(record.get("metadata_byte_count")) is not int
+            or record["metadata_byte_count"] < 1
+        ):
+            raise ValueError("Git snapshot-index metadata binding is malformed")
         for field in ("metadata_path", "response_path"):
             raw = _normalise_git_relative(
                 record.get(field), label=f"snapshot {field}"
@@ -4664,12 +5489,19 @@ def _snapshot_dependency_paths(
             blob = _run_git(bare, "cat-file", "-e", f"{commit}:{relative}")
             if blob.returncode:
                 raise ValueError(f"Git snapshot dependency is absent: {relative}")
-            if field == "response_path" and isinstance(
-                record.get("response_sha256"), str
-            ):
+            expected_sha = (
+                record.get("response_sha256")
+                if field == "response_path" else record.get("metadata_sha256")
+            )
+            if isinstance(expected_sha, str):
                 payload = _run_git(bare, "show", f"{commit}:{relative}")
-                if hashlib.sha256(payload.stdout).hexdigest() != record["response_sha256"]:
-                    raise ValueError("Git snapshot response SHA-256 changed")
+                if hashlib.sha256(payload.stdout).hexdigest() != expected_sha:
+                    raise ValueError(f"Git snapshot {field} SHA-256 changed")
+                expected_bytes = record.get(
+                    "byte_count" if field == "response_path" else "metadata_byte_count"
+                )
+                if require_metadata_binding and len(payload.stdout) != expected_bytes:
+                    raise ValueError(f"Git snapshot {field} byte count changed")
             output.add(relative)
     return output
 

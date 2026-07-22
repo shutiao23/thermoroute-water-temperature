@@ -416,6 +416,7 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
             # optimizer tensors to the model device; RNG byte tensors must stay
             # on CPU for torch.set_rng_state.
             map_location="cpu",
+            recover_missing_sidecar=True,
         )
         start_epoch = resumed.epoch + 1
         best_epoch = resumed.best_epoch
@@ -504,16 +505,21 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    pred = _export_predictions(
+    pred = export_predictions(
         model, wd, thresholds, device_obj, model_name, scope, feature_set, seed,
         batch_size=eval_batch_size, splits=export_splits,
     )
     return FitResult(model, pred, best_val, best_epoch)
 
 
-def _export_predictions(model, wd, thresholds, device, model_name, scope,
-                        feature_set, seed, batch_size: int = 4096,
-                        splits: tuple[str, ...] = ("val", "calib", "test")) -> pd.DataFrame:
+def export_predictions(model, wd, thresholds, device, model_name, scope,
+                       feature_set, seed, batch_size: int = 4096,
+                       splits: tuple[str, ...] = ("val", "calib", "test")) -> pd.DataFrame:
+    """Export deterministic predictions from the model's currently loaded state.
+
+    This public helper is also used by the Stage-09b verifier after loading a
+    checkpoint's ``best_model_state``.  It does not replay optimiser steps.
+    """
     model.eval()
     frames = []
     for split in splits:
@@ -542,3 +548,8 @@ def _export_predictions(model, wd, thresholds, device, model_name, scope,
                     q05=q05[:, hi], q50=q50[:, hi], q95=q95[:, hi],
                     p_exceed=pexc[:, hi]))
     return pd.concat(frames, ignore_index=True) if frames else R.empty_predictions()
+
+
+# Compatibility for older internal callers; new verification code uses the
+# public name above so the scientific claim is explicit.
+_export_predictions = export_predictions
