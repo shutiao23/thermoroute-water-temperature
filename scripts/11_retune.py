@@ -3,12 +3,15 @@
 
 On the 3-station data the residual was clamped tight (±0.4 °C) for stability; on
 the large sample with forecast headroom a looser clamp may let ThermoRoute add
-skill at 3–7 days. This script trains one seed per delta_scale and reports
-median per-station RMSE on the **validation split (2016–2017) only**. The blind-
-test years (2019–2020) are never read here — the chosen value is then committed
-to ``config.TrainConfig`` and propagated to the headline experiments.
+skill at 3–7 days. This development diagnostic trains one requested seed per
+delta_scale and reports
+median per-station RMSE on the **validation split (2016–2017) only**. The
+2019–2020 outcomes have already informed this project and form an exploratory
+development evaluation.  Those rows are excluded from this tuning calculation;
+the chosen value can inform development. It is not the formal Route-A model
+freeze and does not by itself establish a symmetric multi-seed selection.
 
-Selection rule (fixed before running the sweep): choose the delta_scale that
+Within one invocation, the reporting rule is to choose the delta_scale that
 minimises the unweighted mean over horizons (1, 3, 7 d) of the median
 per-station validation RMSE.
 
@@ -27,7 +30,6 @@ Parallel workers (one per subset of scales, WORKER_THREADS threads each):
 from __future__ import annotations
 
 import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ["OMP_NUM_THREADS"] = os.environ.get(
     "WORKER_THREADS", os.environ.get("OMP_NUM_THREADS", "8"))
 
@@ -65,7 +67,12 @@ _t0 = time.time()
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scales", nargs="*", type=float, default=[0.4, 1.0, 1.5, 2.0])
-    ap.add_argument("--panel", default=str(ROOT / "data_usgs" / "panel_usgs_100.parquet"))
+    ap.add_argument(
+        "--panel",
+        default=os.environ.get(
+            "USGS_PANEL", str(ROOT / "data_usgs" / "panel_usgs_120v2.parquet")),
+        help="frozen input panel (default: $USGS_PANEL, then canonical 120-site panel)",
+    )
     ap.add_argument("--out", default="usgs_retune.csv",
                     help="CSV filename under outputs/tables/ (workers use suffixes)")
     ap.add_argument("--seed", type=int, default=0,
@@ -97,13 +104,16 @@ def main():
             out[h] = float(np.median(per)) if per else float("nan")
         return out
 
-    print("# delta_scale sweep on VALIDATION split (2016-2017). Test years stay sealed.", flush=True)
+    print("# delta_scale sweep on VALIDATION split (2016-2017); "
+          "2019-2020 exploratory outcomes are not used for this sweep.", flush=True)
     rows = []
     for ds in args.scales:
         te = time.time()
-        model = ThermoRoute(n_vars=len(wd.var_names), n_stations=len(stations),
-                            n_phys=wd.n_phys, delta_scale=ds)
-        res = fit_model(model, wd, thr, cfg=CFG, seed=args.seed, feature_set="USGS")
+        factory = lambda ds=ds: ThermoRoute(
+            n_vars=len(wd.var_names), n_stations=len(stations),
+            n_phys=wd.n_phys, delta_scale=ds, safety_anchor="damped")
+        res = fit_model(factory, wd, thr, cfg=CFG, seed=args.seed,
+                        feature_set="USGS", export_splits=("val",))
         sub = res.pred[res.pred.split == eval_split]
         preds = [sub[sub.horizon == h].set_index(["site_id", "issue_date"]).y_pred
                  .reindex(pd.MultiIndex.from_arrays(
@@ -117,6 +127,7 @@ def main():
               f"mean={rows[-1]['mean_val']:.4f} ({time.time()-te:.0f}s, {res.epochs+1}ep)",
               flush=True)
     df = pd.DataFrame(rows)
+    C.TABLES.mkdir(parents=True, exist_ok=True)
     df.to_csv(C.TABLES / args.out, index=False)
     print("\n" + df.to_string(index=False), flush=True)
     best = df.loc[df.mean_val.idxmin()]

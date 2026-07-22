@@ -58,6 +58,10 @@ case "$PROFILE" in
       echo "release refused: authorization is absent: $AUTHORIZATION" >&2
       exit 2
     fi
+    if [[ ! -f "outputs/prelabel/route_a_prelabel_chronology_v1.json" ]]; then
+      echo "release refused: prelabel chronology receipt is absent" >&2
+      exit 2
+    fi
     ;;
   *)
     echo "release refused: unknown profile: $PROFILE" >&2
@@ -95,6 +99,11 @@ required=(
   data_usgs/huc_metadata_usgs_v1.csv
   data_usgs/huc_metadata_usgs_v1.provenance.json
   data_usgs/raw_snapshots/huc-v1/snapshot_index.json
+  protocols/route_a_confirmatory_v1.json
+  protocols/route_a_confirmatory_protocol.md
+  protocols/route_a_protocol_seal_v1.json
+  protocols/route_a_claim_registry_v1.json
+  scripts/26_validate_claims.py
   scripts/deterministic_zip.py scripts/verify_release.py
 )
 for path in "${required[@]}"; do
@@ -161,11 +170,13 @@ if [[ -n "$AUTHORIZATION" ]]; then
   PROFILE_ARGS+=(--authorization "$AUTHORIZATION")
 fi
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py "${PROFILE_ARGS[@]}"
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py \
-  --materialize-claim-audit "$STAGE" --profile "$PROFILE"
+# Establish and independently replay the archive-to-bundle protected-source
+# binding before any Python copied into the stage is allowed to execute.
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py \
   --materialize-git-history "$STAGE" --source-root "$ROOT_DIR" \
   --profile "$PROFILE"
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py \
+  --materialize-claim-audit "$STAGE" --profile "$PROFILE"
 
 # A pre-opening archive must have exactly one outputs artifact: its provenance
 # manifest.  A post-opening archive receives only the canonical namespace files

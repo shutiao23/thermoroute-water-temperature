@@ -20,6 +20,32 @@ from . import config as C
 from .evidence import DEFAULT_FROZEN_PANEL_SPEC, EvidenceError, FrozenPanelSpec
 
 
+def stabilising_transform(variable: str, values: np.ndarray) -> np.ndarray:
+    """Apply the declared heavy-tail transform without erasing reverse flow.
+
+    A small number of tidal/backwater gages report legitimate negative daily
+    discharge.  Plain ``log1p(max(x, 0))`` silently collapsed every such value to
+    zero.  FLOW therefore uses a signed log transform; non-negative PRCP keeps
+    the conventional log1p transform.
+    """
+    array = np.asarray(values, dtype=float)
+    if variable == "FLOW":
+        return np.sign(array) * np.log1p(np.abs(array))
+    if variable in C.LOG1P_VARS:
+        return np.log1p(np.clip(array, 0, None))
+    return array
+
+
+def inverse_stabilising_transform(variable: str, values: np.ndarray) -> np.ndarray:
+    """Invert :func:`stabilising_transform` in original physical units."""
+    array = np.asarray(values, dtype=float)
+    if variable == "FLOW":
+        return np.sign(array) * np.expm1(np.abs(array))
+    if variable in C.LOG1P_VARS:
+        return np.expm1(array)
+    return array
+
+
 # --------------------------------------------------------------------------- #
 # Loading + quality control
 # --------------------------------------------------------------------------- #
@@ -143,6 +169,8 @@ class Imputer:
     """
     medians: dict[tuple[str, str], pd.Series]  # (site, var) -> Series indexed by doy
     global_median: dict[tuple[str, str], float]
+    fit_stations: tuple[str, ...] = ()
+    pooled: bool = False
 
     @classmethod
     def fit(cls, panel: pd.DataFrame, train_mask: np.ndarray) -> "Imputer":
@@ -155,7 +183,12 @@ class Imputer:
             for var in C.ALL_VARS:
                 medians[(st, var)] = sub.groupby("doy")[var].median()
                 gmed[(st, var)] = float(sub[var].median())
-        return cls(medians=medians, global_median=gmed)
+        return cls(
+            medians=medians,
+            global_median=gmed,
+            fit_stations=tuple(C.STATIONS),
+            pooled=False,
+        )
 
     def transform(self, panel: pd.DataFrame) -> pd.DataFrame:
         out = panel.copy()
@@ -206,8 +239,7 @@ class StandardScalerPerStation:
         pooled_stats: dict[str, tuple[float, float]] = {}
         for var in variables:
             values = pd.to_numeric(tr[var], errors="coerce").to_numpy(float)
-            if var in C.LOG1P_VARS:
-                values = np.log1p(np.clip(values, 0, None))
+            values = stabilising_transform(var, values)
             finite = values[np.isfinite(values)]
             mu = float(np.mean(finite)) if len(finite) else 0.0
             sigma = float(np.std(finite, ddof=1)) if len(finite) > 1 else 1.0
@@ -221,8 +253,7 @@ class StandardScalerPerStation:
                     mu, sigma = pooled_stats[var]
                 else:
                     values = pd.to_numeric(sub[var], errors="coerce").to_numpy(float)
-                    if var in C.LOG1P_VARS:
-                        values = np.log1p(np.clip(values, 0, None))
+                    values = stabilising_transform(var, values)
                     finite = values[np.isfinite(values)]
                     if len(finite):
                         mu = float(np.mean(finite))
@@ -236,8 +267,7 @@ class StandardScalerPerStation:
         return cls(mean=mean, std=std, fit_stations=fitted, pooled=pooled)
 
     def transform_value(self, station: str, var: str, x: np.ndarray) -> np.ndarray:
-        if var in C.LOG1P_VARS:
-            x = np.log1p(np.clip(x, 0, None))
+        x = stabilising_transform(var, x)
         return (x - self.mean[(station, var)]) / self.std[(station, var)]
 
 

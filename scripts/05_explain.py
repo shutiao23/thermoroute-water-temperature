@@ -52,8 +52,12 @@ def main() -> None:
     thr = R.exceedance_thresholds(panel, masks)
     wd = DS.build_windows(panel, masks, clim, variables=C.FEATURE_SETS["V3"])
 
-    model = ThermoRoute(n_vars=len(wd.var_names))
-    res = fit_model(model, wd, thr, seed=0, model_name="ThermoRoute", verbose=True)
+    factory = lambda: ThermoRoute(
+        n_vars=len(wd.var_names), n_stations=len(C.STATIONS), n_phys=wd.n_phys,
+        delta_scale=C.DELTA_SCALE, safety_anchor="damped",
+    )
+    res = fit_model(factory, wd, thr, seed=0, model_name="ThermoRoute", verbose=True)
+    model = res.model
     torch.save(model.state_dict(), C.MODELS / "thermoroute_explain.pt")
     print("trained explain model:", res.epochs + 1, "epochs, val_rmse",
           round(res.best_val, 4), flush=True)

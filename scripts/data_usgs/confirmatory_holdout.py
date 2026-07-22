@@ -33,6 +33,7 @@ from thermoroute.confirmatory import (  # noqa: E402
     parse_usgs_candidate_metadata,
 )
 from thermoroute.provenance import canonical_json_bytes, sha256_file  # noqa: E402
+from thermoroute.repro import sha256_json  # noqa: E402
 
 
 DEFAULT_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
@@ -182,6 +183,11 @@ def freeze(args: argparse.Namespace) -> None:
     lock = {
         "schema_version": 1,
         "protocol_id": protocol["protocol_id"],
+        "protocol_sha256": sha256_file(args.protocol),
+        "authoritative_protocol_commit": protocol["authoritative_protocol_commit"],
+        "pre_label_amendments_sha256": sha256_json(
+            protocol.get("pre_label_amendments", [])
+        ),
         "status": "REGISTRY_FROZEN_LABELS_SEALED",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "site_count": len(registry),
@@ -194,6 +200,24 @@ def freeze(args: argparse.Namespace) -> None:
         "candidate_provenance_sha256": sha256_file(args.candidate_provenance),
         "candidate_snapshot_index_sha256": sha256_file(args.candidate_snapshot_index),
         "confirmatory_registry_sha256": sha256_file(args.out_registry),
+        "frozen_artifacts": {
+            "development_panel_spec": {
+                "path": args.development_spec.resolve().relative_to(ROOT).as_posix(),
+                "sha256": sha256_file(args.development_spec),
+            },
+            "candidate_table": {
+                "path": args.candidates.resolve().relative_to(ROOT).as_posix(),
+                "sha256": sha256_file(args.candidates),
+            },
+            "candidate_provenance": {
+                "path": args.candidate_provenance.resolve().relative_to(ROOT).as_posix(),
+                "sha256": sha256_file(args.candidate_provenance),
+            },
+            "candidate_snapshot_index": {
+                "path": args.candidate_snapshot_index.resolve().relative_to(ROOT).as_posix(),
+                "sha256": sha256_file(args.candidate_snapshot_index),
+            },
+        },
         "labels_state": "SEALED_NOT_ACQUIRED",
         "opening_count": 0,
     }

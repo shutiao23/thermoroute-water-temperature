@@ -303,9 +303,21 @@ def test_machine_protocol_records_prelabel_input_amendment():
         "whole-HUC2 cluster percentile bootstrap"
     )
     assert inference["one_sided_p_value"]["method"] == (
-        "whole-HUC2 cluster sign-flip randomisation"
+        "exact whole-HUC2 cluster sign-flip enumeration"
     )
-    assert inference["one_sided_p_value"]["randomisation_draws"] == 50000
+    probability = inference["probabilistic_event_contract"]
+    assert probability["event_reference_climatology"]["fit_interval"] == [
+        "2006-01-01", "2018-12-31"
+    ]
+    assert "confirmation event rate" in probability[
+        "event_reference_climatology"
+    ]["brier_skill"]
+    assert inference["one_sided_p_value"][
+        "maximum_configurations_for_frozen_cohort"
+    ] == 32768
+    assert inference["one_sided_p_value"]["monte_carlo_correction"] == (
+        "not applicable to exact enumeration"
+    )
     assert len(inference["confirmatory_family"]) == 5
     assert inference["multiplicity"].startswith("Holm step-down")
     amendment = protocol["pre_label_amendments"][0]

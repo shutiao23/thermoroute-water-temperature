@@ -11,7 +11,7 @@ Matrix
   air2stream-lite, LightGBM (V1/V2/V3, with quantiles + exceedance).
 * Deep, joint 3-station: GRU (V3) and ThermoRoute (V3), multiple seeds.
 * ThermoRoute feature ladder: V1, V2, V3.
-* ThermoRoute leave-one-station-out (LOSO) spatial transfer.
+* ThermoRoute leave-one-station-out warm-start diagnostic (not zero-shot).
 * ThermoRoute module ablations: no-prior, fixed-κ, softmax router.
 
 Run:  PYTHONPATH=src python3 scripts/04_run_experiments.py
@@ -21,7 +21,6 @@ from __future__ import annotations
 import os
 # Must be set before torch / lightgbm import: avoids an OpenMP duplicate-runtime
 # crash when both libraries are loaded in one process (macOS/anaconda).
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
 import sys
@@ -33,7 +32,6 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np
 import pandas as pd
 import torch
 
@@ -67,6 +65,7 @@ def calibrate(pred: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
+    C.ensure_output_directories()
     bundle = D.prepare_dataset()
     panel, masks = bundle["panel"], bundle["masks"]
     clim = F.HarmonicClimatology.fit(panel, masks.train)
@@ -90,7 +89,7 @@ def main() -> None:
         lg = calibrate(B.run_lightgbm(tabs, thr, feature_set=fs))
         chunks.append(lg)
         log(f"LightGBM {fs} done")
-    pd.concat(chunks, ignore_index=True).to_parquet(PRED_PATH)
+    R.write_predictions(pd.concat(chunks, ignore_index=True), PRED_PATH)
 
     # ---- deep models (joint) --------------------------------------------- #
     windows = {fs: DS.build_windows(panel, masks, clim, variables=C.FEATURE_SETS[fs])
@@ -102,37 +101,48 @@ def main() -> None:
         wd = windows[fs]
         for sd in seeds:
             te = time.time()
-            model = make_model(wd)
-            res = fit_model(model, wd, thr, seed=sd, model_name=name,
+            # The training loop sets the seed before invoking this factory, so
+            # parameter initialisation is part of the declared seed contract.
+            res = fit_model(lambda: make_model(wd), wd, thr, seed=sd, model_name=name,
                             scope=scope, feature_set=fs, **fit_kw)
             chunks.append(calibrate(res.pred))
             log(f"{name} {scope} {fs} seed{sd}: {res.epochs + 1}ep "
                 f"{time.time() - te:.0f}s val_rmse={res.best_val:.4f}")
-            pd.concat(chunks, ignore_index=True).to_parquet(PRED_PATH)
+            R.write_predictions(pd.concat(chunks, ignore_index=True), PRED_PATH)
 
     # GRU reference
     run_deep(lambda wd: GRUForecaster(nvars["V3"]), "GRU", "V3", DEEP_SEEDS[:2])
 
     # ThermoRoute main + feature ladder
-    run_deep(lambda wd: ThermoRoute(n_vars=nvars["V3"]), "ThermoRoute", "V3", DEEP_SEEDS)
-    run_deep(lambda wd: ThermoRoute(n_vars=nvars["V1"], n_phys=windows["V1"].n_phys),
+    run_deep(lambda wd: ThermoRoute(
+        n_vars=nvars["V3"], n_phys=wd.n_phys, delta_scale=C.DELTA_SCALE,
+        safety_anchor="damped"), "ThermoRoute", "V3", DEEP_SEEDS)
+    run_deep(lambda wd: ThermoRoute(
+        n_vars=nvars["V1"], n_phys=windows["V1"].n_phys,
+        delta_scale=C.DELTA_SCALE, safety_anchor="damped"),
              "ThermoRoute", "V1", (0,))
-    run_deep(lambda wd: ThermoRoute(n_vars=nvars["V2"], n_phys=windows["V2"].n_phys),
+    run_deep(lambda wd: ThermoRoute(
+        n_vars=nvars["V2"], n_phys=windows["V2"].n_phys,
+        delta_scale=C.DELTA_SCALE, safety_anchor="damped"),
              "ThermoRoute", "V2", (0,))
 
-    # ---- LOSO spatial transfer ------------------------------------------- #
+    # ---- LOSO warm-start diagnostic -------------------------------------- #
     wd = windows["V3"]
     for held in C.STATIONS:
         train_st = tuple(s for s in C.STATIONS if s != held)
         te = time.time()
-        model = ThermoRoute(n_vars=nvars["V3"], station_agnostic=True)
-        res = fit_model(model, wd, thr, seed=0, model_name="ThermoRoute-LOSO",
-                        scope=f"loso_{held}", feature_set="V3",
-                        train_stations=train_st)
+        res = fit_model(
+            lambda: ThermoRoute(
+                n_vars=nvars["V3"], n_phys=wd.n_phys, station_agnostic=True,
+                delta_scale=C.DELTA_SCALE, safety_anchor="damped"),
+            wd, thr, seed=0, model_name="ThermoRoute-LOSO-WarmStart",
+            scope=f"loso_warm_start_{held}", feature_set="V3",
+            train_stations=train_st,
+        )
         sub = res.pred[res.pred.site_id == held].copy()
         chunks.append(calibrate(sub))
-        log(f"LOSO hold {held}: {time.time() - te:.0f}s")
-        pd.concat(chunks, ignore_index=True).to_parquet(PRED_PATH)
+        log(f"LOSO warm-start hold {held}: {time.time() - te:.0f}s")
+        R.write_predictions(pd.concat(chunks, ignore_index=True), PRED_PATH)
 
     # ---- module ablations (V3 joint, single seed) ------------------------ #
     ablations = {
@@ -143,11 +153,13 @@ def main() -> None:
         "TR-noRouter": dict(use_router=False),
     }
     for name, kw in ablations.items():
-        run_deep(lambda wd, kw=kw: ThermoRoute(n_vars=nvars["V3"], **kw),
+        run_deep(lambda wd, kw=kw: ThermoRoute(
+            n_vars=nvars["V3"], n_phys=wd.n_phys,
+            delta_scale=C.DELTA_SCALE, safety_anchor="damped", **kw),
                  name, "V3", (0,), scope="ablation")
 
     allp = pd.concat(chunks, ignore_index=True)
-    allp.to_parquet(PRED_PATH)
+    R.write_predictions(allp, PRED_PATH)
     log(f"ALL DONE: {len(allp)} prediction rows -> {PRED_PATH}")
 
     # ---- score and save tables ------------------------------------------- #

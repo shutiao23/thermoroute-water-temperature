@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 cd "/Users/liziqing/Desktop/Part-time_Work/[副业]论文/0625_环境工程/project1"
-export KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=8 PYTHONPATH=src
+export OMP_NUM_THREADS=8 PYTHONPATH=src
 LOG=outputs/logs/integration.log
 echo "[$(date +%H:%M)] chain start" > $LOG
 # 1. wait air2stream splice

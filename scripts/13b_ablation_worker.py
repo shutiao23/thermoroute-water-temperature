@@ -9,12 +9,11 @@ scripts/13_rigor.py once — it loads every cached fold + ablation seed instantl
 and writes rigor.md.
 
 Usage:
-  PYTHONPATH=src python3 scripts/13b_ablation_worker.py TR-noPrior:1 TR-noMoE:1
+  PYTHONPATH=src python3 scripts/13b_ablation_worker.py TR-noDynamicPrior:1 TR-noMoE:1
 """
 from __future__ import annotations
 
 import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 # Each worker uses a small thread pool so N workers × threads ≈ physical cores.
 os.environ["OMP_NUM_THREADS"] = os.environ.get("WORKER_THREADS", "2")
 
@@ -27,8 +26,6 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np
-import pandas as pd
 import torch
 
 torch.set_num_threads(int(os.environ.get("WORKER_THREADS", "2")))
@@ -43,11 +40,20 @@ from thermoroute.train import fit_model
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 CFG = C.TrainConfig(batch_size=1536)
 DELTA = C.DELTA_SCALE   # single source (config.py)
-CKPT = C.PREDICTIONS / "rigor_ckpt"
+CKPT = C.PREDICTIONS / "rigor_ckpt_route_a_strict_v1"
 CKPT.mkdir(exist_ok=True)
 
-ABLS = {"TR-noPrior": dict(use_prior=False), "TR-fixedKappa": dict(fixed_kappa=True),
-        "TR-noRouter": dict(use_router=False), "TR-noMoE": dict(use_moe=False)}
+ABLS = {
+    "ThermoRoute": {},
+    "TR-noDynamicPrior": {"use_prior": False},
+    "TR-fixedKappa": {"fixed_kappa": True},
+    "TR-noRouter": {"use_router": False},
+    "TR-noMoE": {"use_moe": False},
+    "TR-noTCN": {"use_tcn": False},
+    "TR-unbounded": {"delta_scale": None},
+    "DampedPriorOnly": {"use_prior": False, "residual_model": False},
+    "TR-naturalSampling": {},
+}
 _t0 = time.time()
 
 
@@ -56,18 +62,11 @@ def log(m):
 
 
 def prep():
-    _p100 = ROOT / "data_usgs" / "panel_usgs_100.parquet"
-    _pwind = ROOT / "data_usgs" / "panel_usgs_wind.parquet"
-    panel_path = _p100 if _p100.exists() else _pwind
-    panel = pd.read_parquet(panel_path)
-    panel["DATE"] = pd.to_datetime(panel["DATE"])
-    stations = tuple(sorted(panel.site_id.unique()))
-    C.STATIONS = stations
-    C.UPSTREAM = {s: None for s in stations}
-    for v in C.ALL_VARS:
-        panel[f"{v}_observed"] = panel[v].notna()
-    masks = D.split_masks(panel["DATE"])
-    pi = D.Imputer.fit(panel, masks.train).transform(panel)
+    panel_path = Path(os.environ.get(
+        "USGS_PANEL", str(ROOT / "data_usgs" / "panel_usgs_120v2.parquet")))
+    bundle = D.prepare_dataset_from_panel(str(panel_path))
+    panel, pi, masks = bundle["panel_raw"], bundle["panel"], bundle["masks"]
+    stations = bundle["stations"]
     clim = F.HarmonicClimatology.fit(panel, masks.train)
     thr = {s: float(panel.loc[masks.train].query("site_id==@s").WTEMP.quantile(0.9))
            for s in stations}
@@ -81,10 +80,16 @@ def train_one(wd, thr, stations, name, sd):
         log(f"{name} seed{sd}: already done, skip")
         return
     te = time.time()
-    m = ThermoRoute(n_vars=len(wd.var_names), n_stations=len(stations),
-                    n_phys=wd.n_phys, delta_scale=DELTA, **ABLS[name])
-    r = fit_model(m, wd, thr, cfg=CFG, seed=sd, model_name=name,
-                  scope="ablation_usgs", feature_set="USGS")
+    model_kw = dict(ABLS[name])
+    model_kw.setdefault("delta_scale", DELTA)
+    factory = lambda: ThermoRoute(
+        n_vars=len(wd.var_names), n_stations=len(stations), n_phys=wd.n_phys,
+        safety_anchor="damped", **model_kw)
+    balanced = name != "TR-naturalSampling"
+    r = fit_model(factory, wd, thr, cfg=CFG, seed=sd, model_name=name,
+                  scope="ablation_usgs", feature_set="USGS",
+                  station_balanced=balanced,
+                  selection_metric="station_macro" if balanced else "micro")
     r.pred["seed"] = sd
     sub = r.pred[r.pred.split == "test"]
     sub.to_parquet(f)

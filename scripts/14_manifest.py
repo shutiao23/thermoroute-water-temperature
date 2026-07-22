@@ -91,6 +91,7 @@ ARTIFACT_PATTERNS = (
     "outputs/models/**/*.pt",
     "outputs/models/**/*.json",
     "outputs/models/**/*.txt",
+    "outputs/model_replay/**/*.json",
     "outputs/reports/*.md",
     "outputs/reports/*.json",
     "outputs/reports/*.csv",
@@ -383,11 +384,24 @@ def validate_usgs_current_truth(root: Path) -> None:
     first = registries[primary[0]]
     if not first or any(registries[model] != first for model in primary):
         raise RuntimeError("USGS_CURRENT_TRUTH_STALE: primary forecast keys differ")
-    truth_spread = test.groupby(key).y_true.agg(
-        lambda values: float(values.max() - values.min())
-    )
-    if (truth_spread > 1e-6).any():
+    if not _truth_matches_at_model_precision(test, key=key):
         raise RuntimeError("USGS_CURRENT_TRUTH_STALE: models disagree on y_true")
+
+
+def _truth_matches_at_model_precision(
+    frame: Any, *, key: list[str]
+) -> bool:
+    """Use the exact float32 label semantics of the neural window registry."""
+    import numpy as np
+    import pandas as pd
+
+    truth = pd.to_numeric(frame["y_true"], errors="coerce").to_numpy(dtype=float)
+    converted = truth.astype(np.float32)
+    if not np.isfinite(truth).all() or not np.isfinite(converted).all():
+        return False
+    audit = frame.loc[:, key].copy()
+    audit["_truth_float32"] = converted
+    return bool(audit.groupby(key, dropna=False)["_truth_float32"].nunique().le(1).all())
 
 
 def lineage_graph(root: Path, files: Mapping[str, Mapping[str, Any]],

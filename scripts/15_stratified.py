@@ -3,8 +3,8 @@
 
 Answers "is the headline carried by one region or river type?" by reporting the
 per-station transfer-free skill (ThermoRoute vs persistence and damped) broken
-down by (a) HUC2 hydrologic region, (b) a regulated-vs-free-flowing name proxy,
-(c) drainage-area terciles, plus a REGION-WEIGHTED headline (mean of per-HUC2
+down by (a) verified HUC2 hydrologic region and (b) drainage-area terciles,
+plus a REGION-WEIGHTED summary (mean of per-HUC2
 medians) so geographically over-represented regions (PNW) do not dominate.
 Reads the v2 predictions; no retraining.
 
@@ -24,12 +24,12 @@ import numpy as np
 import pandas as pd
 
 from thermoroute import config as C
+from thermoroute import results as R
+from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
 PRED = C.PREDICTIONS / "usgs_predictions_v2.parquet"
-HUC = C.TABLES / "usgs_stations_with_huc.csv"
-
-REG_HINTS = ("dam", "reservoir", "res.", "below", "blw", "diversion", "lake",
-             "abv ", "ab ", "bl ", "canal", "aqueduct", "power")
+PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
+REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 
 
 def per_station(pred, model, h, ensemble=False):
@@ -42,10 +42,12 @@ def per_station(pred, model, h, ensemble=False):
 
 
 def main():
-    pred = pd.read_parquet(PRED)
-    meta = pd.read_csv(HUC).set_index("site_id")
-    reg = {s: any(k in str(nm).lower() for k in REG_HINTS)
-           for s, nm in meta["station_nm"].items()}
+    pred = R.load_route_a_predictions(
+        PRED, root=ROOT, panel_path=PANEL, registry_path=REGISTRY
+    )
+    registry = load_station_registry(REGISTRY)
+    huc = huc2_cluster_map(registry)
+    meta = registry.set_index("site_no")
     # drainage-area terciles
     da = meta["drain_area_va"].to_dict()
     da_vals = np.array([v for v in da.values() if np.isfinite(v)])
@@ -58,10 +60,11 @@ def main():
         return "small" if v <= q1 else ("medium" if v <= q2 else "large")
 
     L = ["# Stratified skill analysis (§S2) — is the headline carried by one subgroup?\n",
-         "Per-station blind-test skill of ThermoRoute (5-seed ensemble) vs "
-         "persistence, grouped so no single region/type can carry the result. "
-         "Regulation is a **name-based proxy** (station name mentions dam / "
-         "reservoir / diversion / below / lake), not a GAGES-II classification.\n"]
+         "Per-station 2019–2020 development-evaluation skill of the ThermoRoute "
+         "ensemble versus persistence. HUC2 labels are used only where the frozen "
+         "registry has an exact site-number match; missing metadata is labelled "
+         "unverified rather than inferred from legacy aliases. No name-based "
+         "regulated/free-flowing classification is reported.\n"]
 
     for h in C.HORIZONS:
         tr = per_station(pred, "ThermoRoute", h, ensemble=True)
@@ -72,8 +75,7 @@ def main():
             "site_id": sts,
             "skill_persist": [1 - tr[s]/per[s] for s in sts],
             "skill_damped": [1 - tr[s]/dmp[s] for s in sts],
-            "huc2": [meta.loc[s, "huc2_name"] if s in meta.index else "?" for s in sts],
-            "regulated": [reg.get(s, False) for s in sts],
+            "huc2": [huc.get(s, f"UNMAPPED:{s}") for s in sts],
             "da_group": [da_group(s) for s in sts],
         })
         L.append(f"\n## Horizon {h} d  (n={len(sts)})\n")
@@ -83,11 +85,6 @@ def main():
         L.append(f"- **Region-weighted** (mean of per-HUC2 medians, "
                  f"{df.huc2.nunique()} regions): {per_huc_med.mean():+.3f} "
                  f"→ {'robust to region weighting' if abs(per_huc_med.mean()-df.skill_persist.median())<0.03 else 'sensitive to region mix'}")
-        # by regulation
-        for lab, g in df.groupby("regulated"):
-            tag = "regulated (proxy)" if lab else "free-flowing (proxy)"
-            L.append(f"- {tag}: n={len(g)}, median skill vs persist "
-                     f"{g.skill_persist.median():+.3f}, vs damped {g.skill_damped.median():+.3f}")
         # by drainage area
         for lab in ("small", "medium", "large"):
             g = df[df.da_group == lab]

@@ -1,14 +1,15 @@
 """Central configuration for the ThermoRoute study.
 
-Every constant that controls the experiment lives here so a single import gives
-a reproducible description of the protocol.  Values were fixed *after* the data
-audit (see ``outputs/reports/data_audit.md``) and *before* any model touched the
-blind-test years, which is what keeps the evaluation honest.
+Every constant that controls the legacy development experiment lives here so a
+single import gives a reproducible protocol description.  The 2019--2020 rows
+have already informed development and are exploratory evaluation, not an
+untouched or blind test.  The separately frozen Route-A confirmation is defined
+under ``protocols/``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -26,8 +27,19 @@ REPORTS = OUTPUTS / "reports"
 MODELS = OUTPUTS / "models"
 LOGS = OUTPUTS / "logs"
 
-for _p in (DATA_PROCESSED, TABLES, FIGURES, PREDICTIONS, REPORTS, MODELS, LOGS):
-    _p.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIRECTORIES = (
+    DATA_PROCESSED, TABLES, FIGURES, PREDICTIONS, REPORTS, MODELS, LOGS,
+)
+
+
+def ensure_output_directories() -> None:
+    """Create runtime output directories explicitly.
+
+    Importing experiment configuration is intentionally side-effect free; CLI
+    entry points call this helper (or create their own destination) when needed.
+    """
+    for path in OUTPUT_DIRECTORIES:
+        path.mkdir(parents=True, exist_ok=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -53,21 +65,22 @@ LOG1P_VARS: tuple[str, ...] = ("FLOW", "PRCP")
 
 
 # --------------------------------------------------------------------------- #
-# Station topology (confirmed by cross-correlation in the audit)
+# Legacy three-site topology hypothesis (not used by Route A)
 # --------------------------------------------------------------------------- #
-# Directed downstream cascade b1 -> s2 -> p3.  Flow travel time ~1 day per hop;
-# the thermal signal lags far more to p3 (~9 days), which is *why* a directed,
-# variable-specific travel-time prior is physically motivated.
+# The source files describe b1 -> s2 -> p3 as a downstream sequence.  The lag
+# values below came from exploratory cross-correlation, not hydraulic travel-time
+# identification.  Route A has no river graph, never consumes these constants,
+# and makes no network-routing or travel-time claim.
 UPSTREAM: Mapping[str, str | None] = {"b1": None, "s2": "b1", "p3": "s2"}
 FLOW_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {("b1", "s2"): 1, ("s2", "p3"): 1}
 THERMAL_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {("b1", "s2"): 1, ("s2", "p3"): 9}
 # Reservoir surface elevations differ by ~600-1500 m between stations, so WLEVEL
 # must be standardised per station, never pooled on a common datum.
 
-# DH semantics are NOT confirmed from a data dictionary.  The audit is consistent
-# with a sunshine/insolation index (0-13, summer dip under monsoon cloud at the
-# lower stations) but this remains an assumption; DH enters models as a generic
-# radiative index and its data-dictionary meaning is an open verification item.
+# This flag concerns only the legacy three-site input files.  Their DH semantics
+# are not confirmed by a data dictionary, so that channel is only a generic
+# radiative index there.  Route A constructs its separate DH column from Daymet
+# shortwave radiation and freezes that provider-specific definition in protocol.
 DH_SEMANTICS_VERIFIED = False
 
 
@@ -80,15 +93,16 @@ EXCEEDANCE_QUANTILE = 0.90                                  # high-temp threshol
 
 
 # --------------------------------------------------------------------------- #
-# Leakage-safe time split (years, inclusive).  Matches the plan's 10/2/1/2.
-# The blind-test years are touched exactly once, at the very end.
+# Leakage-safe development split (years, inclusive).  Matches 10/2/1/2.
+# ``test`` is retained as a file-format/API name; its scientific role is an
+# already-inspected exploratory evaluation partition.
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class TimeSplit:
     train: tuple[str, str] = ("2006-01-01", "2015-12-31")   # 10 y  fit everything
     val: tuple[str, str] = ("2016-01-01", "2017-12-31")     # 2 y   model selection
     calib: tuple[str, str] = ("2018-01-01", "2018-12-31")   # 1 y   conformal only
-    test: tuple[str, str] = ("2019-01-01", "2020-12-31")    # 2 y   blind test
+    test: tuple[str, str] = ("2019-01-01", "2020-12-31")    # 2 y development eval
 
     def as_dict(self) -> Mapping[str, tuple[str, str]]:
         return {"train": self.train, "val": self.val,
@@ -99,7 +113,8 @@ SPLIT = TimeSplit()
 
 
 # --------------------------------------------------------------------------- #
-# Feature sets (mechanism ladder).  Each adds one driver group to isolate gains.
+# Legacy three-site feature ladder.  Route A uses its separately frozen seven-
+# variable schema and never consumes WLEVEL.
 # --------------------------------------------------------------------------- #
 FEATURE_SETS: Mapping[str, tuple[str, ...]] = {
     "V1": ("WTEMP",),                                         # thermal inertia only
@@ -151,11 +166,13 @@ def horizon_weights(horizons: Sequence[int] = HORIZONS) -> dict[int, float]:
     return {h: 1.0 for h in horizons}
 
 
-# Residual bound δ (large-sample). SINGLE SOURCE OF TRUTH — imported by
-# scripts 09/10/13/13b/13c. Selected by the validation-only 3-seed sweep
-# (scripts/11_retune.py -> outputs/tables/usgs_retune.csv); the earlier value
-# 1.5 came from a deprecated test-split sweep and is retired. Do NOT hard-code δ
-# anywhere else.
+# Current development-selected residual bound, imported by
+# scripts 09/10/13/13b/13c.  The surviving validation ledger used seed 0 for all
+# four scales and added seeds 1--2 only for the three near-tied scales; it was
+# not a symmetric three-seed sweep.  Earlier 2019--2020 inspection also informed
+# project development.  Route A therefore treats this as a frozen development
+# configuration, not as selection on an untouched test or as a safety threshold.
+# Do not hard-code delta elsewhere.
 DELTA_SCALE: float = 1.0
 
 # Exact seed set used for the large-sample deep models (scripts 09/13). The

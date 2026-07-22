@@ -11,7 +11,9 @@ Example (the checked-in development freeze):
     PYTHONPATH=src python scripts/data_usgs/freeze_panel.py \
       --panel data_usgs/panel_usgs_120v2.parquet \
       --metadata data_usgs/stations_meta_120v2.csv \
-      --huc-source outputs/tables/usgs_stations_with_huc.csv \
+      --huc-source data_usgs/huc_metadata_usgs_v1.csv \
+      --huc-source-kind usgs_snapshot \
+      --huc-provenance data_usgs/huc_metadata_usgs_v1.provenance.json \
       --registry data_usgs/station_registry_v1.csv \
       --spec data_usgs/frozen_panel_v1.json \
       --panel-id usgs120-development-v1

@@ -11,9 +11,6 @@ Exits non-zero on any violation so CI fails loudly.
 """
 from __future__ import annotations
 
-import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-
 import sys
 import warnings
 from pathlib import Path

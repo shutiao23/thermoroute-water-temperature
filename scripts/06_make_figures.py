@@ -119,7 +119,7 @@ def fig_series_climatology(panel):
             axc.legend(fontsize=7, frameon=False)
         if i < 2:
             axc.set_xticklabels([])
-    axes[0, 0].set_title("a  Daily WTEMP 2006–2020 (shaded: val / calib / blind test)")
+    axes[0, 0].set_title("a  Daily WTEMP 2006–2020 (shaded: val / calib / development eval)")
     axes[0, 1].set_title("b  Monthly climatology")
     axes[2, 1].set_xlabel("month")
     _save(fig, "fig2_series_climatology")
@@ -143,7 +143,7 @@ def fig_results_heatmap(scores):
     im1 = a1.imshow(rmse.values, cmap="YlOrRd", aspect="auto")
     a1.set_xticks(range(len(rmse.columns))); a1.set_xticklabels([f"{h}d" for h in rmse.columns])
     a1.set_yticks(range(len(rmse.index))); a1.set_yticklabels(rmse.index)
-    a1.set_title("a  Blind-test RMSE (°C)")
+    a1.set_title("a  Development-evaluation RMSE (°C)")
     for (i, j), v in np.ndenumerate(rmse.values):
         a1.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=7.5,
                 color="black" if v < np.nanmax(rmse.values) * 0.6 else "white")
@@ -194,7 +194,7 @@ def fig_trajectory(pred):
     ax.plot(t, tr["y_pred"][win], color="#185FA5", lw=1.1, label="ThermoRoute")
     ax.plot(dp.index[win], dp["y_pred"][win], color="#BA7517", lw=1.0, ls="--",
             label="damped persistence")
-    ax.set_title(f"{site}, {h}-day-ahead blind-test forecast (2020 warm season)")
+    ax.set_title(f"{site}, {h}-day-ahead development forecast (2020 warm season)")
     ax.set_ylabel("WTEMP (°C)")
     ax.legend(fontsize=7, frameon=False, ncol=2)
     ax.grid(alpha=0.25)
@@ -271,7 +271,7 @@ def fig_dynamic_kappa(expl):
 
 def fig_loso(scores):
     s = _test_scores(scores)
-    loso = s[s.model == "ThermoRoute-LOSO"]
+    loso = s[s.model == "ThermoRoute-LOSO-WarmStart"]
     joint = s[(s.model == "ThermoRoute") & (s.scope == "joint")]
     if loso.empty:
         return
@@ -283,7 +283,7 @@ def fig_loso(scores):
     jr = [joint[(joint.site_id == st) & (joint.horizon == h)].RMSE.mean() for st in C.STATIONS]
     lr = [loso[(loso.site_id == st) & (loso.horizon == h)].RMSE.mean() for st in C.STATIONS]
     ax.bar(xs - width / 2, jr, width, color="#185FA5", label="joint (in-sample)")
-    ax.bar(xs + width / 2, lr, width, color="#993C1D", label="LOSO (transfer)")
+    ax.bar(xs + width / 2, lr, width, color="#993C1D", label="LOSO (warm start)")
     ax.set_xticks(xs); ax.set_xticklabels(list(C.STATIONS))
     ax.set_ylabel("RMSE at h=7 d (°C)")
     ax.set_title("Leave-one-station-out spatial transfer")

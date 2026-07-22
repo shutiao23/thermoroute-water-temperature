@@ -8,11 +8,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 from thermoroute import metrics as M
 from thermoroute.thermoroute import sparsemax
-from thermoroute.conformal import cqr_offsets, apply_cqr
+from thermoroute.conformal import (
+    apply_cqr,
+    block_cqr_offsets,
+    conformal_quantile,
+    cqr_offsets,
+    hierarchical_cqr_offsets,
+)
 
 
 def test_perfect_forecast_scores():
@@ -67,3 +74,36 @@ def test_cqr_improves_coverage_toward_nominal():
     test = out[out.split == "test"]
     picp = M.coverage(test.y_true.to_numpy(), test.q05.to_numpy(), test.q95.to_numpy())
     assert picp >= 0.80     # widened toward the nominal 90%
+
+
+def test_conformal_small_sample_reports_unattainable_quantile():
+    assert np.isinf(conformal_quantile(np.array([0.1, 0.2]), alpha=0.10))
+
+
+def test_apply_cqr_rejects_an_unfrozen_site_horizon_key():
+    frame = pd.DataFrame({
+        "site_id": ["known", "unfrozen"],
+        "horizon": [1, 3],
+        "q05": [1.0, 2.0],
+        "q95": [3.0, 4.0],
+    })
+    with pytest.raises(KeyError, match="missing prediction"):
+        apply_cqr(frame, {("known", 1): 0.25})
+
+
+def test_block_and_hierarchical_conformal_are_explicitly_pooled():
+    n = 140
+    df = pd.DataFrame({
+        "site_id": np.repeat(["a", "b"], n // 2),
+        "huc2": np.repeat(["west", "east"], n // 2),
+        "horizon": 1,
+        "issue_date": pd.date_range("2018-01-01", periods=n),
+        "y_true": np.linspace(0, 1, n),
+        "q05": np.linspace(0, 1, n) - 0.1,
+        "q95": np.linspace(0, 1, n) + 0.1,
+    })
+    block = block_cqr_offsets(df, alpha=0.2, block_days=7)
+    assert set(block) == {("a", 1), ("b", 1)}
+    hierarchical = hierarchical_cqr_offsets(df, "huc2", alpha=0.2, min_group=20)
+    assert ("__global__", 1) in hierarchical
+    assert ("west", 1) in hierarchical and ("east", 1) in hierarchical

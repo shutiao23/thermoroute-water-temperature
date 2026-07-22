@@ -10,6 +10,7 @@ no future observation can ever enter the inputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -77,6 +78,7 @@ class WindowedData:
     split: np.ndarray        # [N]        split tag
     issue_date: np.ndarray   # [N]        datetime64
     target_date: np.ndarray  # [N, H]     datetime64; each remains in split
+    target_valid: np.ndarray # [N, H]     independently observed/in-bound target
     damped_prior: np.ndarray # [N, H]     fixed train-fit safety anchor
     var_names: tuple[str, ...]
     horizons: tuple[int, ...]
@@ -92,16 +94,23 @@ class WindowedData:
     def idx(self, split: str) -> np.ndarray:
         return np.where(self.split == split)[0]
 
-    def batch(self, index: np.ndarray, device: str = "cpu") -> dict[str, torch.Tensor]:
-        t = lambda a, dt=torch.float32: torch.as_tensor(a[index], dtype=dt, device=device)
+    def batch(
+        self,
+        index: np.ndarray,
+        device: str | torch.device = "cpu",
+    ) -> dict[str, torch.Tensor]:
+        def tensor(a: np.ndarray, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+            return torch.as_tensor(a[index], dtype=dtype, device=device)
+
         b = {
-            "X": t(self.X), "Mask": t(self.Mask),
-            "wtemp_t": t(self.wtemp_t), "clim_t": t(self.clim_t),
-            "clim_tgt": t(self.clim_tgt), "damped_prior": t(self.damped_prior),
-            "phys_std": t(self.phys_std),
-            "logflowz": t(self.logflowz), "wlevelz": t(self.wlevelz),
-            "season": t(self.season), "gate": t(self.gate),
-            "station": t(self.station, torch.long), "y": t(self.y),
+            "X": tensor(self.X), "Mask": tensor(self.Mask),
+            "wtemp_t": tensor(self.wtemp_t), "clim_t": tensor(self.clim_t),
+            "clim_tgt": tensor(self.clim_tgt),
+            "damped_prior": tensor(self.damped_prior),
+            "phys_std": tensor(self.phys_std),
+            "logflowz": tensor(self.logflowz), "wlevelz": tensor(self.wlevelz),
+            "season": tensor(self.season), "gate": tensor(self.gate),
+            "station": tensor(self.station, torch.long), "y": tensor(self.y),
         }
         return b
 
@@ -120,23 +129,35 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
                   damped_anchor: F.DampedPersistenceAnchor | None = None,
                   scaler: D.StandardScalerPerStation | None = None,
                   evaluation_interval: tuple[str, str] | None = None,
-                  evaluation_split: str = "confirm") -> WindowedData:
+                  evaluation_split: str = "confirm",
+                  independent_horizon_targets: bool = False) -> WindowedData:
     """Build windowed tensors. With ``require_observed_target`` a sample is kept
     only if the issue-day and every target WTEMP are genuinely observed (used for
     gappy large-sample panels, where history may be imputed but labels must be
-    real). Missing WLEVEL (all-NaN channel) is handled by zeroing its z-score."""
+    real).  Confirmation-only ``independent_horizon_targets`` retains an issue
+    whenever at least one horizon has an observed, in-bound target and records a
+    per-horizon validity mask.  It never changes development training semantics.
+    Missing WLEVEL (all-NaN channel) is handled by zeroing its z-score."""
+    # Positional lags/horizons are valid only on an exact daily calendar.  This
+    # gate must run before fitting scalers, climatologies, or anchors.
+    F.assert_strict_daily_panel(panel, expected_stations=tuple(C.STATIONS))
     # Guard the global C.STATIONS aliasing hazard: every station↔index decode
     # downstream assumes C.STATIONS holds exactly this panel's stations (order is
     # cascade for 3-station, sorted for USGS — so we check SET membership, not
     # order).
-    assert set(panel.site_id.unique()) == set(C.STATIONS), (
-        "C.STATIONS is out of sync with the panel passed to build_windows — call "
-        "data.prepare_dataset_from_panel(...) first (it sets C.STATIONS). "
-        f"C.STATIONS has {len(C.STATIONS)} sites, panel has {panel.site_id.nunique()}.")
+    if set(panel.site_id.astype(str).unique()) != set(C.STATIONS):
+        raise ValueError(
+            "C.STATIONS is out of sync with the panel passed to build_windows — "
+            "call data.prepare_dataset_from_panel(...) first"
+        )
     schema = feature_schema or FeatureSchema.from_variables(tuple(variables))
     if feature_schema is not None and tuple(variables) not in (C.ALL_VARS, schema.variables):
         raise ValueError("variables and feature_schema.variables disagree")
     variables = schema.variables
+    if independent_horizon_targets and evaluation_interval is None:
+        raise ValueError(
+            "independent_horizon_targets requires an explicit evaluation interval"
+        )
     scaler = scaler or D.StandardScalerPerStation.fit(
         panel, masks.train, variables=variables,
         fit_stations=scaler_fit_stations, pooled=pooled_scaler)
@@ -144,16 +165,16 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         panel, masks.train, clim, fit_stations=damped_fit_stations,
         pooled=pooled_damped)
     max_h = max(horizons)
-    V = len(variables)
     # Every auxiliary path is derived from the same declared schema.
     phys_vars = schema.physics_forcings
     P = len(phys_vars)
     st_index = {s: i for i, s in enumerate(C.STATIONS)}
 
-    rows = {k: [] for k in
+    rows: dict[str, list[Any]] = {k: [] for k in
             ("X", "Mask", "wtemp_t", "clim_t", "clim_tgt", "phys_std",
              "logflowz", "wlevelz", "season", "gate", "station", "y",
-             "split", "issue_date", "target_date", "damped_prior")}
+             "split", "issue_date", "target_date", "target_valid",
+             "damped_prior")}
 
     for st in C.STATIONS:
         sub = panel[panel.site_id == st].sort_values("DATE").reset_index(drop=True)
@@ -191,28 +212,55 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         cos_d = np.cos(2 * np.pi * doy / C.SEASONAL_PERIOD)
 
         n = len(sub)
-        for t in range(context - 1, n - max_h):
+        stop = n if independent_horizon_targets else n - max_h
+        for t in range(context - 1, stop):
             d = dates[t]
-            target_dates = np.asarray([dates[t + h] for h in horizons])
-            if evaluation_interval is None:
+            target_dates = np.asarray(
+                [np.datetime64(d) + np.timedelta64(int(h), "D") for h in horizons]
+            )
+            if independent_horizon_targets:
+                # The argument relation is validated once above; keep the local
+                # narrowing explicit for static type checkers as well as readers.
+                assert evaluation_interval is not None
+                lower, upper = map(np.datetime64, evaluation_interval)
+                issue_inside = lower <= d <= upper
+                target_valid = np.asarray([
+                    issue_inside
+                    and t + h < n
+                    and lower <= target_dates[column] <= upper
+                    and bool(obs_wt[t + h])
+                    for column, h in enumerate(horizons)
+                ], dtype=bool)
+                sp = evaluation_split if target_valid.any() else "none"
+            elif evaluation_interval is None:
                 sp = D.split_for_forecast_interval(d, target_dates)
+                target_valid = np.ones(len(horizons), dtype=bool)
             else:
                 lower, upper = map(np.datetime64, evaluation_interval)
                 inside = lower <= d <= upper and np.all(
                     (target_dates >= lower) & (target_dates <= upper)
                 )
                 sp = evaluation_split if inside else "none"
+                target_valid = np.ones(len(horizons), dtype=bool)
             if sp == "none":
                 continue
-            if require_observed_target and (
-                    not obs_wt[t] or not all(obs_wt[t + h] for h in horizons)):
-                continue          # labels must be real, not imputed
+            if require_observed_target:
+                if not obs_wt[t]:
+                    continue
+                if independent_horizon_targets:
+                    # Re-evaluate after the observed issue-day gate so retained
+                    # rows always have at least one genuinely observed label.
+                    if not target_valid.any():
+                        continue
+                elif not all(obs_wt[t + h] for h in horizons):
+                    continue          # labels must be real, not imputed
             # availability guard: history strictly up to t
             rows["X"].append(Xstd[t - context + 1: t + 1])
             rows["Mask"].append(Mstd[t - context + 1: t + 1])
             rows["wtemp_t"].append(raw["WTEMP"][t])
             rows["clim_t"].append(clim_series[t])
-            clim_target = np.asarray([clim_series[t + h] for h in horizons], dtype=float)
+            target_doy = pd.to_datetime(target_dates).dayofyear.to_numpy()
+            clim_target = np.asarray(clim.predict(st, target_doy), dtype=float)
             rows["clim_tgt"].append(clim_target)
             rows["damped_prior"].append(anchor_fit.predict(
                 st, horizons, raw["WTEMP"][t], clim_series[t], clim_target))
@@ -222,10 +270,14 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
             rows["season"].append([sin_d[t], cos_d[t]])
             rows["gate"].append([sin_d[t], cos_d[t], tempz[t], logflowz[t], prcpz[t], dwt[t]])
             rows["station"].append(st_index[st])
-            rows["y"].append([raw["WTEMP"][t + h] for h in horizons])
+            rows["y"].append([
+                raw["WTEMP"][t + h] if target_valid[column] else np.nan
+                for column, h in enumerate(horizons)
+            ])
             rows["split"].append(sp)
             rows["issue_date"].append(d)
             rows["target_date"].append(target_dates)
+            rows["target_valid"].append(target_valid)
 
     wd = WindowedData(
         X=np.asarray(rows["X"], np.float32),
@@ -243,6 +295,7 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         split=np.asarray(rows["split"], object),
         issue_date=np.asarray(rows["issue_date"], "datetime64[ns]"),
         target_date=np.asarray(rows["target_date"], "datetime64[ns]"),
+        target_valid=np.asarray(rows["target_valid"], bool),
         damped_prior=np.asarray(rows["damped_prior"], np.float32),
         var_names=variables, horizons=horizons, scaler=scaler,
         feature_schema=schema, damped_anchor=anchor_fit, phys_vars=phys_vars,
@@ -251,6 +304,7 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         wd, panel,
         evaluation_interval=evaluation_interval,
         evaluation_split=evaluation_split,
+        independent_horizon_targets=independent_horizon_targets,
     )
     return wd
 
@@ -261,6 +315,7 @@ def _assert_no_leakage(
     *,
     evaluation_interval: tuple[str, str] | None = None,
     evaluation_split: str = "confirm",
+    independent_horizon_targets: bool = False,
 ) -> None:
     """Spot-check that the last history step equals WTEMP_t (no future bleed)."""
     if len(wd.X) == 0:
@@ -284,8 +339,14 @@ def _assert_no_leakage(
             raise AssertionError("confirmation windows contain a non-confirmation split")
         if np.any(wd.issue_date < lower) or np.any(wd.issue_date > upper):
             raise AssertionError("confirmation issue date falls outside the frozen interval")
-        if np.any(wd.target_date < lower) or np.any(wd.target_date > upper):
+        valid_targets = wd.target_date[wd.target_valid]
+        if np.any(valid_targets < lower) or np.any(valid_targets > upper):
             raise AssertionError("confirmation target date falls outside the frozen interval")
+        if independent_horizon_targets:
+            if not wd.target_valid.any(axis=1).all():
+                raise AssertionError("confirmation issue lacks every valid target horizon")
+            if not np.isnan(wd.y[~wd.target_valid]).all():
+                raise AssertionError("invalid confirmation targets must remain masked")
     last_hist_std = wd.X[:, -1, wt_col]
     # invert the standardisation of WTEMP at the issue day and compare
     for st_i, st in enumerate(C.STATIONS):

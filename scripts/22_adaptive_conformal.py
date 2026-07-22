@@ -1,35 +1,15 @@
 #!/usr/bin/env python3
-"""Stage 22 — Adaptive Conformal Inference (ACI) + conditional coverage.
+"""Route-A temporal conformal sensitivity with delayed feedback.
 
-Split-CQR's finite-sample guarantee assumes exchangeability between the 2018
-calibration year and the 2019–2020 test years, which does not strictly hold for a
-temporal split of geophysical data. A referee will ask whether the near-nominal
-*marginal* PICP hides *conditional* under-coverage — e.g. in the warm regime or in
-particular regions. This stage answers that directly:
-
-  1. Adaptive Conformal Inference (Gibbs & Candès, 2021): the effective miscoverage
-     level α_t is updated online along each station's test sequence,
-     α_{t+1} = α_t + γ (α − 1{y_t ∉ interval_t}), so coverage self-corrects under
-     temporal drift without any exchangeability assumption.
-  2. Conditional coverage sliced by lead, by warm (y ≥ train-q90) vs cold regime,
-     and across HUC2 regions — reported for split-CQR AND ACI so the reader sees
-     whether ACI makes coverage more uniform where split-CQR sags.
-
-No retraining; operates on the calibrated quantiles already in v2.
-
-Writes outputs/reports/adaptive_conformal.md + outputs/tables/aci_coverage.csv.
-Run:  PYTHONPATH=src python3 scripts/22_adaptive_conformal.py
+Compares ordinary split-CQR, seven-day block-CQR, and delayed-feedback ACI.  All
+results are empirical diagnostics on a previously inspected development period;
+no exchangeability or conditional-coverage guarantee is claimed.
 """
 from __future__ import annotations
 
-import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-
 import sys
-import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -38,112 +18,135 @@ import pandas as pd
 
 from thermoroute import config as C
 from thermoroute import data as D
-
-V2 = C.PREDICTIONS / "usgs_predictions_v2.parquet"
-HUC = C.TABLES / "usgs_stations_with_huc.csv"
-PANEL = ROOT / "data_usgs" / "panel_usgs_100.parquet"
-ALPHA = 0.10          # target 90% intervals
-GAMMA = 0.02          # ACI learning rate
-MODEL = "ThermoRoute"
-
-
-def offset_at(sorted_scores, alpha):
-    """Split-conformal offset = the ceil((n+1)(1-alpha))-th smallest score."""
-    n = len(sorted_scores)
-    if n == 0:
-        return 0.0
-    a = min(max(alpha, 1e-4), 0.999)
-    k = int(np.ceil((n + 1) * (1 - a)))
-    return float(sorted_scores[min(k, n) - 1])
+from thermoroute import results as R
+from thermoroute.adaptive import delayed_aci
+from thermoroute.conformal import block_cqr_offsets, conformal_quantile
+from thermoroute.evidence import FrozenPanelSpec
+from thermoroute.probability import ensemble_prediction_frame
+from thermoroute.repro import atomic_write_bytes
+from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
 
-def main():
-    v2 = pd.read_parquet(V2)
-    meta = pd.read_csv(HUC).set_index("site_id")
-    huc = meta["huc2_name"].to_dict() if "huc2_name" in meta.columns else {}
-    panel = pd.read_parquet(PANEL); panel["DATE"] = pd.to_datetime(panel["DATE"])
-    m = D.split_masks(panel["DATE"]); tr = panel.loc[m.train]
-    warm_thr = {s: float(tr[tr.site_id == s].WTEMP.quantile(0.90))
-                for s in panel.site_id.unique()}
+PREDICTIONS = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
+STATION_REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
+ALPHA = 0.10
+GAMMAS = (0.005, 0.02, 0.05)
 
-    ens = v2[v2.model == MODEL].groupby(
-        ["site_id", "horizon", "issue_date", "split"], as_index=False).agg(
-        y_true=("y_true", "first"), q05=("q05", "mean"), q95=("q95", "mean"))
-    ens["issue_date"] = pd.to_datetime(ens["issue_date"])
 
-    recs = []
-    for (s, h), g in ens.groupby(["site_id", "horizon"]):
-        cal = g[g.split == "calib"]
-        te = g[g.split == "test"].sort_values("issue_date")
-        if len(cal) < 20 or len(te) < 30:
+def _interval_score(y, lower, upper, alpha=ALPHA):
+    width = upper - lower
+    return width + np.where(y < lower, 2 / alpha * (lower - y), 0) + np.where(
+        y > upper, 2 / alpha * (y - upper), 0
+    )
+
+
+def main() -> None:
+    predictions = R.load_route_a_predictions(
+        PREDICTIONS,
+        root=ROOT,
+        panel_path=PANEL,
+        registry_path=STATION_REGISTRY,
+    )
+    ensemble = ensemble_prediction_frame(predictions, "ThermoRoute")
+    ensemble["issue_date"] = pd.to_datetime(ensemble.issue_date)
+    ensemble["target_date"] = pd.to_datetime(ensemble.target_date)
+    calibration = ensemble[ensemble.split == "calib"].copy()
+    evaluation = ensemble[ensemble.split == "test"].copy()
+    calibration = calibration[
+        calibration.q05.notna() & calibration.q95.notna()
+        & (calibration.target_date <= pd.Timestamp(C.SPLIT.calib[1]))
+    ]
+    evaluation = evaluation[evaluation.q05.notna() & evaluation.q95.notna()]
+
+    panel = FrozenPanelSpec.load().load_panel(stable_site_ids=True)
+    panel["DATE"] = pd.to_datetime(panel.DATE)
+    masks = D.split_masks(panel.DATE)
+    train = panel.loc[masks.train]
+    warm_threshold = {
+        site: float(group.WTEMP.quantile(C.EXCEEDANCE_QUANTILE))
+        for site, group in train.groupby("site_id")
+    }
+    huc = huc2_cluster_map(load_station_registry(STATION_REGISTRY))
+    block_offsets = block_cqr_offsets(calibration, alpha=ALPHA, block_days=7)
+
+    records = []
+    for (site, horizon), test_group in evaluation.groupby(["site_id", "horizon"]):
+        cal_group = calibration[
+            (calibration.site_id == site) & (calibration.horizon == horizon)
+        ]
+        if len(cal_group) < 30 or len(test_group) < 30:
             continue
-        scores = np.sort(np.maximum(cal.q05 - cal.y_true, cal.y_true - cal.q95).to_numpy(float))
-        fixed = offset_at(scores, ALPHA)                      # split-CQR
-        y = te.y_true.to_numpy(float); lo = te.q05.to_numpy(float); hi = te.q95.to_numpy(float)
-        warm = y >= warm_thr.get(s, np.inf)
-        # split-CQR coverage
-        cov_split = (y >= lo - fixed) & (y <= hi + fixed)
-        # ACI online coverage
-        cov_aci = np.zeros(len(y), dtype=bool)
-        a_t = ALPHA
-        for t in range(len(y)):
-            off = offset_at(scores, a_t)
-            covered = (y[t] >= lo[t] - off) and (y[t] <= hi[t] + off)
-            cov_aci[t] = covered
-            a_t = float(np.clip(a_t + GAMMA * (ALPHA - (0.0 if covered else 1.0)), 1e-3, 0.5))
-        for t in range(len(y)):
-            recs.append({"site_id": s, "horizon": h, "huc2": huc.get(s, "?"),
-                         "warm": bool(warm[t]),
-                         "split": int(cov_split[t]), "aci": int(cov_aci[t])})
-    R = pd.DataFrame(recs)
-    R.to_csv(C.TABLES / "aci_coverage.csv", index=False)
+        scores = np.maximum(
+            cal_group.q05 - cal_group.y_true, cal_group.y_true - cal_group.q95
+        ).to_numpy(float)
+        split_offset = conformal_quantile(scores, ALPHA)
+        block_offset = block_offsets[(site, horizon)]
+        test_group = test_group.sort_values("issue_date").copy()
+        y = test_group.y_true.to_numpy(float)
+        split_lower = test_group.q05.to_numpy(float) - split_offset
+        split_upper = test_group.q95.to_numpy(float) + split_offset
+        block_lower = test_group.q05.to_numpy(float) - block_offset
+        block_upper = test_group.q95.to_numpy(float) + block_offset
 
-    def picp(df, col):
-        return float(df[col].mean()) if len(df) else float("nan")
+        base = pd.DataFrame({
+            "site_id": site,
+            "horizon": int(horizon),
+            "huc2": huc.get(site, "unmapped"),
+            "issue_date": test_group.issue_date.to_numpy(),
+            "target_date": test_group.target_date.to_numpy(),
+            "warm": y >= warm_threshold.get(site, np.inf),
+            "split_covered": (y >= split_lower) & (y <= split_upper),
+            "split_width": split_upper - split_lower,
+            "split_interval_score": _interval_score(y, split_lower, split_upper),
+            "block_covered": (y >= block_lower) & (y <= block_upper),
+            "block_width": block_upper - block_lower,
+            "block_interval_score": _interval_score(y, block_lower, block_upper),
+        })
+        for gamma in GAMMAS:
+            adaptive = delayed_aci(scores, test_group, alpha=ALPHA, gamma=gamma)
+            tag = str(gamma).replace(".", "p")
+            base[f"aci_{tag}_covered"] = adaptive.aci_covered.to_numpy(bool)
+            base[f"aci_{tag}_width"] = adaptive.aci_width.to_numpy(float)
+            base[f"aci_{tag}_interval_score"] = adaptive.aci_interval_score.to_numpy(float)
+            base[f"aci_{tag}_feedback_count"] = adaptive.feedback_count.to_numpy(int)
+        records.append(base)
+    result = pd.concat(records, ignore_index=True)
+    atomic_write_bytes(C.TABLES / "aci_coverage.csv", result.to_csv(index=False).encode())
 
-    def region_spread(df, col):
-        per = df.groupby("huc2")[col].mean()
-        return float(per.std()), float(per.min()), float(per.max())
-
-    L = ["# Adaptive conformal (ACI) vs split-CQR — conditional coverage\n",
-         f"Target 90 % coverage. Split-CQR uses a fixed per-(station×horizon) "
-         f"offset; ACI updates α_t online (γ={GAMMA}) along each station's "
-         f"2019–2020 test sequence. We report coverage overall and conditioned on "
-         f"lead, warm vs cold regime, and HUC2 region.\n",
-         "## Marginal + regime-conditional coverage (all stations pooled)\n",
-         "| slice | n | split-CQR PICP | ACI PICP |", "|---|---|---|---|"]
-    L.append(f"| overall | {len(R)} | {picp(R,'split'):.3f} | {picp(R,'aci'):.3f} |")
-    for h in C.HORIZONS:
-        d = R[R.horizon == h]
-        L.append(f"| lead {h} d | {len(d)} | {picp(d,'split'):.3f} | {picp(d,'aci'):.3f} |")
-    warmd, coldd = R[R.warm], R[~R.warm]
-    L.append(f"| warm regime (y≥q90) | {len(warmd)} | {picp(warmd,'split'):.3f} | {picp(warmd,'aci'):.3f} |")
-    L.append(f"| cold regime | {len(coldd)} | {picp(coldd,'split'):.3f} | {picp(coldd,'aci'):.3f} |")
-
-    ss, smin, smax = region_spread(R, "split")
-    as_, amin, amax = region_spread(R, "aci")
-    L += ["", "## Cross-region uniformity (per-HUC2 coverage)\n",
-          "| method | region-coverage std | min | max |", "|---|---|---|---|",
-          f"| split-CQR | {ss:.3f} | {smin:.3f} | {smax:.3f} |",
-          f"| ACI | {as_:.3f} | {amin:.3f} | {amax:.3f} |"]
-
-    warm_split, warm_aci = picp(warmd, "split"), picp(warmd, "aci")
-    L += ["", "**Reading (honest).** Both schemes are near-nominal marginally "
-          f"(split-CQR {picp(R,'split'):.3f}, ACI {picp(R,'aci'):.3f}; ACI is "
-          "closer to the 0.90 target). ACI's clear win is *cross-region* "
-          f"uniformity: it collapses the per-HUC2 coverage spread from "
-          f"{ss:.3f} to {as_:.3f} (range {smin:.2f}–{smax:.2f} → {amin:.2f}–{amax:.2f}), "
-          "so every region ends near nominal instead of some regions over- or "
-          "under-covering — the spatial non-exchangeability a referee worries about. "
-          f"The one slice ACI does *not* fix is the rare warm tail, where it "
-          f"under-covers ({warm_aci:.3f} vs split-CQR {warm_split:.3f}); adaptivity "
-          "cannot fully correct a regime that is both rare and temporally clustered, "
-          "and we report this openly. Net: ACI buys conditional (cross-region) "
-          "coverage uniformity on top of the marginal near-nominal coverage of "
-          "split-CQR, at essentially no cost."]
-    (C.REPORTS / "adaptive_conformal.md").write_text("\n".join(L))
-    print("\n".join(L))
-    print(f"\nwrote {C.REPORTS/'adaptive_conformal.md'} + aci_coverage.csv")
+    methods = [
+        ("split-CQR", "split"),
+        ("7-day block-CQR", "block"),
+        *[(f"delayed ACI gamma={gamma}", f"aci_{str(gamma).replace('.', 'p')}")
+          for gamma in GAMMAS],
+    ]
+    lines = [
+        "# Temporal conformal sensitivity\n",
+        "All target feedback is delayed until `target_date`; a 7-day forecast can "
+        "therefore not update ACI for the next seven issue days. Results are empirical "
+        "development-period diagnostics, not finite-sample guarantees.\n",
+        "| method | slice | n | coverage | width | interval score |",
+        "|---|---|---|---|---|---|",
+    ]
+    slices = [("overall", result), ("warm train-q90 tail", result[result.warm])]
+    slices.extend((f"lead {h} d", result[result.horizon == h]) for h in C.HORIZONS)
+    for method, tag in methods:
+        for label, frame in slices:
+            lines.append(
+                f"| {method} | {label} | {len(frame)} | "
+                f"{frame[f'{tag}_covered'].mean():.3f} | "
+                f"{frame[f'{tag}_width'].mean():.2f} | "
+                f"{frame[f'{tag}_interval_score'].mean():.2f} |"
+            )
+    lines.extend([
+        "",
+        "Cross-HUC2 dispersion is descriptive: each method's per-HUC2 coverage "
+        "distribution is retained in the row-level CSV for clustered analysis. ACI "
+        "is not described as cost-free; width and interval score are reported next "
+        "to coverage for every gamma.",
+    ])
+    atomic_write_bytes(C.REPORTS / "adaptive_conformal.md", "\n".join(lines).encode())
+    print("\n".join(lines))
 
 
 if __name__ == "__main__":

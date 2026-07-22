@@ -49,11 +49,11 @@ def seed_pred(model, scope=None, feature_set=None):
 
 def main():
     w("# ThermoRoute — result tables\n")
-    w("_All metrics on the 2019–2020 blind test. Deep models: mean ± std over "
-      "seeds. Stations b1/s2/p3 averaged unless noted._\n")
+    w("_All metrics on the already-inspected 2019–2020 development evaluation. "
+      "Deep models: mean ± std over seeds. Stations b1/s2/p3 averaged unless noted._\n")
 
     # ---- Table 2: headline results -------------------------------------- #
-    w("## Table 2 — Overall blind-test accuracy by horizon\n")
+    w("## Table 2 — Overall development-evaluation accuracy by horizon\n")
     w("RMSE (°C) and skill vs persistence, mean over the three stations.\n")
     order = ["Persistence", "Climatology", "DampedPersistence", "Air2streamLite",
              "Ridge", "LightGBM", "GRU", "ThermoRoute"]
@@ -111,9 +111,11 @@ def main():
     w("")
 
     # ---- Table 4: probabilistic + exceedance ---------------------------- #
-    w("## Table 4 — Probabilistic & high-temperature warning (blind test)\n")
-    w("ThermoRoute (joint, conformal). PICP target = 0.90.\n")
-    w("| station | horizon | PICP | MPIW (°C) | CRPS | Brier-skill | AUPRC |")
+    w("## Table 4 — Probabilistic & high-temperature diagnostics (development evaluation)\n")
+    w("ThermoRoute (joint, conformal). PICP target = 0.90. The three-quantile "
+      "score is not CRPS; event Brier skill is omitted unless an external, "
+      "training-fitted reference probability is supplied.\n")
+    w("| station | horizon | PICP | MPIW (°C) | 3-quantile score | Brier-skill | AUPRC |")
     w("|---|---|---|---|---|---|---|")
     # pin the SAME configuration as the headline point table (V3 joint)
     trs = TEST[(TEST.model == "ThermoRoute") & (TEST.scope == "joint")
@@ -125,19 +127,22 @@ def main():
                 continue
             r = row.iloc[0]
             w(f"| {st} | {h} | {r.get('PICP', np.nan):.3f} | {r.get('MPIW', np.nan):.2f} "
-              f"| {r.get('CRPS', np.nan):.3f} | {r.get('EVT_BRIER_SKILL', np.nan):+.3f} "
+              f"| {r.get('THREE_QUANTILE_SCORE', np.nan):.3f} | "
+              f"{r.get('EVT_BRIER_SKILL', np.nan):+.3f} "
               f"| {r.get('EVT_AUPRC', np.nan):.3f} |")
     w("")
 
-    # ---- Table 5: LOSO -------------------------------------------------- #
-    w("## Table 5 — Leave-one-station-out spatial transfer (RMSE °C)\n")
-    loso = TEST[TEST.model == "ThermoRoute-LOSO"]
+    # ---- Table 5: history-dependent LOSO -------------------------------- #
+    w("## Table 5 — Leave-one-station-out warm-start diagnostic (RMSE °C)\n")
+    w("The held station's historical preprocessing information is present; this "
+      "is not zero-shot or ungauged transfer.\n")
+    loso = TEST[TEST.model == "ThermoRoute-LOSO-WarmStart"]
     # pin the V3 joint headline config as the in-sample reference (LOSO is V3-only);
     # without this filter the joint column averages V1/V2/V3 and is not comparable.
     joint = TEST[(TEST.model == "ThermoRoute") & (TEST.scope == "joint")
                  & (TEST.feature_set == "V3")]
     if not loso.empty:
-        w("| held-out station | h1 joint | h1 LOSO | h3 joint | h3 LOSO | h7 joint | h7 LOSO |")
+        w("| held-out station | h1 joint | h1 warm-start | h3 joint | h3 warm-start | h7 joint | h7 warm-start |")
         w("|---|---|---|---|---|---|---|")
         for st in C.STATIONS:
             jj = joint[joint.site_id == st].groupby("horizon").RMSE.mean()

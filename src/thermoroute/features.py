@@ -161,6 +161,49 @@ class DampedPersistenceAnchor:
 # --------------------------------------------------------------------------- #
 # Tabular lag features for tree / linear models
 # --------------------------------------------------------------------------- #
+def assert_strict_daily_panel(
+    panel: pd.DataFrame,
+    *,
+    expected_stations: tuple[str, ...] | None = None,
+) -> None:
+    """Fail when row offsets cannot be interpreted as calendar-day offsets.
+
+    Both the sequence and tabular builders use positional offsets for lags and
+    horizons.  A missing or duplicate station-day would therefore silently turn
+    ``t + h`` into a different calendar date.  Validate the invariant once at
+    each public builder boundary, before fitting any preprocessing object.
+    """
+    required = {"site_id", "DATE"}
+    missing = required - set(panel.columns)
+    if missing:
+        raise ValueError(f"daily panel lacks columns: {sorted(missing)}")
+    if panel.empty or panel["site_id"].isna().any():
+        raise ValueError("daily panel has no rows or contains a missing station id")
+    dates = pd.to_datetime(panel["DATE"], errors="coerce")
+    if dates.isna().any():
+        raise ValueError("daily panel contains an invalid or missing DATE")
+    if getattr(dates.dt, "tz", None) is not None:
+        raise ValueError("daily panel DATE must be timezone-naive calendar days")
+    if not dates.eq(dates.dt.normalize()).all():
+        raise ValueError("daily panel DATE contains a non-midnight timestamp")
+
+    stations = set(panel["site_id"].astype(str))
+    if expected_stations is not None and stations != set(expected_stations):
+        raise ValueError("daily panel station registry differs from the expected registry")
+    checked = panel.assign(
+        site_id=panel["site_id"].astype(str),
+        DATE=dates,
+    ).sort_values(["site_id", "DATE"])
+    if checked.duplicated(["site_id", "DATE"]).any():
+        raise ValueError("daily panel contains a duplicate station-day")
+    for station, group in checked.groupby("site_id", sort=True):
+        station_dates = group["DATE"].to_numpy(dtype="datetime64[ns]")
+        if len(station_dates) > 1 and not np.all(
+            np.diff(station_dates) == np.timedelta64(1, "D")
+        ):
+            raise ValueError(f"daily panel contains a calendar gap for station {station}")
+
+
 def build_tabular(
     panel: pd.DataFrame,
     horizon: int,
@@ -168,6 +211,7 @@ def build_tabular(
     clim: HarmonicClimatology,
     drop_feature_nans: bool = True,
     require_observed_target: bool = True,
+    include_missingness: bool = False,
 ) -> pd.DataFrame:
     """Build a leakage-safe tabular design for one horizon.
 
@@ -176,6 +220,7 @@ def build_tabular(
     plus the deterministic seasonal expectation at the target time ``t+h``.
     Returns one row per (station, issue_date) with a ``split`` tag attached later.
     """
+    assert_strict_daily_panel(panel, expected_stations=tuple(C.STATIONS))
     out_frames = []
     for st in C.STATIONS:
         sub = panel[panel.site_id == st].sort_values("DATE").reset_index(drop=True)
@@ -184,14 +229,29 @@ def build_tabular(
 
         for var in variables:
             s = sub[var].astype(float)
+            observed = (
+                sub[f"{var}_observed"].astype(float)
+                if f"{var}_observed" in sub.columns else s.notna().astype(float)
+            )
             for lag in C.SHORT_LAGS:
                 cols[f"{var}_lag{lag}"] = s.shift(lag).to_numpy()
+                if include_missingness:
+                    cols[f"{var}_observed_lag{lag}"] = observed.shift(lag).to_numpy()
             for w in C.ROLLING_WINDOWS:
                 cols[f"{var}_rollmean{w}"] = s.rolling(w).mean().to_numpy()
+                if include_missingness:
+                    cols[f"{var}_observed_fraction{w}"] = observed.rolling(w).mean().to_numpy()
                 if var == C.TARGET:
                     cols[f"{var}_rollstd{w}"] = s.rolling(w).std().to_numpy()
             cols[f"{var}_delta1"] = (s - s.shift(1)).to_numpy()
             cols[f"{var}_delta3"] = (s - s.shift(3)).to_numpy()
+            if include_missingness:
+                cols[f"{var}_delta1_observed"] = (
+                    observed * observed.shift(1)
+                ).to_numpy()
+                cols[f"{var}_delta3_observed"] = (
+                    observed * observed.shift(3)
+                ).to_numpy()
 
         # deterministic seasonal context (no leakage: calendar only)
         doy_t = pd.to_datetime(sub["DATE"]).dt.dayofyear.to_numpy()

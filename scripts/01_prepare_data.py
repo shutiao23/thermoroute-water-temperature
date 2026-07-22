@@ -138,8 +138,9 @@ def main() -> None:
     w("## 8. Leakage-safe split and open verification items\n")
     s = C.SPLIT.as_dict()
     w(f"- **train** {s['train'][0]}…{s['train'][1]} · **val** {s['val'][0]}…{s['val'][1]} "
-      f"· **calib** {s['calib'][0]} · **blind test** {s['test'][0]}…{s['test'][1]}")
-    w(f"- All scalers, climatology and rating curves are fit on **train only**.")
+      f"· **calib** {s['calib'][0]} · **development evaluation** "
+      f"{s['test'][0]}…{s['test'][1]}")
+    w("- All scalers, climatology and rating curves are fit on **train only**.")
     w(f"- **DH semantics unverified** (`config.DH_SEMANTICS_VERIFIED="
       f"{C.DH_SEMANTICS_VERIFIED}`): audit is consistent with a sunshine/insolation "
       f"index but a data-dictionary check is required before any DH-based claim.")

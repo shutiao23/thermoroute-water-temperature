@@ -6,13 +6,14 @@ Fixes the two blockers of the strong-accept review:
   B2 — "unseen basins" was a RANDOM station split; here whole HUC2 regions are
        held out so no gage on a held-out river/region is in training.
 
-Design: 16 HUC2 regions greedily packed into 4 folds (~30 stations each), each
+Design: verified HUC2 regions are greedily packed into 4 folds (~30 stations each), each
 fold holds out whole regions. Under this protocol we train, per fold, a
 station-agnostic ThermoRoute AND a global LightGBM on the in-fold regions and
 forecast the held-out region stations. Persistence / damped persistence are
 training-free so their per-station test RMSE is read from the v2 predictions.
-Then a per-station paired Wilcoxon (TR vs LightGBM) at each horizon decides the
-central claim, plus a skill-vs-distance-to-nearest-training-gage gradient.
+Then descriptive per-station paired effects with whole-HUC2 bootstrap intervals
+compare TR with LightGBM, alongside a skill-versus-distance diagnostic.  This arm
+is exploratory and never auto-declares parity or a publication go/no-go.
 
 Usage:
   PYTHONPATH=src python3 scripts/13c_region_transfer.py --fold N   # train fold N's TR
@@ -21,7 +22,6 @@ Usage:
 from __future__ import annotations
 
 import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", os.environ.get("WORKER_THREADS", "8"))
 
 import argparse
@@ -37,7 +37,6 @@ sys.path.insert(0, str(ROOT / "src"))
 import numpy as np
 import pandas as pd
 import torch
-from scipy.stats import wilcoxon
 
 torch.set_num_threads(int(os.environ.get("WORKER_THREADS", "8")))
 
@@ -46,28 +45,44 @@ from thermoroute import data as D
 from thermoroute import features as F
 from thermoroute import datasets as DS
 from thermoroute import baselines as B
+from thermoroute import results as R
+from thermoroute.registry import (
+    enforce_common_forecast_keys,
+    restrict_tabular_to_window_registry,
+)
+from thermoroute.spatial import huc2_cluster_map, load_station_registry
+from thermoroute.significance import cluster_bootstrap_paired_effect
 from thermoroute.thermoroute import ThermoRoute
 from thermoroute.train import fit_model
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 CFG = C.TrainConfig(batch_size=1536)
-DELTA = 1.0                                   # val-selected, matches 09/13
-PANEL = ROOT / "data_usgs" / "panel_usgs_100.parquet"
-HUC = ROOT / "outputs" / "tables" / "usgs_stations_with_huc.csv"
-CKPT = C.PREDICTIONS / "region_ckpt"
-CKPT.mkdir(exist_ok=True)
+DELTA = C.DELTA_SCALE                         # val-selected, matches 09/13
+PANEL = Path(os.environ.get(
+    "USGS_PANEL", str(ROOT / "data_usgs" / "panel_usgs_120v2.parquet")))
+STATION_REGISTRY = Path(os.environ.get(
+    "USGS_STATION_REGISTRY",
+    str(ROOT / "data_usgs" / "station_registry_v1.csv"),
+))
+CKPT = C.PREDICTIONS / "region_ckpt_route_a_gauged_transfer_v2"
 _t0 = time.time()
 
 
 def log(m): print(f"[{time.time()-_t0:6.0f}s] {m}", flush=True)
 
 
+def spatial_metadata():
+    """Read stable site_no metadata without falling back to legacy nXX aliases."""
+    return load_station_registry(STATION_REGISTRY).set_index("site_no")
+
+
 def region_folds(stations):
     """Greedy pack whole HUC2 regions into 4 balanced folds (deterministic)."""
-    huc = pd.read_csv(HUC).set_index("site_id")["huc2"].to_dict()
+    meta = spatial_metadata()
+    huc = huc2_cluster_map(meta.reset_index())
     by_reg = {}
     for s in stations:
-        by_reg.setdefault(int(huc.get(s, -1)), []).append(s)
+        by_reg.setdefault(huc.get(s, f"UNMAPPED:{s}"), []).append(s)
     regions = sorted(by_reg.items(), key=lambda kv: -len(kv[1]))
     folds, load = [[], [], [], []], [0, 0, 0, 0]
     reg_of_fold = [[], [], [], []]
@@ -89,31 +104,61 @@ def prep():
     return panel, panel_imp, masks, clim, thr, wd, stations
 
 
-def train_fold_tr(fold_i):
-    panel, panel_imp, masks, clim, thr, wd, stations = prep()
+def prep_fold(fold_i):
+    """Build a held-region fold without held-station fitted statistics.
+
+    Held regions contribute neither climatology coefficients, scaling moments,
+    damped-AR phi nor imputation statistics.  Recent observed WTEMP remains an
+    issue-time input, matching the deployed sensor-forecast task.
+    """
+    b = D.prepare_dataset_from_panel(str(PANEL))
+    panel, masks, stations = b["panel_raw"], b["masks"], b["stations"]
     folds, _ = region_folds(stations)
     hold = folds[fold_i]
+    train_st = tuple(s for s in stations if s not in hold)
+    clim = F.HarmonicClimatology.fit(
+        panel, masks.train, fit_stations=train_st, pooled=True)
+    wd = DS.build_windows(
+        panel, masks, clim, variables=USGS_VARS, require_observed_target=True,
+        scaler_fit_stations=train_st, pooled_scaler=True,
+        damped_fit_stations=train_st, pooled_damped=True)
+
+    train_rows = panel.loc[masks.train & panel.site_id.isin(train_st).to_numpy()]
+    global_thr = float(train_rows.WTEMP.quantile(0.9))
+    thr = {}
+    for station in stations:
+        local = train_rows[train_rows.site_id == station].WTEMP
+        thr[station] = float(local.quantile(0.9)) if local.notna().any() else global_thr
+    return panel, masks, clim, thr, wd, stations, train_st, hold
+
+
+def train_fold_tr(fold_i):
+    CKPT.mkdir(parents=True, exist_ok=True)
+    panel, masks, clim, thr, wd, stations, train_st, hold = prep_fold(fold_i)
     f = CKPT / f"tr_fold{fold_i}.parquet"
     if f.exists():
         log(f"TR fold{fold_i}: already done"); return
-    train_st = tuple(s for s in stations if s not in hold)
     log(f"TR fold{fold_i}: train {len(train_st)} -> hold {len(hold)} region stations")
-    m = ThermoRoute(n_vars=len(wd.var_names), n_stations=len(stations),
-                    n_phys=wd.n_phys, station_agnostic=True, delta_scale=DELTA)
-    r = fit_model(m, wd, thr, cfg=CFG, seed=0, scope="region_lgo",
-                  feature_set="USGS", train_stations=train_st)
+    factory = lambda: ThermoRoute(
+        n_vars=len(wd.var_names), n_stations=len(stations), n_phys=wd.n_phys,
+        station_agnostic=True, delta_scale=DELTA, safety_anchor="damped")
+    r = fit_model(factory, wd, thr, cfg=CFG, seed=0, scope="region_lgo",
+                  feature_set="USGS", train_stations=train_st,
+                  station_balanced=True, selection_metric="station_macro")
     pred = r.pred[(r.pred.split == "test") & (r.pred.site_id.isin(hold))].copy()
     pred["model"] = "ThermoRoute-regionLGO"
     pred.to_parquet(f)
     log(f"TR fold{fold_i}: DONE {r.epochs+1}ep val={r.best_val:.4f} -> {f.name}")
 
 
-def lgb_fold(panel_imp, clim, train_st, hold):
+def lgb_fold(panel, clim, train_st, hold, wd):
     """Global LightGBM trained on in-fold stations, predicting held-out stations."""
     frames = []
     for h in C.HORIZONS:
-        tab = F.attach_split(F.build_tabular(panel_imp, h, USGS_VARS, clim,
-                             drop_feature_nans=False, require_observed_target=True))
+        tab = F.attach_split(F.build_tabular(panel, h, USGS_VARS, clim,
+                             drop_feature_nans=False, require_observed_target=True,
+                             include_missingness=True))
+        tab = restrict_tabular_to_window_registry(tab, wd, C.STATIONS, h)
         cols = F.feature_columns(tab)
         for c in cols:
             tab[c] = pd.to_numeric(tab[c], errors="coerce").fillna(0.0)
@@ -122,10 +167,35 @@ def lgb_fold(panel_imp, clim, train_st, hold):
         ev = tab[(tab.split == "test") & (tab.site_id.isin(hold))]
         mp = B._lgb_fit(tr[cols].to_numpy(float), tr["y"].to_numpy(float),
                         va[cols].to_numpy(float), va["y"].to_numpy(float), "regression")
-        frames.append(pd.DataFrame({
-            "model": "LightGBM-regionLGO", "site_id": ev["site_id"].to_numpy(),
-            "horizon": h, "issue_date": ev["issue_date"].to_numpy(),
-            "y_true": ev["y"].to_numpy(float), "y_pred": mp.predict(ev[cols].to_numpy(float))}))
+        frames.append(R.make_pred_frame(
+            model="LightGBM-regionLGO", scope="region_lgo_gauged",
+            feature_set="USGS", seed=0, site_id=ev["site_id"].to_numpy(),
+            horizon=np.full(len(ev), h), split=ev["split"].to_numpy(),
+            issue_date=ev["issue_date"].to_numpy(),
+            target_date=ev["target_date"].to_numpy(),
+            y_true=ev["y"].to_numpy(float),
+            y_pred=mp.predict(ev[cols].to_numpy(float))))
+    return pd.concat(frames, ignore_index=True)
+
+
+def baseline_fold(wd, hold):
+    """Persistence and the exact pooled damped anchor on held samples."""
+    idx = wd.idx("test")
+    site = np.asarray([C.STATIONS[i] for i in wd.station[idx]])
+    selected = np.isin(site, list(hold))
+    idx, site = idx[selected], site[selected]
+    frames = []
+    for hi, horizon in enumerate(wd.horizons):
+        common = dict(
+            scope="region_lgo_gauged", feature_set="USGS", seed=0,
+            site_id=site, horizon=np.full(len(idx), horizon),
+            split=np.full(len(idx), "test"), issue_date=wd.issue_date[idx],
+            target_date=wd.target_date[idx, hi], y_true=wd.y[idx, hi])
+        frames.append(R.make_pred_frame(
+            model="Persistence-regionLGO", y_pred=wd.wtemp_t[idx], **common))
+        frames.append(R.make_pred_frame(
+            model="DampedPersistence-regionLGO",
+            y_pred=wd.damped_prior[idx, hi], **common))
     return pd.concat(frames, ignore_index=True)
 
 
@@ -143,32 +213,44 @@ def haversine(a, b):
 
 
 def assemble():
+    CKPT.mkdir(parents=True, exist_ok=True)
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     panel, panel_imp, masks, clim, thr, wd, stations = prep()
     folds, reg_of_fold = region_folds(stations)
-    meta = pd.read_csv(HUC).set_index("site_id")
+    meta = spatial_metadata()
 
-    # LightGBM per fold + collect TR fold predictions
-    tr_all, lgb_all = [], []
+    # Fold-specific pooled preprocessing for every learned/reference model.
+    tr_all, lgb_all, base_all = [], [], []
     for fi, hold in enumerate(folds):
+        fold_panel, _, fold_clim, _, fold_wd, _, train_st, strict_hold = prep_fold(fi)
+        if strict_hold != hold:
+            raise AssertionError("region fold construction changed within one run")
         tr_all.append(pd.read_parquet(CKPT / f"tr_fold{fi}.parquet"))
-        train_st = tuple(s for s in stations if s not in hold)
         lf = CKPT / f"lgb_fold{fi}.parquet"
         if lf.exists():
             lgb_all.append(pd.read_parquet(lf))
         else:
-            g = lgb_fold(panel_imp, clim, train_st, hold)
+            g = lgb_fold(fold_panel, fold_clim, train_st, hold, fold_wd)
             g.to_parquet(lf); lgb_all.append(g)
             log(f"LGB fold{fi}: {len(g)} rows")
+        base_all.append(baseline_fold(fold_wd, hold))
     TR = pd.concat(tr_all, ignore_index=True)
     LGB = pd.concat(lgb_all, ignore_index=True)
-
-    # training-free baselines from the v2 predictions (identical regardless of LGO)
-    v2 = pd.read_parquet(C.PREDICTIONS / "usgs_predictions_v2.parquet")
-    base = v2[(v2.split == "test") & v2.model.isin(["Persistence", "DampedPersistence"])]
+    base = pd.concat(base_all, ignore_index=True)
+    combined, audit = enforce_common_forecast_keys(
+        pd.concat([TR, LGB, base], ignore_index=True),
+        ("ThermoRoute-regionLGO", "LightGBM-regionLGO",
+         "Persistence-regionLGO", "DampedPersistence-regionLGO"), split="test")
+    log(f"region registry: {audit.common_unique} exact shared keys; "
+        f"dropped={audit.dropped_rows}; before={audit.before_unique}")
+    TR = combined[combined.model == "ThermoRoute-regionLGO"]
+    LGB = combined[combined.model == "LightGBM-regionLGO"]
+    base = combined[combined.model.isin(
+        ["Persistence-regionLGO", "DampedPersistence-regionLGO"])]
     tr_r = ps_rmse(TR); lgb_r = ps_rmse(LGB)
-    per_r = ps_rmse(base[base.model == "Persistence"])
-    dmp_r = ps_rmse(base[base.model == "DampedPersistence"])
+    per_r = ps_rmse(base[base.model == "Persistence-regionLGO"])
+    dmp_r = ps_rmse(base[base.model == "DampedPersistence-regionLGO"])
+    huc_by_site = huc2_cluster_map(meta.reset_index())
 
     # nearest-training-gage distance per held-out station
     dist = {}
@@ -182,15 +264,17 @@ def assemble():
             dist[s] = min(haversine(p, q) for q in tr_ll)
 
     L = ["# Leave-HUC2-region-out transfer — ThermoRoute vs the strong learned baseline\n",
-         f"16 HUC2 regions packed into 4 folds ({[len(f) for f in folds]} stations); "
+         f"{sum(len(r) for r in reg_of_fold)} HUC2/unknown groups packed into 4 folds "
+         f"({[len(f) for f in folds]} stations); "
          "each fold holds out **whole regions** so no held-out-region gage is in "
          "training (fixes the random-split spatial leak). Station-agnostic "
          "ThermoRoute and a global LightGBM are each trained on the in-fold regions "
-         "and forecast the held-out region stations. Persistence/damped are "
-         "training-free (read from v2).\n",
+         "and forecast the held-out region stations. All climatology, scaling and "
+         "damped-phi parameters are pooled from in-fold stations only; held-site "
+         "WTEMP enters only as observed issue/history input.\n",
          "| horizon | n | TR RMSE | LGB RMSE | persist | damped | TR skill/persist | "
-         "LGB skill/persist | TR−LGB paired Wilcoxon p | winner |",
-         "|---|---|---|---|---|---|---|---|---|---|"]
+         "LGB skill/persist | median TR−LGB [HUC2 95% CI] | TR win rate |",
+         "|---|---|---|---|---|---|---|---|---|"]
     verdict = {}
     for h in C.HORIZONS:
         sts = sorted(s for s in stations
@@ -200,19 +284,24 @@ def assemble():
         b = np.array([lgb_r[(s, h)] for s in sts])      # LGB
         pr = np.array([per_r[(s, h)] for s in sts])
         dm = np.array([dmp_r[(s, h)] for s in sts])
-        p = wilcoxon(a, b).pvalue if len(sts) > 5 else float("nan")
+        effects = a - b
+        clusters = np.asarray([huc_by_site.get(s, f"UNMAPPED:{s}") for s in sts])
+        inference = cluster_bootstrap_paired_effect(
+            effects, clusters, n_boot=10000, seed=1300 + h,
+        )
         tr_win = float((a < b).mean())
-        win = ("TR" if (np.median(a) < np.median(b) and p < 0.05)
-               else "LGB" if (np.median(b) < np.median(a) and p < 0.05) else "tie")
         verdict[h] = {"n": len(sts), "tr": float(np.median(a)), "lgb": float(np.median(b)),
-                      "p": p, "tr_win_rate": tr_win, "winner": win,
+                      "median_tr_minus_lgb": inference["effect"],
+                      "ci_low": inference["ci_low"], "ci_high": inference["ci_high"],
+                      "tr_win_rate": tr_win,
                       "skill_tr_persist": float(np.median(1 - a/pr)),
                       "skill_lgb_persist": float(np.median(1 - b/pr)),
                       "skill_tr_damped": float(np.median(1 - a/dm))}
         L.append(f"| {h} | {len(sts)} | {np.median(a):.3f} | {np.median(b):.3f} | "
                  f"{np.median(pr):.3f} | {np.median(dm):.3f} | "
                  f"{np.median(1-a/pr):+.3f} | {np.median(1-b/pr):+.3f} | "
-                 f"{p:.2g} | **{win}** |")
+                 f"{inference['effect']:+.3f} [{inference['ci_low']:+.3f},"
+                 f"{inference['ci_high']:+.3f}] | {tr_win:.2f} |")
 
     # skill-vs-distance figure (h=7)
     fig, ax = plt.subplots(1, 1, figsize=(6, 4))
@@ -229,23 +318,15 @@ def assemble():
     fig.savefig(C.FIGURES / "fig_region_transfer.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    L += ["", "## Verdict\n"]
-    winners = [verdict[h]["winner"] for h in C.HORIZONS]
-    if winners.count("TR") >= 2:
-        L.append("**GO** — ThermoRoute significantly beats the strong learned baseline "
-                 "(LightGBM) out-of-region at a majority of horizons. Transfer is a "
-                 "defensible central claim; pursue the 一区/CCF-A framing.")
-    elif winners.count("LGB") >= 2:
-        L.append("**NO-GO (LGB)** — LightGBM transfers better; drop the transfer-superiority "
-                 "claim and pivot to the calibrated-forecaster + honest-delineation framing.")
-    else:
-        L.append("**TIE** — ThermoRoute and LightGBM transfer comparably out-of-region. "
-                 "Report parity honestly; the contribution is calibration + physics-vs-GBDT "
-                 "delineation, not a transfer-superiority claim (二区-strong framing).")
-    L.append(f"\nPer-horizon winners: {dict(zip(C.HORIZONS, winners))}")
+    L += ["", "## Interpretation guard\n"]
+    L.append(
+        "This held-region analysis is exploratory and does not auto-declare a "
+        "winner, tie, parity, or publication go/no-go. Intervals resample complete "
+        "HUC2 groups and quantify cross-region sampling variation only. Issue-time "
+        "WTEMP history is required, so this is not ungauged prediction."
+    )
     L.append(f"Mean nearest-training-gage distance for held-out stations: "
-             f"{np.mean(list(dist.values())):.0f} km "
-             f"(vs a random split where it would be near 0).")
+             f"{np.mean(list(dist.values())):.0f} km.")
 
     out = C.REPORTS / "region_transfer.md"
     out.write_text("\n".join(L))

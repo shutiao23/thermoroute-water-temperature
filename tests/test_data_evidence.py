@@ -20,7 +20,12 @@ from thermoroute.evidence import (
 )
 from thermoroute import data as data_module
 from thermoroute.provenance import ProvenanceError, SnapshotStore, sha256_bytes
-from thermoroute.usgs import _parse_nwis_rdb, fetch_nwis_daily
+from thermoroute.usgs import (
+    CONFIRMATORY_OUTCOME_COLUMNS,
+    _parse_nwis_rdb,
+    fetch_nwis_daily,
+    parse_nwis_confirmatory_daily,
+)
 
 
 def test_checked_in_panel_registry_is_frozen_and_uses_site_no():
@@ -158,6 +163,144 @@ def test_nwis_daily_can_rebuild_from_snapshotted_rdb():
     assert daily.loc[pd.Timestamp("2021-01-01")].to_dict() == {
         "WTEMP": 4.2, "FLOW": 10.0, "WLEVEL": 2.0,
     }
+
+
+def test_confirmatory_nwis_parser_keeps_full_registry_and_signed_flow():
+    payload = (
+        b"agency_cd\tsite_no\tdatetime\t123_00010_00003\t123_00010_00003_cd\t"
+        b"123_00060_00003\t123_00060_00003_cd\n"
+        b"5s\t15s\t20d\t14n\t10s\t14n\t10s\n"
+        b"USGS\t01234567\t2021-01-01\t4.2\tA\t-0.5\tP\n"
+        b"USGS\t01234567\t2021-01-03\t4.8\tA\t11.0\tA\n"
+    )
+    daily = parse_nwis_confirmatory_daily(
+        payload,
+        site_no="01234567",
+        start="2021-01-01",
+        end="2021-01-03",
+    )
+    assert list(daily.columns) == list(CONFIRMATORY_OUTCOME_COLUMNS)
+    assert len(daily) == 3
+    assert daily.loc[0, "FLOW"] == -0.5
+    assert daily.loc[0, "WTEMP_qualifier"] == "A"
+    assert daily.loc[0, "FLOW_qualifier"] == "P"
+    assert pd.isna(daily.loc[1, "WTEMP"])
+    assert pd.isna(daily.loc[1, "WTEMP_qualifier"])
+    assert daily.WLEVEL.isna().all()
+
+
+@pytest.mark.parametrize(
+    ("header", "rows", "message"),
+    (
+        (
+            "site_no\tdatetime\t123_00010_00003",
+            "01234567\t2021-01-01\t4.2",
+            "lacks identity columns",
+        ),
+        (
+            "agency_cd\tdatetime\t123_00010_00003",
+            "USGS\t2021-01-01\t4.2",
+            "lacks identity columns",
+        ),
+        (
+            "agency_cd\tsite_no\t123_00010_00003",
+            "USGS\t01234567\t4.2",
+            "lacks identity columns",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            "\t01234567\t2021-01-01\t4.2",
+            "empty agency_cd",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            "USGS\t\t2021-01-01\t4.2",
+            "empty site_no",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            "USGS\t01234567\t\t4.2",
+            "empty datetime",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            "EPA\t01234567\t2021-01-01\t4.2",
+            "not exactly USGS",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            (
+                "USGS\t01234567\t2021-01-01\t4.2\n"
+                "EPA\t01234567\t2021-01-02\t4.3"
+            ),
+            "not exactly USGS",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            "USGS\t87654321\t2021-01-01\t4.2",
+            "site registry",
+        ),
+        (
+            "agency_cd\tsite_no\tdatetime\t123_00010_00003",
+            (
+                "USGS\t01234567\t2021-01-01\t4.2\n"
+                "USGS\t87654321\t2021-01-02\t4.3"
+            ),
+            "site registry",
+        ),
+    ),
+)
+def test_confirmatory_nwis_parser_rejects_unbound_nonempty_rows(
+    header,
+    rows,
+    message,
+):
+    payload = (header + "\n" + rows + "\n").encode("utf-8")
+    with pytest.raises(ValueError, match=message):
+        parse_nwis_confirmatory_daily(
+            payload,
+            site_no="01234567",
+            start="2021-01-01",
+            end="2021-01-02",
+        )
+
+
+def test_confirmatory_nwis_parser_binds_identity_columns_on_header_only_table():
+    with pytest.raises(ValueError, match="lacks identity columns"):
+        parse_nwis_confirmatory_daily(
+            b"123_00010_00003\n",
+            site_no="01234567",
+            start="2021-01-01",
+            end="2021-01-02",
+        )
+    empty = parse_nwis_confirmatory_daily(
+        b"agency_cd\tsite_no\tdatetime\t123_00010_00003\n",
+        site_no="01234567",
+        start="2021-01-01",
+        end="2021-01-02",
+    )
+    assert len(empty) == 2
+    assert empty.WTEMP.isna().all()
+
+
+def test_confirmatory_nwis_parser_marks_simultaneous_finite_series_conflict():
+    payload = (
+        b"agency_cd\tsite_no\tdatetime\t123_00010_00003\t456_00010_00003\n"
+        b"5s\t15s\t20d\t14n\t14n\n"
+        b"USGS\t01234567\t2021-01-01\t4.2\t4.3\n"
+    )
+    daily = parse_nwis_confirmatory_daily(
+        payload,
+        site_no="01234567",
+        start="2021-01-01",
+        end="2021-01-01",
+    )
+    assert pd.isna(daily.loc[0, "WTEMP"])
+    assert bool(daily.loc[0, "WTEMP_series_conflict"])
+    assert daily.loc[0, "WTEMP_conflicting_series_count"] == 2
+    assert daily.loc[0, "WTEMP_value_status"] == (
+        "MULTIPLE_FINITE_SERIES_CONFLICT"
+    )
 
 
 def test_confirmatory_selection_is_new_metadata_only_and_deterministic():

@@ -145,7 +145,8 @@ def parse_previous_runs_daily(
     document = _load_response(payload)
     if document.get("timezone") not in {"GMT", "UTC"}:
         raise NWPContractError("Previous Runs response is not in frozen GMT/UTC timezone")
-    if int(document.get("utc_offset_seconds", 0)) != 0:
+    utc_offset = document.get("utc_offset_seconds", 0)
+    if not isinstance(utc_offset, (str, int, float)) or int(utc_offset) != 0:
         raise NWPContractError("Previous Runs response has a non-zero UTC offset")
     hourly = document.get("hourly")
     units = document.get("hourly_units")

@@ -14,12 +14,39 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _isolate_project_bytecode() -> None:
+    if __name__ != "__main__":
+        return
+    prefix = Path(sys.pycache_prefix).resolve() if sys.pycache_prefix else None
+    if (
+        sys.flags.isolated
+        and prefix is not None
+        and prefix != ROOT
+        and ROOT not in prefix.parents
+    ):
+        return
+    with tempfile.TemporaryDirectory(prefix="thermoroute-candidates-pycache-") as cache:
+        result = subprocess.run(
+            [sys.executable, "-I", "-X", f"pycache_prefix={cache}",
+             str(Path(__file__).resolve()), *sys.argv[1:]],
+            cwd=ROOT,
+            env=os.environ.copy(),
+            check=False,
+        )
+    raise SystemExit(result.returncode)
+
+
+_isolate_project_bytecode()
 sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute.confirmatory import (  # noqa: E402
+    CANDIDATE_USER_AGENT,
     ROUTE_A_STATE_UNIVERSE,
     build_usgs_candidate_url,
     merge_candidate_metadata,
@@ -38,7 +65,7 @@ DEFAULT_SNAPSHOT_DIR = (
 )
 DEFAULT_OUT = ROOT / "data_usgs" / "confirmatory_candidate_sites_v1.csv"
 DEFAULT_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
-USER_AGENT = "ThermoRoute/1.0 Route-A metadata-only discovery"
+USER_AGENT = CANDIDATE_USER_AGENT
 
 
 def atomic_create(path: Path, payload: bytes) -> None:

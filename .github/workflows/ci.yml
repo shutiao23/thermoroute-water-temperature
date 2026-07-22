@@ -14,7 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # locked = the exact environment that produced the paper's numbers;
+        # locked = the exact declared environment for deterministic replay;
+        # no current Route-A paper numbers exist before the one-time opening.
         # floors = forward-compatibility check against the loose minimums.
         deps: [locked, floors]
     runs-on: ubuntu-24.04

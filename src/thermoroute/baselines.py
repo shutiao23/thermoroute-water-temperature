@@ -7,6 +7,8 @@ so baselines and ThermoRoute are scored by exactly the same code path.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
@@ -153,18 +155,47 @@ def run_air2stream(panel, masks, clim_air) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # LightGBM: strong ML baseline (point + quantiles + exceedance probability)
 # --------------------------------------------------------------------------- #
-def _lgb_fit(Xtr, ytr, Xval, yval, objective, alpha=None, n_est=800):
+def station_equal_sample_weight(site_ids) -> np.ndarray:
+    """Give every station equal total loss weight, with mean row weight one."""
+    sites = pd.Series(site_ids, dtype="string")
+    if sites.empty or sites.isna().any() or sites.eq("").any():
+        raise ValueError("station-balanced weights require nonempty station ids")
+    counts = sites.value_counts(dropna=False)
+    weights = sites.map((1.0 / counts).to_dict()).to_numpy(float)
+    weights *= len(weights) / weights.sum()
+    if np.any(~np.isfinite(weights)) or np.any(weights <= 0.0):
+        raise ValueError("station-balanced weights are invalid")
+    return weights
+
+
+def _lgb_fit(Xtr, ytr, Xval, yval, objective, alpha=None, n_est=800,
+             params_override: dict | None = None, sample_weight=None,
+             val_sample_weight=None):
     # n_jobs=1 avoids an OpenMP (libomp/libiomp) conflict with PyTorch that
     # segfaults when both are imported in the same process on macOS/anaconda.
     params = dict(objective=objective, learning_rate=0.03, num_leaves=31,
                   min_child_samples=40, subsample=0.8, subsample_freq=1,
                   colsample_bytree=0.8, reg_lambda=1.0, n_estimators=n_est,
-                  verbosity=-1, seed=0, n_jobs=1)
+                  verbosity=-1, seed=0, n_jobs=1, deterministic=True,
+                  force_col_wise=True)
     if alpha is not None:
         params["alpha"] = alpha
+    if params_override:
+        params.update(params_override)
     m = lgb.LGBMRegressor(**params)
-    m.fit(Xtr, ytr, eval_set=[(Xval, yval)],
-          callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)])
+    fit_kwargs: dict[str, Any] = {
+        "eval_set": [(Xval, yval)],
+        "callbacks": [
+            lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)
+        ],
+    }
+    if sample_weight is not None:
+        fit_kwargs["sample_weight"] = np.asarray(sample_weight, dtype=float)
+    if val_sample_weight is not None:
+        fit_kwargs["eval_sample_weight"] = [
+            np.asarray(val_sample_weight, dtype=float)
+        ]
+    m.fit(Xtr, ytr, **fit_kwargs)
     return m
 
 
@@ -202,7 +233,9 @@ def run_lightgbm(tabs, thresholds, feature_set: str = "V3",
                 clf = lgb.LGBMClassifier(
                     n_estimators=600, learning_rate=0.03, num_leaves=31,
                     min_child_samples=40, subsample=0.8, subsample_freq=1,
-                    colsample_bytree=0.8, reg_lambda=1.0, verbosity=-1, seed=0, n_jobs=1)
+                    colsample_bytree=0.8, reg_lambda=1.0, verbosity=-1,
+                    seed=0, n_jobs=1, deterministic=True,
+                    force_col_wise=True)
                 clf.fit(Xtr, (ytr > thr).astype(int), eval_set=[(Xva, (yva > thr).astype(int))],
                         callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)])
                 frame["p_exceed"] = clf.predict_proba(Xall)[:, 1]

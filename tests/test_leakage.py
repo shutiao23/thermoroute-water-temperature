@@ -11,11 +11,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from thermoroute import config as C
 from thermoroute import data as D
 from thermoroute import features as F
 from thermoroute import datasets as DS
+
+
+@pytest.fixture(autouse=True)
+def _cascade_station_registry(monkeypatch):
+    """Isolate cascade tests from model-opening helpers' global station map."""
+    monkeypatch.setattr(C, "STATIONS", tuple(C.RAW_FILES))
+    monkeypatch.setattr(C, "UPSTREAM", {"b1": None, "s2": "b1", "p3": "s2"})
 
 
 def _bundle():
@@ -38,6 +46,19 @@ def test_no_calendar_gaps_or_dupes():
         full = pd.date_range(sub.DATE.min(), sub.DATE.max(), freq="D")
         assert len(full) == len(sub)
         assert sub.DATE.duplicated().sum() == 0
+
+
+def test_window_and_tabular_builders_fail_closed_on_synthetic_calendar_gap():
+    bundle, clim = _bundle()
+    panel = bundle["panel"].copy()
+    station = str(C.STATIONS[0])
+    station_rows = panel.index[panel.site_id.astype(str).eq(station)]
+    assert len(station_rows) > 3
+    gappy = panel.drop(index=station_rows[len(station_rows) // 2]).reset_index(drop=True)
+    with pytest.raises(ValueError, match="calendar gap"):
+        DS.build_windows(gappy, bundle["masks"], clim)
+    with pytest.raises(ValueError, match="calendar gap"):
+        F.build_tabular(gappy, 3, C.FEATURE_SETS["V2"], clim)
 
 
 def test_sentinels_masked():
@@ -85,6 +106,46 @@ def test_window_splits_are_target_closed():
         # at the end of each partition are embargoed.
         assert wd.issue_date[sel].max() <= (
             np.datetime64(hi) - np.timedelta64(max(wd.horizons), "D"))
+
+
+def test_confirmation_targets_are_available_independently_by_horizon():
+    """Late h=1 issues and asynchronous labels must not be lost to h=7."""
+    bundle, clim = _bundle()
+    panel = bundle["panel"].copy()
+    site = str(C.STATIONS[0])
+    # One missing target invalidates only the station/horizon issue pairs that
+    # actually point at this date; it cannot complete-case-filter other heads.
+    missing_date = pd.Timestamp("2020-12-29")
+    panel.loc[
+        panel.site_id.eq(site) & panel.DATE.eq(missing_date),
+        "WTEMP_observed",
+    ] = False
+    wd = DS.build_windows(
+        panel,
+        bundle["masks"],
+        clim,
+        require_observed_target=True,
+        evaluation_interval=("2020-12-20", "2020-12-31"),
+        evaluation_split="confirm",
+        independent_horizon_targets=True,
+    )
+    assert wd.target_valid.shape == wd.y.shape
+    for column, horizon in enumerate(wd.horizons):
+        selected = wd.target_valid[:, column]
+        assert selected.any()
+        assert wd.issue_date[selected].max() == (
+            np.datetime64("2020-12-31") - np.timedelta64(horizon, "D")
+        )
+        assert (wd.target_date[selected, column] <= np.datetime64("2020-12-31")).all()
+        assert np.isfinite(wd.y[selected, column]).all()
+        assert np.isnan(wd.y[~selected, column]).all()
+
+    station_rows = wd.station == 0
+    issue = np.datetime64("2020-12-22")
+    row = np.flatnonzero(station_rows & (wd.issue_date == issue))
+    assert len(row) == 1
+    # 2020-12-29 is h=7 from the chosen issue; h=1 and h=3 remain observed.
+    assert wd.target_valid[row[0]].tolist() == [True, True, False]
 
 
 def test_target_is_strictly_future():
@@ -192,3 +253,25 @@ def test_zero_shot_preprocessors_ignore_held_station_history():
     assert scale1.mean[("p3", "WTEMP")] == scale2.mean[("p3", "WTEMP")]
     assert scale1.std[("p3", "WTEMP")] == scale2.std[("p3", "WTEMP")]
     assert damp1.phi == damp2.phi
+
+
+def test_signed_flow_transform_preserves_reverse_flow_and_round_trips():
+    raw = np.array([-121.0, -0.01, 0.0, 3.0, 900.0])
+    transformed = D.stabilising_transform("FLOW", raw)
+    restored = D.inverse_stabilising_transform("FLOW", transformed)
+    assert transformed[0] < transformed[1] < 0
+    assert transformed[2] == 0
+    assert np.allclose(restored, raw)
+
+
+def test_tabular_learned_baseline_can_receive_missingness_information():
+    bundle, clim = _bundle()
+    tab = F.build_tabular(
+        bundle["panel"], 1, C.FEATURE_SETS["V3"], clim,
+        drop_feature_nans=False, include_missingness=True,
+    )
+    mask_columns = [column for column in tab if "_observed_" in column]
+    assert mask_columns
+    values = tab[mask_columns].to_numpy(float)
+    assert np.nanmin(values) == 0.0
+    assert np.nanmax(values) == 1.0

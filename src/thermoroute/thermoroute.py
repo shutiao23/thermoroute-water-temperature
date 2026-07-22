@@ -1,14 +1,16 @@
 """The ThermoRoute model.
 
-Forecast = dynamic thermal-relaxation **physics prior** (a learnable, flow- and
-season-modulated generalisation of damped persistence) + a **neural residual**
-read out from a horizon-conditioned *sparse* variable–lag router, a causal TCN
-encoder and a regime mixture-of-experts.  Outputs are monotone quantiles plus a
-high-temperature exceedance probability.
+The strict model separates two objects that must not be conflated:
 
-The prior makes the strong baseline (damped persistence) a special case, so the
-network only has to learn what the physics leaves unexplained — which is exactly
-the scientific claim the paper tests.
+* ``damped_prior`` is fitted on the training partition and then frozen.  It is
+  the auditable safety anchor supplied by :mod:`thermoroute.datasets`.
+* ``DynamicThermalRelaxationPrior`` is a learned proposal.  It may improve the
+  forecast and remains interpretable, but it is *not* used as the reference in
+  the bounded-deviation guarantee.
+
+With a finite ``delta_scale`` the final point forecast is therefore guaranteed
+to lie within ``±delta_scale`` of the fixed damped-persistence forecast.  Setting
+``delta_scale=None`` gives the otherwise identical unbounded sensitivity model.
 """
 
 from __future__ import annotations
@@ -50,14 +52,17 @@ class DynamicThermalRelaxationPrior(nn.Module):
 
     κ is the *daily relaxation rate* — small κ ⇒ long thermal memory.  With e_t=0
     and κ=1−φ this reduces **exactly** to damped persistence toward climatology,
-    so the strong baseline is a special case; letting κ depend on FLOW, WLEVEL and
-    season is the dynamic-thermal-memory hypothesis the paper tests.
+    so the strong baseline is a special case.  Route A lets κ depend on FLOW and
+    season.  A separately declared ``use_wlevel`` mode exists for legacy feature
+    schemas, but Route A fixes it off because gage height is provenance-only.
     """
 
-    def __init__(self, n_phys: int, n_stations: int, horizons, station_agnostic: bool):
+    def __init__(self, n_phys: int, n_stations: int, horizons,
+                 station_agnostic: bool, use_wlevel: bool = False):
         super().__init__()
         self.horizons = torch.tensor(list(horizons), dtype=torch.float32)
         self.station_agnostic = station_agnostic
+        self.use_wlevel = bool(use_wlevel)
         self.eq_lin = nn.Linear(n_phys, 1)               # weather → equilibrium anomaly
         self.eq_station = nn.Embedding(n_stations, 1)
         # κ logit components
@@ -67,8 +72,12 @@ class DynamicThermalRelaxationPrior(nn.Module):
         self.k_season = nn.Linear(2, 1)
         # warm-start κ≈0.05 ⇒ the prior begins essentially at damped persistence
         self.k_bias = nn.Parameter(torch.tensor(-2.94))
-        nn.init.zeros_(self.eq_lin.weight); nn.init.zeros_(self.eq_lin.bias)
-        nn.init.zeros_(self.eq_station.weight); nn.init.zeros_(self.k_station.weight)
+        nn.init.zeros_(self.eq_lin.weight)
+        nn.init.zeros_(self.eq_lin.bias)
+        nn.init.zeros_(self.eq_station.weight)
+        nn.init.zeros_(self.k_station.weight)
+        if not self.use_wlevel:
+            self.k_level.requires_grad_(False)
 
     def forward(self, batch) -> tuple[Tensor, Tensor, Tensor]:
         st = batch["station"]
@@ -76,9 +85,12 @@ class DynamicThermalRelaxationPrior(nn.Module):
         s_k = 0.0 if self.station_agnostic else self.k_station(st).squeeze(-1)
         e_t = self.eq_lin(batch["phys_std"]).squeeze(-1) + s_eq      # [B] eq. anomaly
         a_t = batch["wtemp_t"] - batch["clim_t"]                     # [B] today anomaly
+        level_term = (
+            self.k_level * batch["wlevelz"] if self.use_wlevel else 0.0
+        )
         k_logit = (self.k_bias + s_k
                    + self.k_flow * batch["logflowz"]
-                   + self.k_level * batch["wlevelz"]
+                   + level_term
                    + self.k_season(batch["season"]).squeeze(-1))
         kappa = torch.sigmoid(k_logit).clamp(1e-3, 0.999)            # [B]
         h = self.horizons.to(kappa.device)
@@ -188,12 +200,35 @@ class RegimeMoE(nn.Module):
         return rep, pi
 
 
+class SingleResidualExpert(nn.Module):
+    """Non-mixture control with the same inputs and depth as one MoE expert.
+
+    The former ``noMoE`` path returned ``routed`` directly, accidentally
+    deleting the TCN and horizon embedding together with the mixture.  This
+    control removes only expert routing/gating.
+    """
+
+    def __init__(self, d: int, n_horizons: int):
+        super().__init__()
+        self.e_h = nn.Embedding(n_horizons, d)
+        self.net = nn.Sequential(nn.Linear(3 * d, d), nn.GELU(), nn.Linear(d, d))
+
+    def forward(self, routed: Tensor, latent: Tensor) -> Tensor:
+        B, H, d = routed.shape
+        eh = self.e_h(torch.arange(H, device=routed.device))[None].expand(B, H, d)
+        lat = latent[:, None, :].expand(B, H, d)
+        return self.net(torch.cat([routed, lat, eh], dim=-1))
+
+
 # --------------------------------------------------------------------------- #
 # Full model
 # --------------------------------------------------------------------------- #
 @dataclass
 class ThermoRouteOutputs:
-    median: Tensor
+    # ``point`` is the conditional-mean forecast trained by MSE.  It is not a
+    # quantile and is deliberately kept outside the quantile-ordering
+    # construction below.
+    point: Tensor
     q05: Tensor
     q50: Tensor
     q95: Tensor
@@ -203,6 +238,9 @@ class ThermoRouteOutputs:
     teq: Tensor
     lag_weights: Tensor
     pi: Tensor
+    # Learned proposal, exposed separately so analyses cannot accidentally call
+    # it the safety reference.  Non-ThermoRoute baselines leave this as ``None``.
+    internal_prior: Tensor | None = None
 
 
 class ThermoRoute(nn.Module):
@@ -211,75 +249,187 @@ class ThermoRoute(nn.Module):
                  station_agnostic: bool = False, n_phys: int | None = None,
                  use_prior: bool = True, use_router: bool = True,
                  use_moe: bool = True, sparse_router: bool = True,
-                 fixed_kappa: bool = False, delta_scale: float = 0.4):
+                 fixed_kappa: bool = False, delta_scale: float | None = 0.4,
+                 use_tcn: bool = True, residual_model: bool = True,
+                 safety_anchor: str = "damped", use_wlevel: bool = False):
         super().__init__()
+        if safety_anchor not in {"internal", "damped", "none"}:
+            raise ValueError("safety_anchor must be 'internal', 'damped', or 'none'")
+        if delta_scale is not None and delta_scale <= 0:
+            raise ValueError("delta_scale must be positive or None for an unbounded model")
+        if safety_anchor == "none" and delta_scale is not None:
+            raise ValueError("a finite residual bound requires a named safety anchor")
         d = cfg.d_model
         self.horizons = horizons
         self.H = len(horizons)
+        self.n_vars = n_vars
         self.use_prior = use_prior
         self.use_router = use_router
         self.use_moe = use_moe
+        self.use_tcn = use_tcn
+        self.residual_model = residual_model
         self.fixed_kappa = fixed_kappa
+        self.use_wlevel = bool(use_wlevel)
+        self.safety_anchor = safety_anchor
 
         from .datasets import PHYS_FORCINGS
         if n_phys is None:
             n_phys = len(PHYS_FORCINGS)
         self.prior = DynamicThermalRelaxationPrior(
-            n_phys, n_stations, horizons, station_agnostic)
-        if fixed_kappa:   # ablation: freeze κ's dynamic modulators
+            n_phys, n_stations, horizons, station_agnostic,
+            use_wlevel=self.use_wlevel,
+        )
+        if fixed_kappa:
+            # Constant-in-time κ control.  Freezing randomly initialised season
+            # weights (the old behaviour) did *not* remove seasonality.  Zero
+            # every time-varying coefficient before freezing; station offsets
+            # remain trainable, so the control changes only κ dynamics.
+            with torch.no_grad():
+                self.prior.k_flow.zero_()
+                self.prior.k_level.zero_()
+                self.prior.k_season.weight.zero_()
+                self.prior.k_season.bias.zero_()
             self.prior.k_flow.requires_grad_(False)
             self.prior.k_level.requires_grad_(False)
             for p in self.prior.k_season.parameters():
                 p.requires_grad_(False)
 
         gate_dim = 6
-        self.router = DynamicLagRouter(n_vars, C.MAX_ROUTER_LAG, self.H, n_stations,
-                                       d, gate_dim, station_agnostic, sparse=sparse_router)
-        self.encoder = CausalTCN(n_vars, d, cfg.encoder_blocks, cfg.kernel_size, cfg.dropout)
-        self.moe = RegimeMoE(d, gate_dim, cfg.n_experts, self.H)
+        self.router = (DynamicLagRouter(
+            n_vars, C.MAX_ROUTER_LAG, self.H, n_stations, d, gate_dim,
+            station_agnostic, sparse=sparse_router) if use_router and residual_model else None)
+        self.encoder = (CausalTCN(
+            n_vars, d, cfg.encoder_blocks, cfg.kernel_size, cfg.dropout)
+            if use_tcn and residual_model else None)
+        self.moe = (RegimeMoE(d, gate_dim, cfg.n_experts, self.H)
+                    if use_moe and residual_model else None)
+        self.single_expert = (SingleResidualExpert(d, self.H)
+                              if not use_moe and residual_model else None)
 
-        self.head_delta = nn.Linear(d, 1)
+        # Missingness is part of the model input rather than silently discarded.
+        # Each absent standardised value is replaced by a learned per-variable
+        # token before either router or TCN sees it.
+        self.missing_token = (nn.Parameter(torch.zeros(n_vars))
+                              if residual_model else None)
+
+        self.head_delta = nn.Linear(d, 1) if residual_model else None
+        # The RMSE point and probabilistic median are different statistical
+        # functionals.  They therefore have distinct parameters.  The q50 head
+        # shares upstream representations, but pinball gradients cannot update
+        # ``head_delta`` through an accidental q50=point alias.
+        self.head_q50 = nn.Linear(d, 1)
         self.head_lo = nn.Linear(d, 1)
         self.head_hi = nn.Linear(d, 1)
         self.head_evt = nn.Linear(d, 1)
-        nn.init.zeros_(self.head_delta.weight); nn.init.zeros_(self.head_delta.bias)
-        # The neural residual is bounded to ±delta_scale °C around the physics
-        # prior. On the small, strongly-damped 3-station data the prior is the
-        # ceiling, so a tight bound (0.4) keeps ThermoRoute stable; on the large
-        # sample with real headroom a looser bound lets the residual add skill at
-        # 3–7 days (selected in scripts/11_retune.py).
+        if self.head_delta is not None:
+            nn.init.zeros_(self.head_delta.weight)
+            nn.init.zeros_(self.head_delta.bias)
+        nn.init.zeros_(self.head_q50.weight)
+        nn.init.zeros_(self.head_q50.bias)
         self.delta_scale = delta_scale
+
+    def _mask_aware_batch(self, batch) -> dict[str, Tensor]:
+        """Return a shallow batch copy whose sequence explicitly encodes gaps."""
+        if self.missing_token is None:
+            return batch
+        observed = batch["Mask"].to(dtype=torch.bool)
+        token = self.missing_token.view(1, 1, -1)
+        out = dict(batch)
+        out["X"] = torch.where(observed, batch["X"], token)
+        return out
 
     def forward(self, batch) -> ThermoRouteOutputs:
         B = batch["X"].shape[0]
         if self.use_prior:
-            prior, kappa, teq = self.prior(batch)
-        else:                                   # ablation: no physics prior
-            prior = batch["clim_tgt"]
+            internal_prior, kappa, teq = self.prior(batch)
+        else:
+            internal_prior = None
             kappa = torch.full((B,), float("nan"), device=batch["X"].device)
             teq = batch["clim_t"]
 
-        latent = self.encoder(batch["X"])
-        if self.use_router:
-            routed, lag_w = self.router(batch)
+        if self.safety_anchor == "damped":
+            if "damped_prior" not in batch:
+                raise KeyError(
+                    "strict safety_anchor='damped' requires batch['damped_prior']; "
+                    "build batches through datasets.build_windows")
+            anchor = batch["damped_prior"]
+        elif self.safety_anchor == "internal":
+            if internal_prior is None:
+                raise ValueError("internal safety anchor requires use_prior=True")
+            anchor = internal_prior
         else:
-            routed = latent[:, None, :].expand(B, self.H, latent.shape[-1])
-            lag_w = torch.zeros(B, self.H, self.router.V, self.router.Lr1,
-                                device=batch["X"].device)
-        if self.use_moe:
-            rep, pi = self.moe(routed, latent, batch["gate"])
-        else:
-            rep, pi = routed, torch.zeros(B, 1, device=batch["X"].device)
+            anchor = None
 
-        delta = self.delta_scale * torch.tanh(self.head_delta(rep).squeeze(-1))  # [B,H]
-        median = prior + delta
+        mb = self._mask_aware_batch(batch)
+        d = self.head_lo.in_features
+        latent = (self.encoder(mb["X"]) if self.encoder is not None
+                  else torch.zeros(B, d, device=batch["X"].device,
+                                   dtype=batch["X"].dtype))
+        if self.router is not None:
+            routed, lag_w = self.router(mb)
+        else:
+            # A true no-router control: no duplicated TCN signal is smuggled into
+            # the routed slot.  The unchanged TCN path still reaches the expert.
+            routed = torch.zeros(B, self.H, d, device=batch["X"].device,
+                                 dtype=batch["X"].dtype)
+            lag_w = torch.zeros(B, self.H, self.n_vars, C.MAX_ROUTER_LAG + 1,
+                                device=batch["X"].device, dtype=batch["X"].dtype)
+        if not self.residual_model:
+            rep = torch.zeros_like(routed)
+            pi = torch.zeros(B, 0, device=batch["X"].device)
+            neural_proposal = torch.zeros(B, self.H, device=batch["X"].device,
+                                          dtype=batch["X"].dtype)
+        elif self.moe is not None:
+            rep, pi = self.moe(routed, latent, batch["gate"])
+            assert self.head_delta is not None
+            neural_proposal = self.head_delta(rep).squeeze(-1)
+        else:
+            assert self.single_expert is not None and self.head_delta is not None
+            rep = self.single_expert(routed, latent)
+            pi = torch.ones(B, 1, device=batch["X"].device,
+                            dtype=batch["X"].dtype)
+            neural_proposal = self.head_delta(rep).squeeze(-1)
+
+        # This proposal is independently parameterised from the MSE point
+        # proposal.  Both may use the same frozen physical anchor, but neither
+        # head is derived from or sorted with the other.
+        q50_proposal = self.head_q50(rep).squeeze(-1)
+
+        # In strict mode the learned dynamic prior is a proposal only.  Even an
+        # arbitrarily drifting internal prior cannot move the final prediction
+        # outside the fixed damped anchor's certified band.
+        point_proposal = neural_proposal
+        if internal_prior is not None:
+            if anchor is None:
+                point_proposal = point_proposal + internal_prior
+                q50_proposal = q50_proposal + internal_prior
+            elif anchor is not internal_prior:
+                prior_displacement = internal_prior - anchor
+                point_proposal = point_proposal + prior_displacement
+                q50_proposal = q50_proposal + prior_displacement
+        if anchor is None:
+            point = point_proposal                # pure-neural, no safety claim
+            q50 = q50_proposal
+            prior_out = torch.full_like(point, float("nan"))
+        else:
+            point_correction = (
+                point_proposal if self.delta_scale is None else
+                self.delta_scale * torch.tanh(point_proposal / self.delta_scale)
+            )
+            q50_correction = (
+                q50_proposal if self.delta_scale is None else
+                self.delta_scale * torch.tanh(q50_proposal / self.delta_scale)
+            )
+            point = anchor + point_correction
+            q50 = anchor + q50_correction
+            prior_out = anchor
         lo = torch.nn.functional.softplus(self.head_lo(rep)).squeeze(-1)
         hi = torch.nn.functional.softplus(self.head_hi(rep)).squeeze(-1)
-        q05 = median - lo
-        q95 = median + hi
+        q05 = q50 - lo
+        q95 = q50 + hi
         evt = self.head_evt(rep).squeeze(-1)               # [B,H] logit
-        return ThermoRouteOutputs(median, q05, median, q95, evt,
-                                  prior, kappa, teq, lag_w, pi)
+        return ThermoRouteOutputs(point, q05, q50, q95, evt,
+                                  prior_out, kappa, teq, lag_w, pi, internal_prior)
 
     def n_params(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
