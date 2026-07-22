@@ -25,6 +25,7 @@ def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
         ROOT / ".github/workflows/ci.yml",
         ROOT / "scripts/01_prepare_data.py",
         ROOT / "outputs/reports/data_audit.md",
+        ROOT / "outputs/reports/adversarial_review_tri_persona.md",
         ROOT / "outputs/reports/review_response.md",
         ROOT / "outputs/manifest.json",
         ROOT / "paper/ThermoRoute_paper.md",
@@ -38,7 +39,17 @@ def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
         r"station topology\s*\(directed cascade",
         r"near[- ]deterministic\s+cascade",
         r'"cascade_(?:predictions|scores)"',
+        r"三站级联",
+        r"级联(?:实验|主表|\s*Track A|的\s*PICP|决策价值)",
         r"b1\s+is\s+more\s+regulated",
     )
     for pattern in forbidden:
         assert re.search(pattern, text, flags=re.IGNORECASE) is None, pattern
+
+
+def test_historical_adversarial_report_discloses_role_simulation() -> None:
+    report = (
+        ROOT / "outputs/reports/adversarial_review_tri_persona.md"
+    ).read_text(encoding="utf-8")
+    assert "模拟审查视角" in report
+    assert "三位独立评审(" not in report
