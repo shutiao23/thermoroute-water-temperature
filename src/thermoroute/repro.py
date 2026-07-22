@@ -13,22 +13,28 @@ as timestamp, hostname and duration remain provenance only.
 
 from __future__ import annotations
 
+import atexit
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
+import errno
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import socket
 import struct
 import subprocess
 import sys
 import tempfile
-from typing import Any, Iterable, Mapping
+import threading
+from typing import Any, Iterable, Mapping, TextIO
 
 
 RUN_SCHEMA_VERSION = "thermoroute.run.v1"
 ARTIFACT_SCHEMA_VERSION = "thermoroute.artifact.v1"
+RUN_LOCK_SCHEMA_VERSION = "thermoroute.run-lock.v1"
 
 FORMAL_THREAD_ENVIRONMENT = (
     "OMP_NUM_THREADS",
@@ -310,6 +316,208 @@ class RunIdentity:
 
     def as_dict(self) -> dict[str, str]:
         return asdict(self)
+
+
+class RunDirectoryLockError(RuntimeError):
+    """Raised when another process owns an exact formal run directory."""
+
+
+class RunDirectoryLock:
+    """A process-scoped POSIX advisory lock for one content-addressed run.
+
+    The JSON stored beside the run directory is diagnostic only.  In
+    particular, a process crash can leave an apparently ``held`` record behind;
+    the live ``flock`` on this object's open file descriptor is the authority.
+    """
+
+    def __init__(
+        self,
+        *,
+        run_directory: Path,
+        lock_path: Path,
+        run_id: str,
+        handle: TextIO,
+        owner: Mapping[str, Any],
+    ) -> None:
+        self.run_directory = run_directory
+        self.lock_path = lock_path
+        self.run_id = run_id
+        self.owner = dict(owner)
+        self._handle = handle
+        self._owner_pid = os.getpid()
+        self._released = False
+
+    @property
+    def held(self) -> bool:
+        """Whether this process still holds the OS lock."""
+        return not self._released and self._owner_pid == os.getpid()
+
+    def release(self) -> None:
+        """Release once; repeated calls are harmless.
+
+        A forked child must not unlock the parent's shared open-file
+        description.  It only closes its inherited descriptor and lets the
+        parent remain authoritative.
+        """
+        with _RUN_DIRECTORY_LOCKS_GUARD:
+            if self._released:
+                return
+            current = _RUN_DIRECTORY_LOCKS.get(self.lock_path)
+            if current is self:
+                _RUN_DIRECTORY_LOCKS.pop(self.lock_path, None)
+            if self._owner_pid != os.getpid():
+                self._handle.close()
+                self._released = True
+                return
+            try:
+                released = {
+                    **self.owner,
+                    "state": "released",
+                    "released_utc": datetime.now(timezone.utc).isoformat(),
+                }
+                self._handle.seek(0)
+                self._handle.truncate()
+                self._handle.write(canonical_json(released) + "\n")
+                self._handle.flush()
+                os.fsync(self._handle.fileno())
+            finally:
+                try:
+                    fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+                finally:
+                    self._handle.close()
+                    self._released = True
+
+    def __enter__(self) -> RunDirectoryLock:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.release()
+
+
+_RUN_DIRECTORY_LOCKS: dict[Path, RunDirectoryLock] = {}
+_RUN_DIRECTORY_LOCKS_GUARD = threading.RLock()
+
+
+def run_directory_lock_path(run_directory: str | Path) -> Path:
+    """Return the explicit sibling lock path for a content-addressed run."""
+    run_dir = Path(run_directory).expanduser().resolve()
+    if run_dir.name in {"", ".", ".."}:
+        raise ValueError("run directory must have a non-empty run_id component")
+    return run_dir.parent / f".{run_dir.name}.formal-run.lock"
+
+
+def _lock_diagnostic(handle: TextIO) -> object:
+    try:
+        handle.seek(0)
+        raw = handle.read(16_384).strip()
+        if not raw:
+            return {"status": "owner-metadata-not-yet-available"}
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {"raw": raw}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {"status": "owner-metadata-unreadable"}
+
+
+def acquire_run_directory_lock(
+    run_directory: str | Path, *, run_id: str
+) -> RunDirectoryLock:
+    """Non-blockingly lock one exact run until release or process exit.
+
+    Repeated acquisition for the same run by the same process is idempotent and
+    returns the same lock object.  A competing process fails immediately.  The
+    lock file is deliberately a sibling of the immutable run directory so its
+    mutable owner diagnostics cannot enter scientific artifact inventories.
+    """
+    if type(run_id) is not str or not run_id or Path(run_id).name != run_id:
+        raise ValueError("run_id must be one safe, non-empty path component")
+    run_dir = Path(run_directory).expanduser().resolve()
+    if run_dir.name != run_id:
+        raise ValueError("run directory basename must exactly match run_id")
+    lock_path = run_directory_lock_path(run_dir)
+    with _RUN_DIRECTORY_LOCKS_GUARD:
+        existing = _RUN_DIRECTORY_LOCKS.get(lock_path)
+        if existing is not None and existing.held:
+            if existing.run_id != run_id:  # pragma: no cover - key construction guards this
+                raise RunDirectoryLockError("run lock registry identity collision")
+            return existing
+        if existing is not None:
+            # A forked child inherits the Python registry and descriptor, but
+            # must not unlock the parent's shared open-file description.  Its
+            # release path only closes that inherited duplicate before this
+            # process attempts a fresh open.
+            existing.release()
+            _RUN_DIRECTORY_LOCKS.pop(lock_path, None)
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("a+", encoding="utf-8", newline="\n")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                handle.close()
+                raise
+            diagnostic = _lock_diagnostic(handle)
+            handle.close()
+            raise RunDirectoryLockError(
+                "formal run is already locked by another process: "
+                f"run_id={run_id}; lock={lock_path}; owner="
+                f"{canonical_json(diagnostic)}; the OS advisory lock is authoritative"
+            ) from exc
+        owner = {
+            "format": RUN_LOCK_SCHEMA_VERSION,
+            "state": "held",
+            "run_id": run_id,
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+            "started_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            handle.seek(0)
+            handle.truncate()
+            handle.write(canonical_json(owner) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        except BaseException:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+            raise
+        lock = RunDirectoryLock(
+            run_directory=run_dir,
+            lock_path=lock_path,
+            run_id=run_id,
+            handle=handle,
+            owner=owner,
+        )
+        _RUN_DIRECTORY_LOCKS[lock_path] = lock
+        return lock
+
+
+def release_run_directory_lock(run_directory: str | Path) -> bool:
+    """Explicitly release this process's lock, returning whether one existed."""
+    lock_path = run_directory_lock_path(run_directory)
+    with _RUN_DIRECTORY_LOCKS_GUARD:
+        lock = _RUN_DIRECTORY_LOCKS.get(lock_path)
+        if lock is None or not lock.held:
+            return False
+        # Keep registry lookup and release atomic with respect to another
+        # thread's idempotent acquire; the guard is deliberately re-entrant.
+        lock.release()
+        return True
+
+
+def _release_all_run_directory_locks() -> None:
+    with _RUN_DIRECTORY_LOCKS_GUARD:
+        locks = list(_RUN_DIRECTORY_LOCKS.values())
+    for lock in reversed(locks):
+        try:
+            lock.release()
+        except Exception:
+            # Interpreter shutdown must continue; the OS closes the descriptor.
+            pass
+
+
+atexit.register(_release_all_run_directory_locks)
 
 
 def resolve_run_identity(*, root: str | Path, panel: str | Path,
@@ -679,8 +887,15 @@ def cache_is_valid(artifact: str | Path, identity: RunIdentity, *,
 
 def initialise_run_directory(root: str | Path, identity: RunIdentity, config: Any,
                              *, provenance: Mapping[str, Any] | None = None) -> Path:
-    """Create an immutable content-addressed run directory and audit record."""
-    run_dir = Path(root) / identity.run_id
+    """Lock, then create an immutable run directory and its audit record.
+
+    The process-scoped lock is acquired before ``run.json`` or any cache path is
+    created and remains held until explicit release or process termination.
+    Read-only validators do not call this initializer and therefore never take
+    or mutate a lock.
+    """
+    run_dir = Path(root).expanduser().resolve() / identity.run_id
+    acquire_run_directory_lock(run_dir, run_id=identity.run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     metadata_path = run_dir / "run.json"
     payload = {

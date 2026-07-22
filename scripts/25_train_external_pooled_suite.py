@@ -240,28 +240,6 @@ def main() -> None:
         panel_sha256=sha256_file(PANEL),
         registry_sha256=sha256_file(REGISTRY),
     )
-    prepared = D.prepare_dataset_from_panel(str(PANEL))
-    panel, masks = prepared["panel_raw"], prepared["masks"]
-    stations = tuple(prepared["stations"])
-    imputer = fit_pooled_imputer(panel, masks.train, fit_stations=stations)
-    panel_imp = imputer.transform(panel)
-    climatology = F.HarmonicClimatology.fit(
-        panel, masks.train, fit_stations=stations, pooled=True
-    )
-    wd = DS.build_windows(
-        panel_imp, masks, climatology, variables=USGS_VARS,
-        require_observed_target=True, scaler_fit_stations=stations,
-        pooled_scaler=True, damped_fit_stations=stations, pooled_damped=True,
-    )
-    training = panel.loc[masks.train & panel.site_id.isin(stations).to_numpy()]
-    pooled_threshold = float(training.WTEMP.quantile(0.90))
-    thresholds = {site: pooled_threshold for site in stations}
-    event_reference = fit_frozen_seasonal_event_reference(
-        panel,
-        {"__pooled__": pooled_threshold},
-        pooled=True,
-        fit_interval=("2006-01-01", "2018-12-31"),
-    )
     run_config = {
         "stage": "25_train_external_pooled_suite",
         "role": "prelabel_station_agnostic_development_training",
@@ -293,6 +271,30 @@ def main() -> None:
             "outcome_status": "NO_POST_2020_DATA_READ",
             "training_device": "cpu",
         },
+    )
+    # Lock before pooled preprocessing materialises arrays and before any
+    # checkpoint or external shard-cache path can be reached.
+    prepared = D.prepare_dataset_from_panel(str(PANEL))
+    panel, masks = prepared["panel_raw"], prepared["masks"]
+    stations = tuple(prepared["stations"])
+    imputer = fit_pooled_imputer(panel, masks.train, fit_stations=stations)
+    panel_imp = imputer.transform(panel)
+    climatology = F.HarmonicClimatology.fit(
+        panel, masks.train, fit_stations=stations, pooled=True
+    )
+    wd = DS.build_windows(
+        panel_imp, masks, climatology, variables=USGS_VARS,
+        require_observed_target=True, scaler_fit_stations=stations,
+        pooled_scaler=True, damped_fit_stations=stations, pooled_damped=True,
+    )
+    training = panel.loc[masks.train & panel.site_id.isin(stations).to_numpy()]
+    pooled_threshold = float(training.WTEMP.quantile(0.90))
+    thresholds = {site: pooled_threshold for site in stations}
+    event_reference = fit_frozen_seasonal_event_reference(
+        panel,
+        {"__pooled__": pooled_threshold},
+        pooled=True,
+        fit_interval=("2006-01-01", "2018-12-31"),
     )
     lightgbm_shard_cache = (
         Path(args.shard_cache).expanduser().resolve()

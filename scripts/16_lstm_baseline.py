@@ -252,17 +252,6 @@ def insample():
     runtime_policy = assert_formal_numerical_policy()
     parent_lineage = _verify_parent(PARENT)
     parent_sha256 = sha256_file(PARENT)
-    panel, panel_imp, masks, clim, thr, wd, stations = R13.prep()
-    event_reference = fit_frozen_seasonal_event_reference(
-        panel,
-        thr,
-        pooled=False,
-        fit_interval=("2006-01-01", "2018-12-31"),
-    )
-    prepared = D.prepare_dataset_from_panel(str(R13.PANEL.resolve()))
-    imputer = prepared["imputer"]
-    if tuple(prepared["stations"]) != tuple(stations):
-        raise AssertionError("LSTM imputer and window station registries differ")
     run_config = {
         "stage": "16_lstm_baseline_insample",
         "role": "final_route_a_development_predictions",
@@ -296,6 +285,19 @@ def insample():
             "training_device": "cpu",
         },
     )
+    # Lock the exact content-addressed run before dataset materialisation or
+    # any checkpoint/cache path can be reached.
+    panel, panel_imp, masks, clim, thr, wd, stations = R13.prep()
+    event_reference = fit_frozen_seasonal_event_reference(
+        panel,
+        thr,
+        pooled=False,
+        fit_interval=("2006-01-01", "2018-12-31"),
+    )
+    prepared = D.prepare_dataset_from_panel(str(R13.PANEL.resolve()))
+    imputer = prepared["imputer"]
+    if tuple(prepared["stations"]) != tuple(stations):
+        raise AssertionError("LSTM imputer and window station registries differ")
     log(f"{len(stations)} stations | windows N={len(wd.X)}")
 
     # Architecture selection is a small predeclared grid.  Candidates export
