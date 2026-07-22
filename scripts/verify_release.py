@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatch
 import hashlib
@@ -30,7 +30,7 @@ import sys
 import tempfile
 import types
 from typing import Any, Iterable, Mapping
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 import zipfile
 
 
@@ -55,6 +55,23 @@ AUTHORIZATION_FORMAT = "thermoroute.route-a-opening-authorization.v1"
 INTENT_FORMAT = "thermoroute.route-a-opening-intent.v1"
 RECEIPT_FORMAT = "thermoroute.route-a-opening-receipt.v1"
 STATISTICS_FORMAT = "thermoroute.route-a-confirmatory-statistics.v1"
+ACQUISITION_MANIFEST_FORMAT = "thermoroute.route-a-opened-inputs.v1"
+ACQUISITION_WORK_ORDER_FORMAT = "thermoroute.route-a-acquisition-work-order.v1"
+ACQUISITION_REQUEST_MAP_FORMAT = "thermoroute.route-a-opened-request-map.v1"
+ACQUISITION_REQUEST_LEDGER_FORMAT = (
+    "thermoroute.route-a-acquisition-request-ledger.v1"
+)
+ACQUISITION_ATTEMPT_START_FORMAT = (
+    "thermoroute.route-a-acquisition-attempt-start.v1"
+)
+ACQUISITION_ATTEMPT_RESULT_FORMAT = (
+    "thermoroute.route-a-acquisition-attempt-result.v1"
+)
+ACQUISITION_ATTEMPT_INDEX_FORMAT = (
+    "thermoroute.route-a-acquisition-attempt-index.v1"
+)
+CONFIRMATORY_NWIS_PROVIDER = "usgs-nwis-confirmatory-dv"
+MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES = 32 * 1024 * 1024
 PROTOCOL_SEAL_FORMAT = "thermoroute.route-a-protocol-seal.v1"
 PROTOCOL_SEAL_PATH = "protocols/route_a_protocol_seal_v1.json"
 CHRONOLOGY_FORMAT = "thermoroute.route-a-prelabel-chronology.v1"
@@ -257,7 +274,9 @@ REQUIRED_STATE_PATHS = {
     "run_directory",
     "work_order",
     "intent",
+    "transport_root",
     "raw_nwis_root",
+    "raw_nwis_snapshot_index",
     "acquisition_request_map",
     "temporal_outcomes",
     "external_outcomes",
@@ -1401,7 +1420,11 @@ def _validate_authorization_structure(
         "run_directory": base,
         "work_order": f"{base}/acquisition_work_order_v1.json",
         "intent": f"{base}/opening_intent_v1.json",
-        "raw_nwis_root": f"{base}/acquisition/raw_nwis_v1",
+        "transport_root": f"{base}/transport",
+        "raw_nwis_root": f"{base}/transport/raw_nwis_v1",
+        "raw_nwis_snapshot_index": (
+            f"{base}/transport/raw_nwis_v1/snapshot_index.json"
+        ),
         "acquisition_request_map": f"{base}/acquisition/source_request_map_v1.json",
         "temporal_outcomes": f"{base}/acquisition/temporal_outcomes_v1.parquet",
         "external_outcomes": f"{base}/acquisition/external_outcomes_v1.parquet",
@@ -3908,6 +3931,767 @@ def _validate_inference_closure(
     return dict(gate)
 
 
+def _require_utc_transport_timestamp(value: object, *, label: str) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} timestamp is malformed")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{label} timestamp is malformed") from exc
+    if (
+        parsed.tzinfo is None
+        or parsed.utcoffset() != timezone.utc.utcoffset(None)
+        or parsed.isoformat() != value
+    ):
+        raise ValueError(f"{label} timestamp is not canonical UTC")
+    return parsed
+
+
+def _expected_confirmatory_nwis_url(site: str, start: str, end: str) -> str:
+    query = urlencode({
+        "format": "rdb",
+        "sites": site,
+        "startDT": start,
+        "endDT": end,
+        "parameterCd": "00010,00060,00065",
+        "statCd": "00003",
+        "siteStatus": "all",
+    })
+    return f"https://waterservices.usgs.gov/nwis/dv/?{query}"
+
+
+def _nwis_series_registry_from_payload(
+    payload: bytes,
+) -> dict[str, list[dict[str, str | None]]]:
+    """Rebuild the frozen series/qualifier registry from the RDB header."""
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeError as exc:
+        raise ValueError("raw NWIS response is not strict UTF-8 RDB") from exc
+    rows = [
+        line for line in text.splitlines()
+        if line and not line.startswith("#")
+    ]
+    if not rows:
+        columns: list[str] = []
+    else:
+        try:
+            columns = next(csv.reader([rows[0]], delimiter="\t"))
+        except csv.Error as exc:
+            raise ValueError("raw NWIS RDB header is malformed") from exc
+        if not columns or any(not value for value in columns):
+            raise ValueError("raw NWIS RDB header contains an empty column")
+        if len(columns) != len(set(columns)):
+            raise ValueError("raw NWIS RDB header duplicates a column")
+    registry: dict[str, list[dict[str, str | None]]] = {}
+    for parameter_code, variable in (
+        ("00010", "WTEMP"),
+        ("00060", "FLOW"),
+        ("00065", "WLEVEL"),
+    ):
+        candidates = sorted(
+            column
+            for column in columns
+            if parameter_code in column
+            and (column.endswith("Mean") or column.endswith("_00003"))
+            and not column.endswith("_cd")
+        )
+        registry[variable] = [
+            {
+                "parameter_code": parameter_code,
+                "value_column": column,
+                "qualifier_column": (
+                    f"{column}_cd" if f"{column}_cd" in columns else None
+                ),
+            }
+            for column in candidates
+        ]
+    return registry
+
+
+def _validate_release_work_order(
+    root: Path,
+    work_order_path: Path,
+    authorization: Mapping[str, Any],
+    state: Mapping[str, str],
+    *,
+    authorization_sha256: str,
+) -> tuple[dict[str, Any], dict[str, list[str]], list[dict[str, Any]]]:
+    """Independently rebuild the one immutable request ledger input."""
+    work_order = _load_json(work_order_path, label="acquisition work order")
+    stable = dict(work_order)
+    self_digest = stable.pop("work_order_self_sha256", None)
+    fields = {
+        "format", "opening_id", "authorization_path", "authorization_sha256",
+        "source_tree_sha256", "runtime_sha256", "fixed_code_sha256",
+        "acquisition_plan", "state_paths", "site_registries",
+        "work_order_self_sha256",
+    }
+    source = authorization.get("source")
+    runtime = authorization.get("runtime")
+    fixed_code = authorization.get("fixed_code")
+    if (
+        not isinstance(source, Mapping)
+        or not isinstance(runtime, Mapping)
+        or not isinstance(fixed_code, Mapping)
+        or set(work_order) != fields
+        or self_digest != _sha256_json(stable)
+        or work_order.get("format") != ACQUISITION_WORK_ORDER_FORMAT
+        or work_order.get("opening_id") != authorization.get("opening_id")
+        or work_order.get("authorization_path")
+        != source.get("authorization_path")
+        or work_order.get("authorization_sha256") != authorization_sha256
+        or work_order.get("source_tree_sha256")
+        != source.get("source_tree_sha256")
+        or work_order.get("runtime_sha256") != runtime.get("runtime_sha256")
+        or work_order.get("fixed_code_sha256") != fixed_code.get("sha256")
+        or work_order.get("state_paths") != dict(state)
+    ):
+        raise ValueError("acquisition work-order identity or exact schema changed")
+
+    plan = authorization.get("acquisition_plan")
+    plan_fields = {
+        "history_start", "target_start", "target_end",
+        "nwis_parameter_codes", "nwis_statistic_code", "request_partition",
+        "no_outcome_based_site_replacement", "provider", "canonical_endpoint",
+        "transport", "maximum_response_bytes_per_request",
+    }
+    if (
+        not isinstance(plan, Mapping)
+        or set(plan) != plan_fields
+        or work_order.get("acquisition_plan") != dict(plan)
+        or plan.get("nwis_parameter_codes") != ["00010", "00060", "00065"]
+        or plan.get("nwis_statistic_code") != "00003"
+        or plan.get("request_partition")
+        != "one frozen site_no for the complete interval"
+        or plan.get("no_outcome_based_site_replacement") is not True
+        or plan.get("provider") != CONFIRMATORY_NWIS_PROVIDER
+        or plan.get("canonical_endpoint")
+        != "https://waterservices.usgs.gov/nwis/dv/"
+        or plan.get("transport") != "LIVE_HTTPS_ONLY_NO_PRESEEDED_OUTCOMES"
+        or plan.get("maximum_response_bytes_per_request")
+        != MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+    ):
+        raise ValueError("authorized acquisition plan or work-order copy changed")
+    try:
+        history = datetime.strptime(str(plan["history_start"]), "%Y-%m-%d")
+        target_start = datetime.strptime(str(plan["target_start"]), "%Y-%m-%d")
+        target_end = datetime.strptime(str(plan["target_end"]), "%Y-%m-%d")
+    except (KeyError, ValueError) as exc:
+        raise ValueError("authorized acquisition interval is malformed") from exc
+    if not history <= target_start <= target_end:
+        raise ValueError("authorized acquisition interval is reversed")
+
+    registries = authorization.get("registries")
+    declared = work_order.get("site_registries")
+    if (
+        not isinstance(registries, Mapping)
+        or not isinstance(declared, Mapping)
+        or set(declared) != {"temporal", "external"}
+    ):
+        raise ValueError("work-order site registry is malformed")
+    sites_by_cohort: dict[str, list[str]] = {}
+    for cohort, registry_key in (
+        ("temporal", "development"),
+        ("external", "external"),
+    ):
+        registry_binding = registries.get(registry_key)
+        if not isinstance(registry_binding, Mapping):
+            raise ValueError("authorization registry binding is malformed")
+        registry_path = _resolve_release_path(
+            root,
+            registry_binding.get("path"),
+            label=f"{cohort} work-order registry",
+            expected_sha256=registry_binding.get("sha256"),
+        )
+        try:
+            with registry_path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        except (OSError, UnicodeError, csv.Error) as exc:
+            raise ValueError(f"cannot read {cohort} work-order registry") from exc
+        sites = sorted(str(row.get("site_no", "")).strip() for row in rows)
+        declaration = declared.get(cohort)
+        if (
+            not sites
+            or any(re.fullmatch(r"[0-9]{8,15}", site) is None for site in sites)
+            or len(sites) != len(set(sites))
+            or not isinstance(declaration, Mapping)
+            or set(declaration) != {"sha256", "sites"}
+            or declaration.get("sha256") != registry_binding.get("sha256")
+            or declaration.get("sites") != sites
+        ):
+            raise ValueError(f"{cohort} work-order site registry changed")
+        sites_by_cohort[cohort] = sites
+    if set(sites_by_cohort["temporal"]) & set(sites_by_cohort["external"]):
+        raise ValueError("work-order temporal/external cohorts overlap")
+
+    requests: list[dict[str, Any]] = []
+    ordinal = 0
+    for cohort in ("temporal", "external"):
+        for site in sites_by_cohort[cohort]:
+            ordinal += 1
+            request = {
+                "schema_version": 1,
+                "provider": CONFIRMATORY_NWIS_PROVIDER,
+                "method": "GET",
+                "url": _expected_confirmatory_nwis_url(
+                    site,
+                    str(plan["history_start"]),
+                    str(plan["target_end"]),
+                ),
+                "headers": {},
+            }
+            requests.append({
+                "ordinal": ordinal,
+                "cohort": cohort,
+                "site_no": site,
+                "request": request,
+                "request_sha256": hashlib.sha256(
+                    _canonical_json_bytes(request)
+                ).hexdigest(),
+            })
+    return work_order, sites_by_cohort, requests
+
+
+def _validate_transport_evidence(
+    root: Path,
+    categories: dict[str, set[Path]],
+    authorization: Mapping[str, Any],
+    state: Mapping[str, str],
+    *,
+    authorization_sha256: str,
+    work_order_path: Path,
+    work_order: Mapping[str, Any],
+    sites_by_cohort: Mapping[str, list[str]],
+    expected_requests: list[dict[str, Any]],
+    acquisition: Mapping[str, Any],
+    intent: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Close the raw same-opening transport chain without trusted replay."""
+    def exact_binding(path: Path) -> dict[str, str]:
+        return {
+            "path": _relative(root, path, label="transport evidence"),
+            "sha256": sha256_file(path),
+        }
+
+    transport_root = _resolve_release_path(
+        root, state["transport_root"], label="raw transport root"
+    )
+    raw_root = _resolve_release_path(
+        root, state["raw_nwis_root"], label="raw NWIS root"
+    )
+    if raw_root.parent != transport_root:
+        raise ValueError("raw NWIS root leaves the canonical transport namespace")
+    _add_path(root, categories, "raw_nwis", raw_root)
+
+    ledger_path = _add_binding(
+        root,
+        categories,
+        "raw_nwis",
+        acquisition.get("request_ledger"),
+        label="acquisition request ledger",
+    )
+    if ledger_path != transport_root / "request_ledger_v1.json":
+        raise ValueError("acquisition request-ledger path is noncanonical")
+    ledger = _load_json(ledger_path, label="acquisition request ledger")
+    ledger_stable = dict(ledger)
+    ledger_self = ledger_stable.pop("request_ledger_self_sha256", None)
+    ledger_fields = {
+        "format", "status", "opening_id", "authorization_sha256",
+        "work_order_self_sha256", "work_order_file_sha256", "provider",
+        "maximum_response_bytes_per_request", "request_order", "request_count",
+        "requests", "station_or_request_replacement_allowed",
+        "request_ledger_self_sha256",
+    }
+    if (
+        set(ledger) != ledger_fields
+        or ledger_self != _sha256_json(ledger_stable)
+        or ledger.get("format") != ACQUISITION_REQUEST_LEDGER_FORMAT
+        or ledger.get("status") != "FROZEN_BEFORE_FIRST_HTTPS_REQUEST"
+        or ledger.get("opening_id") != authorization.get("opening_id")
+        or ledger.get("authorization_sha256") != authorization_sha256
+        or ledger.get("work_order_self_sha256")
+        != work_order.get("work_order_self_sha256")
+        or ledger.get("work_order_file_sha256") != sha256_file(work_order_path)
+        or ledger.get("provider") != CONFIRMATORY_NWIS_PROVIDER
+        or ledger.get("maximum_response_bytes_per_request")
+        != MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+        or ledger.get("request_order")
+        != "temporal_then_external_each_site_no_ascending"
+        or type(ledger.get("request_count")) is not int
+        or ledger.get("request_count") != len(expected_requests)
+        or ledger.get("requests") != expected_requests
+        or ledger.get("station_or_request_replacement_allowed") is not False
+    ):
+        raise ValueError("acquisition request ledger exact contract changed")
+    ledger_sha256 = sha256_file(ledger_path)
+    request_ids = {str(row["request_sha256"]) for row in expected_requests}
+    expected_sites_from_requests = {
+        cohort: sorted(
+            str(row["site_no"])
+            for row in expected_requests
+            if row["cohort"] == cohort
+        )
+        for cohort in ("temporal", "external")
+    }
+    if (
+        len(request_ids) != len(expected_requests)
+        or expected_sites_from_requests != dict(sites_by_cohort)
+    ):
+        raise ValueError("acquisition request ledger duplicates a request identity")
+
+    index_path = _add_binding(
+        root,
+        categories,
+        "raw_nwis",
+        acquisition.get("transport_attempt_index"),
+        label="transport-attempt index",
+    )
+    if index_path != transport_root / "transport_attempt_index_v1.json":
+        raise ValueError("transport-attempt index path is noncanonical")
+    index = _load_json(index_path, label="transport-attempt index")
+    index_stable = dict(index)
+    index_self = index_stable.pop("attempt_index_self_sha256", None)
+    index_fields = {
+        "format", "status", "opening_id", "authorization_sha256",
+        "work_order_self_sha256", "request_ledger", "request_count",
+        "attempt_count", "resume_count", "opening_count",
+        "response_replacement_count",
+        "completed_before_final_attempt_request_sha256",
+        "retrieval_span_utc", "attempts", "attempt_index_self_sha256",
+    }
+    attempts = index.get("attempts")
+    if (
+        set(index) != index_fields
+        or index_self != _sha256_json(index_stable)
+        or index.get("format") != ACQUISITION_ATTEMPT_INDEX_FORMAT
+        or index.get("status") != "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+        or index.get("opening_id") != authorization.get("opening_id")
+        or index.get("authorization_sha256") != authorization_sha256
+        or index.get("work_order_self_sha256")
+        != work_order.get("work_order_self_sha256")
+        or index.get("request_ledger") != exact_binding(ledger_path)
+        or type(index.get("request_count")) is not int
+        or index.get("request_count") != len(request_ids)
+        or type(index.get("attempt_count")) is not int
+        or not isinstance(attempts, list)
+        or not attempts
+        or index.get("attempt_count") != len(attempts)
+        or type(index.get("resume_count")) is not int
+        or index.get("opening_count") != 1
+        or index.get("response_replacement_count") != 0
+    ):
+        raise ValueError("transport-attempt index identity or exact schema changed")
+
+    attempts_root = transport_root / "transport_attempts_v1"
+    if not attempts_root.is_dir() or attempts_root.is_symlink():
+        raise ValueError("transport-attempt directory is absent or unsafe")
+    starts: dict[int, dict[str, Any]] = {}
+    results: dict[int, dict[str, Any]] = {}
+    start_times: dict[int, datetime] = {}
+    result_times: dict[int, datetime] = {}
+    expected_attempt_files: set[str] = set()
+
+    def valid_partition(completed: object, missing: object) -> bool:
+        return (
+            isinstance(completed, list)
+            and isinstance(missing, list)
+            and completed == sorted(completed)
+            and missing == sorted(missing)
+            and len(completed) == len(set(completed))
+            and len(missing) == len(set(missing))
+            and not (set(completed) & set(missing))
+            and set(completed) | set(missing) == request_ids
+        )
+
+    for number, row in enumerate(attempts, start=1):
+        if (
+            not isinstance(row, Mapping)
+            or set(row) != {"attempt_number", "mode", "status", "start", "result"}
+            or type(row.get("attempt_number")) is not int
+            or row.get("attempt_number") != number
+        ):
+            raise ValueError("transport-attempt index row changed or reordered")
+        mode = "INITIAL_OPENING_TRANSPORT" if number == 1 else "RESUME_SAME_OPENING"
+        if row.get("mode") != mode:
+            raise ValueError("transport-attempt mode/sequence changed")
+        start_binding = row.get("start")
+        if not isinstance(start_binding, Mapping) or set(start_binding) != {
+            "path", "sha256"
+        }:
+            raise ValueError("transport-attempt start binding is malformed")
+        start_path = _add_binding(
+            root, categories, "raw_nwis", start_binding,
+            label=f"transport attempt {number} start",
+        )
+        expected_start = attempts_root / f"attempt_{number:06d}_start.json"
+        expected_attempt_files.add(expected_start.name)
+        if start_path != expected_start:
+            raise ValueError("transport-attempt start path is noncanonical")
+        start = _load_json(start_path, label="transport-attempt start")
+        start_stable = dict(start)
+        start_self = start_stable.pop("attempt_start_self_sha256", None)
+        start_fields = {
+            "format", "status", "opening_id", "authorization_sha256",
+            "work_order_self_sha256", "request_ledger_sha256",
+            "attempt_number", "mode", "opening_count",
+            "completed_before_attempt_request_sha256",
+            "missing_at_start_request_sha256", "response_replacement_allowed",
+            "started_at_utc", "attempt_start_self_sha256",
+        }
+        completed_before = start.get(
+            "completed_before_attempt_request_sha256"
+        )
+        missing_before = start.get("missing_at_start_request_sha256")
+        if (
+            set(start) != start_fields
+            or start_self != _sha256_json(start_stable)
+            or start.get("format") != ACQUISITION_ATTEMPT_START_FORMAT
+            or start.get("status") != "TRANSPORT_ATTEMPT_STARTED"
+            or start.get("opening_id") != authorization.get("opening_id")
+            or start.get("authorization_sha256") != authorization_sha256
+            or start.get("work_order_self_sha256")
+            != work_order.get("work_order_self_sha256")
+            or start.get("request_ledger_sha256") != ledger_sha256
+            or type(start.get("attempt_number")) is not int
+            or start.get("attempt_number") != number
+            or start.get("mode") != mode
+            or start.get("opening_count") != 1
+            or start.get("response_replacement_allowed") is not False
+            or not valid_partition(completed_before, missing_before)
+        ):
+            raise ValueError("transport-attempt start exact contract changed")
+        start_times[number] = _require_utc_transport_timestamp(
+            start.get("started_at_utc"), label="transport-attempt start"
+        )
+        starts[number] = dict(start)
+
+        result_binding = row.get("result")
+        if not isinstance(result_binding, Mapping) or set(result_binding) != {
+            "path", "sha256"
+        }:
+            raise ValueError("completed transport attempt lacks an exact result binding")
+        result_path = _add_binding(
+            root, categories, "raw_nwis", result_binding,
+            label=f"transport attempt {number} result",
+        )
+        expected_result = attempts_root / f"attempt_{number:06d}_result.json"
+        expected_attempt_files.add(expected_result.name)
+        if result_path != expected_result:
+            raise ValueError("transport-attempt result path is noncanonical")
+        result = _load_json(result_path, label="transport-attempt result")
+        result_stable = dict(result)
+        result_self = result_stable.pop("attempt_result_self_sha256", None)
+        result_fields = {
+            "format", "status", "opening_id", "authorization_sha256",
+            "work_order_self_sha256", "request_ledger_sha256",
+            "attempt_number", "attempt_start_sha256", "opening_count",
+            "completed_request_sha256", "missing_request_sha256",
+            "failure_class", "response_replacement_count", "completed_at_utc",
+            "attempt_result_self_sha256",
+        }
+        completed_after = result.get("completed_request_sha256")
+        missing_after = result.get("missing_request_sha256")
+        expected_status = (
+            "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+            if number == len(attempts)
+            else "TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING"
+        )
+        if (
+            set(result) != result_fields
+            or result_self != _sha256_json(result_stable)
+            or result.get("format") != ACQUISITION_ATTEMPT_RESULT_FORMAT
+            or result.get("status") != expected_status
+            or row.get("status") != expected_status
+            or result.get("opening_id") != authorization.get("opening_id")
+            or result.get("authorization_sha256") != authorization_sha256
+            or result.get("work_order_self_sha256")
+            != work_order.get("work_order_self_sha256")
+            or result.get("request_ledger_sha256") != ledger_sha256
+            or type(result.get("attempt_number")) is not int
+            or result.get("attempt_number") != number
+            or result.get("attempt_start_sha256") != sha256_file(start_path)
+            or result.get("opening_count") != 1
+            or result.get("response_replacement_count") != 0
+            or not valid_partition(completed_after, missing_after)
+            or (
+                expected_status == "ALL_LEDGER_TRANSACTIONS_COMPLETE"
+                and (missing_after or result.get("failure_class") is not None)
+            )
+            or (
+                expected_status == "TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING"
+                and (
+                    not missing_after
+                    or not isinstance(result.get("failure_class"), str)
+                    or not result.get("failure_class")
+                )
+            )
+            or not set(completed_before) <= set(completed_after)
+            or not set(missing_after) <= set(missing_before)
+        ):
+            raise ValueError("transport-attempt result exact contract changed")
+        result_times[number] = _require_utc_transport_timestamp(
+            result.get("completed_at_utc"), label="transport-attempt result"
+        )
+        results[number] = dict(result)
+
+    if set(path.name for path in attempts_root.iterdir()) != expected_attempt_files:
+        raise ValueError("transport-attempt directory contains missing or extra evidence")
+    if (
+        starts[1]["completed_before_attempt_request_sha256"] != []
+        or set(starts[1]["missing_at_start_request_sha256"]) != request_ids
+    ):
+        raise ValueError("first transport attempt does not start from the full ledger")
+    for number in range(2, len(attempts) + 1):
+        previous = results[number - 1]
+        if (
+            starts[number]["completed_before_attempt_request_sha256"]
+            != previous["completed_request_sha256"]
+            or starts[number]["missing_at_start_request_sha256"]
+            != previous["missing_request_sha256"]
+        ):
+            raise ValueError("transport attempt does not continue the prior partition")
+    intent_started = _require_utc_transport_timestamp(
+        intent.get("started_at_utc"), label="opening intent"
+    )
+    receipt_completed = _require_utc_transport_timestamp(
+        receipt.get("completed_at_utc"), label="opening receipt"
+    )
+    if intent_started > start_times[1]:
+        raise ValueError("transport attempt precedes the opening intent")
+    for number in range(1, len(attempts) + 1):
+        if start_times[number] > result_times[number]:
+            raise ValueError("transport attempt result predates its start")
+        if (
+            number < len(attempts)
+            and result_times[number] > start_times[number + 1]
+        ):
+            raise ValueError("transport attempt chronology overlaps or reverses")
+    if result_times[len(attempts)] > receipt_completed:
+        raise ValueError("opening receipt predates final transport completion")
+    if (
+        results[len(attempts)]["missing_request_sha256"] != []
+        or set(results[len(attempts)]["completed_request_sha256"]) != request_ids
+        or index.get("resume_count") != len(attempts) - 1
+    ):
+        raise ValueError("final transport attempt or resume count is inconsistent")
+
+    snapshot_path = _add_binding(
+        root,
+        categories,
+        "raw_nwis",
+        acquisition.get("raw_nwis_snapshot_index"),
+        label="raw NWIS snapshot index",
+    )
+    if (
+        snapshot_path != raw_root / "snapshot_index.json"
+        or snapshot_path != (root / state["raw_nwis_snapshot_index"]).resolve()
+    ):
+        raise ValueError("raw NWIS snapshot-index path is noncanonical")
+    snapshot = _load_json(snapshot_path, label="raw NWIS snapshot index")
+    records = snapshot.get("records")
+    if (
+        set(snapshot) != {"schema_version", "snapshot_count", "records"}
+        or snapshot.get("schema_version") != 1
+        or type(snapshot.get("snapshot_count")) is not int
+        or not isinstance(records, list)
+        or snapshot.get("snapshot_count") != len(expected_requests)
+        or len(records) != len(expected_requests)
+    ):
+        raise ValueError("raw NWIS snapshot-index exact schema changed")
+    record_fields = {
+        "provider", "request_sha256", "response_sha256", "retrieved_at_utc",
+        "byte_count", "attempt_number", "request", "metadata_path",
+        "metadata_sha256", "response_path", "series_registry",
+    }
+    record_ids = [
+        str(record.get("request_sha256", ""))
+        if isinstance(record, Mapping) else ""
+        for record in records
+    ]
+    if record_ids != sorted(request_ids):
+        raise ValueError("raw NWIS snapshot records are missing, duplicate, or reordered")
+    records_by_request = {
+        str(record["request_sha256"]): record for record in records
+        if isinstance(record, Mapping)
+    }
+    expected_by_request = {
+        str(row["request_sha256"]): row for row in expected_requests
+    }
+    timestamps: list[tuple[datetime, str]] = []
+    provider_root = raw_root / CONFIRMATORY_NWIS_PROVIDER
+    provider_entries = (
+        set(path.name for path in provider_root.iterdir())
+        if provider_root.is_dir() and not provider_root.is_symlink()
+        else set()
+    )
+    if ".pending" in provider_entries:
+        pending = provider_root / ".pending"
+        if not pending.is_dir() or pending.is_symlink() or any(pending.iterdir()):
+            raise ValueError("raw NWIS pending namespace is not empty and canonical")
+        provider_entries.remove(".pending")
+    if (
+        set(path.name for path in raw_root.iterdir())
+        != {CONFIRMATORY_NWIS_PROVIDER, "snapshot_index.json"}
+        or not provider_root.is_dir()
+        or provider_root.is_symlink()
+        or provider_entries != request_ids
+    ):
+        raise ValueError("raw NWIS transport namespace contains missing or extra entries")
+    metadata_fields = {
+        "schema_version", "opening_id", "authorization_sha256",
+        "work_order_self_sha256", "request_ledger_sha256", "attempt_number",
+        "request", "request_sha256", "retrieved_at_utc", "http_status",
+        "response_headers", "final_url", "byte_count", "response_sha256",
+        "response_file", "maximum_response_bytes_per_request",
+    }
+    for request_sha in sorted(request_ids):
+        record = records_by_request[request_sha]
+        expected = expected_by_request[request_sha]
+        expected_directory = provider_root / request_sha
+        expected_metadata_relative = (
+            f"{CONFIRMATORY_NWIS_PROVIDER}/{request_sha}/metadata.json"
+        )
+        expected_response_relative = (
+            f"{CONFIRMATORY_NWIS_PROVIDER}/{request_sha}/response.bin"
+        )
+        if (
+            set(record) != record_fields
+            or record.get("provider") != CONFIRMATORY_NWIS_PROVIDER
+            or record.get("request") != expected["request"]
+            or record.get("metadata_path") != expected_metadata_relative
+            or record.get("response_path") != expected_response_relative
+            or not isinstance(record.get("series_registry"), Mapping)
+            or not expected_directory.is_dir()
+            or expected_directory.is_symlink()
+            or set(path.name for path in expected_directory.iterdir())
+            != {"metadata.json", "response.bin"}
+        ):
+            raise ValueError("raw NWIS transaction record/path identity changed")
+        metadata_path = _resolve_release_path(
+            root,
+            expected_metadata_relative,
+            label="raw NWIS transaction metadata",
+            base=raw_root,
+            expected_sha256=record.get("metadata_sha256"),
+        )
+        response_path = _resolve_release_path(
+            root,
+            expected_response_relative,
+            label="raw NWIS transaction response",
+            base=raw_root,
+            expected_sha256=record.get("response_sha256"),
+        )
+        _add_path(root, categories, "raw_nwis", metadata_path)
+        _add_path(root, categories, "raw_nwis", response_path)
+        payload = response_path.read_bytes()
+        metadata = _load_json(metadata_path, label="raw NWIS transaction metadata")
+        attempt_number = metadata.get("attempt_number")
+        timestamp_value = metadata.get("retrieved_at_utc")
+        timestamp = _require_utc_transport_timestamp(
+            timestamp_value, label="raw NWIS retrieval"
+        )
+        if (
+            not 0 < len(payload) <= MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+            or set(metadata) != metadata_fields
+            or metadata.get("schema_version") != 1
+            or metadata.get("opening_id") != authorization.get("opening_id")
+            or metadata.get("authorization_sha256") != authorization_sha256
+            or metadata.get("work_order_self_sha256")
+            != work_order.get("work_order_self_sha256")
+            or metadata.get("request_ledger_sha256") != ledger_sha256
+            or type(attempt_number) is not int
+            or attempt_number not in starts
+            or request_sha
+            not in starts[attempt_number]["missing_at_start_request_sha256"]
+            or request_sha
+            not in results[attempt_number]["completed_request_sha256"]
+            or metadata.get("request") != expected["request"]
+            or metadata.get("request_sha256") != request_sha
+            or metadata.get("http_status") != 200
+            or not isinstance(metadata.get("response_headers"), Mapping)
+            or metadata.get("final_url") != expected["request"]["url"]
+            or type(metadata.get("byte_count")) is not int
+            or metadata.get("byte_count") != len(payload)
+            or metadata.get("response_sha256") != hashlib.sha256(payload).hexdigest()
+            or metadata.get("response_file") != "response.bin"
+            or metadata.get("maximum_response_bytes_per_request")
+            != MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+            or record.get("response_sha256") != metadata.get("response_sha256")
+            or record.get("retrieved_at_utc") != timestamp_value
+            or record.get("byte_count") != len(payload)
+            or record.get("attempt_number") != attempt_number
+            or record.get("metadata_sha256") != sha256_file(metadata_path)
+            or record.get("series_registry")
+            != _nwis_series_registry_from_payload(payload)
+        ):
+            raise ValueError("raw NWIS transaction/attempt binding changed")
+        if not start_times[attempt_number] <= timestamp <= result_times[attempt_number]:
+            raise ValueError("raw NWIS retrieval falls outside its transport attempt")
+        timestamps.append((timestamp, str(timestamp_value)))
+
+    request_map_path = _add_binding(
+        root,
+        categories,
+        "raw_nwis",
+        acquisition.get("request_map"),
+        label="opened acquisition request map",
+    )
+    if request_map_path != (root / state["acquisition_request_map"]).resolve():
+        raise ValueError("opened request-map path is noncanonical")
+    request_map = _load_json(request_map_path, label="opened request map")
+    expected_request_rows = []
+    for row in sorted(
+        expected_requests, key=lambda item: (str(item["cohort"]), str(item["site_no"]))
+    ):
+        record = records_by_request[str(row["request_sha256"])]
+        expected_request_rows.append({
+            "cohort": row["cohort"],
+            "site_no": row["site_no"],
+            "request_sha256": row["request_sha256"],
+            "response_sha256": record["response_sha256"],
+            "retrieved_at_utc": record["retrieved_at_utc"],
+            "byte_count": record["byte_count"],
+            "attempt_number": record["attempt_number"],
+            "series_registry": record["series_registry"],
+        })
+    if request_map != {
+        "format": ACQUISITION_REQUEST_MAP_FORMAT,
+        "opening_id": authorization.get("opening_id"),
+        "authorization_sha256": authorization_sha256,
+        "provider": CONFIRMATORY_NWIS_PROVIDER,
+        "request_count": len(expected_request_rows),
+        "requests": expected_request_rows,
+    }:
+        raise ValueError("opened request map differs from raw transport evidence")
+
+    ordered_timestamps = sorted(timestamps, key=lambda item: item[0])
+    expected_span = {
+        "first": ordered_timestamps[0][1],
+        "last": ordered_timestamps[-1][1],
+    }
+    final_start = starts[len(attempts)]
+    expected_summary = {
+        "opening_count": 1,
+        "attempt_count": len(attempts),
+        "resume_count": len(attempts) - 1,
+        "completed_before_final_attempt_request_sha256": final_start[
+            "completed_before_attempt_request_sha256"
+        ],
+        "retrieval_span_utc": expected_span,
+    }
+    if (
+        index.get("completed_before_final_attempt_request_sha256")
+        != expected_summary["completed_before_final_attempt_request_sha256"]
+        or index.get("retrieval_span_utc") != expected_span
+        or acquisition.get("transport_summary") != expected_summary
+        or receipt.get("transport_recovery") != expected_summary
+    ):
+        raise ValueError("receipt/acquisition/index transport summaries differ")
+    return expected_summary
+
+
 def _gather_postopen_categories(
     root: Path, authorization_path: Path
 ) -> tuple[dict[str, set[Path]], dict[str, Any], dict[str, str]]:
@@ -4185,6 +4969,19 @@ def _gather_postopen_categories(
         if path.suffix == ".json":
             _walk_json_dependencies(root, categories, "raw_meteorology", path)
 
+    authorization_sha = sha256_file(authorization_path)
+    (
+        work_order_document,
+        sites_by_cohort,
+        expected_transport_requests,
+    ) = _validate_release_work_order(
+        root,
+        work_order_path,
+        authorization,
+        state,
+        authorization_sha256=authorization_sha,
+    )
+    work_order_self = work_order_document["work_order_self_sha256"]
     intent_path = _resolve_release_path(root, state["intent"], label="opening intent")
     intent = _load_json(intent_path, label="opening intent")
     _add_path(root, categories, "opening_intent", intent_path)
@@ -4192,16 +4989,34 @@ def _gather_postopen_categories(
     intent_self = intent_stable.pop("intent_self_sha256", None)
     if not isinstance(intent_self, str) or intent_self != _sha256_json(intent_stable):
         raise ValueError("opening intent self hash is inconsistent")
+    intent_fields = {
+        "format", "status", "opening_id", "authorization_sha256",
+        "preflight_attestation_sha256", "work_order_self_sha256",
+        "work_order_file_sha256", "fixed_code_sha256", "runtime_sha256",
+        "maximum_openings", "retry_after_failure_allowed",
+        "same_opening_transport_resume_allowed", "trusted_validator",
+        "started_at_utc", "intent_self_sha256",
+    }
     if (
-        intent.get("format") != INTENT_FORMAT
+        set(intent) != intent_fields
+        or intent.get("format") != INTENT_FORMAT
         or intent.get("status") != "OPENING_STARTED_IRREVERSIBLE"
         or intent.get("opening_id") != authorization["opening_id"]
+        or intent.get("authorization_sha256") != authorization_sha
+        or intent.get("work_order_self_sha256") != work_order_self
+        or intent.get("work_order_file_sha256") != sha256_file(work_order_path)
+        or intent.get("fixed_code_sha256")
+        != authorization.get("fixed_code", {}).get("sha256")
+        or intent.get("runtime_sha256")
+        != authorization.get("runtime", {}).get("runtime_sha256")
         or intent.get("maximum_openings") != 1
         or intent.get("retry_after_failure_allowed") is not False
         or intent.get("same_opening_transport_resume_allowed") is not True
-        or intent.get("unsafe_test_only") is not None
     ):
-        raise ValueError("opening intent is not a production one-shot marker")
+        raise ValueError("opening intent exact production schema changed")
+    _require_utc_transport_timestamp(
+        intent.get("started_at_utc"), label="opening intent"
+    )
 
     receipt_path = _resolve_release_path(root, state["receipt"], label="opening receipt")
     receipt = _load_json(receipt_path, label="opening receipt")
@@ -4210,9 +5025,22 @@ def _gather_postopen_categories(
     receipt_self = receipt_stable.pop("receipt_self_sha256", None)
     if not isinstance(receipt_self, str) or receipt_self != _sha256_json(receipt_stable):
         raise ValueError("opening receipt self hash is inconsistent")
-    authorization_sha = sha256_file(authorization_path)
+    receipt_fields = {
+        "format", "status", "opening_id", "authorization_sha256",
+        "intent_sha256", "work_order_sha256", "preflight_attestation",
+        "preflight_attestation_sha256", "trusted_validator", "fixed_code",
+        "authorized_runtime", "completion_environment",
+        "python_hash_seed_interpreter_effect", "completed_at_utc",
+        "opening_count", "maximum_openings", "retry_after_failure_allowed",
+        "same_opening_transport_resume_allowed", "transport_recovery",
+        "all_predeclared_models_reported", "reported_models", "artifacts",
+        "trusted_prediction_hashes", "formal_tests",
+        "temporal_coverage_audit", "state_paths", "release_bindings",
+        "intent_self_sha256", "security_boundary", "receipt_self_sha256",
+    }
     if (
-        receipt.get("format") != RECEIPT_FORMAT
+        set(receipt) != receipt_fields
+        or receipt.get("format") != RECEIPT_FORMAT
         or receipt.get("status") != "OPENED_AND_SCORED_ONCE"
         or receipt.get("opening_id") != authorization["opening_id"]
         or receipt.get("authorization_sha256") != authorization_sha
@@ -4223,23 +5051,23 @@ def _gather_postopen_categories(
         or receipt.get("same_opening_transport_resume_allowed") is not True
         or receipt.get("all_predeclared_models_reported") is not True
         or receipt.get("state_paths") != dict(state)
-        or receipt.get("unsafe_test_only") is not None
+        or receipt.get("python_hash_seed_interpreter_effect")
+        != "present_but_ignored_under_isolated_mode"
+        or receipt.get("security_boundary")
+        != (
+            "misoperation/replay guard for an honest filesystem owner; not a "
+            "defense against an owner who can replace the interpreter or files"
+        )
     ):
-        raise ValueError("opening receipt is not a complete production one-shot receipt")
-    if intent.get("authorization_sha256") != authorization_sha:
-        raise ValueError("opening intent is bound to another authorization")
+        raise ValueError("opening receipt exact production schema changed")
+    _require_utc_transport_timestamp(
+        receipt.get("completed_at_utc"), label="opening receipt"
+    )
     if intent.get("trusted_validator") != receipt.get("trusted_validator"):
         raise ValueError("intent/receipt trusted-validator attestations differ")
     validator = receipt.get("trusted_validator")
     if not isinstance(validator, Mapping) or not isinstance(validator.get("sha256"), str):
         raise ValueError("receipt lacks a trusted-validator environment attestation")
-    work_order_document = _load_json(
-        work_order_path, label="acquisition work order"
-    )
-    work_order_stable = dict(work_order_document)
-    work_order_self = work_order_stable.pop("work_order_self_sha256", None)
-    if not isinstance(work_order_self, str) or work_order_self != _sha256_json(work_order_stable):
-        raise ValueError("acquisition work-order self hash is inconsistent")
     preflight = receipt.get("preflight_attestation")
     if (
         not isinstance(preflight, Mapping)
@@ -4277,6 +5105,26 @@ def _gather_postopen_categories(
     }
     if receipt.get("reported_models") != expected_reported_models:
         raise ValueError("receipt reported-model registry differs from authorization")
+    trusted_hashes = receipt.get("trusted_prediction_hashes")
+    if not isinstance(trusted_hashes, Mapping) or set(trusted_hashes) != {
+        "temporal", "external"
+    }:
+        raise ValueError("receipt trusted-prediction hash registry changed")
+    for cohort, item in trusted_hashes.items():
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"rows", "sha256", "schema", "ensemble_rule"}
+            or type(item.get("rows")) is not int
+            or item["rows"] < 1
+            or re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256", ""))) is None
+            or not isinstance(item.get("schema"), str)
+            or not item["schema"]
+            or item.get("ensemble_rule")
+            != "mean frozen members, then frozen CQR and horizon Platt calibration"
+        ):
+            raise ValueError(
+                f"receipt trusted-prediction hash entry changed: {cohort}"
+            )
     _add_path(root, categories, "environment_attestations", authorization_path)
     _add_path(root, categories, "environment_attestations", intent_path)
     _add_path(root, categories, "environment_attestations", receipt_path)
@@ -4315,65 +5163,48 @@ def _gather_postopen_categories(
     )
     acquisition = _load_json(acquisition_path, label="acquisition manifest")
     _add_path(root, categories, "raw_nwis", acquisition_path)
+    acquisition_fields = {
+        "format", "opening_id", "authorization_sha256", "protocol_sha256",
+        "labels_state", "site_replacement_count", "response_replacement_count",
+        "history_start", "target_start", "target_end",
+        "maximum_response_bytes_per_request", "request_ledger",
+        "transport_attempt_index", "transport_summary",
+        "raw_nwis_snapshot_index", "request_map", "normalized_outcome_tables",
+        "producer_role",
+    }
+    plan = authorization["acquisition_plan"]
     if (
-        acquisition.get("opening_id") != authorization["opening_id"]
+        set(acquisition) != acquisition_fields
+        or acquisition.get("format") != ACQUISITION_MANIFEST_FORMAT
+        or acquisition.get("opening_id") != authorization["opening_id"]
         or acquisition.get("authorization_sha256") != authorization_sha
+        or acquisition.get("protocol_sha256")
+        != authorization.get("protocol", {}).get("sha256")
         or acquisition.get("labels_state") != "OPENED_ONCE"
         or acquisition.get("site_replacement_count") != 0
         or acquisition.get("response_replacement_count") != 0
+        or acquisition.get("history_start") != plan["history_start"]
+        or acquisition.get("target_start") != plan["target_start"]
+        or acquisition.get("target_end") != plan["target_end"]
+        or acquisition.get("maximum_response_bytes_per_request")
+        != MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
         or acquisition.get("producer_role") != "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS"
     ):
-        raise ValueError("acquisition manifest identity or raw-only role changed")
-    transport = acquisition.get("transport_summary")
-    completed_before_final = (
-        transport.get("completed_before_final_attempt_request_sha256")
-        if isinstance(transport, Mapping) else None
+        raise ValueError("acquisition manifest exact production schema changed")
+    _validate_transport_evidence(
+        root,
+        categories,
+        authorization,
+        state,
+        authorization_sha256=authorization_sha,
+        work_order_path=work_order_path,
+        work_order=work_order_document,
+        sites_by_cohort=sites_by_cohort,
+        expected_requests=expected_transport_requests,
+        acquisition=acquisition,
+        intent=intent,
+        receipt=receipt,
     )
-    retrieval_span = transport.get("retrieval_span_utc") if isinstance(
-        transport, Mapping
-    ) else None
-    if (
-        not isinstance(transport, Mapping)
-        or set(transport) != {
-            "opening_count", "attempt_count", "resume_count",
-            "completed_before_final_attempt_request_sha256",
-            "retrieval_span_utc",
-        }
-        or transport.get("opening_count") != 1
-        or type(transport.get("attempt_count")) is not int
-        or transport["attempt_count"] < 1
-        or type(transport.get("resume_count")) is not int
-        or not 0 <= transport["resume_count"] < transport["attempt_count"]
-        or not isinstance(completed_before_final, list)
-        or len(completed_before_final) != len(set(completed_before_final))
-        or any(
-            not re.fullmatch(r"[0-9a-f]{64}", str(value))
-            for value in completed_before_final
-        )
-        or not isinstance(retrieval_span, Mapping)
-        or set(retrieval_span) != {"first", "last"}
-        or any(
-            not isinstance(retrieval_span.get(field), str)
-            or not retrieval_span[field]
-            for field in ("first", "last")
-        )
-        or receipt.get("transport_recovery") != transport
-    ):
-        raise ValueError("receipt/acquisition transport evidence differs")
-    raw_root = _resolve_release_path(root, state["raw_nwis_root"], label="raw NWIS root")
-    _add_path(root, categories, "raw_nwis", raw_root)
-    for key in (
-        "request_ledger",
-        "transport_attempt_index",
-        "raw_nwis_snapshot_index",
-        "request_map",
-    ):
-        path = _add_binding(
-            root, categories, "raw_nwis", acquisition.get(key),
-            label=f"acquisition {key}",
-        )
-        if path.suffix == ".json":
-            _walk_json_dependencies(root, categories, "raw_nwis", path)
     normalized = acquisition.get("normalized_outcome_tables")
     if not isinstance(normalized, Mapping) or set(normalized) != {"temporal", "external"}:
         raise ValueError("acquisition manifest lacks both normalized outcome tables")

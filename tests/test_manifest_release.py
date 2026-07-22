@@ -1332,7 +1332,11 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "run_directory": base,
         "work_order": f"{base}/acquisition_work_order_v1.json",
         "intent": f"{base}/opening_intent_v1.json",
-        "raw_nwis_root": f"{base}/acquisition/raw_nwis_v1",
+        "transport_root": f"{base}/transport",
+        "raw_nwis_root": f"{base}/transport/raw_nwis_v1",
+        "raw_nwis_snapshot_index": (
+            f"{base}/transport/raw_nwis_v1/snapshot_index.json"
+        ),
         "acquisition_request_map": f"{base}/acquisition/source_request_map_v1.json",
         "temporal_outcomes": f"{base}/acquisition/temporal_outcomes_v1.parquet",
         "external_outcomes": f"{base}/acquisition/external_outcomes_v1.parquet",
@@ -1353,11 +1357,6 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "receipt": f"{base}/opening_receipt_v1.json",
         "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
     }
-    work_order = {"format": "fixture-work-order"}
-    work_order["work_order_self_sha256"] = verifier._sha256_json(work_order)
-    _write_bytes(
-        root, state["work_order"], json.dumps(work_order, sort_keys=True).encode()
-    )
     authorization_path = root / "data_usgs/confirmatory_opening_authorization_v1.json"
     fixed_binding = _binding(verifier, root, "src/thermoroute/opening.py")
     scorer_binding = _binding(verifier, root, "scripts/route_a_trusted_scorer.py")
@@ -1434,6 +1433,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "history_start": "2020-11-30",
             "target_start": "2021-01-01",
             "target_end": "2023-12-31",
+            "nwis_parameter_codes": ["00010", "00060", "00065"],
+            "nwis_statistic_code": "00003",
+            "request_partition": "one frozen site_no for the complete interval",
+            "no_outcome_based_site_replacement": True,
+            "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
+            "canonical_endpoint": "https://waterservices.usgs.gov/nwis/dv/",
+            "transport": "LIVE_HTTPS_ONLY_NO_PRESEEDED_OUTCOMES",
+            "maximum_response_bytes_per_request": (
+                verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+            ),
         },
         "actual_inputs": _binding(
             verifier, root, "data_usgs/confirmatory_actual_inputs_v1.json"
@@ -1497,6 +1506,32 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     authorization["authorization_self_sha256"] = verifier._sha256_json(authorization)
     authorization_path.write_text(json.dumps(authorization), encoding="utf-8")
     authorization_sha = verifier.sha256_file(authorization_path)
+    work_order_stable = {
+        "format": verifier.ACQUISITION_WORK_ORDER_FORMAT,
+        "opening_id": authorization["opening_id"],
+        "authorization_path": authorization["source"]["authorization_path"],
+        "authorization_sha256": authorization_sha,
+        "source_tree_sha256": authorization["source"]["source_tree_sha256"],
+        "runtime_sha256": authorization["runtime"]["runtime_sha256"],
+        "fixed_code_sha256": authorization["fixed_code"]["sha256"],
+        "acquisition_plan": authorization["acquisition_plan"],
+        "state_paths": state,
+        "site_registries": {
+            "temporal": {
+                "sha256": authorization["registries"]["development"]["sha256"],
+                "sites": ["01073319"],
+            },
+            "external": {
+                "sha256": authorization["registries"]["external"]["sha256"],
+                "sites": ["02000001"],
+            },
+        },
+    }
+    work_order = {
+        **work_order_stable,
+        "work_order_self_sha256": verifier._sha256_json(work_order_stable),
+    }
+    _write_bytes(root, state["work_order"], json.dumps(work_order).encode())
 
     trusted_validator = {"sha256": "f" * 64, "implementation": "fixture"}
     preflight = {
@@ -1519,18 +1554,261 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "retry_after_failure_allowed": False,
         "same_opening_transport_resume_allowed": True,
         "trusted_validator": trusted_validator,
+        "started_at_utc": "2026-01-01T00:00:00+00:00",
     }
     intent["intent_self_sha256"] = verifier._sha256_json(intent)
     (root / state["intent"]).write_text(json.dumps(intent), encoding="utf-8")
 
-    raw_index = f"{state['raw_nwis_root']}/snapshot_index.json"
-    _write_bytes(root, raw_index, b"{}\n")
-    _write_bytes(root, f"{state['raw_nwis_root']}/response.rdb")
-    request_ledger = f"{base}/acquisition/request_ledger_v1.json"
-    attempt_index = f"{base}/acquisition/transport_attempt_index_v1.json"
-    _write_bytes(root, request_ledger, b"{}\n")
-    _write_bytes(root, attempt_index, b"{}\n")
-    _write_bytes(root, state["acquisition_request_map"], b"{}\n")
+    request_ledger = f"{state['transport_root']}/request_ledger_v1.json"
+    attempt_index = f"{state['transport_root']}/transport_attempt_index_v1.json"
+    attempts_root = f"{state['transport_root']}/transport_attempts_v1"
+    raw_index = state["raw_nwis_snapshot_index"]
+    request_specs = []
+    for ordinal, (cohort, site) in enumerate(
+        (("temporal", "01073319"), ("external", "02000001")), start=1
+    ):
+        request = {
+            "schema_version": 1,
+            "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
+            "method": "GET",
+            "url": verifier._expected_confirmatory_nwis_url(
+                site,
+                authorization["acquisition_plan"]["history_start"],
+                authorization["acquisition_plan"]["target_end"],
+            ),
+            "headers": {},
+        }
+        request_specs.append({
+            "ordinal": ordinal,
+            "cohort": cohort,
+            "site_no": site,
+            "request": request,
+            "request_sha256": hashlib.sha256(
+                verifier._canonical_json_bytes(request)
+            ).hexdigest(),
+        })
+    request_ids = [row["request_sha256"] for row in request_specs]
+    temporal_request, external_request = request_ids
+    ledger_stable = {
+        "format": verifier.ACQUISITION_REQUEST_LEDGER_FORMAT,
+        "status": "FROZEN_BEFORE_FIRST_HTTPS_REQUEST",
+        "opening_id": authorization["opening_id"],
+        "authorization_sha256": authorization_sha,
+        "work_order_self_sha256": work_order["work_order_self_sha256"],
+        "work_order_file_sha256": verifier.sha256_file(root / state["work_order"]),
+        "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
+        "maximum_response_bytes_per_request": (
+            verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+        ),
+        "request_order": "temporal_then_external_each_site_no_ascending",
+        "request_count": len(request_specs),
+        "requests": request_specs,
+        "station_or_request_replacement_allowed": False,
+    }
+    ledger = {
+        **ledger_stable,
+        "request_ledger_self_sha256": verifier._sha256_json(ledger_stable),
+    }
+    _write_bytes(root, request_ledger, json.dumps(ledger).encode())
+    ledger_sha256 = verifier.sha256_file(root / request_ledger)
+
+    attempt_partitions = [
+        {
+            "completed_before": [],
+            "missing_before": sorted(request_ids),
+            "completed_after": [temporal_request],
+            "missing_after": [external_request],
+            "status": "TRANSPORT_INCOMPLETE_MAY_RESUME_SAME_OPENING",
+            "failure_class": "FIXTURE_PROCESS_INTERRUPTION",
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "completed_at": "2026-01-01T00:11:00+00:00",
+        },
+        {
+            "completed_before": [temporal_request],
+            "missing_before": [external_request],
+            "completed_after": sorted(request_ids),
+            "missing_after": [],
+            "status": "ALL_LEDGER_TRANSACTIONS_COMPLETE",
+            "failure_class": None,
+            "started_at": "2026-01-01T00:12:00+00:00",
+            "completed_at": "2026-01-01T00:21:00+00:00",
+        },
+    ]
+    attempt_rows = []
+    for number, partition in enumerate(attempt_partitions, start=1):
+        mode = (
+            "INITIAL_OPENING_TRANSPORT"
+            if number == 1
+            else "RESUME_SAME_OPENING"
+        )
+        start_stable = {
+            "format": verifier.ACQUISITION_ATTEMPT_START_FORMAT,
+            "status": "TRANSPORT_ATTEMPT_STARTED",
+            "opening_id": authorization["opening_id"],
+            "authorization_sha256": authorization_sha,
+            "work_order_self_sha256": work_order["work_order_self_sha256"],
+            "request_ledger_sha256": ledger_sha256,
+            "attempt_number": number,
+            "mode": mode,
+            "opening_count": 1,
+            "completed_before_attempt_request_sha256": sorted(
+                partition["completed_before"]
+            ),
+            "missing_at_start_request_sha256": sorted(
+                partition["missing_before"]
+            ),
+            "response_replacement_allowed": False,
+            "started_at_utc": partition["started_at"],
+        }
+        start = {
+            **start_stable,
+            "attempt_start_self_sha256": verifier._sha256_json(start_stable),
+        }
+        start_relative = f"{attempts_root}/attempt_{number:06d}_start.json"
+        _write_bytes(root, start_relative, json.dumps(start).encode())
+        result_stable = {
+            "format": verifier.ACQUISITION_ATTEMPT_RESULT_FORMAT,
+            "status": partition["status"],
+            "opening_id": authorization["opening_id"],
+            "authorization_sha256": authorization_sha,
+            "work_order_self_sha256": work_order["work_order_self_sha256"],
+            "request_ledger_sha256": ledger_sha256,
+            "attempt_number": number,
+            "attempt_start_sha256": verifier.sha256_file(root / start_relative),
+            "opening_count": 1,
+            "completed_request_sha256": sorted(partition["completed_after"]),
+            "missing_request_sha256": sorted(partition["missing_after"]),
+            "failure_class": partition["failure_class"],
+            "response_replacement_count": 0,
+            "completed_at_utc": partition["completed_at"],
+        }
+        result = {
+            **result_stable,
+            "attempt_result_self_sha256": verifier._sha256_json(result_stable),
+        }
+        result_relative = f"{attempts_root}/attempt_{number:06d}_result.json"
+        _write_bytes(root, result_relative, json.dumps(result).encode())
+        attempt_rows.append({
+            "attempt_number": number,
+            "mode": mode,
+            "status": partition["status"],
+            "start": _binding(verifier, root, start_relative),
+            "result": _binding(verifier, root, result_relative),
+        })
+
+    series_registry = {"WTEMP": [], "FLOW": [], "WLEVEL": []}
+    snapshot_records = []
+    request_map_rows = []
+    retrieval_times = {
+        temporal_request: "2026-01-01T00:10:00+00:00",
+        external_request: "2026-01-01T00:20:00+00:00",
+    }
+    request_attempts = {temporal_request: 1, external_request: 2}
+    for spec in request_specs:
+        request_sha = spec["request_sha256"]
+        transaction_root = (
+            f"{state['raw_nwis_root']}/{verifier.CONFIRMATORY_NWIS_PROVIDER}/"
+            f"{request_sha}"
+        )
+        response_relative = f"{transaction_root}/response.bin"
+        metadata_relative = f"{transaction_root}/metadata.json"
+        payload = f"# fixture NWIS response for {spec['site_no']}\n".encode()
+        _write_bytes(root, response_relative, payload)
+        metadata = {
+            "schema_version": 1,
+            "opening_id": authorization["opening_id"],
+            "authorization_sha256": authorization_sha,
+            "work_order_self_sha256": work_order["work_order_self_sha256"],
+            "request_ledger_sha256": ledger_sha256,
+            "attempt_number": request_attempts[request_sha],
+            "request": spec["request"],
+            "request_sha256": request_sha,
+            "retrieved_at_utc": retrieval_times[request_sha],
+            "http_status": 200,
+            "response_headers": {"Content-Type": "text/plain"},
+            "final_url": spec["request"]["url"],
+            "byte_count": len(payload),
+            "response_sha256": hashlib.sha256(payload).hexdigest(),
+            "response_file": "response.bin",
+            "maximum_response_bytes_per_request": (
+                verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+            ),
+        }
+        _write_bytes(root, metadata_relative, json.dumps(metadata).encode())
+        record = {
+            "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
+            "request_sha256": request_sha,
+            "response_sha256": metadata["response_sha256"],
+            "retrieved_at_utc": metadata["retrieved_at_utc"],
+            "byte_count": metadata["byte_count"],
+            "attempt_number": metadata["attempt_number"],
+            "request": spec["request"],
+            "metadata_path": (
+                f"{verifier.CONFIRMATORY_NWIS_PROVIDER}/{request_sha}/metadata.json"
+            ),
+            "metadata_sha256": verifier.sha256_file(root / metadata_relative),
+            "response_path": (
+                f"{verifier.CONFIRMATORY_NWIS_PROVIDER}/{request_sha}/response.bin"
+            ),
+            "series_registry": series_registry,
+        }
+        snapshot_records.append(record)
+        request_map_rows.append({
+            "cohort": spec["cohort"],
+            "site_no": spec["site_no"],
+            "request_sha256": request_sha,
+            "response_sha256": record["response_sha256"],
+            "retrieved_at_utc": record["retrieved_at_utc"],
+            "byte_count": record["byte_count"],
+            "attempt_number": record["attempt_number"],
+            "series_registry": series_registry,
+        })
+    # The live transport producer keeps this staging directory after atomically
+    # publishing transactions.  It is intentionally empty and may disappear
+    # when the release materializer copies only evidence files.
+    (root / state["raw_nwis_root"] / verifier.CONFIRMATORY_NWIS_PROVIDER / ".pending").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    snapshot_records.sort(key=lambda row: row["request_sha256"])
+    _write_bytes(root, raw_index, json.dumps({
+        "schema_version": 1,
+        "snapshot_count": len(snapshot_records),
+        "records": snapshot_records,
+    }).encode())
+    request_map_rows.sort(key=lambda row: (row["cohort"], row["site_no"]))
+    _write_bytes(root, state["acquisition_request_map"], json.dumps({
+        "format": verifier.ACQUISITION_REQUEST_MAP_FORMAT,
+        "opening_id": authorization["opening_id"],
+        "authorization_sha256": authorization_sha,
+        "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
+        "request_count": len(request_map_rows),
+        "requests": request_map_rows,
+    }).encode())
+    attempt_index_stable = {
+        "format": verifier.ACQUISITION_ATTEMPT_INDEX_FORMAT,
+        "status": "ALL_LEDGER_TRANSACTIONS_COMPLETE",
+        "opening_id": authorization["opening_id"],
+        "authorization_sha256": authorization_sha,
+        "work_order_self_sha256": work_order["work_order_self_sha256"],
+        "request_ledger": _binding(verifier, root, request_ledger),
+        "request_count": len(request_ids),
+        "attempt_count": len(attempt_rows),
+        "resume_count": 1,
+        "opening_count": 1,
+        "response_replacement_count": 0,
+        "completed_before_final_attempt_request_sha256": [temporal_request],
+        "retrieval_span_utc": {
+            "first": retrieval_times[temporal_request],
+            "last": retrieval_times[external_request],
+        },
+        "attempts": attempt_rows,
+    }
+    attempt_index_document = {
+        **attempt_index_stable,
+        "attempt_index_self_sha256": verifier._sha256_json(attempt_index_stable),
+    }
+    _write_bytes(root, attempt_index, json.dumps(attempt_index_document).encode())
     outcome_dates = pd.date_range("2020-11-30", "2023-12-31", freq="D")
     for cohort, site in (
         ("temporal", "01073319"),
@@ -1548,20 +1826,27 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             }
         ).to_parquet(outcome_path, index=False)
     acquisition = {
+        "format": verifier.ACQUISITION_MANIFEST_FORMAT,
         "opening_id": authorization["opening_id"],
         "authorization_sha256": authorization_sha,
+        "protocol_sha256": authorization["protocol"]["sha256"],
         "labels_state": "OPENED_ONCE",
         "site_replacement_count": 0,
         "response_replacement_count": 0,
-        "producer_role": "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS",
+        "history_start": authorization["acquisition_plan"]["history_start"],
+        "target_start": authorization["acquisition_plan"]["target_start"],
+        "target_end": authorization["acquisition_plan"]["target_end"],
+        "maximum_response_bytes_per_request": (
+            verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
+        ),
         "transport_summary": {
             "opening_count": 1,
-            "attempt_count": 1,
-            "resume_count": 0,
-            "completed_before_final_attempt_request_sha256": [],
+            "attempt_count": 2,
+            "resume_count": 1,
+            "completed_before_final_attempt_request_sha256": [temporal_request],
             "retrieval_span_utc": {
-                "first": "2026-01-01T00:00:00+00:00",
-                "last": "2026-01-01T00:00:00+00:00",
+                "first": retrieval_times[temporal_request],
+                "last": retrieval_times[external_request],
             },
         },
         "request_ledger": _binding(verifier, root, request_ledger),
@@ -1572,6 +1857,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "temporal": _binding(verifier, root, state["temporal_outcomes"]),
             "external": _binding(verifier, root, state["external_outcomes"]),
         },
+        "producer_role": "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS",
     }
     (root / state["acquisition_manifest"]).write_text(
         json.dumps(acquisition), encoding="utf-8"
@@ -1799,6 +2085,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "completion_environment": {
             "numerical_runtime_sha256": authorization["runtime"]["runtime_sha256"]
         },
+        "python_hash_seed_interpreter_effect": (
+            "present_but_ignored_under_isolated_mode"
+        ),
+        "completed_at_utc": "2026-01-01T00:30:00+00:00",
         "opening_count": 1,
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
@@ -1811,6 +2101,21 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "trusted_validator": trusted_validator,
         "artifacts": receipt_artifacts,
+        "trusted_prediction_hashes": {
+            cohort: {
+                "rows": 1,
+                "sha256": digest,
+                "schema": "thermoroute.predictions.v1",
+                "ensemble_rule": (
+                    "mean frozen members, then frozen CQR and horizon Platt "
+                    "calibration"
+                ),
+            }
+            for cohort, digest in (
+                ("temporal", "a" * 64),
+                ("external", "b" * 64),
+            )
+        },
         "formal_tests": tests,
         "temporal_coverage_audit": {
             **receipt_artifacts["temporal_coverage_audit"],
@@ -1822,6 +2127,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "state_paths": state,
         "release_bindings": release_bindings,
         "intent_self_sha256": intent["intent_self_sha256"],
+        "security_boundary": (
+            "misoperation/replay guard for an honest filesystem owner; not a "
+            "defense against an owner who can replace the interpreter or files"
+        ),
     }
     receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
     (root / state["receipt"]).write_text(json.dumps(receipt), encoding="utf-8")
@@ -1843,7 +2152,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "prelabel_inputs": "data_usgs/prelabel/temporal.parquet",
         "raw_meteorology": "data_usgs/raw_snapshots/met-0/response.bin",
         "opening_intent": state["intent"],
-        "raw_nwis": f"{state['raw_nwis_root']}/response.rdb",
+        "raw_nwis": (
+            f"{state['raw_nwis_root']}/{verifier.CONFIRMATORY_NWIS_PROVIDER}/"
+            f"{temporal_request}/response.bin"
+        ),
         "normalized_outcomes": state["temporal_outcomes"],
         "trusted_predictions": state["temporal_predictions"],
         "availability": state["availability_registry"],
@@ -1898,6 +2210,57 @@ def _refresh_postopen_coverage_evidence(
     (root / state["receipt_sha256"]).write_text(
         f"{receipt_digest}  opening_receipt_v1.json\n", encoding="utf-8"
     )
+
+
+def _refresh_postopen_transport_evidence(
+    verifier, root: Path, authorization_path: Path
+) -> None:
+    """Rebind a deliberately mutated transport chain through its outer receipt."""
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    acquisition_path = root / state["acquisition_manifest"]
+    acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
+
+    ledger_relative = acquisition["request_ledger"]["path"]
+    acquisition["request_ledger"] = _binding(verifier, root, ledger_relative)
+    for key in ("raw_nwis_snapshot_index", "request_map"):
+        relative = acquisition[key]["path"]
+        acquisition[key] = _binding(verifier, root, relative)
+    index_relative = acquisition["transport_attempt_index"]["path"]
+    index_path = root / index_relative
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    for row in index.get("attempts", []):
+        for key in ("start", "result"):
+            binding = row.get(key)
+            if isinstance(binding, dict):
+                row[key] = _binding(verifier, root, binding["path"])
+    index.pop("attempt_index_self_sha256", None)
+    index["attempt_index_self_sha256"] = verifier._sha256_json(index)
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+    acquisition["transport_attempt_index"] = _binding(
+        verifier, root, index_relative
+    )
+    acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
+
+    receipt_path = root / state["receipt"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    acquisition_binding = _binding(
+        verifier, root, state["acquisition_manifest"]
+    )
+    receipt["artifacts"]["acquisition_manifest"] = acquisition_binding
+    receipt["release_bindings"]["artifacts"]["acquisition_manifest"].update(
+        acquisition_binding
+    )
+    for acquisition_key, artifact_key in (
+        ("raw_nwis_snapshot_index", "raw_nwis_snapshot_index"),
+        ("request_map", "acquisition_request_map"),
+    ):
+        binding = dict(acquisition[acquisition_key])
+        receipt["artifacts"][artifact_key] = binding
+        receipt["release_bindings"]["artifacts"][artifact_key].update(binding)
+    receipt["transport_recovery"] = acquisition.get("transport_summary")
+    _reseal_postopen_fixture_receipt(verifier, root, state, receipt)
+    _refresh_postopen_coverage_evidence(verifier, root, authorization_path)
 
 
 def _reseal_postopen_fixture_receipt(
@@ -2353,7 +2716,10 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
         artifact = stage / relative
         payload = artifact.read_bytes()
         artifact.unlink()
-        with pytest.raises(ValueError, match="absent|closure|missing|lacks|cannot read"):
+        with pytest.raises(
+            ValueError,
+            match="absent|closure|missing|lacks|cannot read|identity|transport",
+        ):
             verifier.verify_release_profile(stage, run_trusted_replay=False)
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_bytes(payload)
@@ -2571,6 +2937,228 @@ def test_postopen_release_rejects_recovery_contract_missing_tamper_and_extra(
             )
 
 
+def test_fast_release_requires_exact_opening_transport_document_schemas(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_transport_top_level_schema_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    attacks = (
+        ("work-order-missing", state["work_order"], "source_tree_sha256"),
+        ("work-order-extra", state["work_order"], None),
+        ("intent-missing", state["intent"], "started_at_utc"),
+        ("intent-extra", state["intent"], None),
+        ("receipt-missing", state["receipt"], "security_boundary"),
+        ("receipt-extra", state["receipt"], None),
+        (
+            "acquisition-missing",
+            state["acquisition_manifest"],
+            "protocol_sha256",
+        ),
+        ("acquisition-extra", state["acquisition_manifest"], None),
+    )
+    for attack, relative, missing_key in attacks:
+        attacked = tmp_path / attack
+        shutil.copytree(source, attacked)
+        attacked_authorization = attacked / authorization_path.relative_to(source)
+        path = attacked / relative
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if missing_key is None:
+            document["unfrozen_schema_extension"] = True
+        else:
+            document.pop(missing_key)
+        if relative == state["work_order"]:
+            document.pop("work_order_self_sha256", None)
+            document["work_order_self_sha256"] = verifier._sha256_json(document)
+            path.write_text(json.dumps(document), encoding="utf-8")
+        elif relative == state["intent"]:
+            document.pop("intent_self_sha256", None)
+            document["intent_self_sha256"] = verifier._sha256_json(document)
+            path.write_text(json.dumps(document), encoding="utf-8")
+        elif relative == state["receipt"]:
+            _reseal_postopen_fixture_receipt(
+                verifier, attacked, state, document
+            )
+        else:
+            path.write_text(json.dumps(document), encoding="utf-8")
+            _refresh_postopen_transport_evidence(
+                verifier, attacked, attacked_authorization
+            )
+        with pytest.raises(
+            ValueError,
+            match="exact|schema|work-order|acquisition manifest",
+        ):
+            verifier.build_release_profile(
+                attacked,
+                verifier.POSTOPEN_PROFILE,
+                authorization_path=attacked_authorization,
+            )
+
+
+def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_transport_chain_attacks_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    verifier.build_release_profile(
+        source,
+        verifier.POSTOPEN_PROFILE,
+        authorization_path=authorization_path,
+    )
+
+    for attack in (
+        "forged",
+        "missing",
+        "extra",
+        "reordered",
+        "duplicate",
+        "hash",
+        "path",
+        "partition",
+        "attempt-chain",
+        "attempt-time",
+        "time",
+        "series",
+        "oversize",
+    ):
+        attacked = tmp_path / f"transport-{attack}"
+        shutil.copytree(source, attacked)
+        attacked_authorization = attacked / authorization_path.relative_to(source)
+        acquisition_path = attacked / state["acquisition_manifest"]
+        acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
+        ledger_path = attacked / acquisition["request_ledger"]["path"]
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        if attack == "forged":
+            ledger["requests"][0]["request"]["url"] += "&forged=1"
+            ledger["requests"][0]["request_sha256"] = hashlib.sha256(
+                verifier._canonical_json_bytes(
+                    ledger["requests"][0]["request"]
+                )
+            ).hexdigest()
+        elif attack == "missing":
+            ledger.pop("request_order")
+        elif attack == "extra":
+            ledger["unfrozen_ledger_extension"] = True
+        elif attack == "reordered":
+            ledger["requests"] = list(reversed(ledger["requests"]))
+        elif attack == "duplicate":
+            ledger["requests"].append(dict(ledger["requests"][0]))
+            ledger["request_count"] = len(ledger["requests"])
+        elif attack == "path":
+            alias = (
+                Path(state["acquisition_manifest"]).parent
+                / "request_ledger_alias_v1.json"
+            ).as_posix()
+            shutil.copy2(ledger_path, attacked / alias)
+            acquisition["request_ledger"] = _binding(
+                verifier, attacked, alias
+            )
+            acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
+        elif attack in {"partition", "attempt-chain", "attempt-time"}:
+            index_path = attacked / acquisition["transport_attempt_index"]["path"]
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            row = index["attempts"][0 if attack == "partition" else 1]
+            start_path = attacked / row["start"]["path"]
+            start = json.loads(start_path.read_text(encoding="utf-8"))
+            if attack == "partition":
+                start["missing_at_start_request_sha256"].append(
+                    start["missing_at_start_request_sha256"][0]
+                )
+            elif attack == "attempt-chain":
+                all_requests = sorted(
+                    item["request_sha256"] for item in ledger["requests"]
+                )
+                start["completed_before_attempt_request_sha256"] = []
+                start["missing_at_start_request_sha256"] = all_requests
+            else:
+                start["started_at_utc"] = "2026-01-01T00:05:00+00:00"
+            start.pop("attempt_start_self_sha256")
+            start["attempt_start_self_sha256"] = verifier._sha256_json(start)
+            start_path.write_text(json.dumps(start), encoding="utf-8")
+        elif attack in {"time", "series", "oversize"}:
+            snapshot_path = attacked / acquisition["raw_nwis_snapshot_index"]["path"]
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            record = snapshot["records"][0]
+            request_map_path = attacked / acquisition["request_map"]["path"]
+            request_map = json.loads(request_map_path.read_text(encoding="utf-8"))
+            request_row = next(
+                row for row in request_map["requests"]
+                if row["request_sha256"] == record["request_sha256"]
+            )
+            raw_root = attacked / state["raw_nwis_root"]
+            metadata_path = raw_root / record["metadata_path"]
+            response_path = raw_root / record["response_path"]
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if attack == "time":
+                forged_time = "2025-12-31T23:59:59+00:00"
+                metadata["retrieved_at_utc"] = forged_time
+                record["retrieved_at_utc"] = forged_time
+                request_row["retrieved_at_utc"] = forged_time
+            elif attack == "series":
+                forged_series = {
+                    "WTEMP": [{
+                        "parameter_code": "00010",
+                        "value_column": "FORGED_00010_00003",
+                        "qualifier_column": None,
+                    }],
+                    "FLOW": [],
+                    "WLEVEL": [],
+                }
+                record["series_registry"] = forged_series
+                request_row["series_registry"] = forged_series
+            else:
+                payload = b"x" * (
+                    verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES + 1
+                )
+                response_path.write_bytes(payload)
+                metadata["byte_count"] = len(payload)
+                metadata["response_sha256"] = hashlib.sha256(payload).hexdigest()
+                record["byte_count"] = len(payload)
+                record["response_sha256"] = metadata["response_sha256"]
+                request_row["byte_count"] = len(payload)
+                request_row["response_sha256"] = metadata["response_sha256"]
+            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            record["metadata_sha256"] = verifier.sha256_file(metadata_path)
+            snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+            request_map_path.write_text(json.dumps(request_map), encoding="utf-8")
+        elif attack == "hash":
+            ledger["request_ledger_self_sha256"] = "0" * 64
+
+        if attack not in {
+            "path", "partition", "attempt-chain", "attempt-time", "time",
+            "series", "oversize", "hash",
+        }:
+            ledger.pop("request_ledger_self_sha256", None)
+            ledger["request_ledger_self_sha256"] = verifier._sha256_json(ledger)
+            ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+        elif attack == "hash":
+            ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+        _refresh_postopen_transport_evidence(
+            verifier, attacked, attacked_authorization
+        )
+        with pytest.raises(
+            ValueError,
+            match=(
+                "transport|request ledger|request-ledger|attempt|partition|"
+                "canonical|exact contract|raw NWIS|response"
+            ),
+        ):
+            verifier.build_release_profile(
+                attacked,
+                verifier.POSTOPEN_PROFILE,
+                authorization_path=attacked_authorization,
+            )
+
+
 def test_postopen_coverage_replay_rejects_tamper_and_path_topology_attacks(
     tmp_path,
 ):
@@ -2720,41 +3308,11 @@ def test_postopen_release_distinguishes_transport_resume_from_second_opening(
     state = authorization["state_paths"]
     acquisition_path = source / state["acquisition_manifest"]
     receipt_path = source / state["receipt"]
-
-    def publish_transport(summary: dict[str, object]) -> None:
-        acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
-        acquisition["transport_summary"] = summary
-        acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
-        acquisition_sha = verifier.sha256_file(acquisition_path)
-
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        receipt["transport_recovery"] = summary
-        receipt["artifacts"]["acquisition_manifest"]["sha256"] = acquisition_sha
-        receipt["release_bindings"]["artifacts"]["acquisition_manifest"][
-            "sha256"
-        ] = acquisition_sha
-        receipt.pop("receipt_self_sha256")
-        receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
-        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-        (source / state["receipt_sha256"]).write_text(
-            f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
-            encoding="utf-8",
-        )
-        _refresh_postopen_coverage_evidence(
-            verifier, source, authorization_path
-        )
-
-    resumed_transport = {
-        "opening_count": 1,
-        "attempt_count": 2,
-        "resume_count": 1,
-        "completed_before_final_attempt_request_sha256": ["c" * 64],
-        "retrieval_span_utc": {
-            "first": "2026-01-01T00:00:00+00:00",
-            "last": "2026-01-01T01:00:00+00:00",
-        },
-    }
-    publish_transport(resumed_transport)
+    acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
+    resumed_transport = dict(acquisition["transport_summary"])
+    assert resumed_transport["opening_count"] == 1
+    assert resumed_transport["attempt_count"] == 2
+    assert resumed_transport["resume_count"] == 1
     verifier.build_release_profile(
         source,
         verifier.POSTOPEN_PROFILE,
@@ -2762,25 +3320,30 @@ def test_postopen_release_distinguishes_transport_resume_from_second_opening(
     )
 
     second_opening = {**resumed_transport, "opening_count": 2}
-    publish_transport(second_opening)
-    with pytest.raises(ValueError, match="transport evidence differs"):
+    acquisition["transport_summary"] = second_opening
+    acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
+    _refresh_postopen_transport_evidence(
+        verifier, source, authorization_path
+    )
+    with pytest.raises(ValueError, match="transport summaries differ"):
         verifier.build_release_profile(
             source,
             verifier.POSTOPEN_PROFILE,
             authorization_path=authorization_path,
         )
 
-    publish_transport(resumed_transport)
+    acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
+    acquisition["transport_summary"] = resumed_transport
+    acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
+    _refresh_postopen_transport_evidence(
+        verifier, source, authorization_path
+    )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt["same_opening_transport_resume_allowed"] = False
-    receipt.pop("receipt_self_sha256")
-    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    (source / state["receipt_sha256"]).write_text(
-        f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
-        encoding="utf-8",
+    _reseal_postopen_fixture_receipt(
+        verifier, source, state, receipt
     )
-    with pytest.raises(ValueError, match="complete production one-shot receipt"):
+    with pytest.raises(ValueError, match="receipt exact production schema"):
         verifier.build_release_profile(
             source,
             verifier.POSTOPEN_PROFILE,
@@ -4762,7 +5325,11 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
         "run_directory": base,
         "work_order": f"{base}/acquisition_work_order_v1.json",
         "intent": f"{base}/opening_intent_v1.json",
-        "raw_nwis_root": f"{base}/acquisition/raw_nwis_v1",
+        "transport_root": f"{base}/transport",
+        "raw_nwis_root": f"{base}/transport/raw_nwis_v1",
+        "raw_nwis_snapshot_index": (
+            f"{base}/transport/raw_nwis_v1/snapshot_index.json"
+        ),
         "acquisition_request_map": f"{base}/acquisition/source_request_map_v1.json",
         "temporal_outcomes": f"{base}/acquisition/temporal_outcomes_v1.parquet",
         "external_outcomes": f"{base}/acquisition/external_outcomes_v1.parquet",
