@@ -180,6 +180,31 @@ def test_protocol_is_part_of_source_and_run_identity(tmp_path):
     assert second.run_id != first.run_id
 
 
+def test_shell_and_ci_entrypoints_are_part_of_source_identity(tmp_path):
+    root, panel, registry = _fixture(tmp_path)
+    shell = root / "scripts" / "run_all.sh"
+    workflow = root / ".github" / "workflows" / "ci.yml"
+    shell.parent.mkdir(exist_ok=True)
+    workflow.parent.mkdir(parents=True)
+    shell.write_text("#!/usr/bin/env bash\npython scripts/train.py\n")
+    workflow.write_text("jobs: {}\n")
+    first = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 1}
+    )
+
+    shell.write_text("#!/usr/bin/env bash\npython scripts/train.py --formal\n")
+    second = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 1}
+    )
+    assert second.run_id != first.run_id
+
+    workflow.write_text("jobs:\n  test: {}\n")
+    third = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 1}
+    )
+    assert third.run_id != second.run_id
+
+
 def test_hashed_transitive_lock_is_part_of_source_identity(tmp_path):
     root, panel, registry = _fixture(tmp_path)
     hashed_lock = root / "requirements-lock-py312-hashed.txt"

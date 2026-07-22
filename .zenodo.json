@@ -1,31 +1,21 @@
 {
-  "title": "ThermoRoute: a physics-biased, calibrated, safety-guaranteed river water-temperature forecaster",
+  "title": "ThermoRoute: an audited retrospective benchmark for daily river water-temperature hindcasting",
   "upload_type": "software",
-  "description": "Code, configuration, input station panels, and derived artifacts for ThermoRoute — a physics-biased 1/3/7-day river water-temperature forecaster with a dynamic thermal-relaxation prior, a tanh-bounded neural residual (Proposition-1 bounded-degradation safety floor), split-conformal prediction intervals, and a high-temperature exceedance early-warning head. Evaluated under a strict no-future-leakage (Track-H) protocol on 120 USGS stations against persistence, damped persistence, a fair air2stream variant, a global/per-station LightGBM, and a top-down global LSTM, with temporal / unseen-station / ungaged-region (TUURT) transfer tests and matched-seed ablations. Raw observations are redistributed from USGS NWIS (water temperature, discharge), Daymet (air temperature, precipitation), and gridMET (wind) — cited separately in the manuscript.",
+  "description": "Research code, configuration, development panels, and derived artifacts for an audited retrospective 1/3/7-day river water-temperature hindcasting benchmark. ThermoRoute combines a statistical thermal-relaxation proposal, bounded neural correction, quantile heads, and split-conformal interval calibration, and compares them with prespecified statistical and machine-learning baselines on historical USGS sites. The repository does not establish an as-issued operational forecast, an ungauged-site capability, an identified energy-balance mechanism, or any physical, regulatory, deployment, tail-risk, or safety guarantee. Any redistribution of source observations remains subject to source-specific terms and a separate data-licensing review.",
   "access_right": "open",
   "license": "MIT",
   "keywords": [
     "river water temperature",
-    "streamflow forecasting",
-    "physics-guided machine learning",
+    "retrospective hindcasting",
+    "physics-inspired machine learning",
     "conformal prediction",
     "uncertainty quantification",
-    "thermal stress early warning",
-    "prediction in ungauged basins",
+    "reproducible research",
     "hydrology"
   ],
   "creators": [
     {
-      "name": "REPLACE_LASTNAME, REPLACE_FIRSTNAME",
-      "affiliation": "REPLACE_AFFILIATION",
-      "orcid": "0000-0000-0000-0000"
-    }
-  ],
-  "related_identifiers": [
-    {
-      "relation": "isSupplementTo",
-      "identifier": "REPLACE_WITH_MANUSCRIPT_DOI_ONCE_ACCEPTED",
-      "scheme": "doi"
+      "name": "ThermoRoute study contributors"
     }
   ],
   "version": "1.0.0"

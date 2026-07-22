@@ -35,8 +35,9 @@ jobs:
           else
             pip install -r requirements.txt
           fi
-          # belt-and-braces: install also as editable so src.thermoroute is on path
-          pip install -e .
+          # Do not let editable installation resolve or fetch a second dependency
+          # graph after the locked environment has been installed.
+          pip install --no-build-isolation --no-deps -e .
       - name: Import smoke test
         run: |
           python -c "from thermoroute import config, data, features, datasets, baselines, air2stream, thermoroute, train, conformal, metrics, results, significance, decision, usgs; print('imports OK')"

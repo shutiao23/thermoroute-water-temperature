@@ -200,10 +200,14 @@ coefficient.
 ### 3.2 Variable/lag router, TCN, and regime mixture
 
 For each horizon, a sparse router assigns weights over the seven variables at
-lags 0–14. A causal temporal convolutional network consumes the full 32-day
-sequence, and a mixture-of-experts combines regime-specific representations. The
-router is an allocation mechanism inside the predictor, not a map of connected
-reaches. These components follow sparsemax attention
+lags 0–14. The sequence builder supplies a 32-day tensor, but this is a
+construction buffer rather than an effective-memory claim: the current
+two-block, kernel-three causal temporal convolutional network has a theoretical
+seven-step receptive field, while the router's oldest usable value is lag 14.
+Thus no input older than lag 14 can affect the current model output. A
+mixture-of-experts combines the resulting representations. The router is an
+allocation mechanism inside the predictor, not a map of connected reaches.
+These components follow sparsemax attention
 ([Martins and Astudillo, 2016](https://proceedings.mlr.press/v48/martins16.html)),
 generic temporal convolutional sequence modeling
 ([Bai et al., 2018](https://arxiv.org/abs/1803.01271)), and sparsely gated expert

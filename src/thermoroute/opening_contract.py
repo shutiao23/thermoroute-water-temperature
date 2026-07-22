@@ -33,9 +33,12 @@ MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES = 32 * 1024 * 1024
 SOURCE_INVENTORY_PATTERNS = (
     "src/**/*.py",
     "scripts/**/*.py",
+    "scripts/**/*.sh",
     "tests/**/*.py",
     "protocols/**/*.json",
     "protocols/**/*.md",
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml",
     "pyproject.toml",
     "requirements.txt",
     "requirements-lock*.txt",

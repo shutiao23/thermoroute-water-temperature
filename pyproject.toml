@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools==81.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "thermoroute"
 version = "1.0.0"
-description = "Physics-guided, dynamic-lag, calibrated multi-station river water-temperature forecasting"
+description = "Audited retrospective multi-station river water-temperature hindcasting benchmark"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "ThermoRoute study" }]
 dependencies = [
@@ -24,7 +24,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.pytest.ini_options]
 addopts = "-q"

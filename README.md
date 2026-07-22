@@ -114,6 +114,10 @@ Temporal learned models receive stable site identity, while the pooled external
 models do not. The latter still consume each new gauge's observed WTEMP history.
 Other history cells may be filled by train-only seasonal medians while retaining
 missingness masks; there is no minimum observed fraction in the 32-day context.
+The 32 days are a construction buffer, not an effective 32-day memory claim: the
+router is restricted to lags 0--14, and the current two-block, kernel-three TCN
+has a theoretical seven-step receptive field. Consequently, no input older than
+lag 14 can affect the current model output.
 
 ## Evidence workflow
 

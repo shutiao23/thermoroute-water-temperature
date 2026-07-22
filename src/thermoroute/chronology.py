@@ -62,9 +62,12 @@ PROTECTED_ROOT_PATTERNS = (
 SOURCE_INVENTORY_PATTERNS = (
     "src/**/*.py",
     "scripts/**/*.py",
+    "scripts/**/*.sh",
     "tests/**/*.py",
     "protocols/**/*.json",
     "protocols/**/*.md",
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml",
     "pyproject.toml",
     "requirements.txt",
     "requirements-lock*.txt",
