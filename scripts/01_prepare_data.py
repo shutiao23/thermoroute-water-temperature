@@ -89,28 +89,25 @@ def main() -> None:
       "persistence toward climatology reliably beats it (see results)._\n")
 
     # 5. pairwise association diagnostic (not topology identification)
-    w("## 5. Pairwise exploratory cross-correlation lags\n")
+    w("## 5. Pairwise contemporaneous association (not topology)\n")
     Wp = pd.DataFrame({st: panel[panel.site_id == st].set_index("DATE")["WTEMP"]
                        for st in C.STATIONS})
     Fp = pd.DataFrame({st: panel[panel.site_id == st].set_index("DATE")["FLOW"]
                        for st in C.STATIONS})
 
-    def best_lag(a, b, maxlag=12):
-        res = {}
-        for Lg in range(maxlag + 1):
-            x = a.shift(Lg); m = x.notna() & b.notna()
-            res[Lg] = np.corrcoef(x[m], b[m])[0, 1]
-        k = max(res, key=res.get)
-        return k, res[k]
+    def contemporaneous_correlation(a, b):
+        mask = a.notna() & b.notna()
+        return np.corrcoef(a[mask], b[mask])[0, 1]
 
-    w("| pair | FLOW best-lag (d) | FLOW r | WTEMP best-lag (d) | WTEMP r |")
-    w("|---|---|---|---|---|")
-    for up, dn in [("b1", "s2"), ("s2", "p3"), ("b1", "p3")]:
-        lf, rf = best_lag(Fp[up], Fp[dn]); lw, rw = best_lag(Wp[up], Wp[dn])
-        w(f"| {up}→{dn} | {lf} | {rf:.3f} | {lw} | {rw:.3f} |")
+    w("| unordered station pair | contemporaneous FLOW r | contemporaneous WTEMP r |")
+    w("|---|---|---|")
+    for first, second in [("b1", "s2"), ("s2", "p3"), ("b1", "p3")]:
+        flow_r = contemporaneous_correlation(Fp[first], Fp[second])
+        wtemp_r = contemporaneous_correlation(Wp[first], Wp[second])
+        w(f"| {first} / {second} | {flow_r:.3f} | {wtemp_r:.3f} |")
     w("\n_b1, s2 and p3 are ordinary monitoring-site identifiers, not reservoirs. "
-      "These pairwise correlations neither establish hydraulic connectivity nor "
-      "identify travel time; the arrow notation is only a legacy display order._\n")
+      "Shared seasonality and autocorrelation can produce strong pairwise association; "
+      "these values establish neither hydraulic connectivity nor travel time._\n")
 
     # 6. rating curve
     w("## 6. Stage–discharge (F–L) rating relationship\n")
@@ -121,8 +118,10 @@ def main() -> None:
         rho = spearmanr(sub.FLOW, sub.WLEVEL).statistic
         ym = sub.groupby(sub.DATE.dt.year)["WLEVEL"].mean()
         w(f"| {st} | {rho:.3f} | {ym.iloc[-1] - ym.iloc[0]:+.1f} |")
-    w("\n_s2/p3 have near-perfect monotone rating curves (ρ≈0.999); b1 is more "
-      "regulated (ρ≈0.82). Multi-year WLEVEL drift ⇒ standardise per station._\n")
+    w("\n_s2/p3 have near-perfect monotone FLOW–WLEVEL relationships (ρ≈0.999), "
+      "whereas b1 is weaker (ρ≈0.82). These correlations do not identify regulation, "
+      "dam influence, or comparable vertical datums. Multi-year WLEVEL drift supports "
+      "standardising WLEVEL separately by station._\n")
 
     # 7. thresholds
     w("## 7. High-temperature exceedance thresholds (train q90)\n")

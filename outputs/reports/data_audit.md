@@ -59,15 +59,15 @@ _These are missing-data codes, never treated as physical extremes._
 
 _Persistence is the dominant short-horizon baseline; only damped persistence toward climatology reliably beats it (see results)._
 
-## 5. Station topology (directed cascade, cross-correlation lags)
+## 5. Pairwise contemporaneous association (not topology)
 
-| pair | FLOW best-lag (d) | FLOW r | WTEMP best-lag (d) | WTEMP r |
-|---|---|---|---|---|
-| b1→s2 | 1 | 0.984 | 1 | 0.990 |
-| s2→p3 | 1 | 0.960 | 10 | 0.934 |
-| b1→p3 | 3 | 0.927 | 9 | 0.934 |
+| unordered station pair | contemporaneous FLOW r | contemporaneous WTEMP r |
+|---|---|---|
+| b1 / s2 | 0.972 | 0.989 |
+| s2 / p3 | 0.954 | 0.920 |
+| b1 / p3 | 0.906 | 0.919 |
 
-_Confirms b1→s2→p3: flow travels ~1 day per hop; the thermal signal lags far more to p3 (~9 days), motivating a directed, variable-specific travel-time prior._
+_b1, s2 and p3 are ordinary monitoring-site identifiers, not reservoirs. Shared seasonality and autocorrelation can produce strong pairwise association; these values establish neither hydraulic connectivity nor travel time._
 
 ## 6. Stage–discharge (F–L) rating relationship
 
@@ -77,7 +77,7 @@ _Confirms b1→s2→p3: flow travels ~1 day per hop; the thermal signal lags far
 | s2 | 0.999 | +0.6 |
 | p3 | 0.999 | +1.3 |
 
-_s2/p3 have near-perfect monotone rating curves (ρ≈0.999); b1 is more regulated (ρ≈0.82). Multi-year WLEVEL drift ⇒ standardise per station._
+_s2/p3 have near-perfect monotone FLOW–WLEVEL relationships (ρ≈0.999), whereas b1 is weaker (ρ≈0.82). These correlations do not identify regulation, dam influence, or comparable vertical datums. Multi-year WLEVEL drift supports standardising WLEVEL separately by station._
 
 ## 7. High-temperature exceedance thresholds (train q90)
 
