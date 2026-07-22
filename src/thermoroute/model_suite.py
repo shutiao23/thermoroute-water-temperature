@@ -36,8 +36,10 @@ from .checkpoint import (
 )
 from .provenance import sha256_file
 from .repro import (
+    RUN_SCHEMA_VERSION,
     atomic_write_bytes,
     atomic_write_json,
+    sha256_json,
     sidecar_path,
     source_tree_hash,
     validate_artifact_sidecar,
@@ -48,6 +50,22 @@ LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v1"
 MODEL_SUITE_FORMAT = "thermoroute.route-a-model-suite.v1"
 MODEL_SUITE_POINTER_FORMAT = "thermoroute.route-a-model-suite-pointer.v1"
 COMPONENT_POINTER_FORMAT = "thermoroute.route-a-model-components.v1"
+STAGE9_COMPLETION_FORMAT = "thermoroute.stage09-completion-receipt.v1"
+STAGE9_COMPLETION_STATUS = "PASS_FORMAL_STAGE09_COMPLETE"
+STAGE9_COMPLETION_RECEIPT_PATH = (
+    "outputs/models/route_a_stage09_completion.json"
+)
+STAGE9_COMPLETION_ARTIFACTS = (
+    "run_manifest",
+    "predictions",
+    "prediction_sidecar",
+    "scores",
+    "report",
+    "lightgbm_selection",
+    "thermoroute_pointer",
+    "lightgbm_pointer",
+    "components_pointer",
+)
 DEVELOPMENT_PREDICTOR_BRIDGE_FORMAT = (
     "thermoroute.development-predictor-bridge.v1"
 )
@@ -1124,6 +1142,549 @@ def load_component_pointer(path: str | Path) -> dict[str, Any]:
     return document
 
 
+def _validate_stage09_suite_alignment(
+    stage9: Mapping[str, Any],
+    temporal_entries: Sequence[Mapping[str, Any]],
+    development_contract: Mapping[str, Any],
+) -> None:
+    """Require the frozen suite to contain the receipt-admitted Stage-9 closure.
+
+    Validating the receipt and the suite entries independently is insufficient:
+    a concurrent Stage-9 publication could otherwise pair entries read from one
+    generation with a receipt read from the next.  Compare the complete Stage-9
+    entries and development contract, not only their run ids.
+    """
+    expected_ids = {"ThermoRoute", "LightGBM", *MANDATORY_ABLATIONS}
+    stage_entries = stage9.get("models")
+    if not isinstance(stage_entries, list):
+        raise ModelSuiteError("Stage-9 completion model registry is malformed")
+    stage_by_id = {
+        str(entry.get("model_id")): entry
+        for entry in stage_entries
+        if isinstance(entry, Mapping)
+    }
+    suite_by_id = {
+        str(entry.get("model_id")): entry
+        for entry in temporal_entries
+        if isinstance(entry, Mapping)
+    }
+    if (
+        set(stage_by_id) != expected_ids
+        or not expected_ids <= set(suite_by_id)
+        or len(stage_by_id) != len(stage_entries)
+        or stage9.get("development_contract") != dict(development_contract)
+        or any(
+            dict(stage_by_id[model_id]) != dict(suite_by_id[model_id])
+            for model_id in expected_ids
+        )
+    ):
+        raise ModelSuiteError(
+            "frozen suite Stage-9 entries differ from its completion receipt"
+        )
+
+
+def _stage09_formal_configuration(run_manifest: Mapping[str, Any]) -> dict[str, Any]:
+    resolved = run_manifest.get("resolved_config")
+    if not isinstance(resolved, Mapping):
+        raise ModelSuiteError("Stage-9 run manifest lacks resolved configuration")
+    try:
+        string_fields = {
+            name: resolved[name]
+            for name in (
+                "stage", "execution_role", "training_device", "station_sampling",
+            )
+        }
+        delta_scale = resolved["delta_scale"]
+        thermoroute_seeds = resolved["thermoroute_seeds"]
+        lightgbm_seeds = resolved["lightgbm_seeds"]
+        ablations = resolved["ablations"]
+        air2stream = resolved["air2stream"]
+        eval_batch_size = resolved["eval_batch_size"]
+    except KeyError as exc:
+        raise ModelSuiteError(
+            "Stage-9 run manifest has malformed formal configuration"
+        ) from exc
+    if (
+        any(not isinstance(value, str) for value in string_fields.values())
+        or isinstance(delta_scale, bool)
+        or not isinstance(delta_scale, (int, float))
+        or not isinstance(thermoroute_seeds, list)
+        or not thermoroute_seeds
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in thermoroute_seeds
+        )
+        or not isinstance(lightgbm_seeds, list)
+        or not lightgbm_seeds
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in lightgbm_seeds
+        )
+        or not isinstance(ablations, bool)
+        or not isinstance(air2stream, bool)
+        or isinstance(eval_batch_size, bool)
+        or not isinstance(eval_batch_size, int)
+        or eval_batch_size < 1
+    ):
+        raise ModelSuiteError(
+            "Stage-9 run manifest has malformed formal configuration"
+        )
+    return {
+        **string_fields,
+        "delta_scale": float(delta_scale),
+        "thermoroute_seeds": list(thermoroute_seeds),
+        "lightgbm_seeds": list(lightgbm_seeds),
+        "ablations": ablations,
+        "air2stream": air2stream,
+        "eval_batch_size": eval_batch_size,
+    }
+
+
+def _validated_file_binding(
+    root: Path, value: object, *, label: str,
+) -> Path:
+    if not isinstance(value, Mapping) or set(value) != {"path", "sha256"}:
+        raise ModelSuiteError(f"{label} binding is malformed")
+    path = _resolve_inside(root, value.get("path"))
+    if dict(value) != file_binding(root, path):
+        raise ModelSuiteError(f"{label} checksum or canonical path changed")
+    return path
+
+
+def _validated_stage09_run_identity(
+    run_manifest: Mapping[str, Any],
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    """Require the manifest identity to be internally content-addressed."""
+    resolved = run_manifest.get("resolved_config")
+    identity = run_manifest.get("identity")
+    identity_keys = {
+        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256", "schema_version",
+    }
+    digest_fields = (
+        "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256",
+    )
+    if (
+        not isinstance(resolved, Mapping)
+        or not isinstance(identity, dict)
+        or set(identity) != identity_keys
+        or identity.get("schema_version") != RUN_SCHEMA_VERSION
+        or not isinstance(identity.get("run_id"), str)
+        or not identity["run_id"]
+        or any(
+            not isinstance(identity.get(field), str)
+            or len(identity[field]) != 64
+            for field in digest_fields
+        )
+        or identity.get("config_sha256") != sha256_json(resolved)
+    ):
+        raise ModelSuiteError("Stage-9 run manifest identity is malformed")
+    identity_parts = {
+        "schema_version": identity["schema_version"],
+        **{field: identity[field] for field in digest_fields},
+    }
+    if identity["run_id"] != sha256_json(identity_parts)[:20]:
+        raise ModelSuiteError("Stage-9 run id is not derived from its identity")
+    return dict(identity), resolved
+
+
+def _load_formal_stage09_manifest(
+    path: Path, *, root: Path, run_id: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError("Stage-9 receipt binds a malformed run manifest") from exc
+    if not isinstance(manifest, dict):
+        raise ModelSuiteError("Stage-9 receipt binds a malformed run manifest")
+    identity, resolved_config = _validated_stage09_run_identity(manifest)
+    if (
+        identity["run_id"] != run_id
+        or identity["source_sha256"] != source_tree_hash(root)
+        or identity["config_sha256"] != sha256_json(resolved_config)
+    ):
+        raise ModelSuiteError(
+            "Stage-9 completion receipt is stale for the run or current source"
+        )
+    configuration = _stage09_formal_configuration(manifest)
+    if (
+        configuration["stage"] != "09_usgs_experiment"
+        or configuration["execution_role"] != "route_a_formal_candidate"
+        or configuration["training_device"] != "cpu"
+        or configuration["station_sampling"] != "balanced"
+        or not np.isclose(
+            configuration["delta_scale"], 1.0, rtol=0.0, atol=0.0
+        )
+        or configuration["thermoroute_seeds"] != list(C.USGS_SEEDS)
+        or configuration["lightgbm_seeds"] != list(C.USGS_SEEDS)
+        or configuration["ablations"] is not True
+    ):
+        raise ModelSuiteError("Stage-9 receipt is not the canonical formal run")
+    provenance = manifest.get("provenance")
+    if (
+        not isinstance(provenance, Mapping)
+        or provenance.get("evidence_role")
+        != "prelabel_route_a_model_build_development_only"
+        or provenance.get("training_device") != "cpu"
+    ):
+        raise ModelSuiteError("Stage-9 receipt lacks development-only provenance")
+    return manifest, identity, configuration
+
+
+def _validate_stage09_prediction_outputs(
+    predictions: Path,
+    prediction_sidecar: Path,
+    *,
+    identity: Mapping[str, Any],
+    run_id: str,
+) -> None:
+    try:
+        prediction_meta = validate_artifact_sidecar(predictions)
+    except ValueError as exc:
+        raise ModelSuiteError("Stage-9 prediction sidecar is invalid") from exc
+    if (
+        sidecar_path(predictions).resolve() != prediction_sidecar
+        or prediction_meta.get("kind") != "canonical_stage9_usgs_predictions"
+        or prediction_meta.get("run") != identity
+        or identity.get("run_id") != run_id
+    ):
+        raise ModelSuiteError("Stage-9 prediction binding differs from the run")
+
+
+def _validate_stage09_report_outputs(
+    report: Path, scores: Path, lightgbm_selection: Path,
+) -> None:
+    try:
+        report_text = report.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ModelSuiteError("Stage-9 report is unreadable") from exc
+    required_report_fragments = {
+        "# USGS large-sample experiment",
+        "## Random held-station warm-start diagnostic",
+        "## Module ablations",
+        *(f"| {name} |" for name in MANDATORY_ABLATIONS),
+    }
+    if any(fragment not in report_text for fragment in required_report_fragments):
+        raise ModelSuiteError("Stage-9 report is incomplete")
+    try:
+        score_frame = pd.read_csv(scores)
+        selection_frame = pd.read_csv(lightgbm_selection)
+    except (
+        OSError, UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError,
+    ) as exc:
+        raise ModelSuiteError("Stage-9 table output is unreadable") from exc
+    if not {
+        "horizon", "site", "rmse_persist", "rmse_damped", "rmse_thermo",
+    }.issubset(score_frame.columns) or score_frame.empty:
+        raise ModelSuiteError("Stage-9 score table is incomplete")
+    if not {
+        "horizon", "candidate_id", "val_station_macro_rmse", "selected",
+    }.issubset(selection_frame.columns) or selection_frame.empty:
+        raise ModelSuiteError("Stage-9 LightGBM selection table is incomplete")
+    horizons = set(C.HORIZONS)
+    if (
+        set(score_frame["horizon"]) != horizons
+        or score_frame.duplicated(["horizon", "site"]).any()
+        or score_frame["site"].isna().any()
+    ):
+        raise ModelSuiteError("Stage-9 score keys or horizons are incomplete")
+    score_values = score_frame[
+        ["rmse_persist", "rmse_damped", "rmse_thermo"]
+    ].apply(pd.to_numeric, errors="coerce")
+    if (
+        np.isinf(score_values.to_numpy(dtype=float)).any()
+        or any(
+            score_values.loc[score_frame["horizon"].eq(horizon)].isna().all().any()
+            for horizon in horizons
+        )
+    ):
+        raise ModelSuiteError("Stage-9 score metrics are invalid")
+    selected = selection_frame["selected"].astype(str).str.lower().eq("true")
+    selection_metrics = pd.to_numeric(
+        selection_frame["val_station_macro_rmse"], errors="coerce"
+    )
+    if (
+        set(selection_frame["horizon"]) != horizons
+        or selection_frame.duplicated(["horizon", "candidate_id"]).any()
+        or selection_metrics.isna().any()
+        or np.isinf(selection_metrics.to_numpy(dtype=float)).any()
+        or any(
+            len(selection_frame.loc[selection_frame["horizon"].eq(horizon)]) != 4
+            or selected.loc[selection_frame["horizon"].eq(horizon)].sum() != 1
+            or set(selection_frame.loc[
+                selection_frame["horizon"].eq(horizon), "candidate_id"
+            ]) != {0, 1, 2, 3}
+            for horizon in horizons
+        )
+    ):
+        raise ModelSuiteError("Stage-9 LightGBM selection is not one-of-four per horizon")
+
+
+def validate_stage09_prepublication_outputs(
+    *,
+    root: str | Path,
+    run_id: str,
+    run_manifest: str | Path,
+    predictions: str | Path,
+    scores: str | Path,
+    report: str | Path,
+    lightgbm_selection: str | Path,
+) -> None:
+    """Validate every non-pointer output before any formal pointer can move."""
+    root = Path(root).resolve()
+    paths = {
+        "run_manifest": Path(run_manifest).resolve(),
+        "predictions": Path(predictions).resolve(),
+        "scores": Path(scores).resolve(),
+        "report": Path(report).resolve(),
+        "lightgbm_selection": Path(lightgbm_selection).resolve(),
+    }
+    paths["prediction_sidecar"] = sidecar_path(paths["predictions"]).resolve()
+    for label, path in paths.items():
+        file_binding(root, path)
+    _, identity, _ = _load_formal_stage09_manifest(
+        paths["run_manifest"], root=root, run_id=str(run_id)
+    )
+    _validate_stage09_prediction_outputs(
+        paths["predictions"], paths["prediction_sidecar"],
+        identity=identity, run_id=str(run_id),
+    )
+    _validate_stage09_report_outputs(
+        paths["report"], paths["scores"], paths["lightgbm_selection"]
+    )
+
+
+def build_stage09_completion_receipt(
+    *,
+    root: str | Path,
+    run_id: str,
+    run_manifest: str | Path,
+    predictions: str | Path,
+    scores: str | Path,
+    report: str | Path,
+    lightgbm_selection: str | Path,
+    thermoroute_pointer: str | Path,
+    lightgbm_pointer: str | Path,
+    components_pointer: str | Path,
+) -> dict[str, Any]:
+    """Bind every formal Stage-9 output after its report and pointers exist."""
+    root = Path(root).resolve()
+    run_manifest = Path(run_manifest).resolve()
+    predictions = Path(predictions).resolve()
+    sidecar = sidecar_path(predictions).resolve()
+    try:
+        manifest = json.loads(run_manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError("Stage-9 run manifest is absent or malformed") from exc
+    if not isinstance(manifest, Mapping):
+        raise ModelSuiteError("Stage-9 run manifest is absent or malformed")
+    identity, _ = _validated_stage09_run_identity(manifest)
+    if str(identity.get("run_id")) != str(run_id):
+        raise ModelSuiteError("Stage-9 receipt run id differs from run manifest")
+    document: dict[str, Any] = {
+        "format": STAGE9_COMPLETION_FORMAT,
+        "status": STAGE9_COMPLETION_STATUS,
+        "stage": "09_usgs_experiment",
+        "run_id": str(run_id),
+        "run_identity": identity,
+        "formal_configuration": _stage09_formal_configuration(manifest),
+        "confirmation_outcomes_requested_or_read": False,
+        "artifacts": {
+            "run_manifest": file_binding(root, run_manifest),
+            "predictions": file_binding(root, predictions),
+            "prediction_sidecar": file_binding(root, sidecar),
+            "scores": file_binding(root, scores),
+            "report": file_binding(root, report),
+            "lightgbm_selection": file_binding(root, lightgbm_selection),
+            "thermoroute_pointer": file_binding(root, thermoroute_pointer),
+            "lightgbm_pointer": file_binding(root, lightgbm_pointer),
+            "components_pointer": file_binding(root, components_pointer),
+        },
+    }
+    document["receipt_self_sha256"] = sha256_json(document)
+    return document
+
+
+def write_stage09_completion_receipt(
+    path: str | Path, document: Mapping[str, Any],
+) -> Path:
+    """Atomically publish the Stage-9 receipt as the transaction's last write."""
+    stable = {
+        key: value for key, value in document.items()
+        if key != "receipt_self_sha256"
+    }
+    if document.get("receipt_self_sha256") != sha256_json(stable):
+        raise ModelSuiteError("Stage-9 completion receipt self hash is invalid")
+    destination = Path(path)
+    atomic_write_json(destination, dict(document))
+    return destination
+
+
+def validate_stage09_completion_receipt(
+    receipt_path: str | Path,
+    *,
+    root: str | Path,
+    stage9_pointer: str | Path,
+    document: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a candidate document or the canonically published receipt."""
+    root = Path(root).resolve()
+    receipt_path = Path(receipt_path).resolve()
+    if receipt_path != root and root not in receipt_path.parents:
+        raise ModelSuiteError("Stage-9 completion receipt escapes repository")
+    if document is None:
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModelSuiteError(
+                "Stage-9 completion receipt is absent or invalid"
+            ) from exc
+    else:
+        receipt = dict(document)
+    expected_keys = {
+        "format", "status", "stage", "run_id", "run_identity",
+        "formal_configuration", "confirmation_outcomes_requested_or_read",
+        "artifacts", "receipt_self_sha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != expected_keys:
+        raise ModelSuiteError("Stage-9 completion receipt schema is not exact")
+    stable = {
+        key: value for key, value in receipt.items()
+        if key != "receipt_self_sha256"
+    }
+    if receipt.get("receipt_self_sha256") != sha256_json(stable):
+        raise ModelSuiteError("Stage-9 completion receipt self hash changed")
+    if (
+        receipt.get("format") != STAGE9_COMPLETION_FORMAT
+        or receipt.get("status") != STAGE9_COMPLETION_STATUS
+        or receipt.get("stage") != "09_usgs_experiment"
+        or receipt.get("confirmation_outcomes_requested_or_read") is not False
+    ):
+        raise ModelSuiteError("Stage-9 completion receipt is not a formal PASS")
+    run_id = str(receipt.get("run_id", ""))
+    if not run_id:
+        raise ModelSuiteError("Stage-9 completion receipt lacks a run id")
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != set(
+        STAGE9_COMPLETION_ARTIFACTS
+    ):
+        raise ModelSuiteError("Stage-9 completion artifact registry is incomplete")
+    paths = {
+        label: _validated_file_binding(root, artifacts[label], label=label)
+        for label in STAGE9_COMPLETION_ARTIFACTS
+    }
+
+    _, identity, configuration = _load_formal_stage09_manifest(
+        paths["run_manifest"], root=root, run_id=run_id
+    )
+    if identity != receipt.get("run_identity"):
+        raise ModelSuiteError("Stage-9 completion run identity changed")
+    if configuration != receipt.get("formal_configuration"):
+        raise ModelSuiteError("Stage-9 completion configuration changed")
+    _validate_stage09_prediction_outputs(
+        paths["predictions"], paths["prediction_sidecar"],
+        identity=identity, run_id=run_id,
+    )
+    _validate_stage09_report_outputs(
+        paths["report"], paths["scores"], paths["lightgbm_selection"]
+    )
+
+    expected_pointer = Path(stage9_pointer).resolve()
+    if paths["components_pointer"] != expected_pointer:
+        raise ModelSuiteError("Stage-9 receipt binds another component pointer")
+    components = load_component_pointer(expected_pointer)
+    entries = components["models"]
+    by_id = {str(entry["model_id"]): entry for entry in entries}
+    expected_models = {"ThermoRoute", "LightGBM", *MANDATORY_ABLATIONS}
+    if (
+        components.get("cohort") != "temporal_stage9"
+        or components.get("run_id") != run_id
+        or set(by_id) != expected_models
+        or len(entries) != len(expected_models)
+        or int(by_id["ThermoRoute"].get("member_count", 0)) != 5
+        or int(by_id["LightGBM"].get("member_count", 0)) != 5
+        or any(
+            int(by_id[name].get("member_count", 0)) != 1
+            or by_id[name].get("intervention") != ABLATION_INTERVENTIONS[name]
+            for name in MANDATORY_ABLATIONS
+        )
+    ):
+        raise ModelSuiteError("Stage-9 completion component registry changed")
+    prediction_binding = components.get("development_prediction_artifact")
+    if prediction_binding != {
+        **dict(artifacts["predictions"]),
+        "sidecar": dict(artifacts["prediction_sidecar"]),
+    }:
+        raise ModelSuiteError("Stage-9 component pointer binds other predictions")
+    development = components.get("development_contract")
+    if (
+        not isinstance(development, Mapping)
+        or development.get("source_sha256") != identity.get("source_sha256")
+        or development.get("panel", {}).get("sha256")
+        != identity.get("panel_sha256")
+        or development.get("registry", {}).get("sha256")
+        != identity.get("registry_sha256")
+    ):
+        raise ModelSuiteError("Stage-9 component pointer has different lineage")
+
+    try:
+        thermoroute_pointer = json.loads(
+            paths["thermoroute_pointer"].read_text(encoding="utf-8")
+        )
+        lightgbm_pointer = json.loads(
+            paths["lightgbm_pointer"].read_text(encoding="utf-8")
+        )
+    except json.JSONDecodeError as exc:
+        raise ModelSuiteError("Stage-9 shortcut pointer is malformed") from exc
+    primary_artifact = by_id["ThermoRoute"]["artifact"]
+    if thermoroute_pointer != {
+        "run_id": run_id,
+        "bundle_path": primary_artifact["path"],
+        "member_count": 5,
+        "metadata_sha256": primary_artifact["metadata_sha256"],
+        "weights_sha256": primary_artifact["weights_sha256"],
+    }:
+        raise ModelSuiteError("Stage-9 ThermoRoute shortcut pointer changed")
+    if lightgbm_pointer != {
+        "run_id": run_id,
+        "manifest": by_id["LightGBM"]["artifact"],
+        "member_count": 5,
+    }:
+        raise ModelSuiteError("Stage-9 LightGBM shortcut pointer changed")
+    return receipt
+
+
+def stage09_completion_gate_binding(
+    receipt_path: str | Path,
+    *,
+    root: str | Path,
+    stage9_pointer: str | Path,
+) -> dict[str, str]:
+    """Validate Stage 9 and return the exact receipt binding frozen downstream."""
+    validate_stage09_completion_receipt(
+        receipt_path, root=root, stage9_pointer=stage9_pointer
+    )
+    return file_binding(root, receipt_path)
+
+
+def publish_stage09_completion_receipt(
+    receipt_path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    root: str | Path,
+    stage9_pointer: str | Path,
+) -> Path:
+    """Validate the full closure before atomically publishing its PASS marker."""
+    validate_stage09_completion_receipt(
+        receipt_path,
+        root=root,
+        stage9_pointer=stage9_pointer,
+        document=document,
+    )
+    return write_stage09_completion_receipt(receipt_path, document)
+
+
 def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: tuple[str, ...],
                           *, external: bool) -> Mapping[str, Any] | None:
     model_id, executor = str(entry.get("model_id")), str(entry.get("executor"))
@@ -1413,6 +1974,33 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
         )
     if document.get("training_device") != "cpu":
         raise ModelSuiteError("formal model suite is not CPU-trained")
+    gates = document.get("preopening_gates")
+    if not isinstance(gates, Mapping) or set(gates) != {"stage09_completion"}:
+        raise ModelSuiteError("model suite lacks the Stage-9 completion gate")
+    receipt_path = _validated_file_binding(
+        root, gates["stage09_completion"], label="Stage-9 completion gate"
+    )
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        pointer_binding = receipt["artifacts"]["components_pointer"]
+    except (
+        OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
+    ) as exc:
+        raise ModelSuiteError("model suite Stage-9 completion gate is malformed") from exc
+    if not isinstance(pointer_binding, Mapping):
+        raise ModelSuiteError("model suite Stage-9 component binding is malformed")
+    stage9_pointer = _resolve_inside(root, pointer_binding.get("path"))
+    expected_gate = stage09_completion_gate_binding(
+        receipt_path, root=root, stage9_pointer=stage9_pointer
+    )
+    if dict(gates["stage09_completion"]) != expected_gate:
+        raise ModelSuiteError("model suite Stage-9 completion binding changed")
+    stage9 = load_component_pointer(stage9_pointer)
+    temporal = cohorts["temporal"]
+    temporal_entries = temporal.get("models") if isinstance(temporal, Mapping) else None
+    if not isinstance(temporal_entries, list):
+        raise ModelSuiteError("temporal model registry is malformed")
+    _validate_stage09_suite_alignment(stage9, temporal_entries, development)
 
 
 def _learned_metadata_runtime_sha256(
@@ -1465,6 +2053,7 @@ def freeze_model_suite(
     external_entries: Sequence[Mapping[str, Any]],
     actual_feature_order: Sequence[str],
     development_contract: Mapping[str, Any],
+    stage09_completion: Mapping[str, Any] | None = None,
     registry_alias: str | Path | None = None,
 ) -> Path:
     """Write the versioned suite, then (and only then) publish its current pointer."""
@@ -1481,6 +2070,12 @@ def freeze_model_suite(
         "protocol_sha256": str(protocol_sha256),
         "actual_feature_order": list(actual_feature_order),
         "development_contract": dict(development_contract),
+        **(
+            {"preopening_gates": {
+                "stage09_completion": dict(stage09_completion),
+            }}
+            if stage09_completion is not None else {}
+        ),
         "cohorts": {
             "temporal": {
                 "site_mode": "same_station",

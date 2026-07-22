@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reproduce the entire ThermoRoute study end to end:
 # (a) 3-station case study (b1/s2/p3, ~30 min on CPU);
-# (b) USGS large-sample main analysis (40/120 stations, multi-hour on CPU).
+# (b) USGS large-sample main analysis (120 stations, multi-hour on CPU).
 # The USGS panel must already be acquired in data_usgs/ (see step [5]); the
 # acquisition step is network-bound and shipped as pre-acquired panels.
 #
@@ -53,8 +53,10 @@ echo " seeds + 4 LSTM transfer folds are the heavy stages; trained stages are"
 echo " checkpointed, so an interrupted run resumes.)"
 echo "[8/26] USGS experiment (baselines + air2stream + ThermoRoute × seeds + LGO + ablations)"
 echo "      using panel: ${USGS_PANEL}"
-# Stage 9 is an immutable parent.  The per-station diagnostic derives a second
-# artifact, then Stage 16 derives the final six-primary-model v2 artifact.
+# Stage 9 is an immutable parent.  Its command returns successfully only after
+# the report, three formal pointers and final content-bound completion receipt
+# are durable.  Stage 24 rejects a missing or stale receipt and binds the
+# accepted receipt into the frozen suite identity.
 python3 scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --air2stream --seeds 5 \
     --device cpu \
     --out_predictions usgs_predictions_stage9_v2.parquet \
@@ -95,7 +97,8 @@ python3 scripts/12_claim_stats.py
 echo "[24/26] station-agnostic pooled external suite (development data only)"
 python3 scripts/25_train_external_pooled_suite.py
 echo "[25/26] freeze the complete Route-A model suite"
-python3 scripts/24_freeze_model_suite.py
+python3 scripts/24_freeze_model_suite.py \
+    --stage9-receipt outputs/models/route_a_stage09_completion.json
 echo "[26/26] isolated full-model replay and final artifact manifest"
 if [[ -f outputs/model_replay/route_a_development_replay_v1.json ]]; then
   python3 -I -B scripts/27_verify_development_replay.py --check

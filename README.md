@@ -130,6 +130,10 @@ The intended order is strict:
 3. Rebuild the canonical development chain, including the separate matched
    MLP/TCN and multi-seed feature-ladder audit; freeze all five-member temporal
    and pooled external model bundles; replay every model head on development data.
+   Stage 9 publishes its content-bound completion receipt only after the canonical
+   predictions, tables, report, bundle parity checks, and all three formal pointers
+   succeed. Stage 24 rejects a missing, stale, or mismatched Stage-9 receipt and
+   binds that receipt's path and SHA-256 into the frozen suite identity.
 4. Commit the model-suite registry while candidate metadata and target-period
    predictor artifacts are absent.
 5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET

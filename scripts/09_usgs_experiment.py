@@ -12,6 +12,8 @@ conformal/metrics/decision code unchanged):
     (immutable Stage-9 parent: baselines + LightGBM + seeds + exploratory arms)
   * outputs/models/thermoroute_usgs_bundle_<run-id>/ (all ensemble members + metadata)
   * outputs/tables/usgs_scores.csv, outputs/reports/usgs_experiment.md
+  * outputs/models/route_a_stage09_completion.json
+    (last-transaction receipt binding the report, tables, predictions and pointers)
 
 Run:  python3 scripts/09_usgs_experiment.py --seeds 5 --device cpu
 """
@@ -23,6 +25,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+from typing import Callable
 
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
@@ -123,17 +126,21 @@ from thermoroute.checkpoint import (
 from thermoroute.model_suite import (
     ABLATION_INTERVENTIONS,
     MANDATORY_ABLATIONS,
+    STAGE9_COMPLETION_RECEIPT_PATH,
     ModelSuiteError,
+    build_stage09_completion_receipt,
     canonical_development_contract,
     development_predictor_bridge_binding,
     development_prediction_binding,
     file_binding,
     lightgbm_entry,
+    publish_stage09_completion_receipt,
     save_lightgbm_bundle,
     serialise_preprocessing,
     torch_entry,
     update_lightgbm_development_prediction,
     update_torch_development_prediction,
+    validate_stage09_prepublication_outputs,
     verify_lightgbm_prediction_parity,
     verify_sequence_prediction_parity,
     write_component_pointer,
@@ -197,6 +204,44 @@ def formal_publication_candidate(
         and str(training_device) == "cpu"
         and not bool(exploratory)
     )
+
+
+def rmse_per_station(frame: pd.DataFrame, horizon: int) -> dict[str, float]:
+    """Collapse seed rows on exact forecast keys before station-level RMSE."""
+    required = {
+        "site_id", "horizon", "issue_date", "target_date", "y_pred", "y_true",
+    }
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"RMSE frame lacks exact forecast keys: {sorted(missing)}")
+    selected = frame[frame.horizon == horizon].groupby(
+        ["site_id", "issue_date", "target_date"], as_index=False
+    ).agg(y_pred=("y_pred", "mean"), y_true=("y_true", "first"))
+    return {
+        str(site): float(np.sqrt(((group.y_pred - group.y_true) ** 2).mean()))
+        for site, group in selected.groupby("site_id")
+    }
+
+
+def thermoroute_ablation_summary_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Seed-mean ThermoRoute predictions retaining the complete forecast key."""
+    return frame.groupby(
+        ["site_id", "horizon", "issue_date", "target_date"], as_index=False
+    ).agg(y_pred=("y_pred", "mean"), y_true=("y_true", "first"))
+
+
+def complete_stage09_transaction(
+    *,
+    write_report: Callable[[], None],
+    validate_outputs: Callable[[], None],
+    publish_pointers: Callable[[], None],
+    publish_receipt: Callable[[], Path],
+) -> Path:
+    """Order the formal commit: report, preflight, pointers, then receipt."""
+    write_report()
+    validate_outputs()
+    publish_pointers()
+    return publish_receipt()
 
 
 def prep(panel_path: str):
@@ -833,8 +878,11 @@ def main():
     )
     chunks.append(lightgbm_predictions)
     C.TABLES.mkdir(parents=True, exist_ok=True)
+    lightgbm_selection_path = (
+        C.TABLES / "lightgbm_joint_validation_selection.csv"
+    )
     atomic_write_bytes(
-        C.TABLES / "lightgbm_joint_validation_selection.csv",
+        lightgbm_selection_path,
         lightgbm_selection.to_csv(index=False).encode("utf-8"),
     )
     log("LightGBM joint done")
@@ -1192,19 +1240,8 @@ def main():
         and np.isclose(args.delta_scale, DELTA_SCALE, rtol=0.0, atol=0.0)
         and set(ablation_deployments) == set(MANDATORY_ABLATIONS)
     )
+    component_entries = []
     if formal_complete:
-        atomic_write_json(C.MODELS / "thermoroute_usgs_bundle.json", {
-            "run_id": identity.run_id,
-            "bundle_path": deployment_bundle.relative_to(ROOT).as_posix(),
-            "member_count": len(loaded_members),
-            "metadata_sha256": sha256_file(deployment_bundle / "metadata.json"),
-            "weights_sha256": sha256_file(deployment_bundle / "weights.pt"),
-        })
-        atomic_write_json(C.MODELS / "lightgbm_usgs_bundle.json", {
-            "run_id": identity.run_id,
-            "manifest": file_binding(ROOT, lgb_manifest),
-            "member_count": len(C.USGS_SEEDS),
-        })
         component_entries = [
             torch_entry(
                 ROOT, model_id="ThermoRoute", executor="thermoroute_bundle",
@@ -1222,48 +1259,28 @@ def main():
                 raw_feature_order=wd.var_names,
                 intervention=ABLATION_INTERVENTIONS[name],
             ))
-        write_component_pointer(
-            C.MODELS / "route_a_stage9_components.json",
-            run_id=identity.run_id, cohort="temporal_stage9",
-            entries=component_entries, raw_feature_order=wd.var_names,
-            development_contract=development_contract,
-            development_prediction_artifact={
-                **file_binding(ROOT, output_predictions),
-                "sidecar": file_binding(ROOT, sidecar_path(output_predictions)),
-            },
-        )
-        log("saved formal Stage-9 model components: TR5 + LGB5 + 7 controls")
-    else:
-        log("saved diagnostic bundles; formal Stage-9 component pointers unchanged")
 
     # ---- headline point report (seed-mean ThermoRoute) ------------------ #
     tr_test = allp[(allp.model == "ThermoRoute") & (allp.split == "test")]
     base = {m: allp[(allp.model == m) & (allp.split == "test")] for m in
             ("Persistence", "DampedPersistence", "Climatology")}
 
-    def rmse_per_station(df, h):
-        d = {}
-        selected = df[df.horizon == h].groupby(
-            ["site_id", "issue_date", "target_date"], as_index=False
-        ).agg(y_pred=("y_pred", "mean"), y_true=("y_true", "first"))
-        for s, g in selected.groupby("site_id"):
-            d[s] = float(np.sqrt(((g.y_pred - g.y_true) ** 2).mean()))
-        return d
-
     rows = []
     for h in wd.horizons:
         rp = rmse_per_station(base["Persistence"], h)
         rd = rmse_per_station(base["DampedPersistence"], h)
-        # ThermoRoute seed-mean per (station,issue): average y_pred over seeds
-        tm = tr_test[tr_test.horizon == h].groupby(["site_id", "issue_date"]).agg(
-            y_pred=("y_pred", "mean"), y_true=("y_true", "first")).reset_index()
+        # ThermoRoute seed-mean on the complete forecast key.
+        tm = thermoroute_ablation_summary_frame(
+            tr_test[tr_test.horizon == h]
+        )
         rt = {s: float(np.sqrt(((g.y_pred - g.y_true) ** 2).mean()))
               for s, g in tm.groupby("site_id")}
         for s in stations:
             rows.append({"horizon": h, "site": s, "rmse_persist": rp.get(s, np.nan),
                          "rmse_damped": rd.get(s, np.nan), "rmse_thermo": rt.get(s, np.nan)})
     sc = pd.DataFrame(rows)
-    sc.to_csv(C.TABLES / args.out_scores, index=False)
+    score_path = C.TABLES / args.out_scores
+    atomic_write_bytes(score_path, sc.to_csv(index=False).encode("utf-8"))
 
     L = [f"# USGS large-sample experiment ({len(stations)} stations, {args.seeds} seeds)\n",
          f"_Variables {', '.join(USGS_VARS)}. Observed targets only; identical samples "
@@ -1314,8 +1331,7 @@ def main():
           "| variant | h1 | h3 | h7 |", "|---|---|---|---|"]
     for m in abl_models:
         if m == "ThermoRoute":
-            sub = tr_test.groupby(["site_id", "horizon", "issue_date"]).agg(
-                y_pred=("y_pred", "mean"), y_true=("y_true", "first")).reset_index()
+            sub = thermoroute_ablation_summary_frame(tr_test)
         else:
             sub = allp[(allp.model == m) & (allp.split == "test")]
         if sub.empty:
@@ -1325,8 +1341,91 @@ def main():
             r = rmse_per_station(sub, h)
             meds.append(np.median([r[s] for s in stations if s in r]))
         L.append(f"| {m} | {meds[0]:.3f} | {meds[1]:.3f} | {meds[2]:.3f} |")
-    C.REPORTS.mkdir(parents=True, exist_ok=True)
-    (C.REPORTS / args.out_report).write_text("\n".join(L))
+    report_path = C.REPORTS / args.out_report
+    report_payload = ("\n".join(L) + "\n").encode("utf-8")
+
+    def write_report() -> None:
+        atomic_write_bytes(report_path, report_payload)
+
+    def validate_outputs() -> None:
+        validate_stage09_prepublication_outputs(
+            root=ROOT,
+            run_id=identity.run_id,
+            run_manifest=run_dir / "run.json",
+            predictions=output_predictions,
+            scores=score_path,
+            report=report_path,
+            lightgbm_selection=lightgbm_selection_path,
+        )
+
+    if formal_complete:
+        thermoroute_pointer = C.MODELS / "thermoroute_usgs_bundle.json"
+        lightgbm_pointer = C.MODELS / "lightgbm_usgs_bundle.json"
+        components_pointer = C.MODELS / "route_a_stage9_components.json"
+        receipt_path = ROOT / STAGE9_COMPLETION_RECEIPT_PATH
+
+        def publish_pointers() -> None:
+            atomic_write_json(thermoroute_pointer, {
+                "run_id": identity.run_id,
+                "bundle_path": deployment_bundle.relative_to(ROOT).as_posix(),
+                "member_count": len(loaded_members),
+                "metadata_sha256": sha256_file(
+                    deployment_bundle / "metadata.json"
+                ),
+                "weights_sha256": sha256_file(deployment_bundle / "weights.pt"),
+            })
+            atomic_write_json(lightgbm_pointer, {
+                "run_id": identity.run_id,
+                "manifest": file_binding(ROOT, lgb_manifest),
+                "member_count": len(C.USGS_SEEDS),
+            })
+            write_component_pointer(
+                components_pointer,
+                run_id=identity.run_id,
+                cohort="temporal_stage9",
+                entries=component_entries,
+                raw_feature_order=wd.var_names,
+                development_contract=development_contract,
+                development_prediction_artifact={
+                    **file_binding(ROOT, output_predictions),
+                    "sidecar": file_binding(
+                        ROOT, sidecar_path(output_predictions)
+                    ),
+                },
+            )
+
+        def publish_receipt() -> Path:
+            document = build_stage09_completion_receipt(
+                root=ROOT,
+                run_id=identity.run_id,
+                run_manifest=run_dir / "run.json",
+                predictions=output_predictions,
+                scores=score_path,
+                report=report_path,
+                lightgbm_selection=lightgbm_selection_path,
+                thermoroute_pointer=thermoroute_pointer,
+                lightgbm_pointer=lightgbm_pointer,
+                components_pointer=components_pointer,
+            )
+            publish_stage09_completion_receipt(
+                receipt_path,
+                document,
+                root=ROOT,
+                stage9_pointer=components_pointer,
+            )
+            return receipt_path
+
+        complete_stage09_transaction(
+            write_report=write_report,
+            validate_outputs=validate_outputs,
+            publish_pointers=publish_pointers,
+            publish_receipt=publish_receipt,
+        )
+        log("saved formal Stage-9 model components: TR5 + LGB5 + 7 controls")
+        log(f"saved Stage-9 completion receipt: {receipt_path.relative_to(ROOT)}")
+    else:
+        write_report()
+        log("saved diagnostic bundles; formal Stage-9 pointers/receipt unchanged")
     log("DONE")
     print("\n" + "\n".join(L[3:10]))
 

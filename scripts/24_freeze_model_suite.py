@@ -3,6 +3,9 @@
 
 The current pointer is written only when Stage 9, Stage 16 and the pooled
 external training stage have all produced complete, checksum-valid components.
+Stage 9 is accepted only with its final content-bound completion receipt; a
+missing report, interrupted pointer transaction or stale receipt fails closed.
+The accepted receipt path and checksum become part of the frozen suite itself.
 This command performs no fitting and has no network or post-2020 input path.
 """
 
@@ -79,16 +82,52 @@ from thermoroute.model_suite import (  # noqa: E402
     EXTERNAL_MODELS,
     MANDATORY_ABLATIONS,
     PRIMARY_MODELS,
+    STAGE9_COMPLETION_RECEIPT_PATH,
     ModelSuiteError,
     builtin_entry,
+    file_binding,
     freeze_model_suite,
     load_component_pointer,
+    validate_stage09_completion_receipt,
 )
 from thermoroute.repro import sha256_file, sha256_json  # noqa: E402
 
 
 def _entries(pointer: dict) -> dict[str, dict]:
     return {str(entry["model_id"]): entry for entry in pointer["models"]}
+
+
+def _load_verified_stage9(
+    stage9_path: Path, receipt_path: Path, *, root: Path = ROOT,
+) -> tuple[dict, dict[str, str]]:
+    """Require the last-transaction receipt before accepting Stage-9 pointers."""
+    receipt = validate_stage09_completion_receipt(
+        receipt_path, root=root, stage9_pointer=stage9_path
+    )
+    stage9 = load_component_pointer(stage9_path)
+    if receipt.get("run_id") != stage9.get("run_id"):
+        raise ModelSuiteError("Stage-9 receipt and component pointer run ids differ")
+    return stage9, file_binding(root, receipt_path)
+
+
+def _model_suite_id(
+    *,
+    protocol_sha256: str,
+    stage9: dict,
+    stage09_completion: dict[str, str],
+    lstm: dict,
+    external: dict,
+    features: tuple[str, ...],
+) -> str:
+    """Content-address the suite, including the receipt that admitted Stage 9."""
+    return sha256_json({
+        "protocol_sha256": protocol_sha256,
+        "stage9": stage9,
+        "stage09_completion": stage09_completion,
+        "lstm": lstm,
+        "external": external,
+        "features": features,
+    })[:20]
 
 
 def main() -> None:
@@ -100,6 +139,10 @@ def main() -> None:
     parser.add_argument(
         "--stage9", type=Path,
         default=C.MODELS / "route_a_stage9_components.json",
+    )
+    parser.add_argument(
+        "--stage9-receipt", type=Path,
+        default=ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
     )
     parser.add_argument(
         "--lstm", type=Path,
@@ -120,7 +163,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    stage9 = load_component_pointer(args.stage9)
+    stage9, stage09_completion = _load_verified_stage9(
+        args.stage9, args.stage9_receipt
+    )
     lstm = load_component_pointer(args.lstm)
     external = load_component_pointer(args.external)
     if stage9.get("cohort") != "temporal_stage9":
@@ -170,13 +215,14 @@ def main() -> None:
                            if model not in BUILTIN_MODELS)
 
     protocol_sha = sha256_file(args.protocol)
-    suite_id = sha256_json({
-        "protocol_sha256": protocol_sha,
-        "stage9": stage9,
-        "lstm": lstm,
-        "external": external,
-        "features": feature_order,
-    })[:20]
+    suite_id = _model_suite_id(
+        protocol_sha256=protocol_sha,
+        stage9=stage9,
+        stage09_completion=stage09_completion,
+        lstm=lstm,
+        external=external,
+        features=feature_order,
+    )
     versioned = C.MODELS / f"route_a_model_suite_{suite_id}.json"
     freeze_model_suite(
         versioned, args.current,
@@ -184,6 +230,7 @@ def main() -> None:
         temporal_entries=temporal, external_entries=external_models,
         actual_feature_order=feature_order,
         development_contract=contracts[0],
+        stage09_completion=stage09_completion,
         registry_alias=args.destination,
     )
     print(f"frozen content-addressed Route-A model suite: {versioned}")
