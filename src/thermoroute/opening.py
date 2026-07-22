@@ -6,9 +6,11 @@ creates an exclusive ``OPENING_STARTED`` marker before a separate raw-only NWIS
 child is permitted to acquire labels, then launches a fresh trusted scorer that
 replays the raw evidence, executes every frozen model, recomputes every formal
 test and writes a create-only receipt.  A transport interruption may be resumed
-explicitly under the same intent and frozen request ledger; any inconsistent
-transaction or any already-published derived/trusted artifact remains
-indeterminate and cannot be silently retried.
+explicitly under the same intent and frozen request ledger.  Trusted products
+are validated in a same-filesystem private directory and published as one
+directory rename; a scorer interruption may therefore resume without a second
+label acquisition.  Any inconsistent raw transaction or invalid canonical
+trusted publication remains indeterminate and is never replaced.
 """
 
 from __future__ import annotations
@@ -16,11 +18,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -167,6 +172,21 @@ _FIXED_ENTRYPOINTS = {
     "trusted_scorer": "scripts/route_a_trusted_scorer.py",
 }
 
+_TRUSTED_STATE_KEYS = (
+    "availability_registry",
+    "outcome_quality_audit",
+    "outcome_qc_gate",
+    "approved_target_sensitivity",
+    "spatial_sensitivity",
+    "probabilistic_evaluation",
+    "temporal_predictions",
+    "external_predictions",
+    "statistics",
+    "report",
+)
+_TRUSTED_STAGE_PREFIX = ".trusted-stage-v1-"
+_TRUSTED_PUBLICATION_LOCK = ".trusted-publication-v1.lock"
+
 OPENING_ACQUIRED_FIELDS = frozenset({"WTEMP", "FLOW", "WLEVEL"})
 BUILTIN_MODELS = frozenset({"Persistence", "DampedPersistence", "Climatology"})
 SUPPORTED_EXECUTORS = frozenset({
@@ -295,6 +315,24 @@ def _binding(root: Path, path: str | Path) -> dict[str, str]:
     return {"path": _relative(root, resolved), "sha256": sha256_file(resolved)}
 
 
+def _logical_binding(
+    root: Path,
+    physical_path: str | Path,
+    logical_path: str | Path,
+) -> dict[str, str]:
+    """Bind staged bytes to the immutable path they will have after publish."""
+    physical = Path(physical_path)
+    if not physical.is_file() or physical.is_symlink():
+        raise OpeningContractError(
+            f"trusted staged artifact is absent or unsafe: {physical}"
+        )
+    logical = Path(os.path.abspath(os.fspath(logical_path)))
+    return {
+        "path": _relative(root, logical),
+        "sha256": sha256_file(physical),
+    }
+
+
 def exclusive_create_json(path: str | Path, value: Mapping[str, Any]) -> None:
     """Create and fsync one immutable JSON file without replacement semantics."""
     _exclusive_create_bytes(
@@ -331,9 +369,50 @@ def _exclusive_create_bytes(path: Path, payload: bytes) -> None:
         os.fsync(parent_descriptor)
 
 
-def _exclusive_create_parquet(path: Path, frame: pd.DataFrame) -> None:
-    import tempfile
+def _atomic_create_bytes(path: Path, payload: bytes) -> None:
+    """Create immutable bytes atomically; a writer crash cannot expose a prefix."""
+    path = Path(os.path.abspath(os.fspath(path)))
+    with _secure_directory_chain(path.parent, create=True) as parent_descriptor:
+        try:
+            os.stat(path.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise OpeningAlreadyStarted(
+                f"refusing to replace one-time artifact: {path}"
+            )
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                os.fchmod(handle.fileno(), 0o444)
+            try:
+                os.link(
+                    temporary.name,
+                    path.name,
+                    src_dir_fd=parent_descriptor,
+                    dst_dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileExistsError as exc:
+                raise OpeningAlreadyStarted(
+                    f"refusing to replace one-time artifact: {path}"
+                ) from exc
+            os.fsync(parent_descriptor)
+        finally:
+            try:
+                os.unlink(temporary.name, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except FileNotFoundError:
+                pass
 
+
+def _exclusive_create_parquet(path: Path, frame: pd.DataFrame) -> None:
     path = Path(os.path.abspath(os.fspath(path)))
     with _secure_directory_chain(path.parent, create=True) as parent_descriptor:
         try:
@@ -4350,11 +4429,269 @@ def inspect_same_opening_transport_resume(
     }
 
 
+def _trusted_directory_from_state(state: Mapping[str, Any]) -> Path:
+    """Return and strictly validate the single canonical trusted directory."""
+    try:
+        run_directory = Path(
+            os.path.abspath(os.fspath(state["run_directory"]))
+        )
+        paths = {
+            key: Path(os.path.abspath(os.fspath(state[key])))
+            for key in _TRUSTED_STATE_KEYS
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OpeningContractError(
+            "trusted state-path registry is incomplete"
+        ) from exc
+    parents = {path.parent for path in paths.values()}
+    names = {path.name for path in paths.values()}
+    canonical = run_directory / "trusted"
+    if (
+        parents != {canonical}
+        or len(names) != len(_TRUSTED_STATE_KEYS)
+        or any(path.parent != canonical for path in paths.values())
+    ):
+        raise OpeningContractError(
+            "trusted artifacts do not share the canonical trusted directory"
+        )
+    return canonical
+
+
+def _trusted_state_at_directory(
+    state: Mapping[str, Any], directory: Path
+) -> dict[str, Any]:
+    """Map trusted output names to a private directory without changing names."""
+    canonical = _trusted_directory_from_state(state)
+    directory = Path(os.path.abspath(os.fspath(directory)))
+    if directory.parent != canonical.parent:
+        raise OpeningContractError(
+            "trusted staging directory is not a same-filesystem sibling"
+        )
+    staged = dict(state)
+    for key in _TRUSTED_STATE_KEYS:
+        staged[key] = directory / Path(state[key]).name
+    return staged
+
+
+def _assert_trusted_parent_metadata(descriptor: int) -> os.stat_result:
+    """Require a directory that no group/other process identity can mutate."""
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_mode & 0o022
+    ):
+        raise OpeningContractError(
+            "trusted publication parent is not owner-controlled"
+        )
+    return metadata
+
+
+@contextmanager
+def _exclusive_trusted_publication_lock(
+    state: Mapping[str, Any],
+) -> Iterator[None]:
+    """Hold the process-scoped trusted publisher lock without following links."""
+    canonical = _trusted_directory_from_state(state)
+    run_directory = canonical.parent
+    flags = (
+        os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor: int | None = None
+    with _secure_directory_chain(run_directory, create=False) as parent_descriptor:
+        try:
+            _assert_trusted_parent_metadata(parent_descriptor)
+            descriptor = os.open(
+                _TRUSTED_PUBLICATION_LOCK,
+                flags,
+                0o600,
+                dir_fd=parent_descriptor,
+            )
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_mode & 0o022
+            ):
+                raise OpeningContractError(
+                    "trusted publication lock has unsafe metadata"
+                )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise OpeningAlreadyStarted(
+                    "another trusted Route-A publisher holds the canonical lock"
+                ) from exc
+            os.fsync(parent_descriptor)
+            yield
+        except OSError as exc:
+            raise OpeningContractError(
+                "trusted publication lock path is unsafe"
+            ) from exc
+        finally:
+            if descriptor is not None:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    os.close(descriptor)
+
+
+def _new_trusted_stage_directory(state: Mapping[str, Any]) -> Path:
+    """Create one private same-filesystem staging directory by directory fd."""
+    canonical = _trusted_directory_from_state(state)
+    run_directory = canonical.parent
+    with _secure_directory_chain(run_directory, create=False) as parent_descriptor:
+        parent_stat = _assert_trusted_parent_metadata(parent_descriptor)
+        for _attempt in range(128):
+            name = f"{_TRUSTED_STAGE_PREFIX}{secrets.token_hex(16)}"
+            try:
+                os.mkdir(name, 0o700, dir_fd=parent_descriptor)
+            except FileExistsError:
+                continue
+            descriptor = os.open(
+                name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=parent_descriptor,
+            )
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISDIR(metadata.st_mode)
+                    or metadata.st_dev != parent_stat.st_dev
+                    or metadata.st_uid != os.geteuid()
+                ):
+                    raise OpeningContractError(
+                        "trusted staging directory has unsafe metadata"
+                    )
+                os.fsync(descriptor)
+                os.fsync(parent_descriptor)
+            finally:
+                os.close(descriptor)
+            return run_directory / name
+    raise OpeningContractError("cannot allocate a trusted staging directory")
+
+
+def _assert_exact_trusted_directory(
+    directory: Path, state: Mapping[str, Any]
+) -> None:
+    """Reject missing, extra, linked, nested, or nonregular trusted artifacts."""
+    canonical = _trusted_directory_from_state(state)
+    directory = Path(os.path.abspath(os.fspath(directory)))
+    if directory.parent != canonical.parent:
+        raise OpeningContractError("trusted artifact directory is noncanonical")
+    expected = {Path(state[key]).name for key in _TRUSTED_STATE_KEYS}
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        descriptor = os.open(directory, flags)
+    except OSError as exc:
+        raise OpeningContractError(
+            "trusted artifact directory is absent or unsafe"
+        ) from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
+            raise OpeningContractError(
+                "trusted artifact directory metadata is unsafe"
+            )
+        actual = set(os.listdir(descriptor))
+        if actual != expected:
+            raise OpeningContractError(
+                "trusted artifact directory is incomplete or has extra entries"
+            )
+        for name in sorted(expected):
+            item = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(item.st_mode)
+                or item.st_nlink != 1
+                or item.st_uid != os.geteuid()
+            ):
+                raise OpeningContractError(
+                    f"trusted artifact is linked or nonregular: {name}"
+                )
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_publish_trusted_directory(
+    stage_directory: Path, state: Mapping[str, Any]
+) -> Path:
+    """Publish a validated trusted directory with one same-parent rename."""
+    canonical = _trusted_directory_from_state(state)
+    stage = Path(os.path.abspath(os.fspath(stage_directory)))
+    if stage.parent != canonical.parent or not stage.name.startswith(
+        _TRUSTED_STAGE_PREFIX
+    ):
+        raise OpeningContractError("trusted staging path is noncanonical")
+    _assert_exact_trusted_directory(stage, state)
+    with _secure_directory_chain(canonical.parent, create=False) as parent_descriptor:
+        _assert_trusted_parent_metadata(parent_descriptor)
+        try:
+            os.stat(canonical.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise OpeningAlreadyStarted(
+                "canonical trusted directory already exists and is immutable"
+            )
+        # This check-to-rename interval is protected by the process-held flock
+        # and an owner-only-writable parent.  The documented honest-owner
+        # boundary excludes that same owner deliberately bypassing the lock;
+        # no other process identity can create the destination in this window.
+        stage_descriptor = os.open(
+            stage.name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            os.fsync(stage_descriptor)
+            try:
+                os.rename(
+                    stage.name,
+                    canonical.name,
+                    src_dir_fd=parent_descriptor,
+                    dst_dir_fd=parent_descriptor,
+                )
+            except OSError as exc:
+                raise OpeningContractError(
+                    "atomic trusted-directory publication failed"
+                ) from exc
+            # Darwin prohibits renaming a non-writable directory.  Harden the
+            # already-complete directory through the still-open descriptor
+            # immediately after the one atomic namespace publication.
+            os.fchmod(stage_descriptor, 0o555)
+            os.fsync(stage_descriptor)
+        finally:
+            os.close(stage_descriptor)
+        os.fsync(parent_descriptor)
+    _assert_exact_trusted_directory(canonical, state)
+    return canonical
+
+
+def _trusted_publication_fault(_point: str) -> None:
+    """No-op production hook monkeypatched only by synthetic crash tests."""
+
+
 @dataclass(frozen=True)
 class OpeningProducts:
     """Canonical artifacts emitted only by the isolated trusted scorer."""
 
     acquisition_manifest: Path
+    availability_registry: Path
     outcome_quality_audit: Path
     outcome_qc_gate: Path
     approved_target_sensitivity: Path
@@ -4364,6 +4701,22 @@ class OpeningProducts:
     external_predictions: Path
     statistics: Path
     report: Path
+
+
+def _opening_products_from_state(state: Mapping[str, Any]) -> OpeningProducts:
+    return OpeningProducts(
+        acquisition_manifest=Path(state["acquisition_manifest"]),
+        availability_registry=Path(state["availability_registry"]),
+        outcome_quality_audit=Path(state["outcome_quality_audit"]),
+        outcome_qc_gate=Path(state["outcome_qc_gate"]),
+        approved_target_sensitivity=Path(state["approved_target_sensitivity"]),
+        spatial_sensitivity=Path(state["spatial_sensitivity"]),
+        probabilistic_evaluation=Path(state["probabilistic_evaluation"]),
+        temporal_predictions=Path(state["temporal_predictions"]),
+        external_predictions=Path(state["external_predictions"]),
+        statistics=Path(state["statistics"]),
+        report=Path(state["report"]),
+    )
 
 def _expected_acquisition_work_order(
     preflight: Mapping[str, Any], *, root: str | Path
@@ -7410,9 +7763,12 @@ def _render_confirmatory_report(
 
 
 def produce_trusted_opening_products(
-    *, preflight: Mapping[str, Any], root: str | Path
+    *,
+    preflight: Mapping[str, Any],
+    root: str | Path,
+    output_state_paths: Mapping[str, Any],
 ) -> OpeningProducts:
-    """Create the only authoritative predictions/statistics from raw evidence."""
+    """Create authoritative products only inside a private trusted stage."""
     root = Path(root).resolve()
     (
         normalized,
@@ -7492,7 +7848,23 @@ def produce_trusted_opening_products(
         availability=availability,
         protocol=protocol_info["document"],
     )
-    state = preflight["state_paths"]
+    canonical_state = preflight["state_paths"]
+    state = dict(output_state_paths)
+    stage = Path(state["availability_registry"]).parent
+    expected_stage_state = _trusted_state_at_directory(
+        canonical_state, stage
+    )
+    if any(
+        Path(state[key]) != Path(expected_stage_state[key])
+        for key in _TRUSTED_STATE_KEYS
+    ):
+        raise OpeningContractError("trusted staging state-path map changed")
+    if Path(state["acquisition_manifest"]) != Path(
+        canonical_state["acquisition_manifest"]
+    ):
+        raise OpeningContractError(
+            "trusted staging cannot relocate raw acquisition evidence"
+        )
     exclusive_create_json(state["outcome_quality_audit"], quality_audit)
     exclusive_create_json(state["outcome_qc_gate"], outcome_qc_gate)
     exclusive_create_json(
@@ -7509,14 +7881,28 @@ def produce_trusted_opening_products(
         minimum_targets=minimum_targets,
     )
     statistics["outcome_quality_artifacts"] = {
-        "outcome_quality_audit": _binding(root, state["outcome_quality_audit"]),
-        "approved_target_sensitivity": _binding(
-            root, state["approved_target_sensitivity"]
+        "outcome_quality_audit": _logical_binding(
+            root,
+            state["outcome_quality_audit"],
+            canonical_state["outcome_quality_audit"],
         ),
-        "spatial_sensitivity": _binding(root, state["spatial_sensitivity"]),
+        "approved_target_sensitivity": _logical_binding(
+            root,
+            state["approved_target_sensitivity"],
+            canonical_state["approved_target_sensitivity"],
+        ),
+        "spatial_sensitivity": _logical_binding(
+            root,
+            state["spatial_sensitivity"],
+            canonical_state["spatial_sensitivity"],
+        ),
     }
     statistics["outcome_qc_gate"] = {
-        **_binding(root, state["outcome_qc_gate"]),
+        **_logical_binding(
+            root,
+            state["outcome_qc_gate"],
+            canonical_state["outcome_qc_gate"],
+        ),
         "format": OUTCOME_QC_GATE_FORMAT,
         "status": outcome_qc_gate["status"],
         "pass": outcome_qc_gate["pass"],
@@ -7525,8 +7911,10 @@ def produce_trusted_opening_products(
         ],
     }
     statistics["probabilistic_and_event_artifacts"] = {
-        "probabilistic_evaluation": _binding(
-            root, state["probabilistic_evaluation"]
+        "probabilistic_evaluation": _logical_binding(
+            root,
+            state["probabilistic_evaluation"],
+            canonical_state["probabilistic_evaluation"],
         )
     }
     _exclusive_create_bytes(
@@ -7556,18 +7944,7 @@ def produce_trusted_opening_products(
             )["transport_summary"],
         ),
     )
-    return OpeningProducts(
-        acquisition_manifest=state["acquisition_manifest"],
-        outcome_quality_audit=state["outcome_quality_audit"],
-        outcome_qc_gate=state["outcome_qc_gate"],
-        approved_target_sensitivity=state["approved_target_sensitivity"],
-        spatial_sensitivity=state["spatial_sensitivity"],
-        probabilistic_evaluation=state["probabilistic_evaluation"],
-        temporal_predictions=state["temporal_predictions"],
-        external_predictions=state["external_predictions"],
-        statistics=state["statistics"],
-        report=state["report"],
-    )
+    return _opening_products_from_state(state)
 
 
 def validate_opening_products(
@@ -7575,24 +7952,27 @@ def validate_opening_products(
     *,
     preflight: Mapping[str, Any],
     root: str | Path,
+    staged: bool = False,
 ) -> dict[str, Any]:
     """Validate outcomes, exact keys, all models and recomputed formal tests."""
     root = Path(root).resolve()
+    canonical_state = preflight["state_paths"]
+    if staged:
+        stage_directory = Path(products.availability_registry).parent
+        if not stage_directory.name.startswith(_TRUSTED_STAGE_PREFIX):
+            raise OpeningContractError("trusted validation stage is noncanonical")
+        product_state = _trusted_state_at_directory(
+            canonical_state, stage_directory
+        )
+        _assert_exact_trusted_directory(stage_directory, canonical_state)
+    else:
+        product_state = canonical_state
+        _assert_exact_trusted_directory(
+            _trusted_directory_from_state(canonical_state), canonical_state
+        )
     expected_product_paths = {
-        "acquisition_manifest": preflight["state_paths"]["acquisition_manifest"],
-        "outcome_quality_audit": preflight["state_paths"]["outcome_quality_audit"],
-        "outcome_qc_gate": preflight["state_paths"]["outcome_qc_gate"],
-        "approved_target_sensitivity": preflight["state_paths"][
-            "approved_target_sensitivity"
-        ],
-        "spatial_sensitivity": preflight["state_paths"]["spatial_sensitivity"],
-        "probabilistic_evaluation": preflight["state_paths"][
-            "probabilistic_evaluation"
-        ],
-        "temporal_predictions": preflight["state_paths"]["temporal_predictions"],
-        "external_predictions": preflight["state_paths"]["external_predictions"],
-        "statistics": preflight["state_paths"]["statistics"],
-        "report": preflight["state_paths"]["report"],
+        "acquisition_manifest": canonical_state["acquisition_manifest"],
+        **{key: product_state[key] for key in _TRUSTED_STATE_KEYS},
     }
     if any(
         Path(getattr(products, field)).resolve() != Path(expected).resolve()
@@ -7685,7 +8065,7 @@ def validate_opening_products(
             normalized_path, raw_rebuild=raw_rebuild, sites=sites
         )
         normalized_paths[cohort] = normalized_path
-    availability_path = Path(preflight["state_paths"]["availability_registry"])
+    availability_path = Path(products.availability_registry)
     if not availability_path.is_file():
         raise OpeningContractError("trusted site/horizon availability registry is absent")
     minimum_targets = int(
@@ -7857,14 +8237,28 @@ def validate_opening_products(
         minimum_targets=minimum_targets,
     )
     expected_statistics["outcome_quality_artifacts"] = {
-        "outcome_quality_audit": _binding(root, products.outcome_quality_audit),
-        "approved_target_sensitivity": _binding(
-            root, products.approved_target_sensitivity
+        "outcome_quality_audit": _logical_binding(
+            root,
+            products.outcome_quality_audit,
+            canonical_state["outcome_quality_audit"],
         ),
-        "spatial_sensitivity": _binding(root, products.spatial_sensitivity),
+        "approved_target_sensitivity": _logical_binding(
+            root,
+            products.approved_target_sensitivity,
+            canonical_state["approved_target_sensitivity"],
+        ),
+        "spatial_sensitivity": _logical_binding(
+            root,
+            products.spatial_sensitivity,
+            canonical_state["spatial_sensitivity"],
+        ),
     }
     expected_statistics["outcome_qc_gate"] = {
-        **_binding(root, products.outcome_qc_gate),
+        **_logical_binding(
+            root,
+            products.outcome_qc_gate,
+            canonical_state["outcome_qc_gate"],
+        ),
         "format": OUTCOME_QC_GATE_FORMAT,
         "status": expected_outcome_qc_gate["status"],
         "pass": expected_outcome_qc_gate["pass"],
@@ -7873,8 +8267,10 @@ def validate_opening_products(
         ],
     }
     expected_statistics["probabilistic_and_event_artifacts"] = {
-        "probabilistic_evaluation": _binding(
-            root, products.probabilistic_evaluation
+        "probabilistic_evaluation": _logical_binding(
+            root,
+            products.probabilistic_evaluation,
+            canonical_state["probabilistic_evaluation"],
         )
     }
     actual_statistics = _load_json(products.statistics, label="confirmatory statistics")
@@ -7909,20 +8305,56 @@ def validate_opening_products(
         "external_normalized_outcomes": _binding(
             root, normalized_paths["external"]
         ),
-        "availability_registry": _binding(root, availability_path),
-        "outcome_quality_audit": _binding(root, products.outcome_quality_audit),
-        "outcome_qc_gate": _binding(root, products.outcome_qc_gate),
-        "approved_target_sensitivity": _binding(
-            root, products.approved_target_sensitivity
+        "availability_registry": _logical_binding(
+            root,
+            availability_path,
+            canonical_state["availability_registry"],
         ),
-        "spatial_sensitivity": _binding(root, products.spatial_sensitivity),
-        "probabilistic_evaluation": _binding(
-            root, products.probabilistic_evaluation
+        "outcome_quality_audit": _logical_binding(
+            root,
+            products.outcome_quality_audit,
+            canonical_state["outcome_quality_audit"],
         ),
-        "temporal_predictions": _binding(root, products.temporal_predictions),
-        "external_predictions": _binding(root, products.external_predictions),
-        "statistics": _binding(root, products.statistics),
-        "report": _binding(root, products.report),
+        "outcome_qc_gate": _logical_binding(
+            root,
+            products.outcome_qc_gate,
+            canonical_state["outcome_qc_gate"],
+        ),
+        "approved_target_sensitivity": _logical_binding(
+            root,
+            products.approved_target_sensitivity,
+            canonical_state["approved_target_sensitivity"],
+        ),
+        "spatial_sensitivity": _logical_binding(
+            root,
+            products.spatial_sensitivity,
+            canonical_state["spatial_sensitivity"],
+        ),
+        "probabilistic_evaluation": _logical_binding(
+            root,
+            products.probabilistic_evaluation,
+            canonical_state["probabilistic_evaluation"],
+        ),
+        "temporal_predictions": _logical_binding(
+            root,
+            products.temporal_predictions,
+            canonical_state["temporal_predictions"],
+        ),
+        "external_predictions": _logical_binding(
+            root,
+            products.external_predictions,
+            canonical_state["external_predictions"],
+        ),
+        "statistics": _logical_binding(
+            root,
+            products.statistics,
+            canonical_state["statistics"],
+        ),
+        "report": _logical_binding(
+            root,
+            products.report,
+            canonical_state["report"],
+        ),
     }
     reported_models = {
         cohort: sorted(frame.model.astype(str).unique().tolist())
@@ -7981,7 +8413,7 @@ def isolated_orchestrate_opening(
     root: str | Path,
     resume: bool = False,
 ) -> None:
-    """Open once, or resume only its fixed-ledger raw transport phase."""
+    """Open once, resume raw transport, or finish deterministic trusted scoring."""
     root = Path(root).resolve()
     authorization_path = Path(authorization_path).resolve()
     if root not in authorization_path.parents or not authorization_path.is_file():
@@ -8007,13 +8439,14 @@ def isolated_orchestrate_opening(
     attestation = _preflight_attestation(preflight)
     work_order = _expected_acquisition_work_order(preflight, root=root)
     validator = _trusted_validator_identity(root)
+    run_acquisition = True
     if resume:
-        expected_status = (
-            "OPENING_INCOMPLETE_SAME_OPENING_RESUME_REQUIRES_VALIDATION"
-        )
-        if status != expected_status:
+        if status not in {
+            "OPENING_INCOMPLETE_SAME_OPENING_RESUME_REQUIRES_VALIDATION",
+            "OPENED_AND_SCORED_ONCE",
+        }:
             raise OpeningAlreadyStarted(
-                f"Route-A opening is not raw-resume eligible: {status}"
+                f"Route-A opening is not same-opening resume eligible: {status}"
             )
         _validated_intent(preflight=preflight, root=root, work_order=work_order)
         work_order_path = Path(state["work_order"])
@@ -8031,8 +8464,22 @@ def isolated_orchestrate_opening(
             # The intent already binds both hashes of this deterministic work
             # order, so recreating a wholly absent file is not a second opening.
             exclusive_create_json(work_order_path, work_order)
-        forbidden_resume = (
-            "acquisition_manifest", "temporal_outcomes", "external_outcomes",
+        receipt_exists = Path(state["receipt"]).exists()
+        sidecar_exists = Path(state["receipt_sha256"]).exists()
+        acquisition_complete = Path(state["acquisition_manifest"]).is_file()
+        trusted_exists = os.path.lexists(_trusted_directory_from_state(state))
+        if receipt_exists and sidecar_exists:
+            _read_completed_receipt(
+                authorization_path=authorization_path, root=root
+            )
+            return
+        if acquisition_complete:
+            # Raw acquisition is immutable and complete.  Never launch the
+            # network child again: only deterministic trusted completion is
+            # admissible from this point.
+            run_acquisition = False
+        forbidden_raw_resume = (
+            "temporal_outcomes", "external_outcomes",
             "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
             "approved_target_sensitivity", "spatial_sensitivity",
             "probabilistic_evaluation", "temporal_predictions",
@@ -8040,12 +8487,12 @@ def isolated_orchestrate_opening(
             "receipt_sha256",
         )
         existing = sorted(
-            key for key in forbidden_resume if Path(state[key]).exists()
+            key for key in forbidden_raw_resume if Path(state[key]).exists()
         )
-        if existing:
+        if run_acquisition and (existing or trusted_exists):
             raise OpeningAlreadyStarted(
                 "raw transport resume is prohibited after derived/trusted "
-                f"publication: {existing}"
+                f"publication: {existing or ['trusted_directory']}"
             )
     else:
         if status != "SEALED_READY_OR_NOT_AUTHORIZED":
@@ -8084,20 +8531,25 @@ def isolated_orchestrate_opening(
         # continuation remains the same opening ID and the same intent.
         exclusive_create_json(state["intent"], intent)
         exclusive_create_json(state["work_order"], work_order)
-    _run_fixed_isolated_child(
-        root=root,
-        role="acquisition",
-        argument_path=state["work_order"],
-        resume=resume,
-    )
-    replayed = validate_authorization(
-        authorization_path, root=root, require_clean_source=False
-    )
-    replayed_attestation = _preflight_attestation(replayed)
-    if replayed_attestation != attestation:
-        raise OpeningContractError("preflight changed while raw acquisition ran")
-    if _trusted_validator_identity(root) != validator:
-        raise OpeningContractError("trusted validator changed while acquisition ran")
+    if run_acquisition:
+        _run_fixed_isolated_child(
+            root=root,
+            role="acquisition",
+            argument_path=state["work_order"],
+            resume=resume,
+        )
+        replayed = validate_authorization(
+            authorization_path, root=root, require_clean_source=False
+        )
+        replayed_attestation = _preflight_attestation(replayed)
+        if replayed_attestation != attestation:
+            raise OpeningContractError(
+                "preflight changed while raw acquisition ran"
+            )
+        if _trusted_validator_identity(root) != validator:
+            raise OpeningContractError(
+                "trusted validator changed while acquisition ran"
+            )
     if _load_json(state["work_order"], label="acquisition work order") != work_order:
         raise OpeningContractError("acquisition work order changed after publication")
     if not Path(state["acquisition_manifest"]).is_file():
@@ -8158,10 +8610,46 @@ def _release_bindings(
     }
 
 
+def _assert_validated_artifacts_published(
+    *, validated: Mapping[str, Any], root: Path
+) -> None:
+    artifacts = validated.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        raise OpeningContractError("validated trusted artifact registry is absent")
+    for key, binding in artifacts.items():
+        _verify_file_binding(root, binding, label=f"published {key}")
+
+
+def _receipt_sidecar_bytes(receipt_path: Path) -> bytes:
+    return (
+        f"{sha256_file(receipt_path)}  {receipt_path.name}\n"
+    ).encode("ascii")
+
+
+def _assert_receipt_matches_validation(
+    receipt: Mapping[str, Any], validated: Mapping[str, Any]
+) -> None:
+    expected = {
+        "all_predeclared_models_reported": validated[
+            "all_required_models_reported"
+        ],
+        "reported_models": validated["reported_models"],
+        "artifacts": validated["artifacts"],
+        "trusted_prediction_hashes": validated["trusted_prediction_hashes"],
+        "formal_tests": validated["formal_tests"],
+    }
+    wrong = [key for key, value in expected.items() if receipt.get(key) != value]
+    if wrong:
+        raise OpeningContractError(
+            "opening receipt differs from trusted recomputation: "
+            + ", ".join(sorted(wrong))
+        )
+
+
 def isolated_score_and_receipt(
     work_order_path: str | Path, *, root: str | Path
 ) -> dict[str, Any]:
-    """Replay raw evidence, score all models and publish the sole receipt."""
+    """Replay raw evidence and crash-safely publish trusted products/receipt."""
     root = Path(root).resolve()
     work_order_path = Path(work_order_path).resolve()
     if root not in work_order_path.parents or not work_order_path.is_file():
@@ -8181,95 +8669,147 @@ def isolated_score_and_receipt(
         preflight=preflight, root=root, work_order=expected_work_order
     )
     state = preflight["state_paths"]
-    forbidden_existing = (
-        "availability_registry", "temporal_predictions", "external_predictions",
-        "outcome_quality_audit", "outcome_qc_gate", "approved_target_sensitivity",
-        "spatial_sensitivity", "probabilistic_evaluation", "statistics",
-        "report", "receipt", "receipt_sha256",
-    )
-    existing = sorted(key for key in forbidden_existing if Path(state[key]).exists())
-    if existing:
-        raise OpeningAlreadyStarted(
-            f"trusted Route-A output already exists: {existing}"
-        )
     if not Path(state["acquisition_manifest"]).is_file():
         raise OpeningContractError("trusted scorer requires raw acquisition evidence")
-    try:
-        configure_deterministic_runtime()
-        assert_formal_numerical_policy()
-    except RuntimeError as exc:
-        raise OpeningContractError(
-            "trusted scorer determinism policy was not applied"
-        ) from exc
-    products = produce_trusted_opening_products(preflight=preflight, root=root)
-    validated = validate_opening_products(products, preflight=preflight, root=root)
-    if validated.get("all_required_models_reported") is not True:
-        raise OpeningContractError("trusted scorer did not report every frozen model")
-    runtime_attestation = environment_fingerprint()
-    if runtime_attestation.get("numerical_runtime_sha256") != preflight["runtime"][
-        "runtime_sha256"
-    ]:
-        raise OpeningContractError("receipt runtime differs from authorization")
-    release_bindings = _release_bindings(
-        preflight=preflight, validated=validated, root=root
-    )
-    receipt_stable = {
-        "format": RECEIPT_FORMAT,
-        "status": "OPENED_AND_SCORED_ONCE",
-        "opening_id": preflight["authorization"]["opening_id"],
-        "authorization_sha256": preflight["authorization_sha256"],
-        "intent_sha256": sha256_file(state["intent"]),
-        "work_order_sha256": sha256_file(state["work_order"]),
-        "preflight_attestation": _preflight_attestation(preflight),
-        "preflight_attestation_sha256": sha256_json(
-            _preflight_attestation(preflight)
-        ),
-        "trusted_validator": _trusted_validator_identity(root),
-        "fixed_code": preflight["fixed_code"],
-        "authorized_runtime": preflight["runtime"],
-        "completion_environment": runtime_attestation,
-        "python_hash_seed_interpreter_effect": (
-            "present_but_ignored_under_isolated_mode"
-        ),
-        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
-        "opening_count": 1,
-        "maximum_openings": 1,
-        "retry_after_failure_allowed": False,
-        "same_opening_transport_resume_allowed": True,
-        "transport_recovery": _load_json(
-            state["acquisition_manifest"],
-            label="opened acquisition manifest",
-        )["transport_summary"],
-        "all_predeclared_models_reported": validated[
-            "all_required_models_reported"
-        ],
-        "reported_models": validated["reported_models"],
-        "artifacts": validated["artifacts"],
-        "trusted_prediction_hashes": validated["trusted_prediction_hashes"],
-        "formal_tests": validated["formal_tests"],
-        "state_paths": dict(preflight["authorization"]["state_paths"]),
-        "release_bindings": release_bindings,
-        "intent_self_sha256": intent["intent_self_sha256"],
-        "security_boundary": (
-            "misoperation/replay guard for an honest filesystem owner; not a "
-            "defense against an owner who can replace the interpreter or files"
-        ),
-    }
-    receipt = {
-        **receipt_stable,
-        "receipt_self_sha256": sha256_json(receipt_stable),
-    }
-    receipt_payload = canonical_json_bytes(receipt)
-    receipt_file_sha256 = hashlib.sha256(receipt_payload).hexdigest()
-    sidecar = (
-        f"{receipt_file_sha256}  {Path(state['receipt']).name}\n"
-    ).encode("ascii")
-    # Publish the external digest first.  Thus the existence of a receipt
-    # implies that its digest was durably present already; a crash between the
-    # two publications remains indeterminate because the intent persists.
-    _exclusive_create_bytes(Path(state["receipt_sha256"]), sidecar)
-    _exclusive_create_bytes(Path(state["receipt"]), receipt_payload)
-    return receipt
+    canonical_trusted = _trusted_directory_from_state(state)
+    receipt_path = Path(state["receipt"])
+    sidecar_path = Path(state["receipt_sha256"])
+    with _exclusive_trusted_publication_lock(state):
+        receipt_exists = receipt_path.exists()
+        sidecar_exists = sidecar_path.exists()
+        if sidecar_exists and not receipt_exists:
+            raise OpeningContractError(
+                "opening receipt digest exists without its authoritative receipt"
+            )
+        try:
+            configure_deterministic_runtime()
+            assert_formal_numerical_policy()
+        except RuntimeError as exc:
+            raise OpeningContractError(
+                "trusted scorer determinism policy was not applied"
+            ) from exc
+
+        canonical_exists = os.path.lexists(canonical_trusted)
+        if receipt_exists and not canonical_exists:
+            raise OpeningContractError(
+                "opening receipt exists without canonical trusted products"
+            )
+        if canonical_exists:
+            products = _opening_products_from_state(state)
+            validated = validate_opening_products(
+                products, preflight=preflight, root=root
+            )
+        else:
+            stage_directory = _new_trusted_stage_directory(state)
+            staged_state = _trusted_state_at_directory(state, stage_directory)
+            products = produce_trusted_opening_products(
+                preflight=preflight,
+                root=root,
+                output_state_paths=staged_state,
+            )
+            _trusted_publication_fault("after_stage_generation")
+            validated = validate_opening_products(
+                products,
+                preflight=preflight,
+                root=root,
+                staged=True,
+            )
+            _trusted_publication_fault("after_stage_validation")
+            _atomic_publish_trusted_directory(stage_directory, state)
+            _trusted_publication_fault("after_trusted_publish")
+            _assert_validated_artifacts_published(
+                validated=validated, root=root
+            )
+        if validated.get("all_required_models_reported") is not True:
+            raise OpeningContractError(
+                "trusted scorer did not report every frozen model"
+            )
+
+        if receipt_exists:
+            receipt = _read_completed_receipt(
+                authorization_path=authorization_path,
+                root=root,
+                require_sidecar=False,
+            )
+            _assert_receipt_matches_validation(receipt, validated)
+            if not sidecar_exists:
+                _atomic_create_bytes(
+                    sidecar_path, _receipt_sidecar_bytes(receipt_path)
+                )
+                _trusted_publication_fault("after_receipt_sidecar_recovery")
+            return _read_completed_receipt(
+                authorization_path=authorization_path, root=root
+            )
+
+        runtime_attestation = environment_fingerprint()
+        if runtime_attestation.get(
+            "numerical_runtime_sha256"
+        ) != preflight["runtime"]["runtime_sha256"]:
+            raise OpeningContractError(
+                "receipt runtime differs from authorization"
+            )
+        release_bindings = _release_bindings(
+            preflight=preflight, validated=validated, root=root
+        )
+        receipt_stable = {
+            "format": RECEIPT_FORMAT,
+            "status": "OPENED_AND_SCORED_ONCE",
+            "opening_id": preflight["authorization"]["opening_id"],
+            "authorization_sha256": preflight["authorization_sha256"],
+            "intent_sha256": sha256_file(state["intent"]),
+            "work_order_sha256": sha256_file(state["work_order"]),
+            "preflight_attestation": _preflight_attestation(preflight),
+            "preflight_attestation_sha256": sha256_json(
+                _preflight_attestation(preflight)
+            ),
+            "trusted_validator": _trusted_validator_identity(root),
+            "fixed_code": preflight["fixed_code"],
+            "authorized_runtime": preflight["runtime"],
+            "completion_environment": runtime_attestation,
+            "python_hash_seed_interpreter_effect": (
+                "present_but_ignored_under_isolated_mode"
+            ),
+            "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "opening_count": 1,
+            "maximum_openings": 1,
+            "retry_after_failure_allowed": False,
+            "same_opening_transport_resume_allowed": True,
+            "transport_recovery": _load_json(
+                state["acquisition_manifest"],
+                label="opened acquisition manifest",
+            )["transport_summary"],
+            "all_predeclared_models_reported": validated[
+                "all_required_models_reported"
+            ],
+            "reported_models": validated["reported_models"],
+            "artifacts": validated["artifacts"],
+            "trusted_prediction_hashes": validated[
+                "trusted_prediction_hashes"
+            ],
+            "formal_tests": validated["formal_tests"],
+            "state_paths": dict(preflight["authorization"]["state_paths"]),
+            "release_bindings": release_bindings,
+            "intent_self_sha256": intent["intent_self_sha256"],
+            "security_boundary": (
+                "misoperation/replay guard for an honest filesystem owner; not a "
+                "defense against an owner who can replace the interpreter or files"
+            ),
+        }
+        receipt = {
+            **receipt_stable,
+            "receipt_self_sha256": sha256_json(receipt_stable),
+        }
+        _atomic_create_bytes(
+            receipt_path, canonical_json_bytes(receipt)
+        )
+        _trusted_publication_fault("after_receipt_publish")
+        _atomic_create_bytes(
+            sidecar_path, _receipt_sidecar_bytes(receipt_path)
+        )
+        _trusted_publication_fault("after_receipt_sidecar_publish")
+        return _read_completed_receipt(
+            authorization_path=authorization_path, root=root
+        )
 
 
 def _read_completed_receipt(
@@ -8277,6 +8817,7 @@ def _read_completed_receipt(
     authorization_path: str | Path,
     root: Path,
     allow_gitless_archive: bool = False,
+    require_sidecar: bool = True,
 ) -> dict[str, Any]:
     authorization_path = Path(authorization_path).resolve()
     authorization = _load_json(authorization_path, label="opening authorization")
@@ -8294,7 +8835,17 @@ def _read_completed_receipt(
     if not isinstance(state, Mapping):
         raise OpeningContractError("authorization lacks canonical state paths")
     receipt_path = _resolve_inside(root, state.get("receipt"))
-    sidecar_path = _resolve_inside(root, state.get("receipt_sha256"))
+    raw_sidecar = Path(str(state.get("receipt_sha256")))
+    if raw_sidecar.is_absolute():
+        raise OpeningContractError("opening receipt sidecar path must be relative")
+    try:
+        sidecar_path = assert_no_symlink_components(root, root / raw_sidecar)
+    except AcquisitionContractError as exc:
+        raise OpeningContractError(
+            "opening receipt sidecar path is unsafe"
+        ) from exc
+    if require_sidecar and not sidecar_path.is_file():
+        raise OpeningContractError("external opening-receipt SHA-256 is absent")
     receipt = _load_json(receipt_path, label="opening receipt")
     receipt_stable = dict(receipt)
     receipt_self = receipt_stable.pop("receipt_self_sha256", None)
@@ -8351,8 +8902,10 @@ def _read_completed_receipt(
     expected_sidecar = (
         f"{sha256_file(receipt_path)}  {receipt_path.name}\n"
     ).encode("ascii")
-    if sidecar_path.read_bytes() != expected_sidecar:
+    if sidecar_path.exists() and sidecar_path.read_bytes() != expected_sidecar:
         raise OpeningContractError("external opening-receipt SHA-256 is invalid")
+    if require_sidecar and not sidecar_path.exists():
+        raise OpeningContractError("external opening-receipt SHA-256 is absent")
     bindings = receipt.get("release_bindings")
     if (
         not isinstance(bindings, Mapping)
@@ -8465,18 +9018,7 @@ def isolated_verify_release(
     ):
         raise OpeningContractError("release replay entrypoint identity changed")
     state = preflight["state_paths"]
-    products = OpeningProducts(
-        acquisition_manifest=state["acquisition_manifest"],
-        outcome_quality_audit=state["outcome_quality_audit"],
-        outcome_qc_gate=state["outcome_qc_gate"],
-        approved_target_sensitivity=state["approved_target_sensitivity"],
-        spatial_sensitivity=state["spatial_sensitivity"],
-        probabilistic_evaluation=state["probabilistic_evaluation"],
-        temporal_predictions=state["temporal_predictions"],
-        external_predictions=state["external_predictions"],
-        statistics=state["statistics"],
-        report=state["report"],
-    )
+    products = _opening_products_from_state(state)
     validated = validate_opening_products(products, preflight=preflight, root=root)
     receipt = _read_completed_receipt(
         authorization_path=authorization_path,
@@ -8525,7 +9067,7 @@ def resume_opening_once(
     *,
     root: str | Path,
 ) -> dict[str, Any]:
-    """Continue only missing raw transport under the original intent/work order."""
+    """Resume raw transport or deterministic trusted completion, never labels twice."""
     root = Path(root).resolve()
     authorization_path = Path(authorization_path).resolve()
     if root not in authorization_path.parents or not authorization_path.is_file():
