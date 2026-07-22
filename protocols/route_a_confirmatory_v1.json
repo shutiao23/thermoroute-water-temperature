@@ -9,7 +9,9 @@
     "canonical_panel": "../data_usgs/panel_usgs_120v2.parquet",
     "canonical_metadata": "../data_usgs/stations_meta_120v2.csv",
     "years": [2006, 2020],
-    "existing_2019_2020_role": "EXPLORATORY_NOT_BLIND"
+    "existing_2019_2020_role": "EXPLORATORY_NOT_BLIND",
+    "original_provider_response_provenance": "UNAVAILABLE_FOR_LEGACY_DEVELOPMENT_PANEL",
+    "reproducibility_scope": "conditional on the frozen canonical panel bytes; the original WTEMP/FLOW/Daymet/gridMET HTTP responses, requests, and retrieval timestamps used to create that legacy panel were not retained and cannot be represented as source-level replay evidence"
   },
   "primary_site_cohort": {
     "rule": "the complete frozen 120-site development registry; no outcome-based replacement",
@@ -29,6 +31,22 @@
       "2021-2025 event rates",
       "2021-2025 model errors"
     ]
+  },
+  "prelabel_chronology_contract": {
+    "required_order": [
+      "final protocol, protocol seal, claim ledger/renderer/validator, source tree, dependency locks, and model-training code are committed",
+      "all temporal and station-agnostic five-seed model bundles and the model-suite registry are frozen and replayed",
+      "the model-suite registry is committed before external candidate metadata, external registry, or 2021-2023 predictor inputs are acquired",
+      "external candidate metadata and retrospective predictor inputs are acquired and frozen without outcome access",
+      "the opening authorization binds the earlier model-freeze commit, later input-evidence commit, and their exact artifact hashes"
+    ],
+    "model_freeze_commit_must_precede_target_covariates": true,
+    "candidate_or_target_input_artifacts_must_be_absent_at_model_freeze_commit": true,
+    "git_ancestry_and_blob_replay_required": true,
+    "external_timestamp_or_independent_custodian_required_by_local_runner": false,
+    "external_timestamp_or_public_preregistration_available": false,
+    "evidence_scope": "repository-internal chronology for an honest owner; not proof against Git-history rewriting by the repository owner",
+    "fallback_interpretation_if_order_not_verified": "transductive retrospective exploration; confirmation claims prohibited"
   },
   "time_holdout": {
     "start": "2021-01-01",
@@ -59,6 +77,40 @@
       "immutable raw response and provenance for post-2020 WTEMP/FLOW history and outcomes; WLEVEL may be retained in the same raw response but is not consumed",
       "one-time opening record"
     ]
+  },
+  "daily_outcome_quality_contract": {
+    "provider": "USGS NWIS Daily Values service",
+    "request_statistic_code": "00003_daily_mean",
+    "parameter_units": {
+      "00010_WTEMP": "degrees_C",
+      "00060_FLOW": "cubic_feet_per_second",
+      "00065_WLEVEL": "feet_not_consumed_by_models"
+    },
+    "series_rule": "retain every daily-mean series column and merge only across dates: zero finite series values means missing, exactly one means retain that value with its qualifier and series identifier, and two or more finite series values on the same date means set that parameter/date missing with reason MULTIPLE_FINITE_SERIES_CONFLICT; never average or select among simultaneous series and never replace the site",
+    "series_identity_evidence": "record every exact value/qualifier column identifier; for each retained value record the selected series identifier; and for every MULTIPLE_FINITE_SERIES_CONFLICT record every constituent series identifier, parsed finite value, and preserved raw qualifier together with immutable per-site/parameter conflict counts",
+    "primary_value_policy": "use every finite parsed daily-mean WTEMP and FLOW value irrespective of approval qualifier; qualifiers never select or replace sites, models, dates, or primary forecast keys",
+    "wlevel_policy": "retain WLEVEL and its qualifier only as raw provenance; WLEVEL is not a model input or a Route-A estimand",
+    "qualifier_preservation": "trim surrounding whitespace, preserve the remaining raw qualifier string exactly, and retain missing qualifiers as missing rather than imputing approval",
+    "unknown_qualifier_policy": "retain and count every unrecognized qualifier string without interpreting or excluding it",
+    "mandatory_quality_audit": {
+      "grouping": ["cohort", "site_no", "variable", "raw_qualifier", "series_id", "value_status"],
+      "variables": ["WTEMP", "FLOW", "WLEVEL"],
+      "output": "immutable counts including retained finite values, missing values, finite values with missing qualifiers, and MULTIPLE_FINITE_SERIES_CONFLICT dates"
+    },
+    "approved_only_target_sensitivity": {
+      "role": "EXPLORATORY_DESCRIPTIVE_NOT_IN_CONFIRMATORY_FAMILY",
+      "key_rule": "from already-frozen common predictions, retain a target only when WTEMP_qualifier split on commas and stripped has the exact token set {'A'}",
+      "history_and_flow_rule": "do not refit, impute, or filter issue-date WTEMP/FLOW histories; this sensitivity concerns target-label status only",
+      "minimum_valid_targets_per_station_horizon": 100,
+      "comparisons": "exactly the same five candidate/reference/horizon rows listed in primary_inference_contract.confirmatory_family, with no additional model or horizon chosen after opening",
+      "effect": "for each comparison, compute station RMSE on exact-A keys, retain stations with at least 100 such targets for both models, and report the median station-level candidate-minus-reference RMSE difference",
+      "interval": "the same whole-HUC2 percentile bootstrap with 10000 draws and the comparison's frozen bootstrap_seed; this interval is descriptive and is not a second confidence procedure for the primary estimand",
+      "output_schema": ["test_id", "candidate", "reference", "horizon", "n_stations", "n_clusters", "effect_c", "ci_low_c", "ci_high_c", "n_exact_a_keys"],
+      "reporting": "emit counts, point effects, and intervals only; emit no sign-flip p-value, no Holm value, no pass/fail decision, and never remove, add, or reinterpret a primary test",
+      "selection_prohibited": true
+    },
+    "daily_time_support": "NWIS dates are site-local finalized daily-value labels; Daymet and gridMET have provider-specific day definitions, so Route A is a date-indexed retrospective evaluation rather than an issue-time operational replay",
+    "sensor_and_datum_limitation": "the raw series identifier is retained, but sensor continuity is not established; gage-height datum is not harmonized because WLEVEL is not consumed"
   },
   "secondary_archived_nwp_contract": {
     "status": "IMPLEMENTED_NOT_ACQUIRED",
@@ -122,6 +174,96 @@
       "change": "make the already-declared threshold of 100 valid confirmation targets per frozen station and horizon explicit in the machine-readable availability contract",
       "rationale": "the prose protocol already fixed this threshold, but relying on an implementation default would leave the scoring contract under-specified",
       "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-provider-semantics-004",
+      "recorded_date": "2026-07-21",
+      "trigger": "official Daymet and gridMET variable-metadata audit",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "retain the frozen seven-column feature schema while defining DH as Daymet daylight-period mean shortwave flux, RHMEAN as a vapour-pressure/Tetens proxy, and WDSP as packed gridMET wind transformed only after freezing and validating the OPeNDAP units, scale_factor, and add_offset attributes",
+      "rationale": "the legacy feature names are required for executable model compatibility but must not be misrepresented as a 24-hour radiation mean, daily energy, measured daily mean relative humidity, or an unverified wind unit",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-outcome-quality-005",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening environmental-science audit of NWIS qualifier, series, unit, sensor, datum, and calendar-day semantics",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "freeze an inclusive finite-value primary policy, mandatory raw qualifier/series audit, and an exact-A target-only descriptive sensitivity that cannot alter the five confirmatory tests",
+      "rationale": "choosing an approved/provisional filter after seeing outcomes would create outcome-dependent attrition; preserving all values in the primary analysis while predeclaring a nonconfirmatory exact-A sensitivity exposes data-quality dependence without changing the estimand post hoc",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-estimand-006",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening missingness and estimand audit",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "state the exact issue/target admissibility, frozen-imputation, common-key, 100-target reportability, station-balanced point estimand, and conditional-observability interpretation already implemented by the scorer",
+      "rationale": "the primary statistic is meaningful only if readers can distinguish performance on observable issue/target keys from performance on every site-day; spelling out the existing rule prevents later MNAR overgeneralization without changing any test",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-exact-signflip-007",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening audit of the metadata-known 15-cluster canonical registry",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "replace Monte-Carlo sampling of 50000 sign vectors with exhaustive enumeration of all 2^K configurations and predeclare equal-HUC and leave-one-HUC influence summaries as descriptive sensitivities",
+      "rationale": "the frozen registry has at most 15 HUC2 clusters, so exact enumeration is both cheaper than 50000 draws and removes avoidable Monte-Carlo error without changing hypotheses, margins, paired effects, or the Holm family",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-probability-reference-008",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening executable audit of the probabilistic and event-evaluation promises",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "freeze the seasonal event reference, station-balanced descriptive metric aggregation, missing-head status, and exact probability artifact schema before confirmation outcomes are acquired",
+      "rationale": "Brier skill and reliability diagnostics cannot use the confirmation event rate as a reference, and leaving their aggregation or missing-model policy implicit would permit outcome-dependent reporting choices",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-replay-environment-009",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening audit of model-state replay and dependency resolution",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "require an isolated exact replay of every frozen learned model on the frozen validation, calibration, and 2019--2020 development partitions, and bind the opening authorization to the deterministic replay receipt and a fully transitive Python 3.12 dependency lock with package hashes",
+      "rationale": "file existence and direct dependency pins cannot prove that all serialized model members reload to the pre-opening predictions or that a clean environment resolves the same dependency bytes; both checks must be completed before confirmation labels are acquired",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-development-provenance-010",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening audit of the legacy 2006--2020 development panel's source evidence",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "state that development-model reproducibility is conditional on the frozen canonical panel bytes and cannot be called a source-level replay of the original provider responses",
+      "rationale": "the original WTEMP/FLOW/Daymet/gridMET HTTP response bytes, request records, and retrieval timestamps were not retained when the legacy panel was created; immutable panel bytes support downstream replay but do not retroactively supply missing raw provenance",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-chronology-011",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening audit of transductive adaptation and local evidence chronology",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "require the full model suite to be frozen, replayed, and committed before external-site metadata or 2021--2023 predictor covariates are acquired, and bind authorization to replayable Git ancestry and blob hashes",
+      "rationale": "simultaneously binding models and target-cohort covariates does not establish that model choices preceded those covariates; a staged internal commit chain closes ordinary accidental transductive adaptation while explicitly not claiming an external timestamp or malicious-owner guarantee",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-claim-semantics-012",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening adversarial audit of result-language generation",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "freeze structured claim templates, exact five-test coverage, a joint Holm-and-confidence-interval support rule, evidence-conflict wording, and permanent exploratory/limitation scopes before outcomes",
+      "rationale": "regex matching and nonempty files cannot prove that a manuscript decision matches the receipt-bound statistics; deterministic rendering must treat disagreement between the predeclared inferential summaries conservatively and cannot turn non-inferiority into equivalence",
+      "outcome_independent": true
+    },
+    {
+      "amendment_id": "route-a-prelabel-transport-recovery-013",
+      "recorded_date": "2026-07-22",
+      "trigger": "pre-opening failure-mode audit of the fixed multi-request NWIS transport",
+      "post_2020_wtemp_requested_or_inspected": false,
+      "change": "permit create-only transport recovery under the same irreversible opening ID and exact request ledger, only before any normalization or trusted output exists, while prohibiting replacement of partial/inconsistent transactions, sites, requests, models, or statistics",
+      "rationale": "a transient failure among many fixed HTTPS requests should not force a statistically new opening; validating completed request transactions and fetching only absent ones preserves one analysis while still failing closed on any ambiguous partial write",
+      "outcome_independent": true
     }
   ],
   "metadata_candidate_contract": {
@@ -157,6 +299,16 @@
     "feature_order": [
       "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
     ],
+    "primary_estimand": {
+      "population": "the fixed 120-site canonical development registry, with no post-opening station replacement",
+      "admissible_issue": "issue_date and the selected horizon target_date are within 2021-01-01 through 2023-12-31, issue-date WTEMP is finite and observed, and a 32-day history window can be built; other missing inputs are filled only by frozen development-period transforms and retain missingness masks",
+      "admissible_target": "target-date WTEMP is finite and observed under the inclusive qualifier policy; target validity is evaluated independently for h=1,3,7",
+      "model_comparison_keys": "the exact intersection is fixed by the reconstructed admissible forecast registry and every declared model must produce one row on every such key",
+      "station_horizon_reportability": "at least 100 admissible target keys for that station and horizon",
+      "within_station_metric": "unweighted RMSE across that station/horizon's admissible common daily keys",
+      "between_station_effect": "median across reportable stations of RMSE(ThermoRoute)-RMSE(reference), so every retained station contributes one paired effect regardless of daily record count",
+      "interpretation_limit": "performance conditional on observable issue-date and target-date WTEMP under this availability-enriched cohort; not performance over every calendar day or every U.S. river"
+    },
     "wlevel_consumed": false,
     "primary_models": [
       "Persistence", "DampedPersistence", "Climatology", "LightGBM",
@@ -166,6 +318,32 @@
       "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
       "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded"
     ],
+    "probabilistic_event_contract": {
+      "role": "DESCRIPTIVE_NOT_IN_CONFIRMATORY_FIVE_TEST_FAMILY",
+      "eligible_models": "every frozen bundle-backed model with finite q05, q50, q95, and p_exceed on the exact common forecast keys; deterministic built-ins are emitted as NOT_AVAILABLE_NO_PROBABILISTIC_HEAD rather than silently omitted",
+      "ensemble_quantiles": "member-wise averages followed by the frozen 2018 CQR offsets; these are engineering ensemble quantile summaries, not quantiles of a mixture distribution",
+      "temporal_event": "target WTEMP exceeds that station's q90 computed only on the 2006-2015 development training partition",
+      "external_event": "target WTEMP exceeds one pooled q90 computed only from all 2006-2015 development-training observations; this absolute statistical threshold is not site-local, biologically meaningful, ecologically comparable, or regulatory",
+      "event_calibration": "one frozen Platt calibrator per horizon fitted only on 2018 calibration forecasts; no confirmation label or confirmation event rate is used",
+      "interval_calibration": "frozen 2018 CQR offset by station and horizon for the temporal cohort and pooled by horizon for the external cohort",
+      "event_reference_climatology": {
+        "fit_interval": ["2006-01-01", "2018-12-31"],
+        "temporal": "station-by-calendar-month event probability under station train-q90, smoothed with weight 2 toward the station rate and then the global rate",
+        "external": "pooled calendar-month event probability under pooled train-q90, smoothed with weight 2 toward the pooled global rate; no external-site outcome adaptation",
+        "brier_skill": "1 minus station-balanced Brier score divided by the station-balanced Brier score of this frozen seasonal reference; never use the confirmation event rate"
+      },
+      "aggregation": "within each cohort/model/horizon, retain stations with at least 100 exact common targets and weight every retained station equally by assigning each of its rows weight 1/n_station_rows",
+      "metrics": [
+        "90_percent_interval_coverage", "90_percent_interval_mean_width",
+        "equal_weight_three_quantile_pinball_mean_not_CRPS", "Brier_score",
+        "Brier_skill_vs_frozen_seasonal_reference", "log_loss_clipped_1e-6",
+        "AUROC", "AUPRC", "ECE_10_equal_width_bins",
+        "evaluation_calibration_intercept", "evaluation_calibration_slope"
+      ],
+      "undefined_metric_rule": "AUROC, AUPRC, or calibration regression is null with an explicit reason when the retained evaluation outcomes have one class or the weighted fit is not estimable; do not substitute a value",
+      "output_artifact": "trusted/probabilistic_evaluation_v1.json",
+      "inference_prohibited": ["p_value", "confidence_interval", "Holm_adjustment", "pass_fail_decision", "conditional_coverage_claim"]
+    },
     "forecast_key": ["site_no", "horizon", "issue_date", "target_date"],
     "common_keys_required_across_models": true,
     "station_metric": "RMSE on common daily forecast keys",
@@ -181,22 +359,101 @@
       "seed_rule": "1000 + horizon + (100 when reference is LightGBM, else 0)"
     },
     "one_sided_p_value": {
-      "method": "whole-HUC2 cluster sign-flip randomisation",
+      "method": "exact whole-HUC2 cluster sign-flip enumeration",
       "null_assumption": "cluster-level sign symmetry of the paired station effects around the tested margin",
       "alternative": "median paired effect is lower than the tested margin",
       "within_cluster_rule": "apply one common random sign to every station effect in the HUC2 cluster",
       "unverified_huc_rule": "each station lacking verified HUC metadata is a stable singleton cluster",
-      "randomisation_draws": 50000,
-      "monte_carlo_correction": "add one to numerator and denominator",
-      "seed_rule": "5000 + horizon + (100 when reference is LightGBM, else 0)"
+      "enumeration_rule": "enumerate every one of the 2^K sign vectors for the K reportable HUC2/singleton clusters; the frozen cohort has at most 15 verified HUC2 clusters",
+      "maximum_configurations_for_frozen_cohort": 32768,
+      "monte_carlo_correction": "not applicable to exact enumeration",
+      "legacy_seed_field": "retained in each structured test only as an inert backward-compatible identifier; it does not affect the exact p-value"
+    },
+    "exploratory_spatial_inference_sensitivity": {
+      "role": "DESCRIPTIVE_NOT_IN_CONFIRMATORY_FAMILY",
+      "comparisons": "exactly the same five candidate/reference/horizon rows and reportable-station effects used by the primary family",
+      "equal_huc_effect": "take the median station effect within each HUC2, then the median of those HUC2 medians so every HUC2 contributes one regional value",
+      "leave_one_huc": "for each HUC2 in turn, remove all of its stations and recompute the station-weighted median paired effect; report effect-minus-margin but no inferential decision",
+      "output_artifact": "trusted/spatial_sensitivity_v1.json",
+      "comparison_output_schema": [
+        "test_id", "candidate", "reference", "horizon", "margin_c",
+        "station_weighted_median_effect_c", "n_stations", "n_clusters",
+        "equal_huc_median_effect_c", "per_huc", "leave_one_huc",
+        "influence_min_c", "influence_max_c"
+      ],
+      "per_huc_schema": ["huc2", "n_stations", "median_station_effect_c"],
+      "leave_one_huc_schema": ["held_out_huc2", "n_remaining_stations", "n_remaining_clusters", "station_weighted_median_effect_c", "effect_minus_margin_c"],
+      "prohibited_outputs": ["p_value", "confidence_interval", "Holm_adjustment", "pass_fail_decision"],
+      "limitations": "HUC2 is a broad hydrologic region, not proof of independent river-network components; exact sign flipping still relies on cluster-level sign symmetry"
     },
     "confirmatory_family": [
-      "ThermoRoute vs damped persistence superiority at horizon 1, margin 0.00 C",
-      "ThermoRoute vs damped persistence superiority at horizon 3, margin 0.00 C",
-      "ThermoRoute vs damped persistence superiority at horizon 7, margin 0.00 C",
-      "ThermoRoute vs LightGBM non-inferiority at horizon 3, margin +0.05 C",
-      "ThermoRoute vs LightGBM non-inferiority at horizon 7, margin +0.05 C"
+      {
+        "test_id": "H1-h1-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 1,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1001,
+        "sign_flip_seed": 5001,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 1, margin 0.00 C"
+      },
+      {
+        "test_id": "H1-h3-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 3,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1003,
+        "sign_flip_seed": 5003,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 3, margin 0.00 C"
+      },
+      {
+        "test_id": "H1-h7-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 7,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1007,
+        "sign_flip_seed": 5007,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 7, margin 0.00 C"
+      },
+      {
+        "test_id": "H2-h3-vs-lightgbm",
+        "candidate": "ThermoRoute",
+        "reference": "LightGBM",
+        "horizon": 3,
+        "margin_c": 0.05,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1103,
+        "sign_flip_seed": 5103,
+        "description": "ThermoRoute vs LightGBM non-inferiority at horizon 3, margin +0.05 C"
+      },
+      {
+        "test_id": "H2-h7-vs-lightgbm",
+        "candidate": "ThermoRoute",
+        "reference": "LightGBM",
+        "horizon": 7,
+        "margin_c": 0.05,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1107,
+        "sign_flip_seed": 5107,
+        "description": "ThermoRoute vs LightGBM non-inferiority at horizon 7, margin +0.05 C"
+      }
     ],
+    "noninferiority_margin_rationale": "+0.05 degrees C was fixed before confirmation outcomes as a strict numerical ceiling on allowable degradation in the station-median RMSE difference. It is not derived from sensor precision, biological response, water-quality regulation, or a stakeholder utility function, and therefore carries no ecological or regulatory importance claim.",
+    "confirmatory_claim_decision_contract": {
+      "supported_if_and_only_if": "status is ESTIMABLE, Holm-adjusted one-sided p-value is at most 0.05, and the complete percentile confidence interval lies below the predeclared margin (ci_high_c < margin_c)",
+      "evidence_conflict_rule": "if the Holm decision and percentile confidence interval disagree, report EVIDENCE_CONFLICT_NOT_SUPPORTED together with both values; do not select the favorable procedure",
+      "not_estimable_rule": "report NOT_ESTIMABLE with frozen attrition counts and no directional conclusion",
+      "noninferiority_wording_limit": "H2 may say only that the result satisfies the predeclared +0.05 C numerical non-inferiority bound; it may not say equivalent, parity, equally good, ecologically negligible, or regulatorily acceptable",
+      "negative_result_rule": "NOT_SUPPORTED is not evidence of no difference, equivalence, or model failure outside the frozen estimand",
+      "all_five_tests_must_be_rendered_exactly_once": true,
+      "unregistered_overall_success_composite_allowed": false,
+      "external_probability_spatial_and_quality_sensitivities": "permanently exploratory or descriptive"
+    },
     "multiplicity": "Holm step-down adjustment across exactly the five confirmatory one-sided tests",
     "failure_to_reject_is_equivalence": false
   },
@@ -206,6 +463,10 @@
       "frozen disjoint site registry",
       "resolved feature schema",
       "frozen preprocessing and model bundle",
+      "isolated deterministic development replay receipt covering every frozen learned model member and head on validation, calibration, and 2019--2020 development keys",
+      "fully transitive Python 3.12 dependency lock with exact versions and package hashes",
+      "frozen structured claim ledger, deterministic renderer, automatic receipt-derived phase validator, and exact five-test decision templates",
+      "repository-internal chronology evidence proving the model-suite commit precedes external candidate metadata and 2021-2023 predictor acquisition",
       "frozen primary metrics and hypothesis tests",
       "frozen provenance and snapshots for every retrospective input actually consumed by the primary models"
     ],
@@ -213,6 +474,19 @@
     "secondary_nwp_resolution_before_opening": "either ACQUIRED_AND_FROZEN or EXPLICITLY_NOT_USED; acquisition is not a primary-label-opening gate",
     "labels_default_state": "SEALED_NOT_ACQUIRED",
     "maximum_openings": 1
+  },
+  "opening_transport_recovery_contract": {
+    "opening_intent_count": 1,
+    "opening_id_changes_on_resume": false,
+    "request_ledger_changes_on_resume": false,
+    "resume_role": "transport recovery within the same irreversible opening, not a second statistical opening",
+    "existing_transaction_rule": "validate exact request, response, metadata, and hashes for every completed create-only transaction; request only ledger entries with no transaction directory",
+    "partial_transaction_rule": "a partial or inconsistent request transaction is never overwritten and makes the opening indeterminate",
+    "pre_resume_gate": "acquisition manifest, normalized outcome panels, trusted predictions, statistics, report, and receipt must all be absent; otherwise automatic resume is prohibited",
+    "pre_completion_visibility_boundary": "fixed code does not parse, normalize, score, summarize, or render outcomes until every request transaction in the frozen ledger is complete; the honest filesystem owner can still read raw bytes and this is not a malicious-owner security boundary",
+    "station_or_model_replacement_allowed": false,
+    "maximum_network_attempts_per_process_per_missing_request": 3,
+    "attempt_and_resume_evidence_required": true
   },
   "external_new_gage_inference_contract": {
     "role": "EXTERNAL_EXPLORATORY_NOT_IN_PRIMARY_FIVE_TEST_FAMILY",
