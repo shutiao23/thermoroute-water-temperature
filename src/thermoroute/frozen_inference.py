@@ -396,6 +396,74 @@ def reconstruct_frozen_transforms(
         raise FrozenInferenceError("bundle damped minimum mean square is not positive")
     if any(not lower_bound <= value <= upper_bound for value in phi.values()):
         raise FrozenInferenceError("damped phi falls outside its frozen bounds")
+    expected_anchor_keys = {
+        "method", "phi", "fit_stations", "pooled", "fallback", "min_pairs",
+        "coefficient_bounds", "minimum_lagged_anomaly_mean_square",
+        "pair_rule", "pool_weighting", "eligibility_rule",
+        "eligible_fit_stations", "pair_counts",
+        "lagged_anomaly_mean_squares",
+    }
+    if set(anchor_block) != expected_anchor_keys:
+        raise FrozenInferenceError("bundle damped-anchor schema is not exact")
+    if anchor_block.get("eligibility_rule") != F.DAMPED_ELIGIBILITY_RULE:
+        raise FrozenInferenceError("bundle damped eligibility rule differs from frozen code")
+    raw_eligible = anchor_block.get("eligible_fit_stations")
+    if not isinstance(raw_eligible, list) or any(
+        not isinstance(station, str) for station in raw_eligible
+    ):
+        raise FrozenInferenceError("bundle damped eligible-station registry is malformed")
+    eligible_fit_stations = tuple(raw_eligible)
+    if len(set(eligible_fit_stations)) != len(eligible_fit_stations):
+        raise FrozenInferenceError("bundle damped eligible-station registry has duplicates")
+    raw_pair_counts = _require_mapping(
+        anchor_block.get("pair_counts"), label="damped pair counts"
+    )
+    pair_counts: dict[str, int] = {}
+    for station, value in raw_pair_counts.items():
+        if not isinstance(station, str) or type(value) is not int or value < 0:
+            raise FrozenInferenceError("bundle damped pair counts are malformed")
+        pair_counts[station] = value
+    raw_mean_squares = _require_mapping(
+        anchor_block.get("lagged_anomaly_mean_squares"),
+        label="damped lagged-anomaly mean squares",
+    )
+    lagged_anomaly_mean_squares: dict[str, float | None] = {}
+    for station, value in raw_mean_squares.items():
+        if not isinstance(station, str):
+            raise FrozenInferenceError(
+                "bundle damped lagged-anomaly mean-square registry is malformed"
+            )
+        if value is None:
+            lagged_anomaly_mean_squares[station] = None
+            continue
+        number = _float(value, label=f"damped lagged-anomaly mean square {station}")
+        if number < 0.0:
+            raise FrozenInferenceError(
+                "bundle damped lagged-anomaly mean square is negative"
+            )
+        lagged_anomaly_mean_squares[station] = number
+    if (
+        set(pair_counts) != set(training_stations)
+        or set(lagged_anomaly_mean_squares) != set(training_stations)
+    ):
+        raise FrozenInferenceError(
+            "bundle damped eligibility evidence differs from training stations"
+        )
+    def is_anchor_eligible(station: str) -> bool:
+        mean_square = lagged_anomaly_mean_squares[station]
+        return (
+            pair_counts[station] >= min_pairs
+            and mean_square is not None
+            and mean_square >= min_mean_square
+        )
+
+    derived_eligible = tuple(filter(is_anchor_eligible, training_stations))
+    if eligible_fit_stations != derived_eligible:
+        raise FrozenInferenceError("bundle damped eligible-station registry is stale")
+    if anchor_pooled and eligible_fit_stations != training_stations:
+        raise FrozenInferenceError(
+            "pooled damped anchor excludes a declared fit station"
+        )
 
     kwargs = _architecture_kwargs(metadata)
     station_agnostic = bool(kwargs.get("station_agnostic", False))
@@ -538,6 +606,10 @@ def reconstruct_frozen_transforms(
         upper_bound=upper_bound,
         min_mean_square=min_mean_square,
         pool_weighting=STATION_EQUAL_WEIGHTING,
+        eligibility_rule=F.DAMPED_ELIGIBILITY_RULE,
+        eligible_fit_stations=eligible_fit_stations,
+        pair_counts=pair_counts,
+        lagged_anomaly_mean_squares=lagged_anomaly_mean_squares,
     )
     return FrozenTransforms(
         feature_order=feature_order,

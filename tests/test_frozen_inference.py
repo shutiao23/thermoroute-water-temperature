@@ -120,6 +120,14 @@ def _metadata(*, pooled: bool = False, station_agnostic: bool = False):
                 "minimum_lagged_anomaly_mean_square": F.DAMPED_MIN_MEAN_SQUARE,
                 "pair_rule": F.DAMPED_PAIR_RULE,
                 "pool_weighting": STATION_EQUAL_WEIGHTING,
+                "eligibility_rule": F.DAMPED_ELIGIBILITY_RULE,
+                "eligible_fit_stations": list(training_sites),
+                "pair_counts": {
+                    site: F.DAMPED_MIN_PAIRS for site in training_sites
+                },
+                "lagged_anomaly_mean_squares": {
+                    site: 1.0 for site in training_sites
+                },
             },
         },
     }
@@ -203,6 +211,34 @@ def test_external_bundle_rejects_false_pooled_declaration():
         reconstruct_frozen_transforms(
             metadata, ("02000001",), external=True
         )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda block: block["eligible_fit_stations"].pop(),
+            "eligible-station registry is stale",
+        ),
+        (
+            lambda block: block["pair_counts"].pop("01000002"),
+            "eligibility evidence differs",
+        ),
+        (
+            lambda block: block["pair_counts"].update({"extra": 40}),
+            "eligibility evidence differs",
+        ),
+        (
+            lambda block: block.update({"unknown": True}),
+            "schema is not exact",
+        ),
+    ],
+)
+def test_damped_eligibility_metadata_tampering_fails_closed(mutation, message):
+    metadata = _metadata(pooled=True, station_agnostic=True)
+    mutation(metadata["preprocessing"]["damped_anchor"])
+    with pytest.raises(FrozenInferenceError, match=message):
+        reconstruct_frozen_transforms(metadata, ("02000001",), external=True)
 
 
 def test_thermoroute_architecture_is_reconstructed_without_pickle():

@@ -135,6 +135,32 @@ def test_pooled_damped_anchor_is_station_balanced_and_duplication_invariant(
     )
     assert original.phi["a"] == pytest.approx(0.5, abs=1e-12)
     assert original.phi == pytest.approx(duplicated.phi, abs=1e-12)
+    assert original.eligible_fit_stations == ("a", "b")
+    assert original.pair_counts == {"a": 40, "b": 40}
+
+
+def test_pooled_damped_anchor_rejects_any_sparse_fit_station(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panel = _pair_panel({"a": 0.2, "b": 0.8})
+    panel = pd.concat(
+        [
+            panel[panel.site_id.eq("a")],
+            panel[panel.site_id.eq("b")].iloc[:20],
+        ],
+        ignore_index=True,
+    )
+    with pytest.raises(ValueError, match=r"b\(pairs=10<30"):
+        _fit_anchor(monkeypatch, panel, pooled=True)
+
+
+def test_pooled_damped_anchor_rejects_degenerate_fit_station_energy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panel = _pair_panel({"a": 0.2, "b": 0.8})
+    panel.loc[panel.site_id.eq("b"), "WTEMP"] = 0.0
+    with pytest.raises(ValueError, match="lagged_anomaly_mean_square"):
+        _fit_anchor(monkeypatch, panel, pooled=True)
 
 
 def _harmonic_panel(*, repeat_a: int = 1, missing_b: bool = False) -> tuple[
@@ -345,6 +371,9 @@ def test_serialised_pooled_transforms_replay_exactly_and_freeze_methods(
         phi={site: 0.4 for site in training_sites},
         fit_stations=training_sites,
         pooled=True,
+        eligible_fit_stations=training_sites,
+        pair_counts={site: F.DAMPED_MIN_PAIRS for site in training_sites},
+        lagged_anomaly_mean_squares={site: 1.0 for site in training_sites},
     )
     wd = SimpleNamespace(
         var_names=("WTEMP",),
@@ -368,6 +397,11 @@ def test_serialised_pooled_transforms_replay_exactly_and_freeze_methods(
     assert preprocessing["scaler"]["pool_weighting"] == STATION_EQUAL_WEIGHTING
     assert preprocessing["climatology"]["pool_weighting"] == STATION_EQUAL_WEIGHTING
     assert preprocessing["damped_anchor"]["pool_weighting"] == STATION_EQUAL_WEIGHTING
+    assert preprocessing["damped_anchor"]["eligibility_rule"] == (
+        F.DAMPED_ELIGIBILITY_RULE
+    )
+    assert preprocessing["damped_anchor"]["eligible_fit_stations"] == ["a", "b"]
+    assert preprocessing["damped_anchor"]["pair_counts"] == {"a": 30, "b": 30}
 
     metadata = {
         "feature_order": ["WTEMP"],

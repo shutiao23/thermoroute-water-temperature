@@ -950,6 +950,48 @@ def serialise_preprocessing(wd: Any, climatology: Any, imputer: D.Imputer) -> di
                 for day, value in series.items() if np.isfinite(value)
             }
     imputer_pooled = bool(getattr(imputer, "pooled", False))
+    anchor = wd.damped_anchor
+    anchor_fit_stations = tuple(str(value) for value in anchor.fit_stations)
+    eligible_fit_stations = tuple(
+        str(value) for value in anchor.eligible_fit_stations
+    )
+    pair_counts = {
+        str(station): int(value) for station, value in anchor.pair_counts.items()
+    }
+    mean_squares = {
+        str(station): (
+            None if value is None else float(value)
+        )
+        for station, value in anchor.lagged_anomaly_mean_squares.items()
+    }
+    if (
+        anchor.eligibility_rule != F.DAMPED_ELIGIBILITY_RULE
+        or not anchor_fit_stations
+        or len(set(anchor_fit_stations)) != len(anchor_fit_stations)
+        or set(pair_counts) != set(anchor_fit_stations)
+        or set(mean_squares) != set(anchor_fit_stations)
+        or any(type(value) is not int or value < 0 for value in pair_counts.values())
+        or any(
+            value is not None and (not np.isfinite(value) or value < 0.0)
+            for value in mean_squares.values()
+        )
+    ):
+        raise ModelSuiteError("damped-anchor eligibility evidence is malformed")
+    def is_anchor_eligible(station: str) -> bool:
+        mean_square = mean_squares[station]
+        return (
+            pair_counts[station] >= int(anchor.min_pairs)
+            and mean_square is not None
+            and mean_square >= float(anchor.min_mean_square)
+        )
+
+    derived_eligible = tuple(filter(is_anchor_eligible, anchor_fit_stations))
+    if eligible_fit_stations != derived_eligible:
+        raise ModelSuiteError("damped-anchor eligible-station registry is stale")
+    if bool(anchor.pooled) and eligible_fit_stations != anchor_fit_stations:
+        raise ModelSuiteError(
+            "pooled damped anchor silently excludes a declared fit station"
+        )
     return {
         "input_schema": {
             "variables": list(wd.var_names),
@@ -1002,23 +1044,27 @@ def serialise_preprocessing(wd: Any, climatology: Any, imputer: D.Imputer) -> di
             "pooled": bool(climatology.pooled),
         },
         "damped_anchor": {
-            "method": F.POOLED_DAMPED_AR_METHOD if wd.damped_anchor.pooled
+            "method": F.POOLED_DAMPED_AR_METHOD if anchor.pooled
                       else F.DAMPED_AR_METHOD,
             "phi": {str(station): float(value)
-                    for station, value in sorted(wd.damped_anchor.phi.items())},
-            "fit_stations": list(wd.damped_anchor.fit_stations),
-            "pooled": bool(wd.damped_anchor.pooled),
-            "fallback": float(wd.damped_anchor.fallback),
-            "min_pairs": int(wd.damped_anchor.min_pairs),
+                    for station, value in sorted(anchor.phi.items())},
+            "fit_stations": list(anchor_fit_stations),
+            "pooled": bool(anchor.pooled),
+            "fallback": float(anchor.fallback),
+            "min_pairs": int(anchor.min_pairs),
             "coefficient_bounds": [
-                float(wd.damped_anchor.lower_bound),
-                float(wd.damped_anchor.upper_bound),
+                float(anchor.lower_bound),
+                float(anchor.upper_bound),
             ],
             "minimum_lagged_anomaly_mean_square": float(
-                wd.damped_anchor.min_mean_square
+                anchor.min_mean_square
             ),
             "pair_rule": F.DAMPED_PAIR_RULE,
             "pool_weighting": STATION_EQUAL_WEIGHTING,
+            "eligibility_rule": F.DAMPED_ELIGIBILITY_RULE,
+            "eligible_fit_stations": list(eligible_fit_stations),
+            "pair_counts": dict(sorted(pair_counts.items())),
+            "lagged_anomaly_mean_squares": dict(sorted(mean_squares.items())),
         },
     }
 

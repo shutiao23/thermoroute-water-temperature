@@ -7,7 +7,8 @@ evaluated at the *target* time ``t+h`` are NOT leakage.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import math
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,9 @@ DAMPED_MIN_PAIRS = 30
 DAMPED_LOWER_BOUND = 0.0
 DAMPED_UPPER_BOUND = 0.999
 DAMPED_MIN_MEAN_SQUARE = 1e-12
+DAMPED_ELIGIBILITY_RULE = (
+    "all_fit_stations_min_pairs_and_lagged_anomaly_energy_required_when_pooled_v1"
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +131,12 @@ class DampedPersistenceAnchor:
     upper_bound: float = DAMPED_UPPER_BOUND
     min_mean_square: float = DAMPED_MIN_MEAN_SQUARE
     pool_weighting: str = STATION_EQUAL_WEIGHTING
+    eligibility_rule: str = DAMPED_ELIGIBILITY_RULE
+    eligible_fit_stations: tuple[str, ...] = ()
+    pair_counts: dict[str, int] = field(default_factory=dict)
+    lagged_anomaly_mean_squares: dict[str, float | None] = field(
+        default_factory=dict
+    )
 
     @classmethod
     def fit(
@@ -154,6 +164,10 @@ class DampedPersistenceAnchor:
         if min_mean_square <= 0.0:
             raise ValueError("damped anchor minimum mean square must be positive")
         fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
+        if not fitted or len(set(fitted)) != len(fitted):
+            raise ValueError(
+                "damped anchor fit-station registry must be non-empty and unique"
+            )
         allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()
         tr = panel.loc[allowed]
 
@@ -176,6 +190,45 @@ class DampedPersistenceAnchor:
             x, y = pairs(station)
             per_station[station] = (x, y)
 
+        pair_counts = {
+            station: int(len(values[0]))
+            for station, values in per_station.items()
+        }
+        mean_squares: dict[str, float | None] = {}
+        eligible_stations: list[str] = []
+        ineligible_reasons: list[str] = []
+        for station in fitted:
+            x, _y = per_station[station]
+            mean_square = float(np.mean(np.square(x))) if len(x) else math.nan
+            finite_mean_square = (
+                mean_square if np.isfinite(mean_square) and mean_square >= 0.0
+                else None
+            )
+            mean_squares[station] = finite_mean_square
+            reasons: list[str] = []
+            if len(x) < min_pairs:
+                reasons.append(f"pairs={len(x)}<{min_pairs}")
+            if finite_mean_square is None:
+                reasons.append("lagged_anomaly_mean_square=nonfinite")
+            elif finite_mean_square < min_mean_square:
+                reasons.append(
+                    "lagged_anomaly_mean_square="
+                    f"{finite_mean_square:.17g}<{min_mean_square:.17g}"
+                )
+            if reasons:
+                ineligible_reasons.append(f"{station}({';'.join(reasons)})")
+            else:
+                eligible_stations.append(station)
+
+        # A pooled coefficient described as equal-station must really give every
+        # declared fit station a vote.  Silently dropping a sparse/degenerate
+        # station changes the estimand and makes the frozen provenance false.
+        if pooled and ineligible_reasons:
+            raise ValueError(
+                "pooled damped anchor requires every fit station to be eligible: "
+                + ", ".join(ineligible_reasons)
+            )
+
         def estimate(x: np.ndarray, y: np.ndarray, default: float) -> float:
             if len(x) < min_pairs:
                 return float(default)
@@ -188,12 +241,7 @@ class DampedPersistenceAnchor:
                 if np.isfinite(value) else float(default)
             )
 
-        eligible = [
-            (x, y) for x, y in per_station.values()
-            if len(x) >= min_pairs
-            and np.isfinite(np.mean(np.square(x)))
-            and float(np.mean(np.square(x))) >= min_mean_square
-        ]
+        eligible = [per_station[station] for station in eligible_stations]
         if eligible:
             numerator = float(np.mean([
                 np.mean(x * y) for x, y in eligible
@@ -227,6 +275,10 @@ class DampedPersistenceAnchor:
             upper_bound=upper_bound,
             min_mean_square=min_mean_square,
             pool_weighting=STATION_EQUAL_WEIGHTING,
+            eligibility_rule=DAMPED_ELIGIBILITY_RULE,
+            eligible_fit_stations=tuple(eligible_stations),
+            pair_counts=pair_counts,
+            lagged_anomaly_mean_squares=mean_squares,
         )
 
     def predict(
