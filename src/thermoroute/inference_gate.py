@@ -443,7 +443,8 @@ def validate_inference_amendment(
         "post_2020_wtemp_requested_or_inspected", "outcome_independent",
         "base_protocol", "base_protocol_seal", "scientific_comparisons",
         "estimand_scope", "inference_scope", "decision_overlay",
-        "additional_preopen_gates", "lineage_contract",
+        "additional_preopen_gates", "trusted_scoring_recovery_contract",
+        "lineage_contract",
     }
     if set(amendment) != required:
         raise InferenceGateError("inference amendment schema changed")
@@ -510,6 +511,49 @@ def validate_inference_amendment(
         or policy.get("post_2020_wtemp_requested_or_inspected") is not False
     ):
         raise InferenceGateError("outcome-QC policy amendment binding changed")
+    recovery = amendment.get("trusted_scoring_recovery_contract")
+    expected_recovery = {
+        "maximum_raw_label_acquisitions": 1,
+        "second_label_acquisition_allowed": False,
+        "raw_transport_resume_before_acquisition_manifest": (
+            "same_opening_identifier_and_exact_frozen_request_ledger_only; "
+            "fetch_only_wholly_absent_transactions; normalized_derived_and_"
+            "trusted_outputs_must_all_be_absent"
+        ),
+        "raw_transport_resume_after_acquisition_manifest_allowed": False,
+        "raw_acquisition_child_after_acquisition_manifest_allowed": False,
+        "trusted_completion_after_acquisition_manifest": (
+            "network_free_deterministic_replay_under_the_same_opening_identifier"
+        ),
+        "trusted_publication": (
+            "generate_and_validate_one_complete_private_same_filesystem_directory_"
+            "then_publish_by_one_directory_rename"
+        ),
+        "absent_canonical_trusted_directory": (
+            "discard_or_ignore_noncanonical_staging_directories_and_recompute_a_"
+            "complete_generation"
+        ),
+        "complete_canonical_trusted_directory_without_receipt": (
+            "fully_replay_and_validate_all_trusted_artifacts_then_create_the_"
+            "receipt_only"
+        ),
+        "partial_invalid_or_noncanonical_trusted_directory": (
+            "FAIL_CLOSED_NO_REPLACEMENT"
+        ),
+        "valid_receipt_without_external_sha256_sidecar": (
+            "fully_validate_receipt_and_bound_artifacts_then_derive_the_missing_"
+            "sidecar_only"
+        ),
+        "external_sha256_sidecar_without_receipt": "FAIL_CLOSED",
+        "security_scope": (
+            "honest_owner_misoperation_and_replay_guard_not_a_malicious_same_uid_"
+            "or_owner_security_boundary"
+        ),
+    }
+    if not isinstance(recovery, Mapping) or dict(recovery) != expected_recovery:
+        raise InferenceGateError(
+            "inference amendment trusted-scoring recovery contract changed"
+        )
     lineage = amendment.get("lineage_contract")
     if not isinstance(lineage, Mapping) or lineage != {
         "base_v1_files_remain_immutable": True,

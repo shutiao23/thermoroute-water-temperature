@@ -170,4 +170,13 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
         "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_"
         "directional_reporting_gate_not_complete_outcome_quality_certification"
     )
+    recovery = amendment["trusted_scoring_recovery_contract"]
+    assert recovery["maximum_raw_label_acquisitions"] == 1
+    assert recovery["second_label_acquisition_allowed"] is False
+    assert recovery["raw_transport_resume_after_acquisition_manifest_allowed"] is False
+    assert recovery["raw_acquisition_child_after_acquisition_manifest_allowed"] is False
+    assert recovery["partial_invalid_or_noncanonical_trusted_directory"] == (
+        "FAIL_CLOSED_NO_REPLACEMENT"
+    )
+    assert recovery["external_sha256_sidecar_without_receipt"] == "FAIL_CLOSED"
     assert amendment["lineage_contract"]["base_v1_files_remain_immutable"] is True

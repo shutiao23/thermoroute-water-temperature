@@ -4,8 +4,11 @@
 ``execute`` accepts only the frozen authorization.  It launches the fixed
 isolated orchestrator, raw-only acquisition child and fresh trusted scorer; no
 callback, module name, command, output path or alternate transport is accepted.
-``resume`` accepts that same authorization only and can continue wholly absent
-entries in the already-frozen request ledger under the original opening intent.
+``resume`` accepts that same authorization only.  Before the acquisition
+manifest exists it may fetch only wholly absent entries in the already-frozen
+request ledger.  After that manifest exists it never launches the raw child;
+it may only finish network-free deterministic trusted scoring, canonical
+publication, receipt creation, or a missing receipt-digest sidecar.
 
 Examples
 --------
@@ -230,7 +233,10 @@ def resume(args: argparse.Namespace) -> None:
         "status": receipt["status"],
         "opening_id": receipt["opening_id"],
         "opening_count": receipt["opening_count"],
-        "transport_resume": "COMPLETED_UNDER_ORIGINAL_INTENT",
+        "same_opening_resume": (
+            "RAW_TRANSPORT_OR_NETWORK_FREE_TRUSTED_COMPLETION_"
+            "UNDER_ORIGINAL_INTENT"
+        ),
         "state_namespace": receipt["state_paths"]["namespace"],
         "receipt": receipt["state_paths"]["receipt"],
         "receipt_sha256": receipt["state_paths"]["receipt_sha256"],
@@ -306,7 +312,10 @@ def main() -> None:
 
     resume_parser = sub.add_parser(
         "resume",
-        help="continue only missing raw requests under the existing opening intent",
+        help=(
+            "resume missing raw requests before the acquisition manifest, or "
+            "finish network-free trusted publication/receipt recovery afterward"
+        ),
     )
     resume_parser.add_argument(
         "--authorization", type=Path, default=DEFAULT_AUTHORIZATION

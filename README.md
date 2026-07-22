@@ -173,11 +173,27 @@ The intended order is strict:
 5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET
    inputs without requesting outcome values; commit those exact bytes.
 6. Replay Git ancestry and blob hashes, then create one immutable authorization.
-7. Execute the fixed raw-only acquisition child and trusted scorer. Network
-   transport may continue only within the same opening ID and exact request ledger,
-   before any normalized or trusted output exists.
-8. Render all five statements automatically from the verified receipt and build a
-   completed release profile.
+7. Execute the fixed raw-only acquisition child and trusted scorer. Before the
+   acquisition manifest exists, network transport may resume only within the same
+   opening ID and exact request ledger, only for wholly absent transactions, and
+   only while normalized, derived, and trusted outputs are all absent. Once the
+   acquisition manifest exists, the raw child is permanently disabled; a resume
+   can only perform network-free deterministic trusted recomputation, atomic
+   trusted-directory publication, receipt completion, or validated sidecar repair.
+8. Render all five statements atomically and idempotently from the verified receipt
+   with `python scripts/26_validate_claims.py --root . --registry
+   protocols/route_a_claim_registry_v1.json --write-generated-results
+   --require-complete`, then build a completed release profile.
+
+Trusted recovery never means a second label acquisition. A wholly absent canonical
+`trusted/` directory is recomputed as a complete generation in a private
+same-filesystem staging directory and published by one directory rename. A complete
+canonical trusted generation without a receipt is fully replayed before receipt
+creation. Partial, invalid, extra, linked, or otherwise noncanonical trusted
+contents are not repaired or replaced. A valid receipt with only its digest sidecar
+missing may regenerate that sidecar after full validation; a sidecar without its
+receipt fails closed. These guards address honest-owner interruption and
+misoperation, not a malicious filesystem owner or same-UID adversary.
 
 Failure of the chronology gate demotes the exercise to retrospective exploration.
 

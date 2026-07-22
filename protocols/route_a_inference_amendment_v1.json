@@ -105,6 +105,21 @@
       "role": "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_directional_reporting_gate_not_complete_outcome_quality_certification"
     }
   },
+  "trusted_scoring_recovery_contract": {
+    "maximum_raw_label_acquisitions": 1,
+    "second_label_acquisition_allowed": false,
+    "raw_transport_resume_before_acquisition_manifest": "same_opening_identifier_and_exact_frozen_request_ledger_only; fetch_only_wholly_absent_transactions; normalized_derived_and_trusted_outputs_must_all_be_absent",
+    "raw_transport_resume_after_acquisition_manifest_allowed": false,
+    "raw_acquisition_child_after_acquisition_manifest_allowed": false,
+    "trusted_completion_after_acquisition_manifest": "network_free_deterministic_replay_under_the_same_opening_identifier",
+    "trusted_publication": "generate_and_validate_one_complete_private_same_filesystem_directory_then_publish_by_one_directory_rename",
+    "absent_canonical_trusted_directory": "discard_or_ignore_noncanonical_staging_directories_and_recompute_a_complete_generation",
+    "complete_canonical_trusted_directory_without_receipt": "fully_replay_and_validate_all_trusted_artifacts_then_create_the_receipt_only",
+    "partial_invalid_or_noncanonical_trusted_directory": "FAIL_CLOSED_NO_REPLACEMENT",
+    "valid_receipt_without_external_sha256_sidecar": "fully_validate_receipt_and_bound_artifacts_then_derive_the_missing_sidecar_only",
+    "external_sha256_sidecar_without_receipt": "FAIL_CLOSED",
+    "security_scope": "honest_owner_misoperation_and_replay_guard_not_a_malicious_same_uid_or_owner_security_boundary"
+  },
   "lineage_contract": {
     "base_v1_files_remain_immutable": true,
     "separate_amendment_seal_required": true,

@@ -343,12 +343,22 @@ and source hashes without reading target-period outcomes. Git chronology must sh
 that the model-suite commit predates candidate metadata and target-period predictor
 artifacts. Any source change after the model freeze invalidates authorization.
 
-The opening creates one irreversible intent and one fixed request ledger. A network
+The opening creates one irreversible intent, one fixed request ledger, and at most
+one raw-label acquisition. Before the acquisition manifest exists, a network
 continuation may fetch only ledger entries whose transaction directory is wholly
-absent, under the same opening identifier. Partial or inconsistent transactions are
-not replaced. After normalization or trusted publication begins, automatic
-continuation is prohibited by the sealed protocol. The trusted scorer writes
-create-only predictions, audits, all five tests, a report, and a self-hashed receipt.
+absent, under the same opening identifier, and only while normalized, derived, and
+trusted outputs are absent. Partial or inconsistent transactions are not replaced.
+After the acquisition manifest exists, raw-network continuation and relaunch of the
+raw child are prohibited, but network-free deterministic trusted completion under
+the same opening identifier remains allowed. The scorer builds and validates one
+complete private same-filesystem trusted directory before one directory-rename
+publication. An absent canonical generation is recomputed; a complete canonical
+generation without a receipt is fully replayed before receipt creation. Partial,
+invalid, or noncanonical canonical contents fail closed and are not replaced. A
+valid receipt missing only its external digest sidecar may regenerate that sidecar
+after full receipt-and-artifact validation; a sidecar without a receipt fails
+closed. This is an honest-owner crash/replay guard, not protection from a malicious
+owner or same-UID adversary.
 
 ## 6. Current progress
 
@@ -442,13 +452,14 @@ official Air2stream calibration run.
 ## 8. Pre-opening results placeholder and stopping rule
 
 No formal result block is present in this byte-frozen pre-opening snapshot. After
-a valid receipt exists, `scripts/26_validate_claims.py` will derive five
-deterministic blocks from the exact statistics artifact and append the sole
-canonical post-opening result layer. Each must appear exactly once, including
-negative, conflicting, or non-estimable outcomes. Handwritten substitutions are
-rejected by body hashes and evidence bindings. Once that generated layer exists,
-the readiness statements in this snapshot are historical provenance rather than
-the current execution status.
+a valid receipt exists, `python scripts/26_validate_claims.py --root . --registry
+protocols/route_a_claim_registry_v1.json --write-generated-results
+--require-complete` derives five deterministic blocks from the exact statistics
+artifact and atomically and idempotently writes the sole canonical post-opening
+result layer. Each must appear exactly once, including negative, conflicting, or
+non-estimable outcomes. Handwritten substitutions are rejected by body hashes and
+evidence bindings. Once that generated layer exists, the readiness statements in
+this snapshot are historical provenance rather than the current execution status.
 
 ## 9. Data and code availability
 
