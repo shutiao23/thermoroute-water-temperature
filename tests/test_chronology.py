@@ -201,6 +201,7 @@ def _seed_model_commit(
     original_commit: str,
     final_commit: str,
     leak_before_model: bool,
+    lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
 ) -> str:
     original_markdown = subprocess.run(
         [
@@ -277,7 +278,7 @@ def _seed_model_commit(
     model_text = b"tree\n"
     _write(root, "outputs/models/lgb/member_h1_point.txt", model_text)
     lgb_manifest = {
-        "format": "thermoroute.lightgbm-bundle.v1",
+        "format": lightgbm_bundle_format,
         "models": {
             "seed0": {
                 "1": {
@@ -666,6 +667,7 @@ def _repository(
     *,
     leak_before_model: bool = False,
     source_change: bool = False,
+    lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
     root.mkdir()
@@ -682,6 +684,7 @@ def _repository(
         original_commit=original,
         final_commit=final,
         leak_before_model=leak_before_model,
+        lightgbm_bundle_format=lightgbm_bundle_format,
     )
     evidence = _seed_evidence_commit(
         root, candidate_already_exists=leak_before_model
@@ -728,6 +731,27 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     assert validate_prelabel_chronology(
         state["receipt"], root=state["root"]
     ) == document
+
+
+@pytest.mark.parametrize(
+    ("bundle_format", "accepted"),
+    (
+        ("thermoroute.lightgbm-bundle.v2", True),
+        ("thermoroute.lightgbm-bundle.v1", False),
+    ),
+)
+def test_chronology_requires_lightgbm_bundle_v2(
+    tmp_path, bundle_format, accepted
+):
+    state = _repository(tmp_path, lightgbm_bundle_format=bundle_format)
+    if accepted:
+        document = _freeze(state)
+        assert document["status"] == "PASS_REPOSITORY_INTERNAL_PRELABEL_ORDER"
+    else:
+        with pytest.raises(
+            ChronologyError, match="unsupported LightGBM bundle in model suite"
+        ):
+            _freeze(state)
 
 
 def test_gitless_archive_replays_current_chronology_bound_bytes(tmp_path):

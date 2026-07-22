@@ -26,6 +26,7 @@ from typing import Any, Iterable, Mapping
 CHRONOLOGY_FORMAT = "thermoroute.route-a-prelabel-chronology.v1"
 CHRONOLOGY_STATUS = "PASS_REPOSITORY_INTERNAL_PRELABEL_ORDER"
 MODEL_SUITE_FORMAT = "thermoroute.route-a-model-suite.v1"
+LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
 REPLAY_FORMAT = "thermoroute.route-a-development-replay.v1"
 INPUT_MANIFEST_FORMAT = "thermoroute.route-a-prelabel-inputs.v1"
 PROTOCOL_SEAL_FORMAT = "thermoroute.route-a-protocol-seal.v1"
@@ -874,7 +875,7 @@ def _collect_lightgbm_bundle(
     document = _json_from_git(
         root, commit, manifest_path, label="LightGBM bundle manifest"
     )
-    if document.get("format") != "thermoroute.lightgbm-bundle.v1":
+    if document.get("format") != LIGHTGBM_BUNDLE_FORMAT:
         raise ChronologyError("unsupported LightGBM bundle in model suite")
     models = document.get("models")
     if not isinstance(models, Mapping) or not models:
