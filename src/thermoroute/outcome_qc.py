@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 import numpy as np
 import pandas as pd
@@ -648,7 +648,7 @@ def _finite_float(value: object, *, label: str) -> float:
     if isinstance(value, bool):
         raise OutcomeQCGateError(f"{label} is not a finite number")
     try:
-        numeric = float(value)
+        numeric = float(cast(Any, value))
     except (TypeError, ValueError) as exc:
         raise OutcomeQCGateError(f"{label} is not a finite number") from exc
     if not np.isfinite(numeric):
