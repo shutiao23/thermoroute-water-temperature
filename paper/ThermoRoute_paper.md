@@ -428,7 +428,7 @@ registry. Seasonal applicability is assigned by the seven-day window's ending
 date; season-external or incomplete observation windows remain unclassified.
 Missing, unrelated, or ambiguous standard matches fail closed. Any reported
 observed threshold exceedance is descriptive and is not a model result or a legal
-or regulatory compliance determination.
+decision; it does not determine compliance with any law or regulation.
 
 Additional limitations are the availability-enriched station sample; missing
 original provider bytes for the development panel; point-scale meteorology rather

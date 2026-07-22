@@ -498,8 +498,9 @@ def validate_inference_amendment(
             ),
             "required": True,
             "role": (
-                "predeclared_nonfiltering_plausibility_single_extreme_and_"
-                "leave_one_huc_directional_reporting_gate"
+                "predeclared_nonfiltering_gross_plausibility_and_aggregate_"
+                "sensitivity_directional_reporting_gate_not_complete_outcome_"
+                "quality_certification"
             ),
         }
     except OutcomeQCGateError as exc:

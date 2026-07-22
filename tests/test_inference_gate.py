@@ -166,4 +166,8 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
     assert amendment["additional_preopen_gates"]["outcome_qc_policy"][
         "required"
     ] is True
+    assert amendment["additional_preopen_gates"]["outcome_qc_policy"]["role"] == (
+        "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_"
+        "directional_reporting_gate_not_complete_outcome_quality_certification"
+    )
     assert amendment["lineage_contract"]["base_v1_files_remain_immutable"] is True

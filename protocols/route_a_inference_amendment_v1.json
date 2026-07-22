@@ -100,9 +100,9 @@
   "additional_preopen_gates": {
     "outcome_qc_policy": {
       "path": "protocols/route_a_outcome_qc_policy_v1.json",
-      "sha256": "e7b1c356fe7dd7353e33b89fdfba819805eb83ffb76f0f68becf5e5ecd39789c",
+      "sha256": "e8fb0b6857e2c4ce76fc37704ebce3d8b821585362a3a1dd4fe980edbe059b96",
       "required": true,
-      "role": "predeclared_nonfiltering_plausibility_single_extreme_and_leave_one_huc_directional_reporting_gate"
+      "role": "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_directional_reporting_gate_not_complete_outcome_quality_certification"
     }
   },
   "lineage_contract": {

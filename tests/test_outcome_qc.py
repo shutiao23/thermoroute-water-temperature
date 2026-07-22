@@ -32,9 +32,9 @@ def _predictions(*, rows_per_site: int = 4) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     starts = pd.date_range("2021-01-01", periods=rows_per_site, freq="D")
     model_error = {
-        "ThermoRoute": 0.20,
+        "ThermoRoute": 0.25,
         "DampedPersistence": 0.50,
-        "LightGBM": 0.35,
+        "LightGBM": 0.375,
     }
     for site_index, site in enumerate(("a", "b")):
         for horizon in (1, 3, 7):
@@ -47,8 +47,8 @@ def _predictions(*, rows_per_site: int = 4) -> pd.DataFrame:
                         "horizon": horizon,
                         "issue_date": issue_date,
                         "target_date": target_date,
-                        "y_true": 10.0 + site_index,
-                        "y_pred": 10.0 + site_index + error,
+                        "y_true": float(site_index),
+                        "y_pred": float(site_index) + error,
                     })
     return pd.DataFrame(rows)
 
@@ -65,7 +65,7 @@ def _spatial(protocol: dict, *, unstable: bool = False) -> dict:
     comparisons = []
     for test in protocol["primary_inference_contract"]["confirmatory_family"]:
         margin = float(test["margin_c"])
-        full = -0.20
+        full = -0.25 if test["reference"] == "DampedPersistence" else -0.125
         comparisons.append({
             "test_id": test["test_id"],
             "station_weighted_median_effect_c": full,
@@ -111,6 +111,21 @@ def test_policy_is_exact_outcome_free_and_nonfiltering() -> None:
         "primary_statistics_remain_unfiltered"
     ] is True
     assert policy["target_plausibility_gate"]["censor_or_replace_values"] is False
+    assert policy["scope"] == {
+        "name": "GROSS_PLAUSIBILITY_AND_AGGREGATE_SENSITIVITY_ONLY",
+        "not_complete_outcome_quality_certification": True,
+        "unthresholded_risks": [
+            "in_range_temperature_unit_errors",
+            "sensor_drift_or_level_shift",
+            "flatline_or_stuck_sensor",
+            "systematic_qualifier_patterns",
+            "multi_series_conflict_rate",
+            "station_level_influence_hidden_by_aggregation",
+        ],
+    }
+    assert "not_power_calibrated" in policy["threshold_rationale"][
+        "maximum_effect_change_c"
+    ]
 
 
 def test_policy_rejects_alternative_path_and_semantic_tamper(tmp_path: Path) -> None:

@@ -139,7 +139,8 @@ The stage is fail-closed. Missing inputs produce only an empty table and an
 explicit not-performed report; missing, unrelated, or ambiguous site/standard
 matches abort threshold application. An observed value above a registry threshold
 is reported only as a descriptive exceedance. It is not a legal or regulatory
-compliance determination, a forecast result, or evidence of management value.
+decision, does not determine compliance with any law or regulation, and is not a
+forecast result or evidence of management value.
 
 ## Evidence workflow
 

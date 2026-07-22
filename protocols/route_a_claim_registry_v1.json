@@ -20,6 +20,19 @@
     "paper/cover_letter.md",
     "paper/agu_submission/ThermoRoute_WRR.tex"
   ],
+  "preopen_document_sha256": {
+    "README.md": "45a63bf91063dbb044d9bd3fa06596d77c23fafe464e843e8680a4124f2950ba",
+    "paper/ThermoRoute_paper.md": "12b5110b1d58a0d185296fbb62244a1e2645fc24b1dd9c692d67074451c866bd",
+    "paper/highlights.md": "311e5589bf1f6ef30aac052d322add9fe7a0dd41bbb4dd917eadeeae92dcde70",
+    "paper/cover_letter.md": "5f7c7d27ed5746de73211e9315bdc9bc858b5eea9e01d59afbdd9c44aec6a32b",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "882e48bb7e3632a9bffd279282c844b3bed4bf0475807228603dfce34f2a31a3"
+  },
+  "postopen_document_transform": {
+    "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
+    "heading": "# Route-A receipt-derived results",
+    "separator": "TWO_NEWLINES",
+    "terminal_newline": true
+  },
   "phase_resolver": {
     "mode": "DERIVE_NEVER_CLI_OVERRIDE",
     "canonical_authorization": "data_usgs/confirmatory_opening_authorization_v1.json",
@@ -356,7 +369,8 @@
     "NOT_ESTABLISHED": "Route A {test_id}: NOT_ESTABLISHED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; station-median RMSE effect={effect_c} °C, 95% whole-HUC2 cluster-bootstrap CI=[{ci_low_c}, {ci_high_c}] °C, exact whole-HUC2 sign-flip raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
     "EVIDENCE_CONFLICT_NOT_SUPPORTED": "Route A {test_id}: EVIDENCE_CONFLICT_NOT_SUPPORTED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C because the Holm-adjusted exact sign-flip decision and the preregistered whole-HUC2 cluster-bootstrap confidence-bound rule disagree; station-median RMSE effect={effect_c} °C, 95% CI=[{ci_low_c}, {ci_high_c}] °C, raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
     "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED": "Route A {test_id}: DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; in the fixed availability-enriched cohort, station-median RMSE effect={effect_c} °C, n={n_stations} reportable stations in {n_clusters} HUC2 clusters. The whole-HUC2 bootstrap interval [{ci_low_c}, {ci_high_c}] °C, exact sign-flip raw p={p_raw}, and Holm p={p_holm} are assumption-conditional sensitivities only because the frozen inference gate failed; they do not support superiority, non-inferiority, equivalence, parity, or a U.S.-river superpopulation claim.",
-    "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED": "Route A {test_id}: DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; the unfiltered station-median RMSE effect={effect_c} °C, n={n_stations} reportable stations in {n_clusters} HUC2 clusters. The whole-HUC2 bootstrap interval [{ci_low_c}, {ci_high_c}] °C, exact sign-flip raw p={p_raw}, and Holm p={p_holm} are reported descriptively because the frozen predeclared outcome-quality and influence gate failed. No primary row or site was removed, and these values do not support a directional superiority or non-inferiority claim.",
+    "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED": "Route A {test_id}: DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; the unfiltered station-median RMSE effect={effect_c} °C, n={n_stations} reportable stations in {n_clusters} HUC2 clusters. The whole-HUC2 bootstrap interval [{ci_low_c}, {ci_high_c}] °C, exact sign-flip raw p={p_raw}, and Holm p={p_holm} are reported descriptively because the frozen gross-plausibility and aggregate-sensitivity outcome gate failed. No primary row or site was removed, and these values do not support a directional superiority or non-inferiority claim.",
+    "DESCRIPTIVE_ONLY_BOTH_GATES_FAILED": "Route A {test_id}: DESCRIPTIVE_ONLY_BOTH_GATES_FAILED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; the unfiltered fixed-cohort station-median RMSE effect={effect_c} °C, n={n_stations} reportable stations in {n_clusters} HUC2 clusters. The whole-HUC2 bootstrap interval [{ci_low_c}, {ci_high_c}] °C, exact sign-flip raw p={p_raw}, and Holm p={p_holm} are assumption-conditional descriptive sensitivities because both the frozen inference-assumption gate and the frozen gross-plausibility and aggregate-sensitivity outcome gate failed. No primary row or site was removed, and these values do not support superiority, non-inferiority, equivalence, parity, or a U.S.-river superpopulation claim.",
     "NOT_ESTIMABLE": "Route A {test_id}: NOT_ESTIMABLE under the preregistered reportability rule for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; n={n_stations} stations in {n_clusters} clusters."
   },
   "result_claim_specs": [
@@ -501,6 +515,7 @@
     ],
     "inference_gate_failure": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
     "outcome_qc_gate_failure": "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED",
+    "both_gates_failure": "DESCRIPTIVE_ONLY_BOTH_GATES_FAILED",
     "p_ci_disagreement": "EVIDENCE_CONFLICT_NOT_SUPPORTED",
     "coherent_failure": "NOT_ESTABLISHED",
     "nonestimable": "NOT_ESTIMABLE",
@@ -514,12 +529,12 @@
     },
     {
       "lint_id": "LINT_UNSTRUCTURED_ROUTE_A_RESULT",
-      "regex": "((Route[- ]A|confirmatory (evaluation|test|opening|analysis|result)|one[- ]time opening|2021.{0,3}2023|\\bH[12][-_ ][A-Za-z0-9_-]+).{0,100}(confirms?|confirmed|establish(es|ed)?|demonstrates?|supports?|achieves?|outperforms?|superior(ity)?|non[- ]inferior(ity)?|NOT_ESTABLISHED|NOT_ESTIMABLE))|((confirms?|confirmed|establish(es|ed)?|demonstrates?|supports?|achieves?|outperforms?|superior(ity)?|non[- ]inferior(ity)?|NOT_ESTABLISHED|NOT_ESTIMABLE).{0,100}(Route[- ]A|confirmatory (evaluation|test|opening|analysis|result)|one[- ]time opening|2021.{0,3}2023|\\bH[12][-_ ][A-Za-z0-9_-]+))"
+      "regex": "((Route[- ]A|confirmatory (evaluation|test|opening|analysis|result)|one[- ]time opening|2021.{0,3}2023|\\bH[12][-_ ][A-Za-z0-9_-]+).{0,100}\\b(confirms?|confirmed|establish(es|ed)?|demonstrates?|supports?|achieves?|outperforms?|superior(ity)?|non[- ]inferior(ity)?|NOT_ESTABLISHED|NOT_ESTIMABLE)\\b)|(\\b(confirms?|confirmed|establish(es|ed)?|demonstrates?|supports?|achieves?|outperforms?|superior(ity)?|non[- ]inferior(ity)?|NOT_ESTABLISHED|NOT_ESTIMABLE)\\b.{0,100}(Route[- ]A|confirmatory (evaluation|test|opening|analysis|result)|one[- ]time opening|2021.{0,3}2023|\\bH[12][-_ ][A-Za-z0-9_-]+))"
     },
     {
       "lint_id": "LINT_PROBABILITY_DECISION_OVERCLAIM",
       "regex": "conditionally calibrated|guaranteed coverage|optimal management value|proven economic benefit"
     }
   ],
-  "free_text_policy": "ALL_FORMAL_ROUTE_A_RESULTS_MUST_USE_STRUCTURED_CLAIM_BLOCKS; regexes are defense-in-depth lint and are not semantic proof that arbitrary prose contains no paraphrased result claim"
+  "free_text_policy": "REQUIRED_PREOPEN_DOCUMENT_BYTES_ARE_SHA256_FROZEN; POST MAY ONLY APPEND THE DETERMINISTIC RESULT SUFFIX TO DECLARED TARGETS; STRUCTURED_CLAIM_BLOCKS_ARE_AUTHORITATIVE; regexes are defense-in-depth lint only"
 }

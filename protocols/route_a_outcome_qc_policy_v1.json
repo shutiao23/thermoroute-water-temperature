@@ -10,6 +10,24 @@
     "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
   },
   "confirmatory_family_sha256": "473b2ddae17b353b3499413ecd266e684e9b411412bba5463435e8400aedb799",
+  "scope": {
+    "name": "GROSS_PLAUSIBILITY_AND_AGGREGATE_SENSITIVITY_ONLY",
+    "not_complete_outcome_quality_certification": true,
+    "unthresholded_risks": [
+      "in_range_temperature_unit_errors",
+      "sensor_drift_or_level_shift",
+      "flatline_or_stuck_sensor",
+      "systematic_qualifier_patterns",
+      "multi_series_conflict_rate",
+      "station_level_influence_hidden_by_aggregation"
+    ]
+  },
+  "threshold_rationale": {
+    "plausibility_bounds": "broad_prelabel_engineering_sanity_bounds_for_gross_failures_only;_not_ecological_regulatory_sensor_specification_or_development_quantile_bounds",
+    "maximum_effect_change_c": "set_equal_to_the_preregistered_H2_numerical_noninferiority_margin_as_an_operational_reporting_tolerance;_not_power_calibrated_or_externally_validated",
+    "leave_one_huc": "margin_direction_stability_only;_no_guard_band_or_effect_change_threshold",
+    "evidence_limit": "outcome_free_investigator_judgment;_no_independent_custodian_external_validation_or_fault_injection_calibration"
+  },
   "application_contract": {
     "primary_statistics_remain_unfiltered": true,
     "outcome_based_site_or_key_selection_forbidden": true,

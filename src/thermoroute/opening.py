@@ -6974,6 +6974,7 @@ def _render_confirmatory_report(
     availability: pd.DataFrame,
     trusted_predictions: Mapping[str, pd.DataFrame],
     required_models: Mapping[str, Sequence[str]],
+    inference_gate: Mapping[str, Any],
     outcome_quality_audit: Mapping[str, Any],
     outcome_qc_gate: Mapping[str, Any],
     approved_target_sensitivity: Mapping[str, Any],
@@ -6986,6 +6987,19 @@ def _render_confirmatory_report(
     )
     if reportable_flags.isna().any():
         raise OpeningContractError("report received a malformed availability flag")
+    if (
+        not isinstance(inference_gate.get("status"), str)
+        or not isinstance(inference_gate.get("claim_eligible"), bool)
+        or not isinstance(
+            outcome_qc_gate.get("directional_claims_allowed_by_outcome_qc"),
+            bool,
+        )
+    ):
+        raise OpeningContractError("report received a malformed claim gate")
+    combined_directional_gate = bool(
+        inference_gate["claim_eligible"]
+        and outcome_qc_gate["directional_claims_allowed_by_outcome_qc"]
+    )
     reportable = int(reportable_flags.sum())
     reportable_registry = availability.copy()
     reportable_registry["site_no"] = reportable_registry.site_no.astype(str)
@@ -7004,6 +7018,27 @@ def _render_confirmatory_report(
         ),
         "",
         f"Reportable station–horizon cells: {reportable}/{len(availability)}.",
+        "",
+        "## Directional-result gate status",
+        "",
+        (
+            f"Frozen inference-assumption gate: `{inference_gate['status']}`; "
+            f"claim eligible: `{inference_gate['claim_eligible']}`."
+        ),
+        (
+            "Predeclared gross-plausibility and aggregate-sensitivity outcome "
+            "gate: "
+            f"`{outcome_qc_gate['status']}`; directional wording permitted by "
+            "that gate: "
+            f"`{outcome_qc_gate['directional_claims_allowed_by_outcome_qc']}`."
+        ),
+        f"Combined directional-result gate: `{combined_directional_gate}`.",
+        (
+            "The five unfiltered fixed-cohort effects remain reportable. P-values, "
+            "intervals, and margin flags are assumption-conditional diagnostics; "
+            "they are not a directional verdict unless the combined gate is true "
+            "and the separate deterministic claim ledger renders the wording."
+        ),
         "",
         "## Fixed-ledger acquisition transport",
         "",
@@ -7026,7 +7061,7 @@ def _render_confirmatory_report(
         (
             "| Test | Candidate | Reference | h | Margin (°C) | Status | "
             "Effect (°C) | 95% CI (°C) | Stations | HUC2 | Win rate | "
-            "Raw p | Holm p | Reject | CI supports margin |"
+            "Raw p | Holm p | Holm≤0.05 flag | CI-high<margin flag |"
         ),
         (
             "|---|---|---|---:|---:|---|---:|---|---:|---:|---:|---:|---:|"
@@ -7243,7 +7278,7 @@ def _render_confirmatory_report(
         "averaged. Every conflict constituent retains its exact value/qualifier "
         "column, raw qualifier/value, parsed finite value, and raw-response SHA-256.",
         "",
-        "## Predeclared outcome-QC and influence gate",
+        "## Predeclared gross-plausibility and aggregate-sensitivity outcome gate",
         "",
         (
             f"Gate status: `{outcome_qc_gate['status']}`; pass: "
@@ -7256,6 +7291,14 @@ def _render_confirmatory_report(
             "audit removes no primary row or site, changes no model, and performs "
             "no retraining or recalibration. A failed component withholds "
             "directional wording even if a p-value or interval appears favorable."
+        ),
+        (
+            "This is a deliberately narrow reporting gate, not a complete outcome-"
+            "quality certification. It does not establish the absence of in-range "
+            "unit mistakes, sensor drift, step changes, flatlines, systematic "
+            "qualifier problems, or station-level influences hidden by aggregation. "
+            "The separate NWIS audit above reports qualifier and multi-series-conflict "
+            "counts, but those counts are not thresholded by this gate."
         ),
         (
             "Finite confirmation-period WTEMP values checked against the frozen "
@@ -7501,6 +7544,7 @@ def produce_trusted_opening_products(
             availability=availability,
             trusted_predictions=trusted,
             required_models=preflight["suite"]["required_models"],
+            inference_gate=preflight["inference_gate"],
             outcome_quality_audit=quality_audit,
             outcome_qc_gate=outcome_qc_gate,
             approved_target_sensitivity=approved_sensitivity,
@@ -7845,6 +7889,7 @@ def validate_opening_products(
         availability=availability_frame,
         trusted_predictions=trusted_frames,
         required_models=preflight["suite"]["required_models"],
+        inference_gate=preflight["inference_gate"],
         outcome_quality_audit=expected_quality_audit,
         outcome_qc_gate=expected_outcome_qc_gate,
         approved_target_sensitivity=expected_approved_sensitivity,

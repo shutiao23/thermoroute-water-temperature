@@ -1,9 +1,10 @@
-"""Predeclared, non-filtering outcome-QC and influence gate for Route A.
+"""Predeclared, non-filtering gross outcome checks for Route A.
 
 The policy is frozen before labels are opened.  The post-opening computation
 never removes a row from the primary analysis, changes the cohort, or refits a
 model.  It only asks whether directional wording remains defensible after a
-fixed plausibility audit and two fixed influence diagnostics.
+fixed plausibility audit and two fixed influence diagnostics.  It is explicitly
+not a complete sensor or outcome-quality certification.
 """
 
 from __future__ import annotations
@@ -77,6 +78,56 @@ def file_binding(root: str | Path, path: str | Path) -> dict[str, str]:
     }
 
 
+def _canonical_frame_evidence(
+    frame: pd.DataFrame,
+    *,
+    columns: tuple[str, ...],
+    date_columns: frozenset[str],
+    float_columns: frozenset[str],
+) -> dict[str, Any]:
+    """Bind the exact semantic rows consumed by the gate."""
+    if set(columns) - set(frame):
+        raise OutcomeQCGateError("outcome-QC evidence frame lacks required columns")
+    normalized = frame.loc[:, list(columns)].copy()
+    for column in columns:
+        if column in date_columns:
+            try:
+                normalized[column] = pd.to_datetime(
+                    normalized[column], errors="raise"
+                ).dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+            except (TypeError, ValueError) as exc:
+                raise OutcomeQCGateError(
+                    "outcome-QC evidence contains an invalid date"
+                ) from exc
+        elif column in float_columns:
+            numeric = pd.to_numeric(normalized[column], errors="coerce")
+            if np.isinf(numeric.to_numpy(float)).any():
+                raise OutcomeQCGateError(
+                    "outcome-QC evidence contains an infinite numeric value"
+                )
+            normalized[column] = numeric.map(
+                lambda value: "NA" if pd.isna(value) else format(float(value), ".17g")
+            )
+        elif column == "horizon":
+            numeric = pd.to_numeric(normalized[column], errors="raise")
+            if not np.equal(numeric, np.floor(numeric)).all():
+                raise OutcomeQCGateError(
+                    "outcome-QC evidence contains a non-integral horizon"
+                )
+            normalized[column] = numeric.astype(int).astype(str)
+        else:
+            normalized[column] = normalized[column].astype(str)
+    normalized = normalized.sort_values(
+        list(columns), kind="mergesort"
+    ).reset_index(drop=True)
+    payload = normalized.to_csv(index=False, lineterminator="\n").encode("utf-8")
+    return {
+        "canonical_columns": list(columns),
+        "row_count": int(len(normalized)),
+        "canonical_sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
 def _formal_family(protocol: Mapping[str, Any]) -> list[dict[str, Any]]:
     inference = protocol.get("primary_inference_contract")
     family = inference.get("confirmatory_family") if isinstance(
@@ -110,6 +161,38 @@ def _expected_policy(root: Path, protocol: Mapping[str, Any]) -> dict[str, Any]:
         "outcome_independent": True,
         "base_protocol": file_binding(root, protocol_path),
         "confirmatory_family_sha256": sha256_json(family),
+        "scope": {
+            "name": "GROSS_PLAUSIBILITY_AND_AGGREGATE_SENSITIVITY_ONLY",
+            "not_complete_outcome_quality_certification": True,
+            "unthresholded_risks": [
+                "in_range_temperature_unit_errors",
+                "sensor_drift_or_level_shift",
+                "flatline_or_stuck_sensor",
+                "systematic_qualifier_patterns",
+                "multi_series_conflict_rate",
+                "station_level_influence_hidden_by_aggregation",
+            ],
+        },
+        "threshold_rationale": {
+            "plausibility_bounds": (
+                "broad_prelabel_engineering_sanity_bounds_for_gross_failures_only;_"
+                "not_ecological_regulatory_sensor_specification_or_development_"
+                "quantile_bounds"
+            ),
+            "maximum_effect_change_c": (
+                "set_equal_to_the_preregistered_H2_numerical_noninferiority_margin_"
+                "as_an_operational_reporting_tolerance;_not_power_calibrated_or_"
+                "externally_validated"
+            ),
+            "leave_one_huc": (
+                "margin_direction_stability_only;_no_guard_band_or_effect_change_"
+                "threshold"
+            ),
+            "evidence_limit": (
+                "outcome_free_investigator_judgment;_no_independent_custodian_"
+                "external_validation_or_fault_injection_calibration"
+            ),
+        },
         "application_contract": {
             "primary_statistics_remain_unfiltered": True,
             "outcome_based_site_or_key_selection_forbidden": True,
@@ -507,6 +590,16 @@ def build_outcome_qc_gate_document(
         ),
     }
     passed = all(components.values())
+    prediction_columns = (
+        "model",
+        "site_id",
+        "horizon",
+        "issue_date",
+        "target_date",
+        "y_true",
+        "y_pred",
+    )
+    outcome_columns = ("site_no", "DATE", "WTEMP")
     stable: dict[str, Any] = {
         "format": GATE_FORMAT,
         "status": (
@@ -519,6 +612,23 @@ def build_outcome_qc_gate_document(
         },
         "confirmatory_family_sha256": sha256_json(family),
         "minimum_valid_targets_per_station_horizon": minimum_targets,
+        "input_evidence": {
+            "temporal_predictions": _canonical_frame_evidence(
+                temporal_predictions,
+                columns=prediction_columns,
+                date_columns=frozenset({"issue_date", "target_date"}),
+                float_columns=frozenset({"y_true", "y_pred"}),
+            ),
+            "normalized_temporal_wtemp": _canonical_frame_evidence(
+                normalized_temporal,
+                columns=outcome_columns,
+                date_columns=frozenset({"DATE"}),
+                float_columns=frozenset({"WTEMP"}),
+            ),
+            "spatial_sensitivity": {
+                "canonical_json_sha256": sha256_json(spatial_sensitivity)
+            },
+        },
         "primary_statistics_filtered_or_recomputed_on_selected_rows": False,
         "models_retrained_or_recalibrated": False,
         "sites_or_primary_keys_removed_by_qc": False,
@@ -534,6 +644,422 @@ def build_outcome_qc_gate_document(
     return stable
 
 
+def _finite_float(value: object, *, label: str) -> float:
+    if isinstance(value, bool):
+        raise OutcomeQCGateError(f"{label} is not a finite number")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise OutcomeQCGateError(f"{label} is not a finite number") from exc
+    if not np.isfinite(numeric):
+        raise OutcomeQCGateError(f"{label} is not a finite number")
+    return numeric
+
+
+def _optional_finite_float(value: object, *, label: str) -> float | None:
+    return None if value is None else _finite_float(value, label=label)
+
+
+def _validate_input_evidence(value: object) -> None:
+    if not isinstance(value, Mapping) or set(value) != {
+        "temporal_predictions",
+        "normalized_temporal_wtemp",
+        "spatial_sensitivity",
+    }:
+        raise OutcomeQCGateError("outcome-QC input-evidence registry changed")
+    expected_columns = {
+        "temporal_predictions": [
+            "model",
+            "site_id",
+            "horizon",
+            "issue_date",
+            "target_date",
+            "y_true",
+            "y_pred",
+        ],
+        "normalized_temporal_wtemp": ["site_no", "DATE", "WTEMP"],
+    }
+    for name, columns in expected_columns.items():
+        binding = value.get(name)
+        if (
+            not isinstance(binding, Mapping)
+            or set(binding)
+            != {"canonical_columns", "row_count", "canonical_sha256"}
+            or binding.get("canonical_columns") != columns
+            or type(binding.get("row_count")) is not int
+            or int(binding["row_count"]) <= 0
+            or not isinstance(binding.get("canonical_sha256"), str)
+            or len(str(binding["canonical_sha256"])) != 64
+            or any(character not in "0123456789abcdef" for character in str(binding["canonical_sha256"]))
+        ):
+            raise OutcomeQCGateError(f"outcome-QC {name} evidence binding changed")
+    spatial = value.get("spatial_sensitivity")
+    digest = spatial.get("canonical_json_sha256") if isinstance(spatial, Mapping) else None
+    if (
+        not isinstance(spatial, Mapping)
+        or set(spatial) != {"canonical_json_sha256"}
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise OutcomeQCGateError("outcome-QC spatial evidence binding changed")
+
+
+def validate_outcome_qc_gate_structure(
+    document: Mapping[str, Any],
+    *,
+    root: str | Path,
+    policy_path: str | Path,
+    protocol: Mapping[str, Any],
+    minimum_targets: int,
+) -> dict[str, Any]:
+    """Deeply validate the self-contained gate before any raw-data replay."""
+    root_path = Path(root).resolve()
+    policy = validate_outcome_qc_policy(policy_path, root=root_path)
+    family = _formal_family(protocol)
+    if type(minimum_targets) is not int or minimum_targets < 2:
+        raise OutcomeQCGateError("outcome-QC minimum-target contract is invalid")
+    exact_top_level = {
+        "format",
+        "status",
+        "policy",
+        "confirmatory_family_sha256",
+        "minimum_valid_targets_per_station_horizon",
+        "input_evidence",
+        "primary_statistics_filtered_or_recomputed_on_selected_rows",
+        "models_retrained_or_recalibrated",
+        "sites_or_primary_keys_removed_by_qc",
+        "target_plausibility",
+        "single_extreme_influence",
+        "leave_one_huc_direction",
+        "components",
+        "pass",
+        "directional_claims_allowed_by_outcome_qc",
+        "failure_action",
+        "gate_self_sha256",
+    }
+    if set(document) != exact_top_level or document.get("format") != GATE_FORMAT:
+        raise OutcomeQCGateError("outcome-QC gate schema or format changed")
+    stable = dict(document)
+    self_digest = stable.pop("gate_self_sha256")
+    if self_digest != sha256_json(stable):
+        raise OutcomeQCGateError("outcome-QC gate self-hash is invalid")
+    expected_policy = {
+        **file_binding(root_path, Path(policy_path).resolve()),
+        "policy_id": policy["policy_id"],
+    }
+    if document.get("policy") != expected_policy:
+        raise OutcomeQCGateError("outcome-QC gate policy binding changed")
+    if (
+        document.get("confirmatory_family_sha256") != sha256_json(family)
+        or document.get("minimum_valid_targets_per_station_horizon")
+        != minimum_targets
+    ):
+        raise OutcomeQCGateError("outcome-QC gate protocol binding changed")
+    _validate_input_evidence(document.get("input_evidence"))
+
+    plausibility = document.get("target_plausibility")
+    exact_plausibility = {
+        "lower_inclusive_c",
+        "upper_inclusive_c",
+        "finite_confirmation_values_checked",
+        "outside_range_count",
+        "outside_range_values_retained_in_primary_analysis",
+        "outside_range_records",
+        "pass",
+    }
+    if not isinstance(plausibility, Mapping) or set(plausibility) != exact_plausibility:
+        raise OutcomeQCGateError("outcome-QC plausibility schema changed")
+    records = plausibility.get("outside_range_records")
+    finite_count = plausibility.get("finite_confirmation_values_checked")
+    outside_count = plausibility.get("outside_range_count")
+    if (
+        plausibility.get("lower_inclusive_c") != TARGET_LOWER_C
+        or plausibility.get("upper_inclusive_c") != TARGET_UPPER_C
+        or type(finite_count) is not int
+        or int(finite_count) < 0
+        or type(outside_count) is not int
+        or int(outside_count) < 0
+        or int(outside_count) > int(finite_count)
+        or not isinstance(records, list)
+        or len(records) != int(outside_count)
+        or plausibility.get("outside_range_values_retained_in_primary_analysis")
+        is not True
+        or plausibility.get("pass") is not (int(outside_count) == 0)
+    ):
+        raise OutcomeQCGateError("outcome-QC plausibility decision is inconsistent")
+    normalized_records: list[tuple[str, str, float]] = []
+    for record in records:
+        if not isinstance(record, Mapping) or set(record) != {
+            "site_no",
+            "date",
+            "wtemp_c",
+        }:
+            raise OutcomeQCGateError("outcome-QC outside-range record changed")
+        site = str(record.get("site_no", ""))
+        date = str(record.get("date", ""))
+        try:
+            parsed_date = pd.Timestamp(date)
+        except (TypeError, ValueError) as exc:
+            raise OutcomeQCGateError("outcome-QC outside-range date is invalid") from exc
+        value = _finite_float(record.get("wtemp_c"), label="outside-range WTEMP")
+        if not site or parsed_date.strftime("%Y-%m-%d") != date or (
+            TARGET_LOWER_C <= value <= TARGET_UPPER_C
+        ):
+            raise OutcomeQCGateError("outcome-QC outside-range record is inconsistent")
+        normalized_records.append((site, date, value))
+    if normalized_records != sorted(normalized_records, key=lambda item: (item[0], item[1])):
+        raise OutcomeQCGateError("outcome-QC outside-range records are not canonical")
+
+    single = document.get("single_extreme_influence")
+    leave_one = document.get("leave_one_huc_direction")
+    if (
+        not isinstance(single, list)
+        or not isinstance(leave_one, list)
+        or len(single) != len(family)
+        or len(leave_one) != len(family)
+    ):
+        raise OutcomeQCGateError("outcome-QC five-test component registry changed")
+    exact_single = {
+        "test_id",
+        "candidate",
+        "reference",
+        "horizon",
+        "margin_c",
+        "n_reportable_stations",
+        "nonestimable_after_deletion_sites",
+        "primary_unfiltered_effect_c",
+        "one_extreme_per_station_deleted_effect_c",
+        "absolute_effect_change_c",
+        "maximum_allowed_absolute_effect_change_c",
+        "primary_margin_direction",
+        "deleted_margin_direction",
+        "margin_direction_stable",
+        "maximum_selected_combined_sse_share",
+        "maximum_share_site_no",
+        "station_audit",
+        "pass",
+    }
+    exact_station = {
+        "site_no",
+        "n_common_keys",
+        "selected_issue_date",
+        "selected_target_date",
+        "selected_combined_squared_error",
+        "selected_combined_sse_share",
+        "primary_station_effect_c",
+        "deleted_station_effect_c",
+    }
+    checked_single: dict[str, Mapping[str, Any]] = {}
+    for test, row in zip(family, single):
+        if not isinstance(row, Mapping) or set(row) != exact_single:
+            raise OutcomeQCGateError("outcome-QC single-extreme row schema changed")
+        for key in ("test_id", "candidate", "reference", "horizon", "margin_c"):
+            if row.get(key) != test[key]:
+                raise OutcomeQCGateError("outcome-QC single-extreme identity changed")
+        stations = row.get("station_audit")
+        if not isinstance(stations, list):
+            raise OutcomeQCGateError("outcome-QC station audit is malformed")
+        site_rows: list[Mapping[str, Any]] = []
+        sites: list[str] = []
+        for station in stations:
+            if not isinstance(station, Mapping) or set(station) != exact_station:
+                raise OutcomeQCGateError("outcome-QC station-audit schema changed")
+            site = str(station.get("site_no", ""))
+            n_common = station.get("n_common_keys")
+            issue = str(station.get("selected_issue_date", ""))
+            target = str(station.get("selected_target_date", ""))
+            try:
+                issue_date = pd.Timestamp(issue)
+                target_date = pd.Timestamp(target)
+            except (TypeError, ValueError) as exc:
+                raise OutcomeQCGateError("outcome-QC selected date is invalid") from exc
+            squared_error = _finite_float(
+                station.get("selected_combined_squared_error"),
+                label="selected combined squared error",
+            )
+            share = _finite_float(
+                station.get("selected_combined_sse_share"),
+                label="selected combined SSE share",
+            )
+            _finite_float(
+                station.get("primary_station_effect_c"),
+                label="primary station effect",
+            )
+            _optional_finite_float(
+                station.get("deleted_station_effect_c"),
+                label="deleted station effect",
+            )
+            if (
+                not site
+                or type(n_common) is not int
+                or int(n_common) < minimum_targets
+                or issue_date.strftime("%Y-%m-%d") != issue
+                or target_date.strftime("%Y-%m-%d") != target
+                or (target_date - issue_date).days != int(test["horizon"])
+                or squared_error < 0.0
+                or not 0.0 <= share <= 1.0
+            ):
+                raise OutcomeQCGateError("outcome-QC station audit is inconsistent")
+            sites.append(site)
+            site_rows.append(station)
+        if sites != sorted(sites) or len(sites) != len(set(sites)):
+            raise OutcomeQCGateError("outcome-QC station audit is not canonical")
+        if row.get("n_reportable_stations") != len(site_rows):
+            raise OutcomeQCGateError("outcome-QC reportable-station count changed")
+        nonestimable = [
+            str(station["site_no"])
+            for station in site_rows
+            if station["deleted_station_effect_c"] is None
+        ]
+        if row.get("nonestimable_after_deletion_sites") != nonestimable:
+            raise OutcomeQCGateError("outcome-QC nonestimable-site registry changed")
+        primary = (
+            None
+            if not site_rows
+            else float(
+                np.median([
+                    _finite_float(
+                        station["primary_station_effect_c"],
+                        label="primary effect",
+                    )
+                    for station in site_rows
+                ])
+            )
+        )
+        deleted_values = [
+            _finite_float(station["deleted_station_effect_c"], label="deleted effect")
+            for station in site_rows
+            if station["deleted_station_effect_c"] is not None
+        ]
+        deleted = (
+            None
+            if nonestimable or not deleted_values
+            else float(np.median(deleted_values))
+        )
+        change = (
+            None
+            if deleted is None or primary is None
+            else abs(deleted - primary)
+        )
+        margin = float(test["margin_c"])
+        primary_direction = _direction(
+            None if primary is None else primary - margin
+        )
+        deleted_direction = _direction(None if deleted is None else deleted - margin)
+        stable_direction = (
+            primary_direction in {"BELOW_MARGIN", "ABOVE_MARGIN"}
+            and deleted_direction == primary_direction
+        )
+        passed = (
+            change is not None
+            and change <= MAX_EFFECT_CHANGE_C
+            and stable_direction
+            and not nonestimable
+        )
+        maximum = max(
+            site_rows,
+            key=lambda station: (
+                float(station["selected_combined_sse_share"]),
+                str(station["site_no"]),
+            ),
+            default=None,
+        )
+        expected_values = {
+            "primary_unfiltered_effect_c": primary,
+            "one_extreme_per_station_deleted_effect_c": deleted,
+            "absolute_effect_change_c": change,
+            "maximum_allowed_absolute_effect_change_c": MAX_EFFECT_CHANGE_C,
+            "primary_margin_direction": primary_direction,
+            "deleted_margin_direction": deleted_direction,
+            "margin_direction_stable": stable_direction,
+            "maximum_selected_combined_sse_share": (
+                None if maximum is None else maximum["selected_combined_sse_share"]
+            ),
+            "maximum_share_site_no": None if maximum is None else maximum["site_no"],
+            "pass": passed,
+        }
+        if any(row.get(key) != value for key, value in expected_values.items()):
+            raise OutcomeQCGateError("outcome-QC single-extreme algebra changed")
+        checked_single[str(test["test_id"])] = row
+
+    exact_leave_one = {
+        "test_id",
+        "full_effect_minus_margin_c",
+        "full_margin_direction",
+        "leave_one_huc",
+        "all_huc_deletions_match_full_margin_direction",
+        "pass",
+    }
+    exact_huc = {"held_out_huc2", "effect_minus_margin_c", "margin_direction"}
+    for test, row in zip(family, leave_one):
+        if not isinstance(row, Mapping) or set(row) != exact_leave_one:
+            raise OutcomeQCGateError("outcome-QC leave-one-HUC row schema changed")
+        test_id = str(test["test_id"])
+        if row.get("test_id") != test_id:
+            raise OutcomeQCGateError("outcome-QC leave-one-HUC identity changed")
+        primary_effect = checked_single[test_id]["primary_unfiltered_effect_c"]
+        expected_full = (
+            None
+            if primary_effect is None
+            else float(primary_effect) - float(test["margin_c"])
+        )
+        observed = row.get("leave_one_huc")
+        if not isinstance(observed, list) or not observed:
+            raise OutcomeQCGateError("outcome-QC leave-one-HUC registry is empty")
+        huc_ids: list[str] = []
+        for item in observed:
+            if not isinstance(item, Mapping) or set(item) != exact_huc:
+                raise OutcomeQCGateError("outcome-QC leave-one-HUC child schema changed")
+            huc = str(item.get("held_out_huc2", ""))
+            effect = _optional_finite_float(
+                item.get("effect_minus_margin_c"), label="leave-one-HUC effect"
+            )
+            if not huc or item.get("margin_direction") != _direction(effect):
+                raise OutcomeQCGateError("outcome-QC leave-one-HUC child changed")
+            huc_ids.append(huc)
+        if huc_ids != sorted(huc_ids) or len(huc_ids) != len(set(huc_ids)):
+            raise OutcomeQCGateError("outcome-QC leave-one-HUC registry is not canonical")
+        full_direction = _direction(expected_full)
+        stable_huc = (
+            full_direction in {"BELOW_MARGIN", "ABOVE_MARGIN"}
+            and all(item["margin_direction"] == full_direction for item in observed)
+        )
+        if (
+            row.get("full_effect_minus_margin_c") != expected_full
+            or row.get("full_margin_direction") != full_direction
+            or row.get("all_huc_deletions_match_full_margin_direction") is not stable_huc
+            or row.get("pass") is not stable_huc
+        ):
+            raise OutcomeQCGateError("outcome-QC leave-one-HUC algebra changed")
+
+    components = document.get("components")
+    expected_components = {
+        "target_plausibility_pass": bool(plausibility["pass"]),
+        "single_extreme_influence_pass": all(bool(row["pass"]) for row in single),
+        "leave_one_huc_direction_pass": all(bool(row["pass"]) for row in leave_one),
+    }
+    passed = all(expected_components.values())
+    expected_status = (
+        policy["decision"]["pass_status"]
+        if passed
+        else policy["decision"]["failure_status"]
+    )
+    if (
+        components != expected_components
+        or document.get("pass") is not passed
+        or document.get("directional_claims_allowed_by_outcome_qc") is not passed
+        or document.get("status") != expected_status
+        or document.get("failure_action") != policy["decision"]["failure_action"]
+        or document.get("primary_statistics_filtered_or_recomputed_on_selected_rows")
+        is not False
+        or document.get("models_retrained_or_recalibrated") is not False
+        or document.get("sites_or_primary_keys_removed_by_qc") is not False
+    ):
+        raise OutcomeQCGateError("outcome-QC final decision is inconsistent")
+    return dict(document)
+
+
 def validate_outcome_qc_gate_document(
     document: Mapping[str, Any],
     *,
@@ -546,6 +1072,18 @@ def validate_outcome_qc_gate_document(
     minimum_targets: int,
 ) -> dict[str, Any]:
     """Recompute the complete gate and require exact semantic equality."""
+    try:
+        validate_outcome_qc_gate_structure(
+            document,
+            root=root,
+            policy_path=policy_path,
+            protocol=protocol,
+            minimum_targets=minimum_targets,
+        )
+    except OutcomeQCGateError as exc:
+        raise OutcomeQCGateError(
+            "outcome-QC gate result is stale or tampered"
+        ) from exc
     expected = build_outcome_qc_gate_document(
         root=root,
         policy_path=policy_path,
