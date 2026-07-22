@@ -127,7 +127,10 @@ from thermoroute.checkpoint import (
 from thermoroute.model_suite import (
     ABLATION_INTERVENTIONS,
     MANDATORY_ABLATIONS,
+    STAGE9_AIR2STREAM_DISPLAY_NAME,
+    STAGE9_AIR2STREAM_MODELS,
     STAGE9_COMPLETION_RECEIPT_PATH,
+    STAGE9_LIGHTGBM_VALIDATION_GRID,
     ModelSuiteError,
     build_stage09_completion_receipt,
     canonical_development_contract,
@@ -138,6 +141,8 @@ from thermoroute.model_suite import (
     publish_stage09_completion_receipt,
     save_lightgbm_bundle,
     serialise_preprocessing,
+    stage09_air2stream_report_status,
+    stage09_outputs_are_canonical,
     torch_entry,
     update_lightgbm_development_prediction,
     update_torch_development_prediction,
@@ -184,13 +189,8 @@ configure_deterministic_runtime()
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")  # +gridMET wind
 CFG = C.TrainConfig(batch_size=1536)         # larger batch ⇒ fewer steps on 100k+ samples
 DELTA_SCALE = C.DELTA_SCALE   # single source (config.py); val-selected (11_retune)
-AIR2STREAM_DISPLAY_NAME = "Air2stream-style a4/a8 (unofficial, non-primary)"
-LGB_VALIDATION_GRID = (
-    {"num_leaves": 15, "min_child_samples": 40, "learning_rate": 0.03},
-    {"num_leaves": 31, "min_child_samples": 40, "learning_rate": 0.03},
-    {"num_leaves": 63, "min_child_samples": 40, "learning_rate": 0.03},
-    {"num_leaves": 31, "min_child_samples": 80, "learning_rate": 0.05},
-)
+AIR2STREAM_DISPLAY_NAME = STAGE9_AIR2STREAM_DISPLAY_NAME
+LGB_VALIDATION_GRID = STAGE9_LIGHTGBM_VALIDATION_GRID
 _t0 = time.time()
 
 
@@ -232,8 +232,60 @@ def seed0_ablation_diagnostic_frames(
         )
 
     normal = frame.copy()
-    normal["issue_date"] = pd.to_datetime(normal["issue_date"])
-    normal["target_date"] = pd.to_datetime(normal["target_date"])
+    if (
+        not normal["site_id"].map(
+            lambda value: isinstance(value, str)
+            and bool(value)
+            and value == value.strip()
+        ).all()
+        or pd.api.types.is_bool_dtype(normal["seed"].dtype)
+        or not pd.api.types.is_integer_dtype(normal["seed"].dtype)
+        or pd.api.types.is_bool_dtype(normal["horizon"].dtype)
+        or not pd.api.types.is_integer_dtype(normal["horizon"].dtype)
+    ):
+        raise ValueError("seed0 ablation diagnostic has noncanonical key dtypes")
+    for column in ("issue_date", "target_date"):
+        if (
+            str(normal[column].dtype) != "datetime64[ns]"
+            or normal[column].isna().any()
+            or not normal[column].dt.normalize().equals(normal[column])
+        ):
+            raise ValueError(
+                f"seed0 ablation diagnostic has noncanonical {column}"
+            )
+    if (
+        not set(normal["split"].tolist())
+        <= {*C.SPLIT.as_dict(), "none"}
+        or (
+            normal["split"].eq("none")
+            & ~normal["model"].isin(STAGE9_AIR2STREAM_MODELS)
+        ).any()
+        or not np.isfinite(
+            normal[["y_true", "y_pred"]].to_numpy(dtype=float)
+        ).all()
+        or normal.duplicated(["model", "seed", *FORECAST_KEY, "split"]).any()
+    ):
+        raise ValueError(
+            "seed0 ablation diagnostic has invalid split, value, or duplicate key"
+        )
+    expected_split = np.full(len(normal), "none", dtype=object)
+    for split_name, (lower, upper) in C.SPLIT.as_dict().items():
+        mask = normal["issue_date"].between(lower, upper) & normal[
+            "target_date"
+        ].between(lower, upper)
+        expected_split[mask.to_numpy()] = split_name
+    horizon_days = (
+        normal["target_date"] - normal["issue_date"]
+    ).dt.days.to_numpy(dtype=int)
+    if (
+        not np.array_equal(normal["split"].to_numpy(object), expected_split)
+        or not np.array_equal(
+            normal["horizon"].to_numpy(dtype=int), horizon_days
+        )
+    ):
+        raise ValueError(
+            "seed0 ablation diagnostic split/date/horizon contract changed"
+        )
     test_rows = normal[normal["split"].eq(split)]
 
     full_rows = test_rows[test_rows["model"].eq("ThermoRoute")]
@@ -798,6 +850,20 @@ def main():
 
     panel_path = Path(args.panel).resolve()
     registry_path = ROOT / "data_usgs" / "station_registry_v1.csv"
+    output_predictions = (C.PREDICTIONS / args.out_predictions).resolve()
+    score_path = (C.TABLES / args.out_scores).resolve()
+    report_path = (C.REPORTS / args.out_report).resolve()
+    canonical_output_paths = stage09_outputs_are_canonical(
+        root=ROOT,
+        predictions=output_predictions,
+        scores=score_path,
+        report=report_path,
+    )
+    if not canonical_output_paths and not args.exploratory:
+        ap.error(
+            "custom Stage-9 output paths require --exploratory and can never "
+            "publish a formal receipt or model suite"
+        )
     resolved_device = str(resolve_device(args.device))
     if resolved_device != "cpu" and not args.exploratory:
         ap.error("non-CPU Stage-9 runs require --exploratory and cannot publish formal pointers")
@@ -822,6 +888,8 @@ def main():
         "station_registry": registry_path.name,
         "variables": USGS_VARS,
         "horizons": C.HORIZONS,
+        "context_length": C.CONTEXT_LENGTH,
+        "seeds": args.seeds,
         "time_split": C.SPLIT.as_dict(),
         "train_config": asdict(CFG),
         "thermoroute_seeds": C.USGS_SEEDS[:args.seeds],
@@ -1098,7 +1166,6 @@ def main():
         seed0_ablation_diagnostic_frames(allp) if args.ablations else {}
     )
 
-    output_predictions = C.PREDICTIONS / args.out_predictions
     write_prediction_artifact(
         allp,
         output_predictions,
@@ -1277,6 +1344,7 @@ def main():
     formal_complete = (
         canonical_run and full_ensemble and args.ablations
         and formal_candidate and predictor_bridge is not None
+        and canonical_output_paths
         and args.station_sampling == "balanced"
         and np.isclose(args.delta_scale, DELTA_SCALE, rtol=0.0, atol=0.0)
         and set(ablation_deployments) == set(MANDATORY_ABLATIONS)
@@ -1320,7 +1388,6 @@ def main():
             rows.append({"horizon": h, "site": s, "rmse_persist": rp.get(s, np.nan),
                          "rmse_damped": rd.get(s, np.nan), "rmse_thermo": rt.get(s, np.nan)})
     sc = pd.DataFrame(rows)
-    score_path = C.TABLES / args.out_scores
     atomic_write_bytes(score_path, sc.to_csv(index=False).encode("utf-8"))
 
     L = [f"# USGS large-sample experiment ({len(stations)} stations, {args.seeds} seeds)\n",
@@ -1329,6 +1396,7 @@ def main():
          "LightGBM is also a five-seed mean and receives stable site identity as a "
          "categorical feature; its small "
          "predeclared grid is selected by 2016–2017 station-macro RMSE only._\n",
+         stage09_air2stream_report_status(bool(args.air2stream)) + "\n",
          f"| horizon | persist | damped | {AIR2STREAM_DISPLAY_NAME} | "
          "LightGBM | ThermoRoute | "
          "skill vs persist | skill vs damped | win-rate vs damped |",
@@ -1342,8 +1410,12 @@ def main():
         ml = np.median([rl[s] for s in stations if s in rl])
         ra4 = rmse_per_station(a2s_a4, h)
         ra8 = rmse_per_station(a2s_a8, h)
-        ma4 = np.median([ra4[s] for s in stations if s in ra4]) if ra4 else float("nan")
-        ma8 = np.median([ra8[s] for s in stations if s in ra8]) if ra8 else float("nan")
+        if args.air2stream:
+            ma4 = np.median([ra4[s] for s in stations if s in ra4])
+            ma8 = np.median([ra8[s] for s in stations if s in ra8])
+            air_cell = f"{ma4:.3f} / {ma8:.3f}"
+        else:
+            air_cell = "NOT_RUN / NA"
         mp, md, mt = d.rmse_persist.median(), d.rmse_damped.median(), d.rmse_thermo.median()
         sk_p = 1 - (d.rmse_thermo / d.rmse_persist).median()
         sk_d = 1 - (d.rmse_thermo / d.rmse_damped).median()
@@ -1351,7 +1423,7 @@ def main():
         # models; stations with no test samples must not count as losses.
         dv = d.dropna(subset=["rmse_thermo", "rmse_damped"])
         win = float((dv.rmse_thermo < dv.rmse_damped).mean())
-        L.append(f"| {h} | {mp:.3f} | {md:.3f} | {ma4:.3f} / {ma8:.3f} | "
+        L.append(f"| {h} | {mp:.3f} | {md:.3f} | {air_cell} | "
                  f"{ml:.3f} | {mt:.3f} | "
                  f"{sk_p:+.3f} | {sk_d:+.3f} | {win:.2f} |")
     # leave-group-out
@@ -1389,7 +1461,6 @@ def main():
             r = rmse_per_station(sub, h)
             meds.append(np.median([r[s] for s in stations if s in r]))
         L.append(f"| {m} | {meds[0]:.3f} | {meds[1]:.3f} | {meds[2]:.3f} |")
-    report_path = C.REPORTS / args.out_report
     report_payload = ("\n".join(L) + "\n").encode("utf-8")
 
     def write_report() -> None:

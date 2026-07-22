@@ -35,6 +35,7 @@ from .checkpoint import (
     load_inference_bundle,
     neural_output_head_schema,
 )
+from .chronology import STAGE09_ARTIFACT_PATHS
 from .development_controls_gate import (
     DevelopmentControlsGateError,
     validate_stage09b_completion_receipt,
@@ -58,6 +59,7 @@ from .repro import (
     source_tree_hash,
     validate_artifact_sidecar,
 )
+from .registry import FORECAST_KEY
 from .weighting import STATION_EQUAL_WEIGHTING, STATION_SUMMARY_EQUAL_WEIGHTING
 
 
@@ -81,6 +83,13 @@ STAGE9_COMPLETION_ARTIFACTS = (
     "lightgbm_pointer",
     "components_pointer",
 )
+STAGE9_AIR2STREAM_DISPLAY_NAME = (
+    "Air2stream-style a4/a8 (unofficial, non-primary)"
+)
+STAGE9_AIR2STREAM_MODELS = ("Air2stream-a4", "Air2stream-a8")
+STAGE9_LGO_MODEL = "ThermoRoute-LGO-WarmStart"
+STAGE9_KNOWN_SPLITS = frozenset({"train", "val", "calib", "test", "none"})
+STAGE9_POINT_KEY = (*FORECAST_KEY, "split")
 DEVELOPMENT_PREDICTOR_BRIDGE_FORMAT = (
     "thermoroute.development-predictor-bridge.v1"
 )
@@ -100,6 +109,34 @@ LSTM_VALIDATION_GRID = (
     {"d": 64, "layers": 2, "dropout": 0.10, "station_embed_dim": 8,
      "use_derived_context": True, "anchor": "damped"},
 )
+STAGE9_LIGHTGBM_SELECTION_COLUMNS = (
+    "horizon", "candidate_id", "num_leaves", "min_child_samples",
+    "learning_rate", "val_station_macro_rmse", "best_iteration", "selected",
+    "selection_split",
+)
+STAGE9_LIGHTGBM_VALIDATION_GRID = (
+    {"num_leaves": 15, "min_child_samples": 40, "learning_rate": 0.03},
+    {"num_leaves": 31, "min_child_samples": 40, "learning_rate": 0.03},
+    {"num_leaves": 63, "min_child_samples": 40, "learning_rate": 0.03},
+    {"num_leaves": 31, "min_child_samples": 80, "learning_rate": 0.05},
+)
+STAGE9_USGS_VARIABLES = (
+    "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP",
+)
+STAGE9_FORMAL_PROTOCOL = (
+    f"route_a_strict_v1_balanced_delta{C.DELTA_SCALE:g}"
+)
+STAGE9_FORMAL_TRAIN_CONFIG = asdict(C.TrainConfig(batch_size=1536))
+STAGE9_FORMAL_CONFIG_FIELDS = frozenset({
+    "stage", "protocol", "panel", "station_registry", "variables",
+    "horizons", "context_length", "seeds", "time_split", "train_config",
+    "thermoroute_seeds", "lightgbm_seeds", "delta_scale",
+    "station_sampling", "selection_metric", "ablations", "air2stream",
+    "device", "training_device", "execution_role",
+    "development_predictor_bridge", "eval_batch_size",
+    "lightgbm_validation_grid", "event_reference_fit_interval",
+    "formal_numerical_policy",
+})
 PRIMARY_MODELS = (
     "Persistence", "DampedPersistence", "Climatology",
     "LightGBM", "LSTM", "ThermoRoute",
@@ -117,6 +154,10 @@ ABLATION_INTERVENTIONS: dict[str, dict[str, Any]] = {
     "TR-noTCN": {"use_tcn": False},
     "TR-unbounded": {"delta_scale": None},
 }
+STAGE9_PREDICTION_MODELS = (
+    "Persistence", "DampedPersistence", "Climatology",
+    "LightGBM", "ThermoRoute", *MANDATORY_ABLATIONS, STAGE9_LGO_MODEL,
+)
 TEMPORAL_MODELS = PRIMARY_MODELS + MANDATORY_ABLATIONS
 EXTERNAL_MODELS = PRIMARY_MODELS
 BUILTIN_MODELS = frozenset({"Persistence", "DampedPersistence", "Climatology"})
@@ -153,6 +194,50 @@ def file_binding(root: str | Path, path: str | Path) -> dict[str, str]:
     if not path.is_file():
         raise FileNotFoundError(path)
     return {"path": _relative(root, path), "sha256": sha256_file(path)}
+
+
+def canonical_stage09_artifact_paths(run_id: str) -> dict[str, str]:
+    """Return the only paths that may participate in a formal Stage-9 PASS."""
+    if not isinstance(run_id, str) or not run_id:
+        raise ModelSuiteError("Stage-9 canonical paths require a run id")
+    return {
+        "run_manifest": f"outputs/runs/09_usgs_experiment/{run_id}/run.json",
+        **STAGE09_ARTIFACT_PATHS,
+    }
+
+
+def stage09_outputs_are_canonical(
+    *,
+    root: str | Path,
+    predictions: str | Path,
+    scores: str | Path,
+    report: str | Path,
+) -> bool:
+    """Whether the three user-selectable Stage-9 outputs use formal paths."""
+    root = Path(root).resolve()
+    requested = {
+        "predictions": Path(predictions).resolve(),
+        "scores": Path(scores).resolve(),
+        "report": Path(report).resolve(),
+    }
+    return all(
+        path == (root / STAGE09_ARTIFACT_PATHS[label]).resolve()
+        for label, path in requested.items()
+    )
+
+
+def _require_canonical_stage09_paths(
+    root: Path,
+    run_id: str,
+    paths: Mapping[str, Path],
+) -> None:
+    expected = canonical_stage09_artifact_paths(run_id)
+    for label, path in paths.items():
+        expected_relative = expected.get(label)
+        if expected_relative is None or _relative(root, path) != expected_relative:
+            raise ModelSuiteError(
+                f"Stage-9 {label} is not at its exact canonical path"
+            )
 
 
 def development_predictor_bridge_binding(
@@ -1507,59 +1592,55 @@ def _validate_stage09_suite_alignment(
 
 def _stage09_formal_configuration(run_manifest: Mapping[str, Any]) -> dict[str, Any]:
     resolved = run_manifest.get("resolved_config")
-    if not isinstance(resolved, Mapping):
-        raise ModelSuiteError("Stage-9 run manifest lacks resolved configuration")
-    try:
-        string_fields = {
-            name: resolved[name]
-            for name in (
-                "stage", "execution_role", "training_device", "station_sampling",
-            )
-        }
-        delta_scale = resolved["delta_scale"]
-        thermoroute_seeds = resolved["thermoroute_seeds"]
-        lightgbm_seeds = resolved["lightgbm_seeds"]
-        ablations = resolved["ablations"]
-        air2stream = resolved["air2stream"]
-        eval_batch_size = resolved["eval_batch_size"]
-    except KeyError as exc:
-        raise ModelSuiteError(
-            "Stage-9 run manifest has malformed formal configuration"
-        ) from exc
     if (
-        any(not isinstance(value, str) for value in string_fields.values())
-        or isinstance(delta_scale, bool)
-        or not isinstance(delta_scale, (int, float))
-        or not isinstance(thermoroute_seeds, list)
-        or not thermoroute_seeds
-        or any(
-            isinstance(value, bool) or not isinstance(value, int)
-            for value in thermoroute_seeds
-        )
-        or not isinstance(lightgbm_seeds, list)
-        or not lightgbm_seeds
-        or any(
-            isinstance(value, bool) or not isinstance(value, int)
-            for value in lightgbm_seeds
-        )
-        or not isinstance(ablations, bool)
-        or not isinstance(air2stream, bool)
-        or isinstance(eval_batch_size, bool)
-        or not isinstance(eval_batch_size, int)
-        or eval_batch_size < 1
+        not isinstance(resolved, dict)
+        or set(resolved) != STAGE9_FORMAL_CONFIG_FIELDS
+    ):
+        raise ModelSuiteError("Stage-9 run manifest lacks resolved configuration")
+    bridge = resolved["development_predictor_bridge"]
+    numerical_policy = resolved["formal_numerical_policy"]
+    if (
+        resolved["stage"] != "09_usgs_experiment"
+        or resolved["protocol"] != STAGE9_FORMAL_PROTOCOL
+        or resolved["panel"] != "panel_usgs_120v2.parquet"
+        or resolved["station_registry"] != "station_registry_v1.csv"
+        or resolved["variables"] != list(STAGE9_USGS_VARIABLES)
+        or resolved["horizons"] != list(C.HORIZONS)
+        or type(resolved["context_length"]) is not int
+        or resolved["context_length"] != C.CONTEXT_LENGTH
+        or type(resolved["seeds"]) is not int
+        or resolved["seeds"] != len(C.USGS_SEEDS)
+        or resolved["time_split"] != {
+            name: list(interval) for name, interval in C.SPLIT.as_dict().items()
+        }
+        or resolved["train_config"] != STAGE9_FORMAL_TRAIN_CONFIG
+        or resolved["thermoroute_seeds"] != list(C.USGS_SEEDS)
+        or resolved["lightgbm_seeds"] != list(C.USGS_SEEDS)
+        or type(resolved["delta_scale"]) is not float
+        or resolved["delta_scale"] != C.DELTA_SCALE
+        or resolved["station_sampling"] != "balanced"
+        or resolved["selection_metric"] != "station_macro"
+        or resolved["ablations"] is not True
+        or not isinstance(resolved["air2stream"], bool)
+        or resolved["device"] != "cpu"
+        or resolved["training_device"] != "cpu"
+        or resolved["execution_role"] != "route_a_formal_candidate"
+        or not isinstance(bridge, Mapping)
+        or set(bridge) != {"path", "sha256"}
+        or type(resolved["eval_batch_size"]) is not int
+        or resolved["eval_batch_size"] < 1
+        or resolved["lightgbm_validation_grid"] != [
+            dict(params) for params in STAGE9_LIGHTGBM_VALIDATION_GRID
+        ]
+        or resolved["event_reference_fit_interval"]
+        != ["2006-01-01", "2018-12-31"]
+        or not isinstance(numerical_policy, Mapping)
+        or not numerical_policy
     ):
         raise ModelSuiteError(
             "Stage-9 run manifest has malformed formal configuration"
         )
-    return {
-        **string_fields,
-        "delta_scale": float(delta_scale),
-        "thermoroute_seeds": list(thermoroute_seeds),
-        "lightgbm_seeds": list(lightgbm_seeds),
-        "ablations": ablations,
-        "air2stream": air2stream,
-        "eval_batch_size": eval_batch_size,
-    }
+    return json.loads(json.dumps(resolved, sort_keys=True))
 
 
 def _validated_file_binding(
@@ -1630,19 +1711,31 @@ def _load_formal_stage09_manifest(
             "Stage-9 completion receipt is stale for the run or current source"
         )
     configuration = _stage09_formal_configuration(manifest)
+    panel_path = root / "data_usgs" / "panel_usgs_120v2.parquet"
+    registry_path = root / "data_usgs" / "station_registry_v1.csv"
+    try:
+        panel_sha256 = sha256_file(panel_path)
+        registry_sha256 = sha256_file(registry_path)
+    except OSError as exc:
+        raise ModelSuiteError(
+            "Stage-9 canonical panel or station registry is absent"
+        ) from exc
     if (
-        configuration["stage"] != "09_usgs_experiment"
-        or configuration["execution_role"] != "route_a_formal_candidate"
-        or configuration["training_device"] != "cpu"
-        or configuration["station_sampling"] != "balanced"
-        or not np.isclose(
-            configuration["delta_scale"], 1.0, rtol=0.0, atol=0.0
-        )
-        or configuration["thermoroute_seeds"] != list(C.USGS_SEEDS)
-        or configuration["lightgbm_seeds"] != list(C.USGS_SEEDS)
-        or configuration["ablations"] is not True
+        panel_sha256 != identity["panel_sha256"]
+        or registry_sha256 != identity["registry_sha256"]
     ):
-        raise ModelSuiteError("Stage-9 receipt is not the canonical formal run")
+        raise ModelSuiteError(
+            "Stage-9 identity differs from the canonical panel or station registry"
+        )
+    expected_bridge = development_predictor_bridge_binding(
+        root,
+        panel_sha256=panel_sha256,
+        registry_sha256=registry_sha256,
+    )
+    if configuration["development_predictor_bridge"] != expected_bridge:
+        raise ModelSuiteError(
+            "Stage-9 configuration binds another development predictor bridge"
+        )
     provenance = manifest.get("provenance")
     if (
         not isinstance(provenance, Mapping)
@@ -1660,7 +1753,9 @@ def _validate_stage09_prediction_outputs(
     *,
     identity: Mapping[str, Any],
     run_id: str,
-) -> None:
+    configuration: Mapping[str, Any],
+    root: Path,
+) -> pd.DataFrame:
     try:
         prediction_meta = validate_artifact_sidecar(predictions)
     except ValueError as exc:
@@ -1668,14 +1763,615 @@ def _validate_stage09_prediction_outputs(
     if (
         sidecar_path(predictions).resolve() != prediction_sidecar
         or prediction_meta.get("kind") != "canonical_stage9_usgs_predictions"
+        or prediction_meta.get("content_schema") != R.PREDICTION_SCHEMA_VERSION
         or prediction_meta.get("run") != identity
         or identity.get("run_id") != run_id
     ):
         raise ModelSuiteError("Stage-9 prediction binding differs from the run")
+    try:
+        frame = pd.read_parquet(predictions)
+    except (OSError, ValueError, ImportError) as exc:
+        raise ModelSuiteError("Stage-9 prediction parquet is unreadable") from exc
+    registry_path = root / "data_usgs" / "station_registry_v1.csv"
+    try:
+        registry = pd.read_csv(registry_path, dtype={"site_no": "string"})
+    except (
+        OSError, UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError,
+    ) as exc:
+        raise ModelSuiteError("Stage-9 canonical station registry is unreadable") from exc
+    if (
+        sha256_file(registry_path) != identity.get("registry_sha256")
+        or "site_no" not in registry
+        or registry["site_no"].isna().any()
+        or registry["site_no"].duplicated().any()
+    ):
+        raise ModelSuiteError("Stage-9 canonical station registry binding is invalid")
+    expected_sites = tuple(registry["site_no"].astype(str).tolist())
+    if not expected_sites or any(not site or site != site.strip() for site in expected_sites):
+        raise ModelSuiteError("Stage-9 canonical station registry sites are malformed")
+    return _validate_stage09_prediction_frame(
+        frame,
+        configuration=configuration,
+        expected_sites=expected_sites,
+    )
+
+
+def _string_column_is_canonical(frame: pd.DataFrame, column: str) -> bool:
+    values = frame[column].tolist()
+    return bool(values) and all(
+        isinstance(value, str)
+        and bool(value)
+        and value == value.strip()
+        for value in values
+    )
+
+
+def _key_truth_registry(frame: pd.DataFrame) -> dict[tuple[Any, ...], float]:
+    keys = list(STAGE9_POINT_KEY)
+    return {
+        tuple(row): float(truth)
+        for row, truth in zip(
+            frame[keys].itertuples(index=False, name=None),
+            frame["y_true"].to_numpy(dtype=float),
+            strict=True,
+        )
+    }
+
+
+def _require_exact_seed_grid(
+    frame: pd.DataFrame,
+    model: str,
+    expected_seeds: tuple[int, ...],
+) -> None:
+    selected = frame[frame["model"].eq(model)]
+    if selected.empty or set(selected["seed"].tolist()) != set(expected_seeds):
+        raise ModelSuiteError(
+            f"Stage-9 {model} does not have the exact seed registry "
+            f"{expected_seeds}"
+        )
+    counts = selected.groupby(
+        list(STAGE9_POINT_KEY), observed=True, dropna=False
+    ).size()
+    if counts.empty or not counts.eq(len(expected_seeds)).all():
+        raise ModelSuiteError(
+            f"Stage-9 {model} does not contain every seed on every exact key"
+        )
+
+
+def _validate_stage09_prediction_frame(
+    frame: pd.DataFrame,
+    *,
+    configuration: Mapping[str, Any],
+    expected_sites: Sequence[str],
+) -> pd.DataFrame:
+    """Validate the serialized Stage-9 numerical truth without dtype coercion."""
+    if list(frame.columns) != list(R.PRED_COLS) or frame.empty:
+        raise ModelSuiteError("Stage-9 prediction schema is not exact")
+    for column in ("model", "scope", "feature_set", "site_id", "split"):
+        if not _string_column_is_canonical(frame, column):
+            raise ModelSuiteError(
+                f"Stage-9 prediction column {column} is not canonical text"
+            )
+    for column in ("seed", "horizon"):
+        dtype = frame[column].dtype
+        if (
+            pd.api.types.is_bool_dtype(dtype)
+            or not pd.api.types.is_integer_dtype(dtype)
+            or frame[column].isna().any()
+        ):
+            raise ModelSuiteError(
+                f"Stage-9 prediction column {column} must be a non-null integer dtype"
+            )
+    for column in ("issue_date", "target_date"):
+        if str(frame[column].dtype) != "datetime64[ns]" or frame[column].isna().any():
+            raise ModelSuiteError(
+                f"Stage-9 prediction column {column} must be timezone-naive datetime64[ns]"
+            )
+        if not frame[column].dt.normalize().equals(frame[column]):
+            raise ModelSuiteError(
+                f"Stage-9 prediction column {column} must contain midnight dates only"
+            )
+    for column in ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed"):
+        if (
+            pd.api.types.is_bool_dtype(frame[column].dtype)
+            or not pd.api.types.is_float_dtype(frame[column].dtype)
+        ):
+            raise ModelSuiteError(
+                f"Stage-9 prediction column {column} must use floating dtype"
+            )
+    if not np.isfinite(frame[["y_true", "y_pred"]].to_numpy(dtype=float)).all():
+        raise ModelSuiteError("Stage-9 point predictions contain non-finite values")
+    if not set(frame["split"].tolist()) <= STAGE9_KNOWN_SPLITS:
+        raise ModelSuiteError("Stage-9 prediction contains an unknown split")
+    if set(frame["horizon"].tolist()) != set(C.HORIZONS):
+        raise ModelSuiteError("Stage-9 prediction horizons are not exact")
+
+    air2stream = configuration.get("air2stream")
+    if not isinstance(air2stream, bool):
+        raise ModelSuiteError("Stage-9 Air2stream configuration is malformed")
+    expected_models = set(STAGE9_PREDICTION_MODELS)
+    if air2stream:
+        expected_models.update(STAGE9_AIR2STREAM_MODELS)
+    if set(frame["model"].tolist()) != expected_models:
+        raise ModelSuiteError(
+            "Stage-9 prediction model rows disagree with the frozen configuration"
+        )
+
+    time_split = configuration.get("time_split")
+    if not isinstance(time_split, Mapping):
+        raise ModelSuiteError("Stage-9 split configuration is malformed")
+    expected_split = np.full(len(frame), "none", dtype=object)
+    issue = frame["issue_date"]
+    target = frame["target_date"]
+    for split_name in ("train", "val", "calib", "test"):
+        interval = time_split.get(split_name)
+        if not isinstance(interval, (list, tuple)) or len(interval) != 2:
+            raise ModelSuiteError("Stage-9 split configuration is malformed")
+        lower, upper = pd.Timestamp(interval[0]), pd.Timestamp(interval[1])
+        mask = issue.between(lower, upper) & target.between(lower, upper)
+        expected_split[mask.to_numpy()] = split_name
+    if not np.array_equal(frame["split"].to_numpy(object), expected_split):
+        raise ModelSuiteError(
+            "Stage-9 prediction split labels disagree with frozen date windows"
+        )
+    none_rows = frame["split"].eq("none")
+    if none_rows.any() and not frame.loc[
+        none_rows, "model"
+    ].isin(STAGE9_AIR2STREAM_MODELS).all():
+        raise ModelSuiteError(
+            "Stage-9 split=none is reserved for Air2stream boundary rows"
+        )
+
+    duplicate_key = ["model", "seed", *STAGE9_POINT_KEY]
+    if frame.duplicated(duplicate_key).any():
+        raise ModelSuiteError("Stage-9 prediction has duplicate model×seed×key rows")
+    try:
+        R.validate_predictions(frame)
+    except (TypeError, ValueError) as exc:
+        raise ModelSuiteError("Stage-9 prediction values are not canonical") from exc
+
+    truth_counts = frame.groupby(
+        ["model", *STAGE9_POINT_KEY], observed=True, dropna=False
+    )["y_true"].nunique(dropna=False)
+    if truth_counts.empty or not truth_counts.eq(1).all():
+        raise ModelSuiteError("Stage-9 seeds disagree on exact-key y_true")
+
+    five_seeds = tuple(int(seed) for seed in C.USGS_SEEDS)
+    _require_exact_seed_grid(frame, "ThermoRoute", five_seeds)
+    _require_exact_seed_grid(frame, "LightGBM", five_seeds)
+    for model in (
+        "Persistence", "DampedPersistence", "Climatology",
+        *MANDATORY_ABLATIONS, STAGE9_LGO_MODEL,
+        *(STAGE9_AIR2STREAM_MODELS if air2stream else ()),
+    ):
+        _require_exact_seed_grid(frame, model, (0,))
+
+    full_seed0 = frame[
+        frame["model"].eq("ThermoRoute") & frame["seed"].eq(0)
+    ]
+    full_registry = _key_truth_registry(full_seed0)
+    for control in MANDATORY_ABLATIONS:
+        registry = _key_truth_registry(frame[frame["model"].eq(control)])
+        if registry != full_registry:
+            raise ModelSuiteError(
+                f"Stage-9 {control} seed0 keys/y_true differ from ThermoRoute seed0"
+            )
+
+    full_test_registry = _key_truth_registry(
+        full_seed0[full_seed0["split"].eq("test")]
+    )
+    if not full_test_registry:
+        raise ModelSuiteError("Stage-9 ThermoRoute seed0 has no test rows")
+    full_test = full_seed0[full_seed0["split"].eq("test")]
+    if set(full_test["site_id"].tolist()) != set(expected_sites):
+        raise ModelSuiteError(
+            "Stage-9 test predictions do not cover the canonical station registry"
+        )
+    if any(
+        set(full_test.loc[full_test["horizon"].eq(horizon), "site_id"].tolist())
+        != set(expected_sites)
+        for horizon in C.HORIZONS
+    ):
+        raise ModelSuiteError(
+            "Stage-9 test predictions omit a station at a declared horizon"
+        )
+    for model in ("Persistence", "DampedPersistence", "Climatology", "LightGBM"):
+        selected = frame[
+            frame["model"].eq(model)
+            & frame["seed"].eq(0)
+            & frame["split"].eq("test")
+        ]
+        if _key_truth_registry(selected) != full_test_registry:
+            raise ModelSuiteError(
+                f"Stage-9 {model} test keys/y_true differ from ThermoRoute seed0"
+            )
+
+    if air2stream:
+        for model in STAGE9_AIR2STREAM_MODELS:
+            selected = frame[
+                frame["model"].eq(model) & frame["split"].eq("test")
+            ]
+            if _key_truth_registry(selected) != full_test_registry:
+                raise ModelSuiteError(
+                    f"Stage-9 {model} test keys/y_true differ from the headline registry"
+                )
+
+    lgo_test = frame[
+        frame["model"].eq(STAGE9_LGO_MODEL) & frame["split"].eq("test")
+    ]
+    lgo_all = frame[frame["model"].eq(STAGE9_LGO_MODEL)]
+    held_sites = set(lgo_test["site_id"].tolist())
+    permutation = np.random.default_rng(0).permutation(list(expected_sites))
+    expected_held_sites = {
+        str(site) for site in permutation[:max(1, len(expected_sites) // 4)]
+    }
+    persistence_held = frame[
+        frame["model"].eq("Persistence")
+        & frame["split"].eq("test")
+        & frame["site_id"].isin(held_sites)
+    ]
+    if (
+        held_sites != expected_held_sites
+        or set(lgo_all["site_id"].tolist()) != expected_held_sites
+        or any(
+            set(lgo_test.loc[
+                lgo_test["horizon"].eq(horizon), "site_id"
+            ].tolist()) != expected_held_sites
+            for horizon in C.HORIZONS
+        )
+        or _key_truth_registry(lgo_test) != _key_truth_registry(persistence_held)
+    ):
+        raise ModelSuiteError(
+            "Stage-9 warm-start rows differ from the frozen held-site registry"
+        )
+
+    sort_columns = [
+        "model", "seed", "site_id", "horizon", "split",
+        "issue_date", "target_date",
+    ]
+    return frame.sort_values(sort_columns, kind="mergesort").reset_index(drop=True)
+
+
+def _station_rmse_from_predictions(
+    frame: pd.DataFrame,
+    model: str,
+    *,
+    seed: int | None = None,
+) -> dict[tuple[int, str], float]:
+    selected = frame[
+        frame["model"].eq(model) & frame["split"].eq("test")
+    ]
+    if seed is not None:
+        selected = selected[selected["seed"].eq(seed)]
+    collapsed = selected.groupby(
+        list(FORECAST_KEY), as_index=False, observed=True, sort=True
+    ).agg(y_pred=("y_pred", "mean"), y_true=("y_true", "first"))
+    result: dict[tuple[int, str], float] = {}
+    for (horizon, site), group in collapsed.groupby(
+        ["horizon", "site_id"], observed=True, sort=True
+    ):
+        error = group["y_pred"].to_numpy(float) - group["y_true"].to_numpy(float)
+        result[(int(horizon), str(site))] = float(np.sqrt(np.mean(error ** 2)))
+    return result
+
+
+def _expected_stage09_score_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    persistence = _station_rmse_from_predictions(frame, "Persistence", seed=0)
+    damped = _station_rmse_from_predictions(frame, "DampedPersistence", seed=0)
+    thermoroute = _station_rmse_from_predictions(frame, "ThermoRoute")
+    if not persistence or set(persistence) != set(damped) or set(persistence) != set(thermoroute):
+        raise ModelSuiteError("Stage-9 headline station registries differ")
+    rows = [
+        {
+            "horizon": horizon,
+            "site": site,
+            "rmse_persist": persistence[(horizon, site)],
+            "rmse_damped": damped[(horizon, site)],
+            "rmse_thermo": thermoroute[(horizon, site)],
+        }
+        for horizon, site in sorted(persistence)
+    ]
+    return pd.DataFrame(rows, columns=[
+        "horizon", "site", "rmse_persist", "rmse_damped", "rmse_thermo",
+    ])
+
+
+def _expected_stage09_headline_rows(
+    frame: pd.DataFrame,
+    score_frame: pd.DataFrame,
+    *,
+    air2stream: bool,
+) -> dict[str, tuple[str, ...]]:
+    lightgbm = _station_rmse_from_predictions(frame, "LightGBM")
+    air = {
+        model: _station_rmse_from_predictions(frame, model, seed=0)
+        for model in STAGE9_AIR2STREAM_MODELS
+    } if air2stream else {}
+    rows: dict[str, tuple[str, ...]] = {}
+    for horizon in C.HORIZONS:
+        current = score_frame[score_frame["horizon"].eq(horizon)]
+        sites = current["site"].astype(str).tolist()
+        if not sites or any((horizon, site) not in lightgbm for site in sites):
+            raise ModelSuiteError("Stage-9 LightGBM headline registry is incomplete")
+        median_lgb = float(np.median([lightgbm[(horizon, site)] for site in sites]))
+        if air2stream:
+            air_values = []
+            for model in STAGE9_AIR2STREAM_MODELS:
+                values = [
+                    value for (model_horizon, _site), value in air[model].items()
+                    if model_horizon == horizon
+                ]
+                if not values:
+                    raise ModelSuiteError(f"Stage-9 {model} headline rows are absent")
+                air_values.append(float(np.median(values)))
+            air_cell = f"{air_values[0]:.3f} / {air_values[1]:.3f}"
+        else:
+            air_cell = "NOT_RUN / NA"
+        median_persist = float(current["rmse_persist"].median())
+        median_damped = float(current["rmse_damped"].median())
+        median_thermo = float(current["rmse_thermo"].median())
+        skill_persist = 1.0 - float(
+            (current["rmse_thermo"] / current["rmse_persist"]).median()
+        )
+        skill_damped = 1.0 - float(
+            (current["rmse_thermo"] / current["rmse_damped"]).median()
+        )
+        win_rate = float(
+            (current["rmse_thermo"] < current["rmse_damped"]).mean()
+        )
+        rows[str(horizon)] = (
+            f"{median_persist:.3f}", f"{median_damped:.3f}", air_cell,
+            f"{median_lgb:.3f}", f"{median_thermo:.3f}",
+            f"{skill_persist:+.3f}", f"{skill_damped:+.3f}",
+            f"{win_rate:.2f}",
+        )
+    return rows
+
+
+def _expected_stage09_module_rows(
+    frame: pd.DataFrame,
+) -> dict[str, tuple[str, ...]]:
+    rows: dict[str, tuple[str, ...]] = {}
+    for model in ("ThermoRoute", *MANDATORY_ABLATIONS):
+        values = _station_rmse_from_predictions(frame, model, seed=0)
+        cells = []
+        for horizon in C.HORIZONS:
+            horizon_values = [
+                value for (value_horizon, _site), value in values.items()
+                if value_horizon == horizon
+            ]
+            if not horizon_values:
+                raise ModelSuiteError(f"Stage-9 {model} module rows are absent")
+            cells.append(f"{float(np.median(horizon_values)):.3f}")
+        rows[model] = tuple(cells)
+    return rows
+
+
+def _expected_stage09_lgo_rows(
+    frame: pd.DataFrame,
+) -> dict[str, tuple[str, ...]]:
+    lgo = frame[
+        frame["model"].eq(STAGE9_LGO_MODEL) & frame["split"].eq("test")
+    ]
+    held_sites = set(lgo["site_id"].tolist())
+    persistence = frame[
+        frame["model"].eq("Persistence")
+        & frame["split"].eq("test")
+        & frame["site_id"].isin(held_sites)
+    ]
+    rows: dict[str, tuple[str, ...]] = {}
+    for horizon in C.HORIZONS:
+        current_lgo = lgo[lgo["horizon"].eq(horizon)]
+        current_persist = persistence[persistence["horizon"].eq(horizon)]
+        if current_lgo.empty or current_persist.empty:
+            raise ModelSuiteError("Stage-9 warm-start report rows are absent")
+        lgo_error = (
+            current_lgo["y_pred"].to_numpy(float)
+            - current_lgo["y_true"].to_numpy(float)
+        )
+        persistence_error = (
+            current_persist["y_pred"].to_numpy(float)
+            - current_persist["y_true"].to_numpy(float)
+        )
+        lgo_rmse = float(np.sqrt(np.mean(lgo_error ** 2)))
+        persistence_rmse = float(np.sqrt(np.mean(persistence_error ** 2)))
+        rows[str(horizon)] = (
+            f"{lgo_rmse:.3f}",
+            f"{persistence_rmse:.3f}",
+            f"{1.0 - lgo_rmse / persistence_rmse:+.3f}",
+        )
+    return rows
+
+
+def stage09_air2stream_report_status(enabled: bool) -> str:
+    if enabled:
+        return (
+            f"{STAGE9_AIR2STREAM_DISPLAY_NAME}: RUN; both a4 and a8 were executed."
+        )
+    return (
+        f"{STAGE9_AIR2STREAM_DISPLAY_NAME}: NOT_RUN; headline entry is "
+        "NOT_RUN / NA."
+    )
+
+
+def _parse_markdown_table(
+    report_text: str,
+    header: tuple[str, ...],
+    *,
+    label: str,
+) -> dict[str, tuple[str, ...]]:
+    lines = report_text.splitlines()
+    expected_header = "| " + " | ".join(header) + " |"
+    positions = [index for index, line in enumerate(lines) if line == expected_header]
+    if len(positions) != 1:
+        raise ModelSuiteError(f"Stage-9 {label} table header is not exact")
+    start = positions[0]
+    if start + 1 >= len(lines):
+        raise ModelSuiteError(f"Stage-9 {label} table is incomplete")
+    separator = [cell.strip() for cell in lines[start + 1].strip("|").split("|")]
+    if len(separator) != len(header) or any(cell != "---" for cell in separator):
+        raise ModelSuiteError(f"Stage-9 {label} table separator is not exact")
+    rows: dict[str, tuple[str, ...]] = {}
+    for line in lines[start + 2:]:
+        if not line.startswith("|"):
+            break
+        cells = tuple(cell.strip() for cell in line.strip("|").split("|"))
+        if len(cells) != len(header) or not cells[0] or cells[0] in rows:
+            raise ModelSuiteError(f"Stage-9 {label} table rows are malformed")
+        rows[cells[0]] = cells[1:]
+    if not rows:
+        raise ModelSuiteError(f"Stage-9 {label} table has no rows")
+    return rows
+
+
+def _validate_stage09_score_frame(
+    actual: pd.DataFrame,
+    expected: pd.DataFrame,
+) -> None:
+    columns = ["horizon", "site", "rmse_persist", "rmse_damped", "rmse_thermo"]
+    if list(actual.columns) != columns or actual.empty:
+        raise ModelSuiteError("Stage-9 score table schema is not exact")
+    if (
+        pd.api.types.is_bool_dtype(actual["horizon"].dtype)
+        or not pd.api.types.is_integer_dtype(actual["horizon"].dtype)
+        or not _string_column_is_canonical(actual, "site")
+        or actual.duplicated(["horizon", "site"]).any()
+    ):
+        raise ModelSuiteError("Stage-9 score table keys are not canonical")
+    metric_columns = columns[2:]
+    if any(
+        pd.api.types.is_bool_dtype(actual[column].dtype)
+        or not pd.api.types.is_float_dtype(actual[column].dtype)
+        for column in metric_columns
+    ) or not np.isfinite(actual[metric_columns].to_numpy(float)).all():
+        raise ModelSuiteError("Stage-9 score table metrics are not finite floats")
+    actual_sorted = actual.sort_values(["horizon", "site"]).reset_index(drop=True)
+    expected_sorted = expected.sort_values(["horizon", "site"]).reset_index(drop=True)
+    if actual_sorted[["horizon", "site"]].to_dict(
+        orient="records"
+    ) != expected_sorted[["horizon", "site"]].to_dict(orient="records"):
+        raise ModelSuiteError(
+            "Stage-9 score table values differ from the bound predictions"
+        )
+    try:
+        # CSV's decimal parser may choose the adjacent IEEE-754 value even when
+        # the canonical shortest decimal was written.  One ULP is the complete
+        # serialization allowance; this still rejects any scientific change.
+        np.testing.assert_array_max_ulp(
+            actual_sorted[metric_columns].to_numpy(float),
+            expected_sorted[metric_columns].to_numpy(float),
+            maxulp=1,
+        )
+    except AssertionError as exc:
+        raise ModelSuiteError(
+            "Stage-9 score table values differ from the bound predictions"
+        ) from exc
+
+
+def _validate_stage09_lightgbm_selection_frame(
+    selection_frame: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    """Validate the frozen Stage-9 grid, row order, and selection rule."""
+    if (
+        tuple(selection_frame.columns) != STAGE9_LIGHTGBM_SELECTION_COLUMNS
+        or selection_frame.empty
+    ):
+        raise ModelSuiteError("Stage-9 LightGBM selection table schema is not exact")
+    if (
+        pd.api.types.is_bool_dtype(selection_frame["horizon"].dtype)
+        or not pd.api.types.is_integer_dtype(selection_frame["horizon"].dtype)
+        or pd.api.types.is_bool_dtype(selection_frame["candidate_id"].dtype)
+        or not pd.api.types.is_integer_dtype(selection_frame["candidate_id"].dtype)
+        or pd.api.types.is_bool_dtype(selection_frame["num_leaves"].dtype)
+        or not pd.api.types.is_integer_dtype(selection_frame["num_leaves"].dtype)
+        or pd.api.types.is_bool_dtype(selection_frame["min_child_samples"].dtype)
+        or not pd.api.types.is_integer_dtype(
+            selection_frame["min_child_samples"].dtype
+        )
+        or pd.api.types.is_bool_dtype(selection_frame["best_iteration"].dtype)
+        or not pd.api.types.is_integer_dtype(
+            selection_frame["best_iteration"].dtype
+        )
+        or pd.api.types.is_bool_dtype(selection_frame["learning_rate"].dtype)
+        or not pd.api.types.is_float_dtype(selection_frame["learning_rate"].dtype)
+        or not pd.api.types.is_bool_dtype(selection_frame["selected"].dtype)
+        or pd.api.types.is_bool_dtype(
+            selection_frame["val_station_macro_rmse"].dtype
+        )
+        or not pd.api.types.is_float_dtype(
+            selection_frame["val_station_macro_rmse"].dtype
+        )
+        or not _string_column_is_canonical(selection_frame, "selection_split")
+    ):
+        raise ModelSuiteError("Stage-9 LightGBM selection dtypes are not canonical")
+
+    expected_order = [
+        (horizon, candidate_id)
+        for horizon in C.HORIZONS
+        for candidate_id in range(len(STAGE9_LIGHTGBM_VALIDATION_GRID))
+    ]
+    actual_order = list(selection_frame[["horizon", "candidate_id"]].itertuples(
+        index=False, name=None,
+    ))
+    if actual_order != expected_order:
+        raise ModelSuiteError(
+            "Stage-9 LightGBM selection row order is not the frozen "
+            "horizon-by-candidate order"
+        )
+
+    selection_metrics = selection_frame["val_station_macro_rmse"].to_numpy(float)
+    if (
+        not np.isfinite(selection_metrics).all()
+        or (selection_metrics < 0.0).any()
+        or not np.isfinite(selection_frame["learning_rate"].to_numpy(float)).all()
+        or not selection_frame["best_iteration"].gt(0).all()
+        or not selection_frame["selection_split"].eq(
+            "2016-2017 validation"
+        ).all()
+    ):
+        raise ModelSuiteError("Stage-9 LightGBM selection values are invalid")
+
+    for row in selection_frame.itertuples(index=False):
+        expected_params = STAGE9_LIGHTGBM_VALIDATION_GRID[int(row.candidate_id)]
+        actual_params = {
+            "num_leaves": int(row.num_leaves),
+            "min_child_samples": int(row.min_child_samples),
+            "learning_rate": float(row.learning_rate),
+        }
+        if actual_params != expected_params:
+            raise ModelSuiteError(
+                "Stage-9 LightGBM selection parameters differ from the frozen grid"
+            )
+
+    for horizon in C.HORIZONS:
+        current = selection_frame[selection_frame["horizon"].eq(horizon)]
+        expected_candidate = min(
+            current.itertuples(index=False),
+            key=lambda row: (
+                float(row.val_station_macro_rmse), int(row.candidate_id)
+            ),
+        ).candidate_id
+        selected_candidates = current.loc[
+            current["selected"], "candidate_id"
+        ].tolist()
+        if selected_candidates != [expected_candidate]:
+            raise ModelSuiteError(
+                "Stage-9 LightGBM selection is not the deterministic validation "
+                "argmin"
+            )
+
+    return selection_frame.loc[
+        :, STAGE9_LIGHTGBM_SELECTION_COLUMNS
+    ].to_dict(orient="records")
 
 
 def _validate_stage09_report_outputs(
-    report: Path, scores: Path, lightgbm_selection: Path,
+    report: Path,
+    scores: Path,
+    lightgbm_selection: Path,
+    *,
+    prediction_frame: pd.DataFrame,
+    configuration: Mapping[str, Any],
 ) -> None:
     try:
         report_text = report.read_text(encoding="utf-8")
@@ -1685,7 +2381,7 @@ def _validate_stage09_report_outputs(
         "# USGS large-sample experiment",
         "## Random held-station warm-start diagnostic",
         "## Module ablations",
-        "Air2stream-style a4/a8 (unofficial, non-primary)",
+        STAGE9_AIR2STREAM_DISPLAY_NAME,
         "| ThermoRoute |",
         *(f"| {name} |" for name in MANDATORY_ABLATIONS),
     }
@@ -1712,57 +2408,85 @@ def _validate_stage09_report_outputs(
             "Stage-9 report lacks the mandatory seed0 ablation diagnostic contract"
         )
     try:
-        score_frame = pd.read_csv(scores)
+        score_frame = pd.read_csv(scores, dtype={"site": "string"})
         selection_frame = pd.read_csv(lightgbm_selection)
     except (
         OSError, UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError,
     ) as exc:
         raise ModelSuiteError("Stage-9 table output is unreadable") from exc
-    if not {
-        "horizon", "site", "rmse_persist", "rmse_damped", "rmse_thermo",
-    }.issubset(score_frame.columns) or score_frame.empty:
-        raise ModelSuiteError("Stage-9 score table is incomplete")
-    if not {
-        "horizon", "candidate_id", "val_station_macro_rmse", "selected",
-    }.issubset(selection_frame.columns) or selection_frame.empty:
-        raise ModelSuiteError("Stage-9 LightGBM selection table is incomplete")
-    horizons = set(C.HORIZONS)
-    if (
-        set(score_frame["horizon"]) != horizons
-        or score_frame.duplicated(["horizon", "site"]).any()
-        or score_frame["site"].isna().any()
-    ):
-        raise ModelSuiteError("Stage-9 score keys or horizons are incomplete")
-    score_values = score_frame[
-        ["rmse_persist", "rmse_damped", "rmse_thermo"]
-    ].apply(pd.to_numeric, errors="coerce")
-    if (
-        np.isinf(score_values.to_numpy(dtype=float)).any()
-        or any(
-            score_values.loc[score_frame["horizon"].eq(horizon)].isna().all().any()
-            for horizon in horizons
-        )
-    ):
-        raise ModelSuiteError("Stage-9 score metrics are invalid")
-    selected = selection_frame["selected"].astype(str).str.lower().eq("true")
-    selection_metrics = pd.to_numeric(
-        selection_frame["val_station_macro_rmse"], errors="coerce"
+    expected_scores = _expected_stage09_score_frame(prediction_frame)
+    _validate_stage09_score_frame(score_frame, expected_scores)
+    air2stream = configuration.get("air2stream")
+    if not isinstance(air2stream, bool):
+        raise ModelSuiteError("Stage-9 Air2stream configuration is malformed")
+    if stage09_air2stream_report_status(air2stream) not in report_text:
+        raise ModelSuiteError("Stage-9 Air2stream report status is inconsistent")
+    expected_module_heading = (
+        "## Module ablations (single-seed functionality/intervention diagnostic; "
+        "seed0-vs-seed0; median per-station RMSE, "
+        f"delta_scale={configuration['delta_scale']})"
     )
-    if (
-        set(selection_frame["horizon"]) != horizons
-        or selection_frame.duplicated(["horizon", "candidate_id"]).any()
-        or selection_metrics.isna().any()
-        or np.isinf(selection_metrics.to_numpy(dtype=float)).any()
-        or any(
-            len(selection_frame.loc[selection_frame["horizon"].eq(horizon)]) != 4
-            or selected.loc[selection_frame["horizon"].eq(horizon)].sum() != 1
-            or set(selection_frame.loc[
-                selection_frame["horizon"].eq(horizon), "candidate_id"
-            ]) != {0, 1, 2, 3}
-            for horizon in horizons
+    if expected_module_heading not in report_text:
+        raise ModelSuiteError(
+            "Stage-9 report lacks the mandatory seed0 ablation diagnostic contract"
         )
+    expected_sites = prediction_frame.loc[
+        prediction_frame["model"].eq("ThermoRoute")
+        & prediction_frame["seed"].eq(0)
+        & prediction_frame["split"].eq("test"),
+        "site_id",
+    ].nunique()
+    if (
+        f"# USGS large-sample experiment ({expected_sites} stations, 5 seeds)"
+        not in report_text
+        or "ThermoRoute = 5-seed mean" not in report_text
     ):
-        raise ModelSuiteError("Stage-9 LightGBM selection is not one-of-four per horizon")
+        raise ModelSuiteError("Stage-9 headline ensemble description is inconsistent")
+    headline_header = (
+        "horizon", "persist", "damped", STAGE9_AIR2STREAM_DISPLAY_NAME,
+        "LightGBM", "ThermoRoute", "skill vs persist", "skill vs damped",
+        "win-rate vs damped",
+    )
+    actual_headline = _parse_markdown_table(
+        report_text, headline_header, label="headline"
+    )
+    expected_headline = _expected_stage09_headline_rows(
+        prediction_frame, expected_scores, air2stream=air2stream
+    )
+    if actual_headline != expected_headline:
+        raise ModelSuiteError(
+            "Stage-9 headline report values differ from the bound predictions"
+        )
+    held_sites = prediction_frame.loc[
+        prediction_frame["model"].eq(STAGE9_LGO_MODEL)
+        & prediction_frame["split"].eq("test"),
+        "site_id",
+    ].nunique()
+    expected_lgo_heading = (
+        "## Random held-station warm-start diagnostic "
+        f"({expected_sites - held_sites}→{held_sites})"
+    )
+    if expected_lgo_heading not in report_text:
+        raise ModelSuiteError("Stage-9 warm-start report heading is inconsistent")
+    actual_lgo = _parse_markdown_table(
+        report_text,
+        ("horizon", "warm-start RMSE", "persistence RMSE", "warm-start skill"),
+        label="warm-start",
+    )
+    if actual_lgo != _expected_stage09_lgo_rows(prediction_frame):
+        raise ModelSuiteError(
+            "Stage-9 warm-start report values differ from the bound predictions"
+        )
+    actual_modules = _parse_markdown_table(
+        report_text,
+        ("variant", *(f"h{horizon}" for horizon in C.HORIZONS)),
+        label="module ablation",
+    )
+    if actual_modules != _expected_stage09_module_rows(prediction_frame):
+        raise ModelSuiteError(
+            "Stage-9 module report values differ from the bound predictions"
+        )
+    _validate_stage09_lightgbm_selection_frame(selection_frame)
 
 
 def validate_stage09_prepublication_outputs(
@@ -1785,17 +2509,21 @@ def validate_stage09_prepublication_outputs(
         "lightgbm_selection": Path(lightgbm_selection).resolve(),
     }
     paths["prediction_sidecar"] = sidecar_path(paths["predictions"]).resolve()
+    _require_canonical_stage09_paths(root, str(run_id), paths)
     for label, path in paths.items():
         file_binding(root, path)
-    _, identity, _ = _load_formal_stage09_manifest(
+    _, identity, configuration = _load_formal_stage09_manifest(
         paths["run_manifest"], root=root, run_id=str(run_id)
     )
-    _validate_stage09_prediction_outputs(
+    prediction_frame = _validate_stage09_prediction_outputs(
         paths["predictions"], paths["prediction_sidecar"],
-        identity=identity, run_id=str(run_id),
+        identity=identity, run_id=str(run_id), configuration=configuration,
+        root=root,
     )
     _validate_stage09_report_outputs(
-        paths["report"], paths["scores"], paths["lightgbm_selection"]
+        paths["report"], paths["scores"], paths["lightgbm_selection"],
+        prediction_frame=prediction_frame,
+        configuration=configuration,
     )
 
 
@@ -1814,11 +2542,20 @@ def build_stage09_completion_receipt(
 ) -> dict[str, Any]:
     """Bind every formal Stage-9 output after its report and pointers exist."""
     root = Path(root).resolve()
-    run_manifest = Path(run_manifest).resolve()
-    predictions = Path(predictions).resolve()
-    sidecar = sidecar_path(predictions).resolve()
+    paths = {
+        "run_manifest": Path(run_manifest).resolve(),
+        "predictions": Path(predictions).resolve(),
+        "scores": Path(scores).resolve(),
+        "report": Path(report).resolve(),
+        "lightgbm_selection": Path(lightgbm_selection).resolve(),
+        "thermoroute_pointer": Path(thermoroute_pointer).resolve(),
+        "lightgbm_pointer": Path(lightgbm_pointer).resolve(),
+        "components_pointer": Path(components_pointer).resolve(),
+    }
+    paths["prediction_sidecar"] = sidecar_path(paths["predictions"]).resolve()
+    _require_canonical_stage09_paths(root, str(run_id), paths)
     try:
-        manifest = json.loads(run_manifest.read_text(encoding="utf-8"))
+        manifest = json.loads(paths["run_manifest"].read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ModelSuiteError("Stage-9 run manifest is absent or malformed") from exc
     if not isinstance(manifest, Mapping):
@@ -1835,15 +2572,8 @@ def build_stage09_completion_receipt(
         "formal_configuration": _stage09_formal_configuration(manifest),
         "confirmation_outcomes_requested_or_read": False,
         "artifacts": {
-            "run_manifest": file_binding(root, run_manifest),
-            "predictions": file_binding(root, predictions),
-            "prediction_sidecar": file_binding(root, sidecar),
-            "scores": file_binding(root, scores),
-            "report": file_binding(root, report),
-            "lightgbm_selection": file_binding(root, lightgbm_selection),
-            "thermoroute_pointer": file_binding(root, thermoroute_pointer),
-            "lightgbm_pointer": file_binding(root, lightgbm_pointer),
-            "components_pointer": file_binding(root, components_pointer),
+            label: file_binding(root, paths[label])
+            for label in STAGE9_COMPLETION_ARTIFACTS
         },
     }
     document["receipt_self_sha256"] = sha256_json(document)
@@ -1877,6 +2607,10 @@ def validate_stage09_completion_receipt(
     receipt_path = Path(receipt_path).resolve()
     if receipt_path != root and root not in receipt_path.parents:
         raise ModelSuiteError("Stage-9 completion receipt escapes repository")
+    if _relative(root, receipt_path) != STAGE9_COMPLETION_RECEIPT_PATH:
+        raise ModelSuiteError(
+            "Stage-9 completion receipt is not at its exact canonical path"
+        )
     if document is None:
         try:
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -1914,6 +2648,13 @@ def validate_stage09_completion_receipt(
         STAGE9_COMPLETION_ARTIFACTS
     ):
         raise ModelSuiteError("Stage-9 completion artifact registry is incomplete")
+    expected_artifacts = canonical_stage09_artifact_paths(run_id)
+    if any(
+        not isinstance(artifacts[label], Mapping)
+        or artifacts[label].get("path") != expected_artifacts[label]
+        for label in STAGE9_COMPLETION_ARTIFACTS
+    ):
+        raise ModelSuiteError("Stage-9 completion artifact path is not canonical")
     paths = {
         label: _validated_file_binding(root, artifacts[label], label=label)
         for label in STAGE9_COMPLETION_ARTIFACTS
@@ -1926,12 +2667,15 @@ def validate_stage09_completion_receipt(
         raise ModelSuiteError("Stage-9 completion run identity changed")
     if configuration != receipt.get("formal_configuration"):
         raise ModelSuiteError("Stage-9 completion configuration changed")
-    _validate_stage09_prediction_outputs(
+    prediction_frame = _validate_stage09_prediction_outputs(
         paths["predictions"], paths["prediction_sidecar"],
-        identity=identity, run_id=run_id,
+        identity=identity, run_id=run_id, configuration=configuration,
+        root=root,
     )
     _validate_stage09_report_outputs(
-        paths["report"], paths["scores"], paths["lightgbm_selection"]
+        paths["report"], paths["scores"], paths["lightgbm_selection"],
+        prediction_frame=prediction_frame,
+        configuration=configuration,
     )
 
     expected_pointer = Path(stage9_pointer).resolve()
@@ -2009,6 +2753,33 @@ def validate_stage09_completion_receipt(
         raise ModelSuiteError("Stage-9 LightGBM manifest is malformed") from exc
     if not isinstance(lightgbm_manifest, Mapping):
         raise ModelSuiteError("Stage-9 LightGBM manifest is malformed")
+    try:
+        selection_frame = pd.read_csv(paths["lightgbm_selection"])
+    except (
+        OSError, UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError,
+    ) as exc:
+        raise ModelSuiteError("Stage-9 LightGBM selection table is unreadable") from exc
+    selection_records = _validate_stage09_lightgbm_selection_frame(selection_frame)
+    manifest_selection = lightgbm_manifest.get("validation_selection")
+    if not isinstance(manifest_selection, list) or any(
+        not isinstance(record, Mapping)
+        or set(record) != set(STAGE9_LIGHTGBM_SELECTION_COLUMNS)
+        for record in manifest_selection
+    ):
+        raise ModelSuiteError(
+            "Stage-9 LightGBM selection CSV differs from the bound bundle manifest"
+        )
+    normalised_manifest_selection = [
+        {
+            column: record[column]
+            for column in STAGE9_LIGHTGBM_SELECTION_COLUMNS
+        }
+        for record in manifest_selection
+    ]
+    if normalised_manifest_selection != selection_records:
+        raise ModelSuiteError(
+            "Stage-9 LightGBM selection CSV differs from the bound bundle manifest"
+        )
     if (
         tuple(lightgbm_manifest.get("members", ()))
         != tuple(f"seed{seed}" for seed in C.USGS_SEEDS)
