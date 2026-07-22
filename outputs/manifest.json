@@ -9,8 +9,8 @@
   "usgs_predictions": "outputs/predictions/usgs_predictions_v2.parquet",
   "usgs_panel": "data_usgs/panel_usgs_100.parquet",
   "usgs_scores": "outputs/tables/usgs_scores_v2.csv",
-  "cascade_predictions": "outputs/predictions/predictions.parquet",
-  "cascade_scores": "outputs/tables/scores_all.csv"
+  "legacy_three_site_predictions": "outputs/predictions/predictions.parquet",
+  "legacy_three_site_scores": "outputs/tables/scores_all.csv"
  },
  "files": {
   "data/b1.csv": {

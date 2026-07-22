@@ -26,6 +26,7 @@ def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
         ROOT / "scripts/01_prepare_data.py",
         ROOT / "outputs/reports/data_audit.md",
         ROOT / "outputs/reports/review_response.md",
+        ROOT / "outputs/manifest.json",
         ROOT / "paper/ThermoRoute_paper.md",
         ROOT / "paper/agu_submission/ThermoRoute_WRR.tex",
     )
@@ -36,6 +37,7 @@ def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
         r"confirms?\s+b1",
         r"station topology\s*\(directed cascade",
         r"near[- ]deterministic\s+cascade",
+        r'"cascade_(?:predictions|scores)"',
         r"b1\s+is\s+more\s+regulated",
     )
     for pattern in forbidden:
