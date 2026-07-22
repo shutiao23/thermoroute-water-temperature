@@ -416,6 +416,15 @@ Route A does not establish conditional coverage, and its equal-weight three-quan
 <!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM","evidence":{"artifact":"protocol","constraint_id":"P08_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A descriptive probability evaluation","template_id":"NEGATED_LIMITATION_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM"} -->
 <!-- END ROUTE_A_CLAIM -->
 
+The optional ecological-threshold stage is separate from prediction evaluation.
+It can only compare independently sourced observed daily maxima, expressed as a
+strict seven-consecutive-day 7DADM, with a complete site-specific standards
+registry. Seasonal applicability is assigned by the seven-day window's ending
+date; season-external or incomplete observation windows remain unclassified.
+Missing, unrelated, or ambiguous standard matches fail closed. Any reported
+observed threshold exceedance is descriptive and is not a model result or a legal
+or regulatory compliance determination.
+
 Additional limitations are the availability-enriched station sample; missing
 original provider bytes for the development panel; point-scale meteorology rather
 than upstream forcings; unbalanced and coarse HUC2 clusters; daily-mean outcomes;

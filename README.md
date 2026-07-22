@@ -119,6 +119,23 @@ router is restricted to lags 0--14, and the current two-block, kernel-three TCN
 has a theoretical seven-step receptive field. Consequently, no input older than
 lag 14 can affect the current model output.
 
+## Observed 7DADM description
+
+Stage 21 is separate from Route A prediction evaluation. It reads independently
+sourced observations explicitly identified as daily maximum water temperature,
+computes a strict seven-consecutive-day average of daily maxima (7DADM), and
+compares those observations with a site-specific standards registry. It does not
+read or classify model predictions. Applicability is evaluated on the ending date
+of each seven-day window, with one result per jurisdiction/designated-use/species-
+life-stage/season context. A season-external row or a row lacking seven observed
+daily maxima receives no exceedance classification.
+
+The stage is fail-closed. Missing inputs produce only an empty table and an
+explicit not-performed report; missing, unrelated, or ambiguous site/standard
+matches abort threshold application. An observed value above a registry threshold
+is reported only as a descriptive exceedance. It is not a legal or regulatory
+compliance determination, a forecast result, or evidence of management value.
+
 ## Evidence workflow
 
 The intended order is strict:
