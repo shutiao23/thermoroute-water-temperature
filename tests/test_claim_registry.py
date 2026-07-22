@@ -527,6 +527,72 @@ def test_v2_post_renders_exact_five_blocks_and_validates_them(tmp_path, monkeypa
     )
 
 
+def test_v2_post_publisher_is_atomic_idempotent_and_receipt_derived(
+    tmp_path, monkeypatch
+):
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _post_fixture(module, tmp_path, registry, protocol, monkeypatch)
+    paper = tmp_path / "paper" / "main.md"
+
+    first = module.publish_postopen_documents(
+        root=tmp_path, registry_path=registry_path
+    )
+    first_bytes = paper.read_bytes()
+    assert first == {"paper/main.md": hashlib.sha256(first_bytes).hexdigest()}
+    assert module.validate_claims(
+        root=tmp_path, registry_path=registry_path, require_complete=True
+    ) == []
+
+    second = module.publish_postopen_documents(
+        root=tmp_path, registry_path=registry_path
+    )
+    assert second == first
+    assert paper.read_bytes() == first_bytes
+
+
+def test_v2_post_publisher_rejects_nonbaseline_document_before_writing(
+    tmp_path, monkeypatch
+):
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _post_fixture(module, tmp_path, registry, protocol, monkeypatch)
+    paper = tmp_path / "paper" / "main.md"
+    paper.write_bytes(paper.read_bytes() + b"manual edit\n")
+    before = paper.read_bytes()
+
+    with pytest.raises(module.ClaimRegistryError, match="neither exact PRE"):
+        module.publish_postopen_documents(
+            root=tmp_path, registry_path=registry_path
+        )
+    assert paper.read_bytes() == before
+
+
+def test_v2_post_publisher_recovers_after_postwrite_validation_interruption(
+    tmp_path, monkeypatch
+):
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _post_fixture(module, tmp_path, registry, protocol, monkeypatch)
+    paper = tmp_path / "paper" / "main.md"
+    original_validate = module.validate_claims
+
+    def interrupt_after_write(**_kwargs):
+        raise module.ClaimRegistryError("injected postwrite interruption")
+
+    monkeypatch.setattr(module, "validate_claims", interrupt_after_write)
+    with pytest.raises(module.ClaimRegistryError, match="postwrite interruption"):
+        module.publish_postopen_documents(
+            root=tmp_path, registry_path=registry_path
+        )
+    interrupted_bytes = paper.read_bytes()
+    assert b"# Route-A receipt-derived results" in interrupted_bytes
+
+    monkeypatch.setattr(module, "validate_claims", original_validate)
+    module.publish_postopen_documents(root=tmp_path, registry_path=registry_path)
+    assert paper.read_bytes() == interrupted_bytes
+    assert original_validate(
+        root=tmp_path, registry_path=registry_path, require_complete=True
+    ) == []
+
+
 def test_v2_post_requires_every_test_exactly_once(tmp_path, monkeypatch):
     module, registry_path, registry, protocol = _v2_fixture(tmp_path)
     _post_fixture(module, tmp_path, registry, protocol, monkeypatch)

@@ -11,14 +11,19 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from contextlib import contextmanager
+import fcntl
 from fnmatch import fnmatch
 import hashlib
 import importlib
 import json
 import math
+import os
 from pathlib import Path
 import re
+import stat
 import sys
+import tempfile
 from typing import Any, Mapping, Sequence, cast
 
 
@@ -1198,6 +1203,166 @@ def render_postopen_document_bytes(*, root: Path, registry_path: Path) -> Mappin
     return documents
 
 
+def _safe_document_publication_path(root: Path, relative: str) -> Path:
+    """Resolve a document target while rejecting every symlink component."""
+    lexical = Path(relative)
+    if lexical.is_absolute() or ".." in lexical.parts:
+        raise ClaimRegistryError(
+            f"post-opening document target is not a safe relative path: {relative}"
+        )
+    raw = root / lexical
+    current = root
+    for part in Path(relative).parts:
+        current = current / part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError as exc:
+            raise ClaimRegistryError(
+                f"post-opening document target is absent: {relative}"
+            ) from exc
+        if stat.S_ISLNK(mode):
+            raise ClaimRegistryError(
+                f"post-opening document target uses a symlink: {relative}"
+            )
+    resolved = raw.resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ClaimRegistryError(
+            f"post-opening document target escapes repository: {relative}"
+        )
+    if not resolved.is_file():
+        raise ClaimRegistryError(
+            f"post-opening document target is not a file: {relative}"
+        )
+    return resolved
+
+
+@contextmanager
+def _document_publication_lock(registry_path: Path):
+    """Serialize cooperating publishers without creating mutable lock evidence."""
+    try:
+        stream = registry_path.open("rb")
+    except OSError as exc:
+        raise ClaimRegistryError("cannot open the claim-publication lock") from exc
+    with stream:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise ClaimRegistryError("cannot acquire the claim-publication lock") from exc
+        try:
+            yield
+        finally:
+            try:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+
+
+def _atomic_replace_document(path: Path, payload: bytes) -> None:
+    """Durably replace one verified document from a same-directory temp file."""
+    mode = stat.S_IMODE(path.stat().st_mode)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.route-a-post-", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        directory_descriptor = os.open(path.parent, directory_flags)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def publish_postopen_documents(
+    *, root: Path, registry_path: Path
+) -> Mapping[str, str]:
+    """Publish deterministic receipt-derived result suffixes and verify closure.
+
+    Every target must be either the exact frozen PRE document or the exact
+    already-published POST document.  This makes the operation idempotent and
+    lets a later invocation finish safely if a process stopped between multiple
+    document replacements.  No arbitrary manuscript edit is accepted.
+    """
+    root = root.resolve()
+    registry_path = registry_path.resolve()
+    with _document_publication_lock(registry_path):
+        registry = _load_registry(registry_path)
+        if registry.get("format") != V2_FORMAT:
+            raise ClaimRegistryError("POST publication requires claim-ledger v2")
+        rendered = render_result_claim_blocks(root=root, registry_path=registry_path)
+        if not rendered:
+            raise ClaimRegistryError("POST publication has no declared result target")
+
+        baseline = registry["preopen_document_sha256"]
+        expected_payloads: dict[str, bytes] = {}
+        for relative in registry["required_documents"]:
+            path = _safe_document_publication_path(root, str(relative))
+            current = path.read_bytes()
+            blocks = rendered.get(str(relative))
+            if blocks is None:
+                if hashlib.sha256(current).hexdigest() != baseline[relative]:
+                    raise ClaimRegistryError(
+                        "non-result document differs from its frozen PRE bytes: "
+                        f"{relative}"
+                    )
+                continue
+            suffix = _postopen_result_suffix(
+                registry=registry, rendered_blocks=blocks
+            )
+            if hashlib.sha256(current).hexdigest() == baseline[relative]:
+                expected_payloads[str(relative)] = current + suffix
+                continue
+            if current.endswith(suffix):
+                prefix = current[: -len(suffix)]
+                if hashlib.sha256(prefix).hexdigest() == baseline[relative]:
+                    expected_payloads[str(relative)] = current
+                    continue
+            raise ClaimRegistryError(
+                f"result document is neither exact PRE nor deterministic POST: {relative}"
+            )
+
+        if set(expected_payloads) != set(rendered):
+            raise ClaimRegistryError(
+                "rendered POST targets differ from the required-document registry"
+            )
+        for relative, expected in expected_payloads.items():
+            path = _safe_document_publication_path(root, relative)
+            current = path.read_bytes()
+            if current != expected:
+                if hashlib.sha256(current).hexdigest() != baseline[relative]:
+                    raise ClaimRegistryError(
+                        "result document changed after publication planning: "
+                        f"{relative}"
+                    )
+                _atomic_replace_document(path, expected)
+            if path.read_bytes() != expected:
+                raise ClaimRegistryError(
+                    f"post-opening document replacement did not persist: {relative}"
+                )
+
+        violations = validate_claims(
+            root=root, registry_path=registry_path, require_complete=True
+        )
+        if violations:
+            raise ClaimRegistryError(
+                "published POST documents failed claim validation: "
+                + "; ".join(violations)
+            )
+        return {
+            relative: hashlib.sha256(payload).hexdigest()
+            for relative, payload in sorted(expected_payloads.items())
+        }
+
+
 def _document_transform_violations(
     *,
     root: Path,
@@ -1489,12 +1654,26 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY)
     parser.add_argument("--require-complete", action="store_true")
+    parser.add_argument(
+        "--write-generated-results",
+        action="store_true",
+        help=(
+            "after a verified opening, atomically append only the deterministic "
+            "receipt-derived result suffix"
+        ),
+    )
     args = parser.parse_args()
     try:
+        published: Mapping[str, str] = {}
+        if args.write_generated_results:
+            published = publish_postopen_documents(
+                root=args.root,
+                registry_path=args.registry,
+            )
         violations = validate_claims(
             root=args.root,
             registry_path=args.registry,
-            require_complete=args.require_complete,
+            require_complete=(args.require_complete or args.write_generated_results),
         )
     except ClaimRegistryError as exc:
         print(f"claim-registry validation failed: {exc}", file=sys.stderr)
@@ -1504,6 +1683,8 @@ def main() -> int:
         for violation in violations:
             print(f"- {violation}", file=sys.stderr)
         return 1
+    for relative, digest in published.items():
+        print(f"published {relative} sha256={digest}")
     print("Route-A claims OK")
     return 0
 
