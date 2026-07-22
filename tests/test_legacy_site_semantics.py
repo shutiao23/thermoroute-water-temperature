@@ -24,6 +24,7 @@ def test_legacy_narratives_do_not_reintroduce_cascade_claims() -> None:
     paths = (
         ROOT / "scripts/01_prepare_data.py",
         ROOT / "outputs/reports/data_audit.md",
+        ROOT / "outputs/reports/review_response.md",
         ROOT / "paper/ThermoRoute_paper.md",
         ROOT / "paper/agu_submission/ThermoRoute_WRR.tex",
     )

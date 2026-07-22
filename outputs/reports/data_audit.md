@@ -89,6 +89,6 @@ _s2/p3 have near-perfect monotone FLOW–WLEVEL relationships (ρ≈0.999), wher
 
 ## 8. Leakage-safe split and open verification items
 
-- **train** 2006-01-01…2015-12-31 · **val** 2016-01-01…2017-12-31 · **calib** 2018-01-01 · **blind test** 2019-01-01…2020-12-31
+- **train** 2006-01-01…2015-12-31 · **val** 2016-01-01…2017-12-31 · **calib** 2018-01-01 · **development evaluation** 2019-01-01…2020-12-31
 - All scalers, climatology and rating curves are fit on **train only**.
 - **DH semantics unverified** (`config.DH_SEMANTICS_VERIFIED=False`): audit is consistent with a sunshine/insolation index but a data-dictionary check is required before any DH-based claim.

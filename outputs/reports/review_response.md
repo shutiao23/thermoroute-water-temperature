@@ -1,5 +1,12 @@
 # Adversarial review — finding-by-finding disposition
 
+> **Archived development record — superseded.** This file records an earlier
+> 40-station manuscript cycle; its positive claims, “blind test,” transfer,
+> calibration, and regulatory wording are not current Route-A evidence and must
+> not be cited as present results. The current claim ledger and verified Route-A
+> receipt control. The legacy identifiers b1, s2, and p3 are ordinary monitoring
+> sites, not a reservoir cascade or a verified hydraulic network.
+
 Six independent expert reviewers (hydrology, ML methodology, statistics, code
 correctness, editor/devil's-advocate, data/decision) audited the manuscript and
 codebase. **35 findings were raised, 34 confirmed on independent re-verification.**
@@ -69,6 +76,6 @@ claims (decision value, κ mechanism) into openly-reported negative results.
 4. Ablations confirm the prior, MoE and router contribute (p≤2×10⁻⁹).
 
 **Three negative results, reported in full rather than hidden:**
-- No point-accuracy gain on the near-deterministic 3-station cascade.
+- No point-accuracy gain in the legacy three-monitoring-site development case.
 - The flow-dependent thermal memory does not generalise beyond the 3 stations.
 - No robust cost–loss decision-value advantage over a (strong) deterministic persistence warning.
