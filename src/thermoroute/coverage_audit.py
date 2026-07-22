@@ -744,6 +744,20 @@ def _normalize_model_key_audits(
             raise CoverageAuditError(
                 f"{cohort} frozen models do not share exact key/y_true summaries"
             )
+        if rows[0]["row_count"] == 0:
+            expected_empty = {
+                "forecast_key_sha256": _new_hasher(
+                    FORECAST_KEY_DIGEST_DOMAIN
+                ).hexdigest(),
+                "y_true_sha256": _new_hasher(Y_TRUE_DIGEST_DOMAIN).hexdigest(),
+            }
+            if any(
+                rows[0][key] != digest
+                for key, digest in expected_empty.items()
+            ):
+                raise CoverageAuditError(
+                    f"{cohort} zero-row model-key audit has a noncanonical digest"
+                )
         output[cohort] = rows
     return output
 
@@ -982,14 +996,57 @@ def _validate_coverage_counts(
     return reportable
 
 
-def _rmse(group: pd.DataFrame) -> float:
-    ordered = group.sort_values(["issue_date", "target_date"], kind="mergesort")
-    error = ordered.y_pred.to_numpy(float) - ordered.y_true.to_numpy(float)
-    return float(np.sqrt(np.mean(np.square(error))))
-
-
-def _station_effects(
+def _precompute_error_tables(
     predictions: pd.DataFrame,
+) -> tuple[
+    dict[tuple[str, str, int], float],
+    dict[tuple[str, str, int, int, str], float],
+]:
+    """Scan comparison rows once and cache primary and year/season cell MSE.
+
+    The former implementation repeatedly filtered the full prediction table for
+    every site, comparison and leave-one-cell sensitivity.  At Route-A scale
+    that was billions of row visits.  The normalized input is already in stable
+    model/key order, so one grouped pass preserves the exact within-group
+    floating-point order while making all later calculations operate on small
+    dictionaries.
+    """
+    working = predictions.loc[
+        :, ["model", "site_id", "horizon", "target_date", "y_true", "y_pred"]
+    ].copy()
+    working["target_year"] = working.target_date.dt.year.astype("int64")
+    working["target_season"] = working.target_date.dt.month.map(_season_for_month)
+    working["squared_error"] = np.square(
+        working.y_pred.to_numpy(float) - working.y_true.to_numpy(float)
+    )
+    primary_rmse: dict[tuple[str, str, int], float] = {}
+    cell_mse: dict[tuple[str, str, int, int, str], float] = {}
+    grouped = working.groupby(
+        ["model", "site_id", "horizon"],
+        sort=False,
+        observed=True,
+        dropna=False,
+    )
+    for (model, site, horizon), group in grouped:
+        model_key = (str(model), str(site), int(horizon))
+        errors = group.squared_error.to_numpy(float)
+        if errors.size == 0:  # pragma: no cover - pandas never yields empty groups
+            raise CoverageAuditError("comparison contains an empty prediction group")
+        primary_rmse[model_key] = float(np.sqrt(np.mean(errors)))
+        for (year, season), cell in group.groupby(
+            ["target_year", "target_season"],
+            sort=False,
+            observed=True,
+            dropna=False,
+        ):
+            cell_mse[(*model_key, int(year), str(season))] = float(
+                np.mean(cell.squared_error.to_numpy(float))
+            )
+    return primary_rmse, cell_mse
+
+
+def _station_effects_from_rmse(
+    primary_rmse: Mapping[tuple[str, str, int], float],
     *,
     candidate: str,
     reference: str,
@@ -998,14 +1055,13 @@ def _station_effects(
 ) -> dict[str, float]:
     output: dict[str, float] = {}
     for site in sorted(sites):
-        selected = predictions[
-            predictions.site_id.eq(site) & predictions.horizon.eq(horizon)
-        ]
-        candidate_rows = selected[selected.model.eq(candidate)]
-        reference_rows = selected[selected.model.eq(reference)]
-        if candidate_rows.empty or reference_rows.empty:
+        candidate_key = (candidate, site, horizon)
+        reference_key = (reference, site, horizon)
+        if candidate_key not in primary_rmse or reference_key not in primary_rmse:
             raise CoverageAuditError("comparison lacks a reportable station")
-        output[site] = _rmse(candidate_rows) - _rmse(reference_rows)
+        output[site] = (
+            primary_rmse[candidate_key] - primary_rmse[reference_key]
+        )
     return output
 
 
@@ -1015,35 +1071,29 @@ def _median_effect(effects: Mapping[str, float]) -> float | None:
     return float(np.median(np.asarray([effects[site] for site in sorted(effects)])))
 
 
-def _equal_cell_rmse(
-    group: pd.DataFrame,
+def _equal_cell_rmse_from_mse(
+    cell_mse: Mapping[tuple[str, str, int, int, str], float],
     *,
+    model: str,
+    site: str,
+    horizon: int,
     years: Sequence[int],
     seasons: Sequence[str],
 ) -> float:
-    working = group.copy()
-    working["target_year"] = working.target_date.dt.year
-    working["target_season"] = working.target_date.dt.month.map(_season_for_month)
-    working["squared_error"] = np.square(
-        working.y_pred.to_numpy(float) - working.y_true.to_numpy(float)
-    )
     values: list[float] = []
     for year in years:
         for season in seasons:
-            selected = working[
-                working.target_year.eq(year)
-                & working.target_season.eq(season)
-            ]
-            if selected.empty:
+            key = (model, site, horizon, int(year), str(season))
+            if key not in cell_mse:
                 raise CoverageAuditError(
                     "all-12-cells-nonempty station unexpectedly lacks a cell"
                 )
-            values.append(float(selected.squared_error.mean()))
+            values.append(cell_mse[key])
     return float(np.sqrt(np.mean(np.asarray(values, dtype=float))))
 
 
-def _equal_cell_station_effects(
-    predictions: pd.DataFrame,
+def _equal_cell_station_effects_from_mse(
+    cell_mse: Mapping[tuple[str, str, int, int, str], float],
     *,
     candidate: str,
     reference: str,
@@ -1054,13 +1104,20 @@ def _equal_cell_station_effects(
 ) -> dict[str, float]:
     output: dict[str, float] = {}
     for site in sorted(sites):
-        selected = predictions[
-            predictions.site_id.eq(site) & predictions.horizon.eq(horizon)
-        ]
-        output[site] = _equal_cell_rmse(
-            selected[selected.model.eq(candidate)], years=years, seasons=seasons
-        ) - _equal_cell_rmse(
-            selected[selected.model.eq(reference)], years=years, seasons=seasons
+        output[site] = _equal_cell_rmse_from_mse(
+            cell_mse,
+            model=candidate,
+            site=site,
+            horizon=horizon,
+            years=years,
+            seasons=seasons,
+        ) - _equal_cell_rmse_from_mse(
+            cell_mse,
+            model=reference,
+            site=site,
+            horizon=horizon,
+            years=years,
+            seasons=seasons,
         )
     return output
 
@@ -1074,6 +1131,7 @@ def _comparison_sensitivities(
     years: tuple[int, ...],
 ) -> list[dict[str, Any]]:
     coverage = pd.DataFrame(coverage_rows)
+    primary_rmse, cell_mse = _precompute_error_tables(predictions)
     output: list[dict[str, Any]] = []
     for test, formal in zip(ROUTE_A_FORMAL_TESTS, statistics, strict=True):
         candidate = str(test["candidate"])
@@ -1087,8 +1145,8 @@ def _comparison_sensitivities(
             and reportable[(cohort, site, value_horizon)]
         )
         primary_effect = _median_effect(
-            _station_effects(
-                predictions,
+            _station_effects_from_rmse(
+                primary_rmse,
                 candidate=candidate,
                 reference=reference,
                 horizon=horizon,
@@ -1123,8 +1181,8 @@ def _comparison_sensitivities(
                 )
 
         primary_selected = _median_effect(
-            _station_effects(
-                predictions,
+            _station_effects_from_rmse(
+                primary_rmse,
                 candidate=candidate,
                 reference=reference,
                 horizon=horizon,
@@ -1133,8 +1191,8 @@ def _comparison_sensitivities(
         )
         if selected_sites:
             equal_effect = _median_effect(
-                _equal_cell_station_effects(
-                    predictions,
+                _equal_cell_station_effects_from_mse(
+                    cell_mse,
                     candidate=candidate,
                     reference=reference,
                     horizon=horizon,
@@ -1147,8 +1205,8 @@ def _comparison_sensitivities(
                 {
                     "omitted_year": year,
                     "descriptive_median_effect_c": _median_effect(
-                        _equal_cell_station_effects(
-                            predictions,
+                        _equal_cell_station_effects_from_mse(
+                            cell_mse,
                             candidate=candidate,
                             reference=reference,
                             horizon=horizon,
@@ -1164,8 +1222,8 @@ def _comparison_sensitivities(
                 {
                     "omitted_season": season,
                     "descriptive_median_effect_c": _median_effect(
-                        _equal_cell_station_effects(
-                            predictions,
+                        _equal_cell_station_effects_from_mse(
+                            cell_mse,
                             candidate=candidate,
                             reference=reference,
                             horizon=horizon,

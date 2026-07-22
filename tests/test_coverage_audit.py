@@ -432,6 +432,80 @@ def test_full_build_binds_sources_models_cells_and_descriptive_support() -> None
         assert row["does_not_establish_year_or_season_stability"] is True
 
 
+def test_preaggregated_temporal_sensitivities_match_slow_reference() -> None:
+    arguments = _fixture()
+    document = _build(arguments)
+    predictions = arguments["temporal_comparison_predictions"].copy()
+    predictions["target_date"] = pd.to_datetime(predictions.target_date)
+
+    def equal_cell_rmse(
+        frame: pd.DataFrame, *, years: Sequence[int], seasons: Sequence[str]
+    ) -> float:
+        values: list[float] = []
+        for year in years:
+            for season in seasons:
+                months = {
+                    "DJF": (12, 1, 2),
+                    "MAM": (3, 4, 5),
+                    "JJA": (6, 7, 8),
+                    "SON": (9, 10, 11),
+                }[season]
+                cell = frame[
+                    frame.target_date.dt.year.eq(year)
+                    & frame.target_date.dt.month.isin(months)
+                ].sort_values(["issue_date", "target_date"], kind="mergesort")
+                error = cell.y_pred.to_numpy(float) - cell.y_true.to_numpy(float)
+                values.append(float(np.mean(np.square(error))))
+        return float(np.sqrt(np.mean(np.asarray(values, dtype=float))))
+
+    for row in document["comparison_sensitivities"]:
+        sites = [
+            value["site_no"]
+            for value in row["all_12_cells_nonempty_station_support"]
+        ]
+
+        def effects(*, years: Sequence[int], seasons: Sequence[str]) -> float:
+            values = []
+            for site in sites:
+                selected = predictions[
+                    predictions.site_id.eq(site)
+                    & predictions.horizon.eq(row["horizon"])
+                ]
+                values.append(
+                    equal_cell_rmse(
+                        selected[selected.model.eq(row["candidate"])],
+                        years=years,
+                        seasons=seasons,
+                    )
+                    - equal_cell_rmse(
+                        selected[selected.model.eq(row["reference"])],
+                        years=years,
+                        seasons=seasons,
+                    )
+                )
+            return float(np.median(np.asarray(values, dtype=float)))
+
+        years = (2021, 2022, 2023)
+        seasons = ("DJF", "MAM", "JJA", "SON")
+        assert row["equal_12cell_descriptive_median_effect_c"] == effects(
+            years=years, seasons=seasons
+        )
+        for value in row["leave_one_year_equal_cell_descriptive"]:
+            assert value["descriptive_median_effect_c"] == effects(
+                years=[year for year in years if year != value["omitted_year"]],
+                seasons=seasons,
+            )
+        for value in row["leave_one_season_equal_cell_descriptive"]:
+            assert value["descriptive_median_effect_c"] == effects(
+                years=years,
+                seasons=[
+                    season
+                    for season in seasons
+                    if season != value["omitted_season"]
+                ],
+            )
+
+
 def test_model_registry_delete_or_rename_is_rejected() -> None:
     deleted = _fixture()
     deleted["model_registry_by_cohort"] = deepcopy(MODEL_REGISTRY)
@@ -501,6 +575,14 @@ def test_zero_key_horizon_and_empty_external_cohort_are_legal() -> None:
         if row["horizon"] == 7
     ]
     assert h7 and all(row["n_primary_reportable_stations"] == 0 for row in h7)
+
+
+def test_empty_cohort_requires_canonical_empty_y_true_digest() -> None:
+    arguments = _fixture(sites={"temporal": ("t1", "t2"), "external": ()})
+    for row in arguments["model_key_audits_by_cohort"]["external"]:
+        row["y_true_sha256"] = "f" * 64
+    with pytest.raises(CoverageAuditError, match="noncanonical digest"):
+        _build(arguments)
 
 
 def test_empty_temporal_cohort_is_explicit_and_legal() -> None:
