@@ -1,5 +1,8 @@
 # Draft cover letter — not ready for submission
 
+> Byte-frozen pre-opening snapshot: this file is not a live status page and is
+> intentionally not rewritten by the one-time Route-A result renderer.
+
 [Date]
 
 Dear Editor,

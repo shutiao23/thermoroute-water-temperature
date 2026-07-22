@@ -160,6 +160,12 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
     if document.get("postopen_document_transform") != {
         "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
         "heading": "# Route-A receipt-derived results",
+        "preamble": (
+            "This section was generated only after a verified one-time receipt. "
+            "It is the canonical post-opening result layer and supersedes the "
+            "pre-opening readiness/status statements above; it does not alter "
+            "the frozen methods or limitations."
+        ),
         "separator": "TWO_NEWLINES",
         "terminal_newline": True,
     }:
@@ -1156,7 +1162,15 @@ def _group_result_claim_blocks(
 def _postopen_result_suffix(*, registry: Mapping[str, Any], rendered_blocks: bytes) -> bytes:
     transform = registry["postopen_document_transform"]
     # _load_registry validates the exact transform contract before this helper runs.
-    return b"\n\n" + str(transform["heading"]).encode("utf-8") + b"\n\n" + rendered_blocks + b"\n"
+    return (
+        b"\n\n"
+        + str(transform["heading"]).encode("utf-8")
+        + b"\n\n"
+        + str(transform["preamble"]).encode("utf-8")
+        + b"\n\n"
+        + rendered_blocks
+        + b"\n"
+    )
 
 
 def render_postopen_document_bytes(*, root: Path, registry_path: Path) -> Mapping[str, bytes]:

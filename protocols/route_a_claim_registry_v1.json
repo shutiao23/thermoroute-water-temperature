@@ -21,15 +21,16 @@
     "paper/agu_submission/ThermoRoute_WRR.tex"
   ],
   "preopen_document_sha256": {
-    "README.md": "45a63bf91063dbb044d9bd3fa06596d77c23fafe464e843e8680a4124f2950ba",
-    "paper/ThermoRoute_paper.md": "12b5110b1d58a0d185296fbb62244a1e2645fc24b1dd9c692d67074451c866bd",
-    "paper/highlights.md": "311e5589bf1f6ef30aac052d322add9fe7a0dd41bbb4dd917eadeeae92dcde70",
-    "paper/cover_letter.md": "5f7c7d27ed5746de73211e9315bdc9bc858b5eea9e01d59afbdd9c44aec6a32b",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "882e48bb7e3632a9bffd279282c844b3bed4bf0475807228603dfce34f2a31a3"
+    "README.md": "952678fd04435fdf6805ac5a89ccd80cd870f72965085ed6c8879c31065eb13a",
+    "paper/ThermoRoute_paper.md": "5a5cf14ec64c73bafd12dcf7e8a8941d10edcbf71cbd35670e1f7871e2485034",
+    "paper/highlights.md": "d5df703d71b940ffcb3af515d6966c4664829598afabd9744cc8c8d1dcdd9e42",
+    "paper/cover_letter.md": "ad5725f1c81c0638bce5fefa4d4e90807fef15fee28b80bb9cc0ac4453ca6dd8",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "a4206e5db87f163b8d923460411128a396a884f5d7aca02b010ee85e1134ee56"
   },
   "postopen_document_transform": {
     "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
     "heading": "# Route-A receipt-derived results",
+    "preamble": "This section was generated only after a verified one-time receipt. It is the canonical post-opening result layer and supersedes the pre-opening readiness/status statements above; it does not alter the frozen methods or limitations.",
     "separator": "TWO_NEWLINES",
     "terminal_newline": true
   },

@@ -510,7 +510,11 @@ def test_v2_post_renders_exact_five_blocks_and_validates_them(tmp_path, monkeypa
     paper = tmp_path / "paper" / "main.md"
     completed = module.render_postopen_document_bytes(root=tmp_path, registry_path=registry_path)
     assert completed["paper/main.md"].endswith(
-        b"\n\n# Route-A receipt-derived results\n\n" + rendered["paper/main.md"] + b"\n"
+        b"\n\n# Route-A receipt-derived results\n\n"
+        + registry["postopen_document_transform"]["preamble"].encode("utf-8")
+        + b"\n\n"
+        + rendered["paper/main.md"]
+        + b"\n"
     )
     paper.write_bytes(completed["paper/main.md"])
     assert (

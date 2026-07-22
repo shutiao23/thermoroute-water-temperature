@@ -2,6 +2,8 @@
 
 > Draft status: the canonical computation and one-time target-period evaluation
 > remain incomplete. These are design highlights, not performance findings.
+> This byte-frozen pre-opening status snapshot is not a live project-status page
+> and is not rewritten after the one-time opening.
 
 - Is designed to hindcast daily river water temperature at 1-, 3-, and 7-day horizons.
 - Anchors a learned temporal model to damped persistence with a bounded residual.

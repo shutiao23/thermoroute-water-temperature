@@ -439,13 +439,16 @@ and multi-hardware benchmarks; owner-controlled local evidence chronology; the
 unreplayable original 1,465-candidate discovery execution; and the absence of an
 official Air2stream calibration run.
 
-## 8. Results placeholder and stopping rule
+## 8. Pre-opening results placeholder and stopping rule
 
-No formal result block is present in this pre-opening manuscript. After a valid
-receipt exists, `scripts/26_validate_claims.py` will derive five deterministic
-blocks from the exact statistics artifact. Each must appear exactly once, including
+No formal result block is present in this byte-frozen pre-opening snapshot. After
+a valid receipt exists, `scripts/26_validate_claims.py` will derive five
+deterministic blocks from the exact statistics artifact and append the sole
+canonical post-opening result layer. Each must appear exactly once, including
 negative, conflicting, or non-estimable outcomes. Handwritten substitutions are
-rejected by body hashes and evidence bindings.
+rejected by body hashes and evidence bindings. Once that generated layer exists,
+the readiness statements in this snapshot are historical provenance rather than
+the current execution status.
 
 ## 9. Data and code availability
 
@@ -459,11 +462,13 @@ assigned and must be completed before submission.
 
 ## 10. Conclusion
 
-ThermoRoute is presently a specified research system, not a completed empirical
-finding. The repository has fail-closed controls for leakage,
+At the time of this byte-frozen pre-opening snapshot, ThermoRoute is a specified
+research system rather than a completed empirical finding. The repository has
+fail-closed controls for leakage,
 cohort identity, model replay, clustered inference, raw provenance, statement
 generation, and release closure. Its scientific value will depend on a complete
-canonical rerun and the one-time evidence chain. The implementation is not ready
-for confirmatory opening until every listed data, bridge, replay, chronology,
-authorization, and release gate passes; the old headline numbers do not represent
-the current repository.
+canonical rerun and the one-time evidence chain. The implementation must not enter
+confirmatory opening until every listed data, bridge, replay, chronology,
+authorization, and release gate passes. If a generated receipt-derived result
+layer appears below, it supersedes only this pre-opening readiness status; the old
+headline numbers still do not represent the current repository.

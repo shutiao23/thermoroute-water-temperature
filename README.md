@@ -190,7 +190,7 @@ protocols/                    protocol, protocol seal, and structured claim ledg
 src/thermoroute/              model, data, inference, provenance, and opening code
 scripts/                      development, freezing, opening, and release entrypoints
 tests/                        leakage, replay, schema, failure, and release tests
-paper/                        pre-opening manuscript sources; results currently pending
+paper/                        byte-frozen pre-opening snapshots; POST claims are generated only in the canonical Markdown evidence layer
 outputs/                      legacy artifacts plus future content-addressed outputs
 ```
 
