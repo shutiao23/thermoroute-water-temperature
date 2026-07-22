@@ -303,8 +303,8 @@ def _current_truth(root: Path) -> dict[str, str]:
         "usgs_panel": "data_usgs/panel_usgs_120v2.parquet",
         "usgs_registry": "data_usgs/station_registry_v1.csv",
         "usgs_scores": "outputs/tables/usgs_scores_v2.csv",
-        "cascade_predictions": "outputs/predictions/predictions.parquet",
-        "cascade_scores": "outputs/tables/scores_all.csv",
+        "legacy_three_site_predictions": "outputs/predictions/predictions.parquet",
+        "legacy_three_site_scores": "outputs/tables/scores_all.csv",
     }
     return {key: rel for key, rel in candidates.items() if (root / rel).is_file()}
 
@@ -422,7 +422,9 @@ def lineage_graph(root: Path, files: Mapping[str, Mapping[str, Any]],
     }
     input_nodes = sorted(rel for rel in files if _artifact_kind(rel) in {"input_data", "protocol"})
     prediction_nodes = sorted(rel for rel in files if _artifact_kind(rel) == "predictions")
-    cascade_inputs = [rel for rel in input_nodes if rel.startswith("data/")]
+    legacy_three_site_inputs = [
+        rel for rel in input_nodes if rel.startswith("data/")
+    ]
     usgs_inputs = [rel for rel in input_nodes if rel.startswith("data_usgs/")]
 
     for rel, meta in sorted(files.items()):
@@ -431,9 +433,13 @@ def lineage_graph(root: Path, files: Mapping[str, Mapping[str, Any]],
         if kind in {"input_data", "protocol"}:
             parents = []
         elif kind in {"predictions", "model"}:
-            is_cascade = rel in {"outputs/predictions/predictions.parquet",
-                                 "outputs/models/thermoroute_explain.pt"}
-            data_parents = cascade_inputs if is_cascade else usgs_inputs
+            is_legacy_three_site = rel in {
+                "outputs/predictions/predictions.parquet",
+                "outputs/models/thermoroute_explain.pt",
+            }
+            data_parents = (
+                legacy_three_site_inputs if is_legacy_three_site else usgs_inputs
+            )
             parents = ["@git", "@source", "@config", "@dependencies", *data_parents]
         else:
             # Derived summaries can depend on several experiment arms.  Listing all

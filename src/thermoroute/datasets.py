@@ -142,9 +142,9 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
     # gate must run before fitting scalers, climatologies, or anchors.
     F.assert_strict_daily_panel(panel, expected_stations=tuple(C.STATIONS))
     # Guard the global C.STATIONS aliasing hazard: every station↔index decode
-    # downstream assumes C.STATIONS holds exactly this panel's stations (order is
-    # cascade for 3-station, sorted for USGS — so we check SET membership, not
-    # order).
+    # downstream assumes C.STATIONS holds exactly this panel's stations (legacy
+    # file order for the 3-site case, sorted stable IDs for USGS — so we check
+    # SET membership, not order).  The legacy order is not a topology claim.
     if set(panel.site_id.astype(str).unique()) != set(C.STATIONS):
         raise ValueError(
             "C.STATIONS is out of sync with the panel passed to build_windows — "

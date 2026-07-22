@@ -88,8 +88,8 @@ def main() -> None:
     w("\n_Persistence is the dominant short-horizon baseline; only damped "
       "persistence toward climatology reliably beats it (see results)._\n")
 
-    # 5. station topology
-    w("## 5. Station topology (directed cascade, cross-correlation lags)\n")
+    # 5. pairwise association diagnostic (not topology identification)
+    w("## 5. Pairwise exploratory cross-correlation lags\n")
     Wp = pd.DataFrame({st: panel[panel.site_id == st].set_index("DATE")["WTEMP"]
                        for st in C.STATIONS})
     Fp = pd.DataFrame({st: panel[panel.site_id == st].set_index("DATE")["FLOW"]
@@ -108,9 +108,9 @@ def main() -> None:
     for up, dn in [("b1", "s2"), ("s2", "p3"), ("b1", "p3")]:
         lf, rf = best_lag(Fp[up], Fp[dn]); lw, rw = best_lag(Wp[up], Wp[dn])
         w(f"| {up}→{dn} | {lf} | {rf:.3f} | {lw} | {rw:.3f} |")
-    w("\n_Confirms b1→s2→p3: flow travels ~1 day per hop; the thermal signal "
-      "lags far more to p3 (~9 days), motivating a directed, variable-specific "
-      "travel-time prior._\n")
+    w("\n_b1, s2 and p3 are ordinary monitoring-site identifiers, not reservoirs. "
+      "These pairwise correlations neither establish hydraulic connectivity nor "
+      "identify travel time; the arrow notation is only a legacy display order._\n")
 
     # 6. rating curve
     w("## 6. Stage–discharge (F–L) rating relationship\n")

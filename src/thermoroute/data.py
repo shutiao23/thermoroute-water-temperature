@@ -297,7 +297,7 @@ class StandardScalerPerStation:
 
 
 def prepare_dataset() -> dict[str, object]:
-    """One-stop builder for the 3-station cascade: panel + masks + imputer."""
+    """Build the legacy three-monitoring-site panel, masks and imputer."""
     assert_split_disjoint()
     panel = load_panel()
     masks = split_masks(panel["DATE"])

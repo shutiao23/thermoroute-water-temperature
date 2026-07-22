@@ -65,17 +65,17 @@ LOG1P_VARS: tuple[str, ...] = ("FLOW", "PRCP")
 
 
 # --------------------------------------------------------------------------- #
-# Legacy three-site topology hypothesis (not used by Route A)
+# Legacy three-monitoring-site ordering (not used by Route A)
 # --------------------------------------------------------------------------- #
-# The source files describe b1 -> s2 -> p3 as a downstream sequence.  The lag
-# values below came from exploratory cross-correlation, not hydraulic travel-time
-# identification.  Route A has no river graph, never consumes these constants,
-# and makes no network-routing or travel-time claim.
-UPSTREAM: Mapping[str, str | None] = {"b1": None, "s2": "b1", "p3": "s2"}
-FLOW_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {("b1", "s2"): 1, ("s2", "p3"): 1}
-THERMAL_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {("b1", "s2"): 1, ("s2", "p3"): 9}
-# Reservoir surface elevations differ by ~600-1500 m between stations, so WLEVEL
-# must be standardised per station, never pooled on a common datum.
+# b1, s2 and p3 are ordinary monitoring-site identifiers, not reservoirs.  No
+# verified station metadata in this repository establishes a directed hydraulic
+# connection or travel time between them, so the executable configuration does
+# not encode one.  Route A likewise has no river graph and makes no routing claim.
+UPSTREAM: Mapping[str, str | None] = {"b1": None, "s2": None, "p3": None}
+FLOW_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {}
+THERMAL_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {}
+# WLEVEL metadata/datum comparability is unverified, so it must be standardised
+# per station and may not be interpreted as reservoir surface elevation.
 
 # This flag concerns only the legacy three-site input files.  Their DH semantics
 # are not confirmed by a data dictionary, so that channel is only a generic

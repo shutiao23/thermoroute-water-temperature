@@ -2,7 +2,9 @@
 water-temperature forecasting.
 
 A compact, leakage-safe research codebase for 1/3/7-day daily water-temperature
-prediction at three reservoir-cascade stations (b1 -> s2 -> p3).
+prediction.  The legacy small-sample case uses three ordinary monitoring-site
+identifiers (b1, s2, p3); they are not reservoirs, and their display order is
+not evidence of a hydraulic cascade.
 
 The public API is intentionally small; scripts under ``scripts/`` orchestrate
 the full experimental matrix. See ``README.md`` for the run order.

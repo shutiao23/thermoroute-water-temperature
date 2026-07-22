@@ -22,7 +22,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+from matplotlib.patches import FancyBboxPatch
 
 from thermoroute import config as C
 
@@ -64,22 +64,20 @@ def load():
 def fig_study_area(panel):
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(8.2, 3.4),
                                    gridspec_kw={"width_ratios": [1.05, 1]})
-    axL.set_title("a  Reservoir cascade & travel times")
+    axL.set_title("a  Legacy monitoring-site identifiers")
     axL.axis("off"); axL.set_xlim(0, 10); axL.set_ylim(0, 10)
-    pos = {"b1": (1.6, 7.8), "s2": (5.0, 5.0), "p3": (8.4, 2.2)}
-    elev = {"b1": 2480, "s2": 1819, "p3": 989}
+    pos = {"b1": (1.6, 5.0), "s2": (5.0, 5.0), "p3": (8.4, 5.0)}
     for st, (x, y) in pos.items():
         box = FancyBboxPatch((x - 1.0, y - 0.7), 2.0, 1.4, boxstyle="round,pad=0.1",
                              fc=STCOLOR[st], ec="none", alpha=0.9)
         axL.add_patch(box)
         axL.text(x, y + 0.18, st, color="white", ha="center", fontsize=12, weight="bold")
-        axL.text(x, y - 0.32, f"{elev[st]} m", color="white", ha="center", fontsize=8)
-    for (a, b), lab in [(("b1", "s2"), "flow ~1 d\nthermal ~1 d"),
-                        (("s2", "p3"), "flow ~1 d\nthermal ~9 d")]:
-        xa, ya = pos[a]; xb, yb = pos[b]
-        axL.add_patch(FancyArrowPatch((xa, ya - 0.7), (xb, yb + 0.7),
-                      arrowstyle="-|>", mutation_scale=16, lw=2, color="#5F5E5A"))
-        axL.text((xa + xb) / 2 + 0.7, (ya + yb) / 2, lab, fontsize=7.5, color="#444441")
+        axL.text(x, y - 0.32, "monitoring site", color="white", ha="center", fontsize=8)
+    axL.text(
+        5.0, 2.8,
+        "Display order only; no reservoir, hydraulic-connectivity, or travel-time claim",
+        ha="center", va="center", fontsize=7.5, color="#444441", wrap=True,
+    )
 
     axR.set_title("b  Per-station WTEMP distribution")
     data = [panel[panel.site_id == st].WTEMP.values for st in C.STATIONS]

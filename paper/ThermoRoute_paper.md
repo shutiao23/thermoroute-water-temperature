@@ -57,10 +57,12 @@ whether empirical intervals and event probabilities are useful descriptions of
 uncertainty. It does not infer an energy budget, hydraulic state, or management
 utility from the architecture.
 
-The repository contains an older three-station cascade case study and a larger USGS
-development panel. Those legacy outputs are not used as current evidence because
-they were produced before stable USGS site numbers, the 120v2 panel contract, and
-prediction-lineage sidecars were enforced.
+The repository contains an older three-monitoring-station case study (site IDs b1,
+s2, and p3) and a larger USGS development panel. The three sites are ordinary
+monitoring stations, not reservoirs; their legacy display order does not establish
+a hydraulic cascade or travel time. Those legacy outputs are not used as current
+evidence because they were produced before stable USGS site numbers, the 120v2
+panel contract, and prediction-lineage sidecars were enforced.
 
 ### 1.1 Scientific context and related work
 
