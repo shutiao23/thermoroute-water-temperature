@@ -423,6 +423,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         root, outcome_qc_policy_path, json.dumps(outcome_qc_policy).encode()
     )
     amendment_path = "protocols/route_a_inference_amendment_v1.json"
+    trusted_scoring_recovery_contract = json.loads(
+        (ROOT / amendment_path).read_text(encoding="utf-8")
+    )["trusted_scoring_recovery_contract"]
     policy_overlay = {
         **_binding(verifier, root, outcome_qc_policy_path),
         "required": True,
@@ -466,6 +469,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "outcome_qc_policy": policy_overlay,
             "temporal_coverage_policy": coverage_policy_overlay,
         },
+        "trusted_scoring_recovery_contract": trusted_scoring_recovery_contract,
         "lineage_contract": {
             "base_v1_files_remain_immutable": True,
             "separate_amendment_seal_required": True,
@@ -1909,6 +1913,47 @@ def _reseal_postopen_fixture_receipt(
     )
 
 
+def _validate_fixture_inference_closure(
+    verifier, root: Path, authorization_path: Path
+) -> dict[str, object]:
+    """Rebind a mutated amendment and exercise its independent release check."""
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    amendment_binding = authorization["inference_amendment"]
+    seal_path = root / amendment_binding["seal"]["path"]
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    seal["amendment"] = _binding(verifier, root, amendment_binding["path"])
+    seal_path.write_text(json.dumps(seal), encoding="utf-8")
+    amendment_binding.update(_binding(verifier, root, amendment_binding["path"]))
+    amendment_binding["seal"] = _binding(
+        verifier, root, amendment_binding["seal"]["path"]
+    )
+
+    protocol_binding = authorization["protocol"]
+    protocol_document = json.loads(
+        (root / protocol_binding["path"]).read_text(encoding="utf-8")
+    )
+    outcome_qc_policy = json.loads(
+        (root / authorization["outcome_qc_policy"]["path"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    temporal_coverage_policy = json.loads(
+        (root / authorization["temporal_coverage_policy"]["path"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    return verifier._validate_inference_closure(
+        root,
+        {},
+        authorization,
+        protocol_binding=protocol_binding,
+        protocol_document=protocol_document,
+        protocol_seal_path=root / protocol_binding["seal"]["path"],
+        outcome_qc_policy=outcome_qc_policy,
+        temporal_coverage_policy=temporal_coverage_policy,
+    )
+
+
 def _manifest_command(root: Path, manifest: Path, *extra: str):
     return [
         sys.executable,
@@ -2476,6 +2521,53 @@ def test_postopen_receipt_requires_exact_coverage_artifact_registry(
                 attacked,
                 verifier.POSTOPEN_PROFILE,
                 authorization_path=attacked_authorization,
+            )
+
+
+def test_postopen_release_rejects_recovery_contract_missing_tamper_and_extra(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_recovery_contract_attacks_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    amendment_relative = "protocols/route_a_inference_amendment_v1.json"
+    amendment = json.loads(
+        (source / amendment_relative).read_text(encoding="utf-8")
+    )
+    assert (
+        amendment["trusted_scoring_recovery_contract"]
+        == verifier.TRUSTED_SCORING_RECOVERY_CONTRACT
+    )
+    _validate_fixture_inference_closure(verifier, source, authorization_path)
+
+    for attack in ("missing", "tamper", "extra"):
+        attacked = tmp_path / f"recovery-{attack}"
+        shutil.copytree(source, attacked)
+        attacked_amendment_path = attacked / amendment_relative
+        attacked_amendment = json.loads(
+            attacked_amendment_path.read_text(encoding="utf-8")
+        )
+        recovery = attacked_amendment["trusted_scoring_recovery_contract"]
+        if attack == "missing":
+            recovery.pop("maximum_frozen_request_ledgers_per_opening")
+        elif attack == "tamper":
+            recovery["maximum_logical_openings"] = 2
+        else:
+            recovery["unfrozen_recovery_extension"] = True
+        attacked_amendment_path.write_text(
+            json.dumps(attacked_amendment), encoding="utf-8"
+        )
+        with pytest.raises(
+            ValueError,
+            match="trusted-scoring recovery contract changed",
+        ):
+            _validate_fixture_inference_closure(
+                verifier,
+                attacked,
+                attacked / authorization_path.relative_to(source),
             )
 
 

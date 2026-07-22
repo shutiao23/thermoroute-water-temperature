@@ -86,6 +86,62 @@ TEMPORAL_COVERAGE_AMENDMENT_ROLE = (
     "predeclared_nonfiltering_temporal_coverage_and_equal_cell_descriptive_"
     "sensitivity_never_changes_formal_result_or_decision"
 )
+TRUSTED_SCORING_RECOVERY_CONTRACT = {
+    "maximum_logical_openings": 1,
+    "maximum_frozen_request_ledgers_per_opening": 1,
+    "second_logical_opening_allowed": False,
+    "http_retries_within_or_across_transport_processes_allowed": True,
+    "http_delivery_semantics": (
+        "at_least_once_until_the_response_transaction_directory_is_complete_"
+        "and_durably_published"
+    ),
+    "response_received_but_transaction_not_durable_may_be_requested_again": True,
+    "exactly_once_http_delivery_claimed": False,
+    "durable_canonical_response_replacement_allowed": False,
+    "raw_transport_resume_before_acquisition_manifest": (
+        "same_opening_identifier_and_exact_frozen_request_ledger_only; "
+        "refetch_only_when_no_complete_durable_verifiable_canonical_"
+        "transaction_exists; partial_invalid_or_noncanonical_canonical_"
+        "transactions_fail_closed_without_overwrite; only_unpublished_"
+        "owner_private_temporary_or_pending_state_may_be_cleaned; "
+        "normalized_derived_and_trusted_outputs_must_all_be_absent"
+    ),
+    "raw_transport_resume_after_acquisition_manifest_allowed": False,
+    "raw_acquisition_child_after_acquisition_manifest_allowed": False,
+    "acquisition_bundle_publication": (
+        "request_map_two_normalized_tables_and_manifest_are_generated_and_"
+        "validated_in_one_private_same_filesystem_stage_then_published_by_one_"
+        "directory_rename"
+    ),
+    "trusted_completion_after_acquisition_manifest": (
+        "network_free_deterministic_replay_under_the_same_opening_identifier"
+    ),
+    "trusted_publication": (
+        "generate_and_validate_one_complete_private_same_filesystem_directory_"
+        "then_publish_by_one_directory_rename"
+    ),
+    "absent_canonical_trusted_directory": (
+        "delete_only_strictly_validated_canonical_named_owner_private_same_"
+        "device_read_only_regular_file_stages_without_external_hardlinks_"
+        "then_recompute_a_complete_generation; any_unsafe_stage_fails_closed"
+    ),
+    "complete_canonical_trusted_directory_without_receipt": (
+        "fully_replay_and_validate_all_trusted_artifacts_then_create_the_"
+        "receipt_only"
+    ),
+    "partial_invalid_or_noncanonical_trusted_directory": (
+        "FAIL_CLOSED_NO_REPLACEMENT"
+    ),
+    "valid_receipt_without_external_sha256_sidecar": (
+        "fully_validate_receipt_and_bound_artifacts_then_derive_the_missing_"
+        "sidecar_only"
+    ),
+    "external_sha256_sidecar_without_receipt": "FAIL_CLOSED",
+    "security_scope": (
+        "honest_owner_misoperation_and_replay_guard_not_a_malicious_same_uid_"
+        "or_owner_security_boundary"
+    ),
+}
 
 # The outer verifier treats a release ZIP as hostile input.  These limits are
 # deliberately far above the canonical release footprint while bounding disk,
@@ -3599,7 +3655,8 @@ def _validate_inference_closure(
             "post_2020_wtemp_requested_or_inspected", "outcome_independent",
             "base_protocol", "base_protocol_seal", "scientific_comparisons",
             "estimand_scope", "inference_scope", "decision_overlay",
-            "additional_preopen_gates", "lineage_contract",
+            "additional_preopen_gates", "trusted_scoring_recovery_contract",
+            "lineage_contract",
         }
         or amendment.get("format")
         != "thermoroute.route-a-inference-amendment.v1"
@@ -3679,6 +3736,14 @@ def _validate_inference_closure(
     ):
         raise ValueError(
             "inference amendment binds another temporal-coverage policy"
+        )
+    recovery = amendment.get("trusted_scoring_recovery_contract")
+    if (
+        not isinstance(recovery, Mapping)
+        or dict(recovery) != TRUSTED_SCORING_RECOVERY_CONTRACT
+    ):
+        raise ValueError(
+            "inference amendment trusted-scoring recovery contract changed"
         )
     if amendment.get("lineage_contract") != {
         "base_v1_files_remain_immutable": True,
