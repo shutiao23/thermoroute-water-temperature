@@ -1,0 +1,106 @@
+{
+  "format": "thermoroute.route-a-inference-amendment.v1",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "amendment_id": "route-a-prelabel-inference-scope-014",
+  "recorded_date": "2026-07-22",
+  "post_2020_wtemp_requested_or_inspected": false,
+  "outcome_independent": true,
+  "base_protocol": {
+    "path": "protocols/route_a_confirmatory_v1.json",
+    "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+  },
+  "base_protocol_seal": {
+    "path": "protocols/route_a_protocol_seal_v1.json",
+    "sha256": "df700fe2fac170d0466cbcaa0fae25efb4748ab82b44d49272c1e85ff5e060cd"
+  },
+  "scientific_comparisons": {
+    "count": 5,
+    "confirmatory_family_sha256": "473b2ddae17b353b3499413ecd266e684e9b411412bba5463435e8400aedb799",
+    "objects": [
+      {
+        "test_id": "H1-h1-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 1,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1001,
+        "sign_flip_seed": 5001,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 1, margin 0.00 C"
+      },
+      {
+        "test_id": "H1-h3-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 3,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1003,
+        "sign_flip_seed": 5003,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 3, margin 0.00 C"
+      },
+      {
+        "test_id": "H1-h7-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 7,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1007,
+        "sign_flip_seed": 5007,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 7, margin 0.00 C"
+      },
+      {
+        "test_id": "H2-h3-vs-lightgbm",
+        "candidate": "ThermoRoute",
+        "reference": "LightGBM",
+        "horizon": 3,
+        "margin_c": 0.05,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1103,
+        "sign_flip_seed": 5103,
+        "description": "ThermoRoute vs LightGBM non-inferiority at horizon 3, margin +0.05 C"
+      },
+      {
+        "test_id": "H2-h7-vs-lightgbm",
+        "candidate": "ThermoRoute",
+        "reference": "LightGBM",
+        "horizon": 7,
+        "margin_c": 0.05,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1107,
+        "sign_flip_seed": 5107,
+        "description": "ThermoRoute vs LightGBM non-inferiority at horizon 7, margin +0.05 C"
+      }
+    ],
+    "change_allowed": false
+  },
+  "estimand_scope": {
+    "fixed_cohort": "The point estimate is the median paired station-RMSE difference among reportable stations in the frozen availability-enriched cohort. It is descriptive for those fixed stations and observable keys.",
+    "not_claimed": "It is not a probability-sample estimate for every US river, every HUC2 region, or every calendar day.",
+    "superpopulation": "Any HUC2 bootstrap, sign-flip, confidence-interval, p-value, or Holm interpretation is conditional on an explicit exchangeable-cluster superpopulation and the frozen assumptions below."
+  },
+  "inference_scope": {
+    "cluster_bootstrap": "ASSUMPTION_CONDITIONAL_SENSITIVITY_NOT_UNCONDITIONAL_COHORT_UNCERTAINTY",
+    "exact_sign_flip": "ASSUMPTION_CONDITIONAL_ON_INDEPENDENT_WHOLE_CLUSTER_SIGN_REVERSALS_AND_JOINT_VECTOR_SIGN_SYMMETRY",
+    "exact_enumeration_limit": "Exact enumeration removes Monte-Carlo error only; it does not establish the null symmetry, independent-cluster sampling, or a general composite median null.",
+    "small_cluster_rule": "The already-declared NO_STRONG_INFERENCE diagnostics are promoted to a claim-blocking gate, with n_clusters >= 30, effective_cluster_fraction >= 0.75, and largest_cluster_share < 0.25 required before inferential wording can be considered.",
+    "null_simulation_role": "Synthetic null simulation is falsification-only and cannot establish unobserved structural assumptions. Missing, not-run, or failed simulation evidence fails closed."
+  },
+  "decision_overlay": {
+    "gate_artifact": "outputs/prelabel/route_a_inference_gate_v1.json",
+    "all_gate_components_must_pass": true,
+    "missing_unknown_or_not_run_is_failure": true,
+    "gate_failure_verdict": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
+    "supported_claim_allowed_when_gate_fails": false,
+    "strong_p_value_or_favorable_interval_cannot_override_gate": true,
+    "all_five_comparisons_must_still_be_rendered_exactly_once": true,
+    "allowed_failed_gate_wording": "Report the fixed-cohort effect and label HUC2 bootstrap/sign-flip/Holm values only as assumption-conditional sensitivities; do not claim superiority, non-inferiority, equivalence, parity, or superpopulation confirmation."
+  },
+  "lineage_contract": {
+    "base_v1_files_remain_immutable": true,
+    "separate_amendment_seal_required": true,
+    "seal_path": "protocols/route_a_inference_amendment_seal_v1.json",
+    "amendment_commit_must_precede_seal_commit": true
+  }
+}

@@ -59,6 +59,15 @@ from .historical_inputs import (
     REQUEST_MAP_FORMAT,
     USER_AGENT as METEOROLOGY_USER_AGENT,
 )
+from .inference_gate import (
+    AMENDMENT_RELATIVE as INFERENCE_AMENDMENT_RELATIVE,
+    AMENDMENT_SEAL_RELATIVE as INFERENCE_AMENDMENT_SEAL_RELATIVE,
+    DEFAULT_GATE_RELATIVE as DEFAULT_INFERENCE_GATE,
+    InferenceGateError,
+    validate_inference_amendment,
+    validate_inference_amendment_seal,
+    validate_inference_gate_document,
+)
 from .evidence import EvidenceError, FrozenPanelSpec, select_confirmatory_sites
 from .model_suite import (
     ModelSuiteError,
@@ -607,6 +616,7 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         "thermoroute.datasets": "src/thermoroute/datasets.py",
         "thermoroute.provenance": "src/thermoroute/provenance.py",
         "thermoroute.usgs": "src/thermoroute/usgs.py",
+        "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
     }
     modules: dict[str, dict[str, str]] = {}
     for name, relative in module_names.items():
@@ -726,6 +736,8 @@ def _canonical_state_paths(
     model_suite_sha256: str,
     prelabel_inputs_sha256: str,
     prelabel_chronology_sha256: str,
+    inference_gate_sha256: str,
+    inference_amendment_seal_sha256: str,
 ) -> dict[str, str]:
     namespace = sha256_json({
         "protocol_sha256": protocol_sha256,
@@ -733,6 +745,8 @@ def _canonical_state_paths(
         "model_suite_sha256": model_suite_sha256,
         "prelabel_inputs_sha256": prelabel_inputs_sha256,
         "prelabel_chronology_sha256": prelabel_chronology_sha256,
+        "inference_gate_sha256": inference_gate_sha256,
+        "inference_amendment_seal_sha256": inference_amendment_seal_sha256,
     })[:24]
     base = Path("outputs") / "confirmatory" / f"route_a_{namespace}"
     values = {
@@ -3487,6 +3501,9 @@ def freeze_opening_authorization(
         "outputs/model_replay/route_a_development_replay_v1.json"
     ),
     prelabel_chronology_receipt: str | Path = DEFAULT_PRELABEL_CHRONOLOGY_RECEIPT,
+    inference_gate: str | Path = DEFAULT_INFERENCE_GATE,
+    inference_amendment: str | Path = INFERENCE_AMENDMENT_RELATIVE,
+    inference_amendment_seal: str | Path = INFERENCE_AMENDMENT_SEAL_RELATIVE,
 ) -> dict[str, Any]:
     """Validate all pre-label evidence and create the immutable authorization."""
     root = Path(root).resolve()
@@ -3502,7 +3519,42 @@ def freeze_opening_authorization(
         raise OpeningContractError(
             "opening authorization requires a clean, committed Git source tree"
         )
+    inference_gate_path = Path(inference_gate)
+    if not inference_gate_path.is_absolute():
+        inference_gate_path = root / inference_gate_path
+    inference_gate_path = inference_gate_path.resolve()
+    inference_amendment_path = Path(inference_amendment)
+    if not inference_amendment_path.is_absolute():
+        inference_amendment_path = root / inference_amendment_path
+    inference_amendment_path = inference_amendment_path.resolve()
+    inference_amendment_seal_path = Path(inference_amendment_seal)
+    if not inference_amendment_seal_path.is_absolute():
+        inference_amendment_seal_path = root / inference_amendment_seal_path
+    inference_amendment_seal_path = inference_amendment_seal_path.resolve()
     protocol_info = validate_protocol(protocol_path, root=root)
+    try:
+        amendment = validate_inference_amendment(
+            inference_amendment_path,
+            root=root,
+            protocol_path=protocol_path,
+            protocol_seal_path=protocol_info["seal"]["path"],
+        )
+        amendment_seal = validate_inference_amendment_seal(
+            inference_amendment_seal_path,
+            root=root,
+            amendment_path=inference_amendment_path,
+        )
+        inference_gate_document = validate_inference_gate_document(
+            inference_gate_path,
+            root=root,
+            protocol_path=protocol_path,
+            protocol_seal_path=protocol_info["seal"]["path"],
+            station_registry_path=development_registry,
+        )
+    except InferenceGateError as exc:
+        raise OpeningContractError(
+            "prelabel inference gate/amendment is absent or stale"
+        ) from exc
     registries = validate_registry_lock(
         root=root,
         protocol_info=protocol_info,
@@ -3600,6 +3652,10 @@ def freeze_opening_authorization(
         model_suite_sha256=suite["sha256"],
         prelabel_inputs_sha256=inputs["sha256"],
         prelabel_chronology_sha256=sha256_file(chronology_receipt_path),
+        inference_gate_sha256=sha256_file(inference_gate_path),
+        inference_amendment_seal_sha256=sha256_file(
+            inference_amendment_seal_path
+        ),
     )
     stable = {
         "format": AUTHORIZATION_FORMAT,
@@ -3642,6 +3698,21 @@ def freeze_opening_authorization(
             "status": chronology["status"],
             "order": dict(chronology["order"]),
             "evidence_scope": chronology["evidence_scope"],
+        },
+        "inference_amendment": {
+            **_binding(root, inference_amendment_path),
+            "format": amendment["format"],
+            "amendment_id": amendment["amendment_id"],
+            "seal": _binding(root, inference_amendment_seal_path),
+            "final_prelabel_commit": amendment_seal["final_prelabel_commit"],
+        },
+        "inference_gate": {
+            **_binding(root, inference_gate_path),
+            "format": inference_gate_document["format"],
+            "status": inference_gate_document["status"],
+            "claim_eligible": inference_gate_document["claim_eligible"],
+            "analysis_mode": inference_gate_document["analysis_mode"],
+            "policy_sha256": inference_gate_document["policy_sha256"],
         },
         "actual_inputs": _binding(root, input_manifest),
         "actual_feature_order": list(suite["feature_order"]),
@@ -3768,6 +3839,45 @@ def validate_authorization(
     for key, value in protocol_expected.items():
         if protocol_binding.get(key) != value:
             raise OpeningContractError(f"authorized protocol {key} changed")
+    amendment_binding = authorization.get("inference_amendment")
+    if not isinstance(amendment_binding, Mapping) or set(amendment_binding) != {
+        "path", "sha256", "format", "amendment_id", "seal",
+        "final_prelabel_commit",
+    }:
+        raise OpeningContractError("authorization lacks inference-amendment binding")
+    amendment_path = _verify_file_binding(
+        root, amendment_binding, label="inference amendment"
+    )
+    amendment_seal_binding = amendment_binding.get("seal")
+    if not isinstance(amendment_seal_binding, Mapping):
+        raise OpeningContractError("authorization lacks inference-amendment seal")
+    amendment_seal_path = _verify_file_binding(
+        root, amendment_seal_binding, label="inference amendment seal"
+    )
+    try:
+        amendment = validate_inference_amendment(
+            amendment_path,
+            root=root,
+            protocol_path=protocol_path,
+            protocol_seal_path=seal_path,
+        )
+        amendment_seal = validate_inference_amendment_seal(
+            amendment_seal_path,
+            root=root,
+            amendment_path=amendment_path,
+            allow_gitless_archive=allow_gitless_archive,
+        )
+    except InferenceGateError as exc:
+        raise OpeningContractError("authorized inference amendment is stale") from exc
+    expected_amendment_binding = {
+        **_binding(root, amendment_path),
+        "format": amendment["format"],
+        "amendment_id": amendment["amendment_id"],
+        "seal": _binding(root, amendment_seal_path),
+        "final_prelabel_commit": amendment_seal["final_prelabel_commit"],
+    }
+    if dict(amendment_binding) != expected_amendment_binding:
+        raise OpeningContractError("authorized inference amendment binding changed")
     bindings = authorization.get("registries")
     if not isinstance(bindings, Mapping) or set(bindings) != {
         "development", "external", "external_lock", "development_panel_spec",
@@ -3790,6 +3900,35 @@ def validate_authorization(
         external_registry=external_path,
         external_lock=lock_path,
     )
+    gate_binding = authorization.get("inference_gate")
+    if not isinstance(gate_binding, Mapping) or set(gate_binding) != {
+        "path", "sha256", "format", "status", "claim_eligible",
+        "analysis_mode", "policy_sha256",
+    }:
+        raise OpeningContractError("authorization lacks inference-gate binding")
+    gate_path = _verify_file_binding(root, gate_binding, label="inference gate")
+    try:
+        gate = validate_inference_gate_document(
+            gate_path,
+            root=root,
+            protocol_path=protocol_path,
+            protocol_seal_path=seal_path,
+            station_registry_path=development_path,
+        )
+    except InferenceGateError as exc:
+        raise OpeningContractError("authorized inference gate is stale") from exc
+    expected_gate_binding = {
+        **_binding(root, gate_path),
+        "format": gate["format"],
+        "status": gate["status"],
+        "claim_eligible": gate["claim_eligible"],
+        "analysis_mode": gate["analysis_mode"],
+        "policy_sha256": gate["policy_sha256"],
+    }
+    if dict(gate_binding) != expected_gate_binding:
+        raise OpeningContractError("authorized inference-gate binding changed")
+    if gate["claim_eligible"] is not False:
+        raise OpeningContractError("current Route-A gate did not fail closed")
     for key in (
         "development_panel_spec", "candidate_table", "candidate_provenance",
         "candidate_snapshot_index",
@@ -3956,6 +4095,10 @@ def validate_authorization(
         model_suite_sha256=suite["sha256"],
         prelabel_inputs_sha256=inputs["sha256"],
         prelabel_chronology_sha256=str(chronology_binding.get("sha256", "")),
+        inference_gate_sha256=str(gate_binding.get("sha256", "")),
+        inference_amendment_seal_sha256=str(
+            amendment_seal_binding.get("sha256", "")
+        ),
     )
     if not isinstance(state_paths, Mapping) or dict(state_paths) != expected_state_paths:
         raise OpeningContractError("authorization lacks opening state paths")
@@ -3979,6 +4122,9 @@ def validate_authorization(
         "suite": suite,
         "development_replay": replay_receipt,
         "prelabel_chronology": chronology,
+        "inference_amendment": amendment,
+        "inference_amendment_seal": amendment_seal,
+        "inference_gate": gate,
         "inputs": inputs,
         "intent_path": intent,
         "receipt_path": receipt,
@@ -4198,6 +4344,14 @@ def _preflight_attestation(preflight: Mapping[str, Any]) -> dict[str, Any]:
         ["development_replay"]["sha256"],
         "prelabel_chronology_sha256": preflight["authorization"]
         ["prelabel_chronology"]["sha256"],
+        "inference_amendment_sha256": preflight["authorization"]
+        ["inference_amendment"]["sha256"],
+        "inference_amendment_seal_sha256": preflight["authorization"]
+        ["inference_amendment"]["seal"]["sha256"],
+        "inference_gate_sha256": preflight["authorization"]
+        ["inference_gate"]["sha256"],
+        "inference_gate_status": preflight["inference_gate"]["status"],
+        "inference_claim_eligible": preflight["inference_gate"]["claim_eligible"],
         "prelabel_inputs_sha256": preflight["inputs"]["sha256"],
         "actual_feature_order": list(preflight["suite"]["feature_order"]),
         "required_models": {

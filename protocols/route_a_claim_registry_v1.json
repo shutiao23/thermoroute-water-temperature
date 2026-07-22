@@ -355,6 +355,7 @@
     "NONINFERIORITY_SUPPORTED": "Route A {test_id}: NONINFERIORITY_SUPPORTED for {candidate} versus {reference} at horizon {horizon} only against the preregistered {margin_c} °C numerical ceiling; station-median RMSE effect={effect_c} °C, 95% whole-HUC2 cluster-bootstrap CI=[{ci_low_c}, {ci_high_c}] °C, exact whole-HUC2 sign-flip raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters. This does not establish equivalence or parity.",
     "NOT_ESTABLISHED": "Route A {test_id}: NOT_ESTABLISHED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; station-median RMSE effect={effect_c} °C, 95% whole-HUC2 cluster-bootstrap CI=[{ci_low_c}, {ci_high_c}] °C, exact whole-HUC2 sign-flip raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
     "EVIDENCE_CONFLICT_NOT_SUPPORTED": "Route A {test_id}: EVIDENCE_CONFLICT_NOT_SUPPORTED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C because the Holm-adjusted exact sign-flip decision and the preregistered whole-HUC2 cluster-bootstrap confidence-bound rule disagree; station-median RMSE effect={effect_c} °C, 95% CI=[{ci_low_c}, {ci_high_c}] °C, raw p={p_raw}, Holm p={p_holm}, n={n_stations} stations in {n_clusters} clusters.",
+    "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED": "Route A {test_id}: DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; in the fixed availability-enriched cohort, station-median RMSE effect={effect_c} °C, n={n_stations} reportable stations in {n_clusters} HUC2 clusters. The whole-HUC2 bootstrap interval [{ci_low_c}, {ci_high_c}] °C, exact sign-flip raw p={p_raw}, and Holm p={p_holm} are assumption-conditional sensitivities only because the frozen inference gate failed; they do not support superiority, non-inferiority, equivalence, parity, or a U.S.-river superpopulation claim.",
     "NOT_ESTIMABLE": "Route A {test_id}: NOT_ESTIMABLE under the preregistered reportability rule for {candidate} versus {reference} at horizon {horizon} with margin {margin_c} °C; n={n_stations} stations in {n_clusters} clusters."
   },
   "result_claim_specs": [
@@ -491,10 +492,12 @@
       }
     ],
     "support_requires": [
+      "authorization.inference_gate.claim_eligible == true",
       "status == ESTIMABLE",
       "p_holm <= 0.05",
       "ci_high_c < margin_c"
     ],
+    "inference_gate_failure": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
     "p_ci_disagreement": "EVIDENCE_CONFLICT_NOT_SUPPORTED",
     "coherent_failure": "NOT_ESTABLISHED",
     "nonestimable": "NOT_ESTIMABLE",

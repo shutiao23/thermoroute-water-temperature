@@ -103,6 +103,12 @@ def _write_authorization(tmp_path: Path, registry: dict) -> tuple[Path, dict[str
             "authorization_path": "data_usgs/confirmatory_opening_authorization_v1.json"
         },
         "protocol": dict(registry["protocol_binding"]),
+        "inference_gate": {
+            "format": "thermoroute.route-a-inference-gate.v1",
+            "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
+            "claim_eligible": False,
+            "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
+        },
         "state_paths": state,
     }
     path = tmp_path / "data_usgs" / "confirmatory_opening_authorization_v1.json"
@@ -362,6 +368,11 @@ def test_v2_post_renders_exact_five_blocks_and_validates_them(
     )
     assert set(rendered) == {"paper/main.md"}
     assert rendered["paper/main.md"].count(b"<!-- ROUTE_A_CLAIM RESULT_") == 5
+    assert rendered["paper/main.md"].count(
+        b"DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED"
+    ) == 15  # rendered verdict plus structured polarity/template_id per block
+    assert b"SUPERIORITY_SUPPORTED for" not in rendered["paper/main.md"]
+    assert b"NONINFERIORITY_SUPPORTED for" not in rendered["paper/main.md"]
     paper = tmp_path / "paper" / "main.md"
     paper.write_bytes(
         paper.read_bytes() + b"\n\n# Results\n\n" + rendered["paper/main.md"] + b"\n"
@@ -438,8 +449,26 @@ def test_v2_conflicting_p_and_ci_rules_render_not_supported(
     rendered = module.render_result_claim_blocks(
         root=tmp_path, registry_path=registry_path
     )["paper/main.md"]
-    assert b"EVIDENCE_CONFLICT_NOT_SUPPORTED" in rendered
-    assert b"SUPERIORITY_SUPPORTED" in rendered  # other coherent tests remain supported
+    assert b"DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED" in rendered
+    assert b"EVIDENCE_CONFLICT_NOT_SUPPORTED" not in rendered
+    assert b"SUPERIORITY_SUPPORTED for" not in rendered
+
+
+def test_strong_p_values_and_favorable_intervals_cannot_override_failed_gate() -> None:
+    module = _module()
+    row = {
+        "status": "ESTIMABLE",
+        "reject_at_0_05": True,
+        "confidence_bound_supports_margin": True,
+        "margin_c": 0.0,
+    }
+
+    assert module._result_verdict(
+        row, inference_claim_eligible=False
+    ) == "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED"
+    assert module._result_verdict(
+        row, inference_claim_eligible=True
+    ) == "SUPERIORITY_SUPPORTED"
 
 
 def test_cli_has_no_phase_override(tmp_path):

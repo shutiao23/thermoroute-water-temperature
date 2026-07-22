@@ -1330,7 +1330,8 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         "protocol.json", "development.csv", "external.csv", "lock.json",
         "suite.json", "inputs.json", "panel_spec.json", "candidates.csv",
         "candidate_provenance.json", "candidate_snapshot_index.json",
-        "development_replay.json", "protocol_seal.json",
+        "development_replay.json", "protocol_seal.json", "inference_gate.json",
+        "inference_amendment.json", "inference_amendment_seal.json",
     )
     paths = {name: tmp_path / name for name in relative_paths}
     for name, path in paths.items():
@@ -1401,6 +1402,33 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     monkeypatch.setattr(
         opening_module, "validate_prelabel_inputs", lambda *_args, **_kwargs: inputs
     )
+    amendment_document = {
+        "format": "thermoroute.route-a-inference-amendment.v1",
+        "amendment_id": "route-a-prelabel-inference-scope-014",
+    }
+    amendment_seal_document = {"final_prelabel_commit": "4" * 40}
+    gate_document = {
+        "format": "thermoroute.route-a-inference-gate.v1",
+        "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
+        "claim_eligible": False,
+        "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
+        "policy_sha256": "7" * 64,
+    }
+    monkeypatch.setattr(
+        opening_module,
+        "validate_inference_amendment",
+        lambda *_args, **_kwargs: amendment_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_inference_amendment_seal",
+        lambda *_args, **_kwargs: amendment_seal_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_inference_gate_document",
+        lambda *_args, **_kwargs: gate_document,
+    )
     replay_document = {
         "format": "thermoroute.route-a-development-replay.v1",
         "status": "PASS_FULL_DEVELOPMENT_REPLAY_NO_CONFIRMATION_DATA",
@@ -1467,6 +1495,9 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         input_manifest=paths["inputs.json"],
         development_replay_receipt=paths["development_replay.json"],
         prelabel_chronology_receipt=chronology_path,
+        inference_gate=paths["inference_gate.json"],
+        inference_amendment=paths["inference_amendment.json"],
+        inference_amendment_seal=paths["inference_amendment_seal.json"],
     )
     assert frozen["source"]["post_freeze_allowed_git_status"] == (
         "?? data_usgs/confirmatory_opening_authorization_v1.json"
@@ -1475,7 +1506,22 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     assert dry_run["authorization"]["status"] == "AUTHORIZED_LABELS_STILL_SEALED"
     assert dry_run["development_replay"] == replay_document
     assert dry_run["prelabel_chronology"] == chronology_document
+    assert dry_run["inference_gate"] == gate_document
     assert not Path(dry_run["intent_path"]).exists()
+
+    authorization_original = authorization.read_bytes()
+    authorization.chmod(0o644)
+    missing_gate = json.loads(authorization_original)
+    missing_gate.pop("inference_gate")
+    missing_gate.pop("authorization_self_sha256")
+    missing_gate["authorization_self_sha256"] = opening_module.sha256_json(
+        missing_gate
+    )
+    authorization.write_text(json.dumps(missing_gate), encoding="utf-8")
+    with pytest.raises(OpeningContractError, match="lacks inference-gate binding"):
+        validate_authorization(authorization, root=tmp_path)
+    authorization.write_bytes(authorization_original)
+    authorization.chmod(0o444)
 
     chronology_original = chronology_path.read_bytes()
     chronology_path.write_text("tampered chronology\n", encoding="utf-8")
@@ -1487,6 +1533,12 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     with pytest.raises(OpeningContractError, match="another protocol/model/input"):
         validate_authorization(authorization, root=tmp_path)
     chronology_document["paths"]["input_manifest"] = "inputs.json"
+
+    gate_original = paths["inference_gate.json"].read_bytes()
+    paths["inference_gate.json"].write_text("tampered gate\n", encoding="utf-8")
+    with pytest.raises(OpeningContractError, match="inference gate checksum"):
+        validate_authorization(authorization, root=tmp_path)
+    paths["inference_gate.json"].write_bytes(gate_original)
 
     original = authorization.read_bytes()
     tampered = json.loads(original)

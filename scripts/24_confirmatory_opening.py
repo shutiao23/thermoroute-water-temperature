@@ -88,6 +88,15 @@ DEFAULT_DEVELOPMENT_REPLAY = (
 DEFAULT_PRELABEL_CHRONOLOGY = (
     ROOT / "outputs" / "prelabel" / "route_a_prelabel_chronology_v1.json"
 )
+DEFAULT_INFERENCE_GATE = (
+    ROOT / "outputs" / "prelabel" / "route_a_inference_gate_v1.json"
+)
+DEFAULT_INFERENCE_AMENDMENT = (
+    ROOT / "protocols" / "route_a_inference_amendment_v1.json"
+)
+DEFAULT_INFERENCE_AMENDMENT_SEAL = (
+    ROOT / "protocols" / "route_a_inference_amendment_seal_v1.json"
+)
 DEFAULT_AUTHORIZATION = (
     ROOT / "data_usgs" / "confirmatory_opening_authorization_v1.json"
 )
@@ -113,6 +122,9 @@ def freeze(args: argparse.Namespace) -> None:
         input_manifest=args.input_manifest,
         development_replay_receipt=args.development_replay_receipt,
         prelabel_chronology_receipt=args.prelabel_chronology_receipt,
+        inference_gate=args.inference_gate,
+        inference_amendment=args.inference_amendment,
+        inference_amendment_seal=args.inference_amendment_seal,
     )
     print(json.dumps({
         "status": document["status"],
@@ -137,6 +149,8 @@ def preflight(args: argparse.Namespace) -> None:
         "runtime_sha256": result["runtime"]["runtime_sha256"],
         "fixed_code_sha256": result["fixed_code"]["sha256"],
         "prelabel_chronology_status": result["prelabel_chronology"]["status"],
+        "inference_gate_status": result["inference_gate"]["status"],
+        "inference_claim_eligible": result["inference_gate"]["claim_eligible"],
         "model_freeze_commit": result["prelabel_chronology"]["order"]
         ["model_freeze_commit"],
         "input_evidence_commit": result["prelabel_chronology"]["order"]
@@ -252,6 +266,17 @@ def main() -> None:
         "--prelabel-chronology-receipt",
         type=Path,
         default=DEFAULT_PRELABEL_CHRONOLOGY,
+    )
+    freeze_parser.add_argument(
+        "--inference-gate", type=Path, default=DEFAULT_INFERENCE_GATE,
+    )
+    freeze_parser.add_argument(
+        "--inference-amendment", type=Path, default=DEFAULT_INFERENCE_AMENDMENT,
+    )
+    freeze_parser.add_argument(
+        "--inference-amendment-seal",
+        type=Path,
+        default=DEFAULT_INFERENCE_AMENDMENT_SEAL,
     )
     freeze_parser.set_defaults(func=freeze)
 

@@ -211,10 +211,12 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
             },
         ],
         "support_requires": [
+            "authorization.inference_gate.claim_eligible == true",
             "status == ESTIMABLE",
             "p_holm <= 0.05",
             "ci_high_c < margin_c",
         ],
+        "inference_gate_failure": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
         "p_ci_disagreement": "EVIDENCE_CONFLICT_NOT_SUPPORTED",
         "coherent_failure": "NOT_ESTABLISHED",
         "nonestimable": "NOT_ESTIMABLE",
@@ -233,7 +235,7 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         for template_id in (
             "SUPERIORITY_SUPPORTED", "NONINFERIORITY_SUPPORTED",
             "EVIDENCE_CONFLICT_NOT_SUPPORTED", "NOT_ESTABLISHED",
-            "NOT_ESTIMABLE",
+            "NOT_ESTIMABLE", "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
         )
     ):
         raise ClaimRegistryError("decision rule lacks a fixed result template")
@@ -770,9 +772,13 @@ def _number(value: object) -> str:
     return json.dumps(number, allow_nan=False, separators=(",", ":"))
 
 
-def _result_verdict(row: Mapping[str, Any]) -> str:
+def _result_verdict(
+    row: Mapping[str, Any], *, inference_claim_eligible: bool
+) -> str:
     if row["status"] != "ESTIMABLE":
         return "NOT_ESTIMABLE"
+    if inference_claim_eligible is not True:
+        return "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED"
     p_support = row["reject_at_0_05"] is True
     interval_support = row["confidence_bound_supports_margin"] is True
     if p_support != interval_support:
@@ -784,8 +790,15 @@ def _result_verdict(row: Mapping[str, Any]) -> str:
     )
 
 
-def _render_result_text(row: Mapping[str, Any], templates: Mapping[str, Any]) -> tuple[str, str]:
-    verdict = _result_verdict(row)
+def _render_result_text(
+    row: Mapping[str, Any],
+    templates: Mapping[str, Any],
+    *,
+    inference_claim_eligible: bool,
+) -> tuple[str, str]:
+    verdict = _result_verdict(
+        row, inference_claim_eligible=inference_claim_eligible
+    )
     template = templates.get(verdict)
     if not isinstance(template, str) or not template:
         raise ClaimRegistryError(f"missing fixed result template: {verdict}")
@@ -833,7 +846,11 @@ def _claim_block(claim_id: str, body: str) -> bytes:
 
 
 def _expected_claims(
-    *, registry: Mapping[str, Any], phase: str, statistics: Mapping[str, Any] | None
+    *,
+    registry: Mapping[str, Any],
+    phase: str,
+    statistics: Mapping[str, Any] | None,
+    inference_claim_eligible: bool = False,
 ) -> Mapping[str, Mapping[str, Any]]:
     templates = registry["claim_templates"]
     expected: dict[str, Mapping[str, Any]] = {}
@@ -853,7 +870,11 @@ def _expected_claims(
         by_id = {str(row["test_id"]): row for row in statistics["tests"]}
         for spec in registry["result_claim_specs"]:
             test_id = str(spec["evidence"]["test_id"])
-            text, verdict = _render_result_text(by_id[test_id], templates)
+            text, verdict = _render_result_text(
+                by_id[test_id],
+                templates,
+                inference_claim_eligible=inference_claim_eligible,
+            )
             entry = dict(spec)
             entry["polarity"] = verdict
             entry["template_id"] = verdict
@@ -879,8 +900,21 @@ def render_result_claim_blocks(
     statistics, _ = _load_verified_statistics(
         root=root, registry=registry, phase=phase, protocol=protocol
     )
+    authorization = phase.get("authorization")
+    gate = authorization.get("inference_gate") if isinstance(
+        authorization, Mapping
+    ) else None
+    if not isinstance(gate, Mapping) or not isinstance(
+        gate.get("claim_eligible"), bool
+    ):
+        raise ClaimRegistryError(
+            "verified Route-A authorization lacks a boolean inference gate"
+        )
     expected = _expected_claims(
-        registry=registry, phase=POST_PHASE, statistics=statistics
+        registry=registry,
+        phase=POST_PHASE,
+        statistics=statistics,
+        inference_claim_eligible=bool(gate["claim_eligible"]),
     )
     grouped: dict[str, list[bytes]] = defaultdict(list)
     result_ids = set(registry["required_postopen_coverage"]["claim_ids"])
@@ -1009,6 +1043,7 @@ def validate_claims(
             f"canonical claim document closure changed (missing={missing}, extra={extra})"
         )
     statistics: Mapping[str, Any] | None = None
+    inference_claim_eligible = False
     if phase == POST_PHASE:
         statistics, _ = _load_verified_statistics(
             root=root,
@@ -1016,7 +1051,23 @@ def validate_claims(
             phase=phase_evidence,
             protocol=protocol,
         )
-    expected = _expected_claims(registry=registry, phase=phase, statistics=statistics)
+        authorization = phase_evidence.get("authorization")
+        gate = authorization.get("inference_gate") if isinstance(
+            authorization, Mapping
+        ) else None
+        if not isinstance(gate, Mapping) or not isinstance(
+            gate.get("claim_eligible"), bool
+        ):
+            raise ClaimRegistryError(
+                "verified Route-A authorization lacks a boolean inference gate"
+            )
+        inference_claim_eligible = bool(gate["claim_eligible"])
+    expected = _expected_claims(
+        registry=registry,
+        phase=phase,
+        statistics=statistics,
+        inference_claim_eligible=inference_claim_eligible,
+    )
     expected_entries = {
         str(item["claim"]["claim_id"]): item["claim"]
         for item in registry["permanent_constraints"]
