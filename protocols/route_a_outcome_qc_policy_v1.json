@@ -1,0 +1,66 @@
+{
+  "format": "thermoroute.route-a-outcome-qc-policy.v1",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "policy_id": "route-a-outcome-qc-and-influence-001",
+  "recorded_date": "2026-07-22",
+  "post_2020_wtemp_requested_or_inspected": false,
+  "outcome_independent": true,
+  "base_protocol": {
+    "path": "protocols/route_a_confirmatory_v1.json",
+    "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+  },
+  "confirmatory_family_sha256": "473b2ddae17b353b3499413ecd266e684e9b411412bba5463435e8400aedb799",
+  "application_contract": {
+    "primary_statistics_remain_unfiltered": true,
+    "outcome_based_site_or_key_selection_forbidden": true,
+    "outcome_based_retraining_or_recalibration_forbidden": true,
+    "pair_symmetric_operations_only": true,
+    "all_five_comparisons_must_be_audited": true,
+    "missing_unknown_or_nonestimable_is_failure": true
+  },
+  "target_plausibility_gate": {
+    "variable": "WTEMP",
+    "units": "degrees_C",
+    "confirmation_interval_only": true,
+    "lower_inclusive_c": -2.0,
+    "upper_inclusive_c": 50.0,
+    "outside_range_action": "FLAG_RETAIN_AND_WITHHOLD_DIRECTIONAL_CLAIMS",
+    "censor_or_replace_values": false
+  },
+  "single_extreme_influence_gate": {
+    "scope": "each_formal_comparison_each_reportable_station",
+    "forecast_key": [
+      "site_id",
+      "issue_date",
+      "target_date",
+      "horizon"
+    ],
+    "selection_score": "candidate_squared_error_plus_reference_squared_error",
+    "selection_count_per_station": 1,
+    "tie_break": [
+      "issue_date_ascending",
+      "target_date_ascending"
+    ],
+    "deletion_rule": "delete_the_same_selected_forecast_key_from_candidate_and_reference",
+    "station_effect": "candidate_rmse_minus_reference_rmse",
+    "cohort_effect": "median_station_effect",
+    "maximum_absolute_cohort_effect_change_c": 0.05,
+    "margin_direction_must_remain_unchanged": true,
+    "minimum_valid_targets_still_required_after_deletion": true,
+    "max_combined_sse_share_is_reported_not_thresholded": true
+  },
+  "leave_one_huc_gate": {
+    "required": true,
+    "effect": "leave_one_huc_station_weighted_median_effect_minus_margin",
+    "all_estimable_huc_deletions_must_match_full_effect_margin_direction": true,
+    "touching_margin_or_nonestimable_is_failure": true
+  },
+  "decision": {
+    "all_components_must_pass": true,
+    "pass_status": "PASS_DIRECTIONAL_REPORTING_QC",
+    "failure_status": "FAIL_WITHHOLD_DIRECTIONAL_CLAIMS",
+    "failure_action": "REPORT_UNFILTERED_EFFECTS_WITH_QC_WARNINGS_NO_DIRECTIONAL_CLAIM",
+    "strong_p_value_or_favorable_interval_cannot_override_failure": true,
+    "output_artifact": "trusted/outcome_qc_gate_v1.json"
+  }
+}

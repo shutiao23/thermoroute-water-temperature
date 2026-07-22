@@ -81,6 +81,14 @@ from .opening_contract import (
     MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES,
     assert_no_symlink_components,
 )
+from .outcome_qc import (
+    GATE_FORMAT as OUTCOME_QC_GATE_FORMAT,
+    POLICY_RELATIVE as OUTCOME_QC_POLICY_RELATIVE,
+    OutcomeQCGateError,
+    build_outcome_qc_gate_document,
+    validate_outcome_qc_gate_document,
+    validate_outcome_qc_policy,
+)
 from .probability import (
     PlattCalibrator,
     logit,
@@ -617,6 +625,7 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         "thermoroute.provenance": "src/thermoroute/provenance.py",
         "thermoroute.usgs": "src/thermoroute/usgs.py",
         "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
+        "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
     }
     modules: dict[str, dict[str, str]] = {}
     for name, relative in module_names.items():
@@ -738,6 +747,7 @@ def _canonical_state_paths(
     prelabel_chronology_sha256: str,
     inference_gate_sha256: str,
     inference_amendment_seal_sha256: str,
+    outcome_qc_policy_sha256: str,
 ) -> dict[str, str]:
     namespace = sha256_json({
         "protocol_sha256": protocol_sha256,
@@ -747,6 +757,7 @@ def _canonical_state_paths(
         "prelabel_chronology_sha256": prelabel_chronology_sha256,
         "inference_gate_sha256": inference_gate_sha256,
         "inference_amendment_seal_sha256": inference_amendment_seal_sha256,
+        "outcome_qc_policy_sha256": outcome_qc_policy_sha256,
     })[:24]
     base = Path("outputs") / "confirmatory" / f"route_a_{namespace}"
     values = {
@@ -772,6 +783,9 @@ def _canonical_state_paths(
         ).as_posix(),
         "outcome_quality_audit": (
             base / "trusted" / "outcome_quality_audit_v1.json"
+        ).as_posix(),
+        "outcome_qc_gate": (
+            base / "trusted" / "outcome_qc_gate_v1.json"
         ).as_posix(),
         "approved_target_sensitivity": (
             base / "trusted" / "approved_target_sensitivity_v1.json"
@@ -3503,6 +3517,7 @@ def freeze_opening_authorization(
     inference_gate: str | Path = DEFAULT_INFERENCE_GATE,
     inference_amendment: str | Path = INFERENCE_AMENDMENT_RELATIVE,
     inference_amendment_seal: str | Path = INFERENCE_AMENDMENT_SEAL_RELATIVE,
+    outcome_qc_policy: str | Path = OUTCOME_QC_POLICY_RELATIVE,
 ) -> dict[str, Any]:
     """Validate all pre-label evidence and create the immutable authorization."""
     root = Path(root).resolve()
@@ -3530,6 +3545,10 @@ def freeze_opening_authorization(
     if not inference_amendment_seal_path.is_absolute():
         inference_amendment_seal_path = root / inference_amendment_seal_path
     inference_amendment_seal_path = inference_amendment_seal_path.resolve()
+    outcome_qc_policy_path = Path(outcome_qc_policy)
+    if not outcome_qc_policy_path.is_absolute():
+        outcome_qc_policy_path = root / outcome_qc_policy_path
+    outcome_qc_policy_path = outcome_qc_policy_path.resolve()
     protocol_info = validate_protocol(protocol_path, root=root)
     try:
         amendment = validate_inference_amendment(
@@ -3550,9 +3569,14 @@ def freeze_opening_authorization(
             protocol_seal_path=protocol_info["seal"]["path"],
             station_registry_path=development_registry,
         )
-    except InferenceGateError as exc:
+        outcome_qc_policy_document = validate_outcome_qc_policy(
+            outcome_qc_policy_path,
+            root=root,
+            protocol_path=protocol_path,
+        )
+    except (InferenceGateError, OutcomeQCGateError) as exc:
         raise OpeningContractError(
-            "prelabel inference gate/amendment is absent or stale"
+            "prelabel inference/QC gate or amendment is absent or stale"
         ) from exc
     registries = validate_registry_lock(
         root=root,
@@ -3655,6 +3679,7 @@ def freeze_opening_authorization(
         inference_amendment_seal_sha256=sha256_file(
             inference_amendment_seal_path
         ),
+        outcome_qc_policy_sha256=sha256_file(outcome_qc_policy_path),
     )
     stable = {
         "format": AUTHORIZATION_FORMAT,
@@ -3712,6 +3737,12 @@ def freeze_opening_authorization(
             "claim_eligible": inference_gate_document["claim_eligible"],
             "analysis_mode": inference_gate_document["analysis_mode"],
             "policy_sha256": inference_gate_document["policy_sha256"],
+        },
+        "outcome_qc_policy": {
+            **_binding(root, outcome_qc_policy_path),
+            "format": outcome_qc_policy_document["format"],
+            "policy_id": outcome_qc_policy_document["policy_id"],
+            "required": True,
         },
         "actual_inputs": _binding(root, input_manifest),
         "actual_feature_order": list(suite["feature_order"]),
@@ -3877,6 +3908,42 @@ def validate_authorization(
     }
     if dict(amendment_binding) != expected_amendment_binding:
         raise OpeningContractError("authorized inference amendment binding changed")
+    outcome_qc_policy_binding = authorization.get("outcome_qc_policy")
+    if not isinstance(outcome_qc_policy_binding, Mapping) or set(
+        outcome_qc_policy_binding
+    ) != {"path", "sha256", "format", "policy_id", "required"}:
+        raise OpeningContractError("authorization lacks outcome-QC policy binding")
+    outcome_qc_policy_path = _verify_file_binding(
+        root, outcome_qc_policy_binding, label="outcome-QC policy"
+    )
+    try:
+        outcome_qc_policy_document = validate_outcome_qc_policy(
+            outcome_qc_policy_path,
+            root=root,
+            protocol_path=protocol_path,
+        )
+    except OutcomeQCGateError as exc:
+        raise OpeningContractError("authorized outcome-QC policy is stale") from exc
+    expected_outcome_qc_policy_binding = {
+        **_binding(root, outcome_qc_policy_path),
+        "format": outcome_qc_policy_document["format"],
+        "policy_id": outcome_qc_policy_document["policy_id"],
+        "required": True,
+    }
+    amendment_qc = amendment.get("additional_preopen_gates", {}).get(
+        "outcome_qc_policy", {}
+    )
+    if (
+        dict(outcome_qc_policy_binding) != expected_outcome_qc_policy_binding
+        or not isinstance(amendment_qc, Mapping)
+        or {
+            "path": amendment_qc.get("path"),
+            "sha256": amendment_qc.get("sha256"),
+        } != _binding(root, outcome_qc_policy_path)
+    ):
+        raise OpeningContractError(
+            "authorized outcome-QC policy differs from the sealed amendment"
+        )
     bindings = authorization.get("registries")
     if not isinstance(bindings, Mapping) or set(bindings) != {
         "development", "external", "external_lock", "development_panel_spec",
@@ -4098,6 +4165,9 @@ def validate_authorization(
         inference_amendment_seal_sha256=str(
             amendment_seal_binding.get("sha256", "")
         ),
+        outcome_qc_policy_sha256=str(
+            outcome_qc_policy_binding.get("sha256", "")
+        ),
     )
     if not isinstance(state_paths, Mapping) or dict(state_paths) != expected_state_paths:
         raise OpeningContractError("authorization lacks opening state paths")
@@ -4124,6 +4194,7 @@ def validate_authorization(
         "inference_amendment": amendment,
         "inference_amendment_seal": amendment_seal,
         "inference_gate": gate,
+        "outcome_qc_policy": outcome_qc_policy_document,
         "inputs": inputs,
         "intent_path": intent,
         "receipt_path": receipt,
@@ -4189,7 +4260,7 @@ def inspect_same_opening_transport_resume(
         }
     forbidden_keys = (
         "acquisition_manifest", "temporal_outcomes", "external_outcomes",
-        "availability_registry", "outcome_quality_audit",
+        "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
         "approved_target_sensitivity", "spatial_sensitivity",
         "probabilistic_evaluation", "temporal_predictions",
         "external_predictions", "statistics", "report", "receipt",
@@ -4283,6 +4354,7 @@ class OpeningProducts:
 
     acquisition_manifest: Path
     outcome_quality_audit: Path
+    outcome_qc_gate: Path
     approved_target_sensitivity: Path
     spatial_sensitivity: Path
     probabilistic_evaluation: Path
@@ -4351,6 +4423,8 @@ def _preflight_attestation(preflight: Mapping[str, Any]) -> dict[str, Any]:
         ["inference_gate"]["sha256"],
         "inference_gate_status": preflight["inference_gate"]["status"],
         "inference_claim_eligible": preflight["inference_gate"]["claim_eligible"],
+        "outcome_qc_policy_sha256": preflight["authorization"]
+        ["outcome_qc_policy"]["sha256"],
         "prelabel_inputs_sha256": preflight["inputs"]["sha256"],
         "actual_feature_order": list(preflight["suite"]["feature_order"]),
         "required_models": {
@@ -6885,6 +6959,7 @@ def _render_confirmatory_report(
     trusted_predictions: Mapping[str, pd.DataFrame],
     required_models: Mapping[str, Sequence[str]],
     outcome_quality_audit: Mapping[str, Any],
+    outcome_qc_gate: Mapping[str, Any],
     approved_target_sensitivity: Mapping[str, Any],
     spatial_sensitivity: Mapping[str, Any],
     probabilistic_evaluation: Mapping[str, Any],
@@ -7152,6 +7227,60 @@ def _render_confirmatory_report(
         "averaged. Every conflict constituent retains its exact value/qualifier "
         "column, raw qualifier/value, parsed finite value, and raw-response SHA-256.",
         "",
+        "## Predeclared outcome-QC and influence gate",
+        "",
+        (
+            f"Gate status: `{outcome_qc_gate['status']}`; pass: "
+            f"`{outcome_qc_gate['pass']}`; directional claims allowed by this "
+            "gate: "
+            f"`{outcome_qc_gate['directional_claims_allowed_by_outcome_qc']}`."
+        ),
+        (
+            "The primary five effects above remain completely unfiltered. This "
+            "audit removes no primary row or site, changes no model, and performs "
+            "no retraining or recalibration. A failed component withholds "
+            "directional wording even if a p-value or interval appears favorable."
+        ),
+        (
+            "Finite confirmation-period WTEMP values checked against the frozen "
+            f"[{number(outcome_qc_gate['target_plausibility']['lower_inclusive_c'])}, "
+            f"{number(outcome_qc_gate['target_plausibility']['upper_inclusive_c'])}] "
+            "°C plausibility range: "
+            f"{outcome_qc_gate['target_plausibility']['finite_confirmation_values_checked']}; "
+            "outside-range values retained and flagged: "
+            f"{outcome_qc_gate['target_plausibility']['outside_range_count']}."
+        ),
+        "",
+        (
+            "| Test | h | Primary effect (°C) | One extreme/station deleted "
+            "effect (°C) | Absolute change (°C) | Margin direction stable | "
+            "Max selected combined-SSE share | Pass |"
+        ),
+        "|---|---:|---:|---:|---:|---|---:|---|",
+    ])
+    for row in outcome_qc_gate["single_extreme_influence"]:
+        lines.append(
+            f"| {row['test_id']} | {row['horizon']} | "
+            f"{number(row['primary_unfiltered_effect_c'])} | "
+            f"{number(row['one_extreme_per_station_deleted_effect_c'])} | "
+            f"{number(row['absolute_effect_change_c'])} | "
+            f"{row['margin_direction_stable']} | "
+            f"{number(row['maximum_selected_combined_sse_share'])} | "
+            f"{row['pass']} |"
+        )
+    lines.extend([
+        "",
+        "| Test | Full margin direction | All leave-one-HUC directions match | Pass |",
+        "|---|---|---|---|",
+    ])
+    for row in outcome_qc_gate["leave_one_huc_direction"]:
+        lines.append(
+            f"| {row['test_id']} | {row['full_margin_direction']} | "
+            f"{row['all_huc_deletions_match_full_margin_direction']} | "
+            f"{row['pass']} |"
+        )
+    lines.extend([
+        "",
         "## Exact-A target-only sensitivity (descriptive)",
         "",
         (
@@ -7283,6 +7412,21 @@ def produce_trusted_opening_products(
         protocol=protocol_info["document"],
         minimum_targets=minimum_targets,
     )
+    try:
+        outcome_qc_gate = build_outcome_qc_gate_document(
+            root=root,
+            policy_path=root
+            / preflight["authorization"]["outcome_qc_policy"]["path"],
+            protocol=protocol_info["document"],
+            temporal_predictions=trusted["temporal"],
+            normalized_temporal=normalized["temporal"],
+            spatial_sensitivity=spatial_sensitivity,
+            minimum_targets=minimum_targets,
+        )
+    except OutcomeQCGateError as exc:
+        raise OpeningContractError(
+            "frozen outcome-QC gate could not be executed"
+        ) from exc
     probabilistic_evaluation = _probabilistic_evaluation(
         trusted_predictions=trusted,
         suite=preflight["suite"],
@@ -7291,6 +7435,7 @@ def produce_trusted_opening_products(
     )
     state = preflight["state_paths"]
     exclusive_create_json(state["outcome_quality_audit"], quality_audit)
+    exclusive_create_json(state["outcome_qc_gate"], outcome_qc_gate)
     exclusive_create_json(
         state["approved_target_sensitivity"], approved_sensitivity
     )
@@ -7310,6 +7455,15 @@ def produce_trusted_opening_products(
             root, state["approved_target_sensitivity"]
         ),
         "spatial_sensitivity": _binding(root, state["spatial_sensitivity"]),
+    }
+    statistics["outcome_qc_gate"] = {
+        **_binding(root, state["outcome_qc_gate"]),
+        "format": OUTCOME_QC_GATE_FORMAT,
+        "status": outcome_qc_gate["status"],
+        "pass": outcome_qc_gate["pass"],
+        "directional_claims_allowed": outcome_qc_gate[
+            "directional_claims_allowed_by_outcome_qc"
+        ],
     }
     statistics["probabilistic_and_event_artifacts"] = {
         "probabilistic_evaluation": _binding(
@@ -7332,6 +7486,7 @@ def produce_trusted_opening_products(
             trusted_predictions=trusted,
             required_models=preflight["suite"]["required_models"],
             outcome_quality_audit=quality_audit,
+            outcome_qc_gate=outcome_qc_gate,
             approved_target_sensitivity=approved_sensitivity,
             spatial_sensitivity=spatial_sensitivity,
             probabilistic_evaluation=probabilistic_evaluation,
@@ -7344,6 +7499,7 @@ def produce_trusted_opening_products(
     return OpeningProducts(
         acquisition_manifest=state["acquisition_manifest"],
         outcome_quality_audit=state["outcome_quality_audit"],
+        outcome_qc_gate=state["outcome_qc_gate"],
         approved_target_sensitivity=state["approved_target_sensitivity"],
         spatial_sensitivity=state["spatial_sensitivity"],
         probabilistic_evaluation=state["probabilistic_evaluation"],
@@ -7365,6 +7521,7 @@ def validate_opening_products(
     expected_product_paths = {
         "acquisition_manifest": preflight["state_paths"]["acquisition_manifest"],
         "outcome_quality_audit": preflight["state_paths"]["outcome_quality_audit"],
+        "outcome_qc_gate": preflight["state_paths"]["outcome_qc_gate"],
         "approved_target_sensitivity": preflight["state_paths"][
             "approved_target_sensitivity"
         ],
@@ -7584,6 +7741,38 @@ def validate_opening_products(
     _assert_statistics_equal(
         expected_spatial_sensitivity, actual_spatial_sensitivity
     )
+    try:
+        expected_outcome_qc_gate = build_outcome_qc_gate_document(
+            root=root,
+            policy_path=root
+            / preflight["authorization"]["outcome_qc_policy"]["path"],
+            protocol=protocol_info["document"],
+            temporal_predictions=trusted_frames["temporal"],
+            normalized_temporal=normalized["temporal"],
+            spatial_sensitivity=expected_spatial_sensitivity,
+            minimum_targets=minimum_targets,
+        )
+        actual_outcome_qc_gate = _load_json(
+            products.outcome_qc_gate, label="outcome-QC gate"
+        )
+        validate_outcome_qc_gate_document(
+            actual_outcome_qc_gate,
+            root=root,
+            policy_path=root
+            / preflight["authorization"]["outcome_qc_policy"]["path"],
+            protocol=protocol_info["document"],
+            temporal_predictions=trusted_frames["temporal"],
+            normalized_temporal=normalized["temporal"],
+            spatial_sensitivity=expected_spatial_sensitivity,
+            minimum_targets=minimum_targets,
+        )
+    except OutcomeQCGateError as exc:
+        raise OpeningContractError(
+            "outcome-QC gate differs from trusted recomputation"
+        ) from exc
+    _assert_statistics_equal(
+        expected_outcome_qc_gate, actual_outcome_qc_gate
+    )
     expected_probabilistic_evaluation = _probabilistic_evaluation(
         trusted_predictions=trusted_frames,
         suite=preflight["suite"],
@@ -7614,6 +7803,15 @@ def validate_opening_products(
         ),
         "spatial_sensitivity": _binding(root, products.spatial_sensitivity),
     }
+    expected_statistics["outcome_qc_gate"] = {
+        **_binding(root, products.outcome_qc_gate),
+        "format": OUTCOME_QC_GATE_FORMAT,
+        "status": expected_outcome_qc_gate["status"],
+        "pass": expected_outcome_qc_gate["pass"],
+        "directional_claims_allowed": expected_outcome_qc_gate[
+            "directional_claims_allowed_by_outcome_qc"
+        ],
+    }
     expected_statistics["probabilistic_and_event_artifacts"] = {
         "probabilistic_evaluation": _binding(
             root, products.probabilistic_evaluation
@@ -7632,6 +7830,7 @@ def validate_opening_products(
         trusted_predictions=trusted_frames,
         required_models=preflight["suite"]["required_models"],
         outcome_quality_audit=expected_quality_audit,
+        outcome_qc_gate=expected_outcome_qc_gate,
         approved_target_sensitivity=expected_approved_sensitivity,
         spatial_sensitivity=expected_spatial_sensitivity,
         probabilistic_evaluation=expected_probabilistic_evaluation,
@@ -7651,6 +7850,7 @@ def validate_opening_products(
         ),
         "availability_registry": _binding(root, availability_path),
         "outcome_quality_audit": _binding(root, products.outcome_quality_audit),
+        "outcome_qc_gate": _binding(root, products.outcome_qc_gate),
         "approved_target_sensitivity": _binding(
             root, products.approved_target_sensitivity
         ),
@@ -7772,7 +7972,7 @@ def isolated_orchestrate_opening(
             exclusive_create_json(work_order_path, work_order)
         forbidden_resume = (
             "acquisition_manifest", "temporal_outcomes", "external_outcomes",
-            "availability_registry", "outcome_quality_audit",
+            "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
             "approved_target_sensitivity", "spatial_sensitivity",
             "probabilistic_evaluation", "temporal_predictions",
             "external_predictions", "statistics", "report", "receipt",
@@ -7856,6 +8056,7 @@ def _release_artifact_formats() -> dict[str, str]:
         "external_normalized_outcomes": "thermoroute.route-a-normalized-outcomes.v1",
         "availability_registry": "thermoroute.route-a-availability-registry.v1",
         "outcome_quality_audit": OUTCOME_QUALITY_AUDIT_FORMAT,
+        "outcome_qc_gate": OUTCOME_QC_GATE_FORMAT,
         "approved_target_sensitivity": APPROVED_TARGET_SENSITIVITY_FORMAT,
         "spatial_sensitivity": SPATIAL_SENSITIVITY_FORMAT,
         "probabilistic_evaluation": PROBABILISTIC_EVALUATION_FORMAT,
@@ -7921,7 +8122,7 @@ def isolated_score_and_receipt(
     state = preflight["state_paths"]
     forbidden_existing = (
         "availability_registry", "temporal_predictions", "external_predictions",
-        "outcome_quality_audit", "approved_target_sensitivity",
+        "outcome_quality_audit", "outcome_qc_gate", "approved_target_sensitivity",
         "spatial_sensitivity", "probabilistic_evaluation", "statistics",
         "report", "receipt", "receipt_sha256",
     )
@@ -8124,6 +8325,7 @@ def _read_completed_receipt(
             "external_normalized_outcomes": "external_outcomes",
             "availability_registry": "availability_registry",
             "outcome_quality_audit": "outcome_quality_audit",
+            "outcome_qc_gate": "outcome_qc_gate",
             "approved_target_sensitivity": "approved_target_sensitivity",
             "spatial_sensitivity": "spatial_sensitivity",
             "probabilistic_evaluation": "probabilistic_evaluation",
@@ -8205,6 +8407,7 @@ def isolated_verify_release(
     products = OpeningProducts(
         acquisition_manifest=state["acquisition_manifest"],
         outcome_quality_audit=state["outcome_quality_audit"],
+        outcome_qc_gate=state["outcome_qc_gate"],
         approved_target_sensitivity=state["approved_target_sensitivity"],
         spatial_sensitivity=state["spatial_sensitivity"],
         probabilistic_evaluation=state["probabilistic_evaluation"],

@@ -26,6 +26,12 @@ import subprocess
 from typing import Any, Mapping, Sequence
 
 from .repro import canonical_json, sha256_json, source_inventory
+from .outcome_qc import (
+    POLICY_RELATIVE as OUTCOME_QC_POLICY_RELATIVE,
+    OutcomeQCGateError,
+    file_binding as outcome_qc_file_binding,
+    validate_outcome_qc_policy,
+)
 
 
 GATE_FORMAT = "thermoroute.route-a-inference-gate.v1"
@@ -436,7 +442,8 @@ def validate_inference_amendment(
         "format", "status", "amendment_id", "recorded_date",
         "post_2020_wtemp_requested_or_inspected", "outcome_independent",
         "base_protocol", "base_protocol_seal", "scientific_comparisons",
-        "estimand_scope", "inference_scope", "decision_overlay", "lineage_contract",
+        "estimand_scope", "inference_scope", "decision_overlay",
+        "additional_preopen_gates", "lineage_contract",
     }
     if set(amendment) != required:
         raise InferenceGateError("inference amendment schema changed")
@@ -469,6 +476,39 @@ def validate_inference_amendment(
         "supported_claim_allowed_when_gate_fails"
     ) is not False:
         raise InferenceGateError("inference amendment is not fail closed")
+    additional = amendment.get("additional_preopen_gates")
+    if not isinstance(additional, Mapping) or set(additional) != {
+        "outcome_qc_policy"
+    }:
+        raise InferenceGateError("inference amendment lacks the outcome-QC policy gate")
+    policy_binding = additional.get("outcome_qc_policy")
+    if not isinstance(policy_binding, Mapping) or set(policy_binding) != {
+        "path", "sha256", "required", "role"
+    }:
+        raise InferenceGateError("outcome-QC policy amendment binding is malformed")
+    try:
+        policy = validate_outcome_qc_policy(
+            OUTCOME_QC_POLICY_RELATIVE,
+            root=root_path,
+            protocol_path=protocol_file,
+        )
+        expected_policy_binding = {
+            **outcome_qc_file_binding(
+                root_path, root_path / OUTCOME_QC_POLICY_RELATIVE
+            ),
+            "required": True,
+            "role": (
+                "predeclared_nonfiltering_plausibility_single_extreme_and_"
+                "leave_one_huc_directional_reporting_gate"
+            ),
+        }
+    except OutcomeQCGateError as exc:
+        raise InferenceGateError("outcome-QC policy is absent or stale") from exc
+    if (
+        dict(policy_binding) != expected_policy_binding
+        or policy.get("post_2020_wtemp_requested_or_inspected") is not False
+    ):
+        raise InferenceGateError("outcome-QC policy amendment binding changed")
     lineage = amendment.get("lineage_contract")
     if not isinstance(lineage, Mapping) or lineage != {
         "base_v1_files_remain_immutable": True,

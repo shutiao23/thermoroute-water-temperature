@@ -97,6 +97,9 @@ DEFAULT_INFERENCE_AMENDMENT = (
 DEFAULT_INFERENCE_AMENDMENT_SEAL = (
     ROOT / "protocols" / "route_a_inference_amendment_seal_v1.json"
 )
+DEFAULT_OUTCOME_QC_POLICY = (
+    ROOT / "protocols" / "route_a_outcome_qc_policy_v1.json"
+)
 DEFAULT_AUTHORIZATION = (
     ROOT / "data_usgs" / "confirmatory_opening_authorization_v1.json"
 )
@@ -125,6 +128,7 @@ def freeze(args: argparse.Namespace) -> None:
         inference_gate=args.inference_gate,
         inference_amendment=args.inference_amendment,
         inference_amendment_seal=args.inference_amendment_seal,
+        outcome_qc_policy=args.outcome_qc_policy,
     )
     print(json.dumps({
         "status": document["status"],
@@ -151,6 +155,7 @@ def preflight(args: argparse.Namespace) -> None:
         "prelabel_chronology_status": result["prelabel_chronology"]["status"],
         "inference_gate_status": result["inference_gate"]["status"],
         "inference_claim_eligible": result["inference_gate"]["claim_eligible"],
+        "outcome_qc_policy_status": result["outcome_qc_policy"]["status"],
         "model_freeze_commit": result["prelabel_chronology"]["order"]
         ["model_freeze_commit"],
         "input_evidence_commit": result["prelabel_chronology"]["order"]
@@ -277,6 +282,9 @@ def main() -> None:
         "--inference-amendment-seal",
         type=Path,
         default=DEFAULT_INFERENCE_AMENDMENT_SEAL,
+    )
+    freeze_parser.add_argument(
+        "--outcome-qc-policy", type=Path, default=DEFAULT_OUTCOME_QC_POLICY,
     )
     freeze_parser.set_defaults(func=freeze)
 

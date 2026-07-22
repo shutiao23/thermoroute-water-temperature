@@ -19,6 +19,7 @@ from thermoroute.inference_gate import (
     validate_inference_amendment,
     validate_inference_gate_document,
 )
+from thermoroute.outcome_qc import POLICY_RELATIVE as OUTCOME_QC_POLICY_RELATIVE
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ def _copy_gate_inputs(tmp_path: Path) -> None:
         BASE_PROTOCOL_SEAL_RELATIVE,
         STATION_REGISTRY_RELATIVE,
         AMENDMENT_RELATIVE,
+        OUTCOME_QC_POLICY_RELATIVE,
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -161,4 +163,7 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
     assert amendment["decision_overlay"][
         "supported_claim_allowed_when_gate_fails"
     ] is False
+    assert amendment["additional_preopen_gates"]["outcome_qc_policy"][
+        "required"
+    ] is True
     assert amendment["lineage_contract"]["base_v1_files_remain_immutable"] is True

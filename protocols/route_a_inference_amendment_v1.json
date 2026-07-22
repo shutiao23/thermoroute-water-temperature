@@ -97,6 +97,14 @@
     "all_five_comparisons_must_still_be_rendered_exactly_once": true,
     "allowed_failed_gate_wording": "Report the fixed-cohort effect and label HUC2 bootstrap/sign-flip/Holm values only as assumption-conditional sensitivities; do not claim superiority, non-inferiority, equivalence, parity, or superpopulation confirmation."
   },
+  "additional_preopen_gates": {
+    "outcome_qc_policy": {
+      "path": "protocols/route_a_outcome_qc_policy_v1.json",
+      "sha256": "e7b1c356fe7dd7353e33b89fdfba819805eb83ffb76f0f68becf5e5ecd39789c",
+      "required": true,
+      "role": "predeclared_nonfiltering_plausibility_single_extreme_and_leave_one_huc_directional_reporting_gate"
+    }
+  },
   "lineage_contract": {
     "base_v1_files_remain_immutable": true,
     "separate_amendment_seal_required": true,

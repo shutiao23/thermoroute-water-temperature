@@ -1200,7 +1200,7 @@ def test_transport_lock_rejects_concurrent_resume(tmp_path):
 
 _RAW_RESUME_FORBIDDEN_STATE_KEYS = (
     "acquisition_manifest", "temporal_outcomes", "external_outcomes",
-    "availability_registry", "outcome_quality_audit",
+    "availability_registry", "outcome_quality_audit", "outcome_qc_gate",
     "approved_target_sensitivity", "spatial_sensitivity",
     "probabilistic_evaluation", "temporal_predictions",
     "external_predictions", "statistics", "report", "receipt",
@@ -1332,6 +1332,7 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         "candidate_provenance.json", "candidate_snapshot_index.json",
         "development_replay.json", "protocol_seal.json", "inference_gate.json",
         "inference_amendment.json", "inference_amendment_seal.json",
+        "outcome_qc_policy.json",
     )
     paths = {name: tmp_path / name for name in relative_paths}
     for name, path in paths.items():
@@ -1402,9 +1403,20 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     monkeypatch.setattr(
         opening_module, "validate_prelabel_inputs", lambda *_args, **_kwargs: inputs
     )
+    outcome_qc_policy_document = {
+        "format": "thermoroute.route-a-outcome-qc-policy.v1",
+        "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+        "policy_id": "fixture-outcome-qc-policy",
+    }
     amendment_document = {
         "format": "thermoroute.route-a-inference-amendment.v1",
         "amendment_id": "route-a-prelabel-inference-scope-014",
+        "additional_preopen_gates": {
+            "outcome_qc_policy": {
+                "path": "outcome_qc_policy.json",
+                "sha256": sha256_file(paths["outcome_qc_policy.json"]),
+            },
+        },
     }
     amendment_seal_document = {"final_prelabel_commit": "4" * 40}
     gate_document = {
@@ -1428,6 +1440,11 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         opening_module,
         "validate_inference_gate_document",
         lambda *_args, **_kwargs: gate_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_outcome_qc_policy",
+        lambda *_args, **_kwargs: outcome_qc_policy_document,
     )
     replay_document = {
         "format": "thermoroute.route-a-development-replay.v1",
@@ -1498,6 +1515,7 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         inference_gate=paths["inference_gate.json"],
         inference_amendment=paths["inference_amendment.json"],
         inference_amendment_seal=paths["inference_amendment_seal.json"],
+        outcome_qc_policy=paths["outcome_qc_policy.json"],
     )
     assert frozen["source"]["post_freeze_allowed_git_status"] == (
         "?? data_usgs/confirmatory_opening_authorization_v1.json"
@@ -1507,6 +1525,7 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     assert dry_run["development_replay"] == replay_document
     assert dry_run["prelabel_chronology"] == chronology_document
     assert dry_run["inference_gate"] == gate_document
+    assert dry_run["outcome_qc_policy"] == outcome_qc_policy_document
     assert not Path(dry_run["intent_path"]).exists()
 
     authorization_original = authorization.read_bytes()
