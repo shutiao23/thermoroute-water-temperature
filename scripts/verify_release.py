@@ -40,6 +40,38 @@ PROFILE_MARKER = "data_usgs/release_profile_v1.json"
 CLAIM_AUDIT_PATH = "evidence/release_claim_audit_v1.json"
 GIT_BUNDLE_PATH = "evidence/route_a_compute_history.bundle"
 REPRODUCIBILITY_LOCK = "requirements-lock-py312-hashed.txt"
+DEVELOPMENT_REPLAY_FORMAT = "thermoroute.route-a-development-replay.v1"
+DEVELOPMENT_REPLAY_EXECUTION_FORMAT = (
+    "thermoroute.route-a-development-replay-execution.v1"
+)
+DEVELOPMENT_REPLAY_IO_GUARD_FORMAT = (
+    "thermoroute.route-a-development-replay-io-guard.v2"
+)
+DEVELOPMENT_REPLAY_CONFIRMATION_READ_POLICY_FORMAT = (
+    "thermoroute.route-a-development-replay-confirmation-read-policy.v1"
+)
+DEVELOPMENT_REPLAY_ENTRYPOINT = "scripts/27_verify_development_replay.py"
+DEVELOPMENT_REPLAY_RECEIPT = (
+    "outputs/model_replay/route_a_development_replay_v1.json"
+)
+DEVELOPMENT_REPLAY_ALLOWED_CONFIRMATION_READ_PATHS = (
+    "data_usgs/confirmatory_model_suite_v1.json",
+)
+DEVELOPMENT_REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS = (
+    "data_usgs/confirmatory",
+    "data_usgs/raw_snapshots/confirmatory",
+    "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1",
+    "outputs/confirmatory",
+)
+DEVELOPMENT_REPLAY_LEARNED_MODELS = {
+    "temporal": (
+        "LightGBM", "LSTM", "ThermoRoute", "DampedPriorOnly",
+        "TR-noDynamicPrior", "TR-fixedKappa", "TR-noRouter", "TR-noMoE",
+        "TR-noTCN", "TR-unbounded",
+    ),
+    "external": ("LightGBM", "LSTM", "ThermoRoute"),
+}
+POSTOPEN_CLAIM_DOCUMENT = "paper/ThermoRoute_paper.md"
 PREOPEN_PROFILE = "PREOPEN_NOT_COMPLETE"
 POSTOPEN_PROFILE = "ROUTE_A_OPENED_COMPLETE"
 RELEASE_PROFILES = (PREOPEN_PROFILE, POSTOPEN_PROFILE)
@@ -365,6 +397,272 @@ def _sha256_json(value: object) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _development_replay_confirmation_read_policy() -> dict[str, Any]:
+    return {
+        "format": DEVELOPMENT_REPLAY_CONFIRMATION_READ_POLICY_FORMAT,
+        "mode": "DENY_NAMESPACE_STEMS_EXCEPT_EXACT_ALLOWLIST",
+        "path_representation": "RESOLVED_REPOSITORY_RELATIVE_POSIX",
+        "deny_match": "STRING_STARTSWITH",
+        "denied_namespace_stems": list(
+            DEVELOPMENT_REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS
+        ),
+        "allowed_exact_paths": list(
+            DEVELOPMENT_REPLAY_ALLOWED_CONFIRMATION_READ_PATHS
+        ),
+    }
+
+
+def _validate_development_replay_document(
+    replay: object,
+    *,
+    suite: Mapping[str, Any],
+    suite_binding: Mapping[str, Any],
+    replay_path: str,
+    source_sha256: object,
+    runtime_sha256: object,
+    entrypoint_binding: Mapping[str, Any],
+    expected_python_identity: object | None = None,
+) -> None:
+    """Independently validate the complete Stage-27 receipt contract."""
+    top_keys = {
+        "format", "status", "isolated_process_required", "suite",
+        "source_tree_sha256", "runtime_sha256",
+        "suite_numerical_runtime_sha256", "development_contract_sha256",
+        "replayed_splits", "confirmation_period_read",
+        "builtins_validated_by_suite_contract", "models",
+        "execution_attestation", "receipt_self_sha256",
+    }
+    if not isinstance(replay, Mapping) or set(replay) != top_keys:
+        raise ValueError("development replay receipt schema changed")
+    stable = dict(replay)
+    self_sha256 = stable.pop("receipt_self_sha256")
+    if (
+        not isinstance(self_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", self_sha256)
+        or self_sha256 != _sha256_json(stable)
+    ):
+        raise ValueError("development replay receipt self hash changed")
+    if set(suite_binding) != {"path", "sha256"}:
+        raise ValueError("development replay expected suite binding is malformed")
+    development = suite.get("development_contract")
+    if not isinstance(development, Mapping):
+        raise ValueError("development replay suite lacks its development contract")
+    expected_scalars = {
+        "format": DEVELOPMENT_REPLAY_FORMAT,
+        "status": "PASS_FULL_DEVELOPMENT_REPLAY_NO_CONFIRMATION_DATA",
+        "isolated_process_required": True,
+        "suite": dict(suite_binding),
+        "source_tree_sha256": source_sha256,
+        "runtime_sha256": runtime_sha256,
+        "suite_numerical_runtime_sha256": runtime_sha256,
+        "development_contract_sha256": _sha256_json(development),
+        "replayed_splits": ["val", "calib", "test_2019_2020_development"],
+        "confirmation_period_read": False,
+        "builtins_validated_by_suite_contract": [
+            "Climatology", "DampedPersistence", "Persistence"
+        ],
+    }
+    if any(replay.get(key) != value for key, value in expected_scalars.items()):
+        raise ValueError("development replay receipt suite/source/runtime binding changed")
+    if (
+        not isinstance(source_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", source_sha256)
+        or development.get("source_sha256") != source_sha256
+        or not isinstance(runtime_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", runtime_sha256)
+        or suite.get("numerical_runtime_sha256") != runtime_sha256
+    ):
+        raise ValueError("development replay suite/source/runtime is malformed")
+
+    execution = replay.get("execution_attestation")
+    execution_keys = {
+        "format", "entrypoint", "interpreter", "isolated_mode",
+        "required_python_flags", "fresh_pycache_policy",
+        "logical_command_contract", "formal_environment",
+        "python_hash_seed_interpreter_effect", "io_guard", "security_boundary",
+    }
+    if not isinstance(execution, Mapping) or set(execution) != execution_keys:
+        raise ValueError("development replay execution identity schema changed")
+    if (
+        execution.get("format") != DEVELOPMENT_REPLAY_EXECUTION_FORMAT
+        or execution.get("entrypoint") != dict(entrypoint_binding)
+        or execution.get("isolated_mode") is not True
+        or execution.get("required_python_flags") != {
+            "isolated": 1,
+            "ignore_environment": 1,
+            "no_user_site": 1,
+            "safe_path": True,
+            "dont_write_bytecode": 0,
+        }
+        or execution.get("fresh_pycache_policy") != {
+            "required": True,
+            "controller_created_initially_empty_prefix": True,
+            "repository_local_cache_allowed": False,
+            "preexisting_repository_pyc_eligible": False,
+            "prefix_lifetime": "one_isolated_child",
+        }
+    ):
+        raise ValueError("development replay execution identity changed")
+    interpreter = execution.get("interpreter")
+    if (
+        not isinstance(interpreter, Mapping)
+        or set(interpreter) != {
+            "invoked_path", "realpath", "sha256", "implementation", "version"
+        }
+        or not all(
+            isinstance(interpreter.get(key), str) and bool(interpreter[key])
+            for key in ("invoked_path", "realpath", "implementation", "version")
+        )
+        or not re.fullmatch(r"[0-9a-f]{64}", str(interpreter.get("sha256", "")))
+        or (
+            expected_python_identity is not None
+            and (
+                not isinstance(expected_python_identity, Mapping)
+                or any(
+                    interpreter.get(key) != expected_python_identity.get(key)
+                    for key in ("invoked_path", "realpath", "sha256")
+                )
+            )
+        )
+    ):
+        raise ValueError("development replay interpreter identity changed")
+    suite_path = str(suite_binding["path"])
+    if (
+        suite_path != DEVELOPMENT_REPLAY_ALLOWED_CONFIRMATION_READ_PATHS[0]
+        or replay_path != DEVELOPMENT_REPLAY_RECEIPT
+    ):
+        raise ValueError("development replay canonical path contract changed")
+    expected_commands = {
+        "create": [
+            "<bound-python>", "-I", "-X",
+            "pycache_prefix=<fresh-temporary-directory>",
+            DEVELOPMENT_REPLAY_ENTRYPOINT, "--_isolated-worker",
+            "--suite", suite_path, "--receipt", replay_path,
+        ],
+        "fresh_check": [
+            "<bound-python>", "-I", "-X",
+            "pycache_prefix=<different-fresh-temporary-directory>",
+            DEVELOPMENT_REPLAY_ENTRYPOINT, "--_isolated-worker",
+            "--suite", suite_path, "--receipt", replay_path, "--check",
+        ],
+    }
+    expected_environment = {
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTHONHASHSEED": "0",
+    }
+    if (
+        execution.get("logical_command_contract") != expected_commands
+        or execution.get("formal_environment") != expected_environment
+        or execution.get("python_hash_seed_interpreter_effect")
+        != (
+            "environment declaration present but ignored by CPython -I; replay "
+            "code must sort identity-bearing collections"
+        )
+        or execution.get("security_boundary")
+        != (
+            "fresh-process honest-owner replay guard; not protection against "
+            "replacement of CPython, the operating system, or the repository owner"
+        )
+    ):
+        raise ValueError("development replay execution command/environment changed")
+
+    io_guard = execution.get("io_guard")
+    io_guard_keys = {
+        "format", "network_access_allowed", "subprocess_allowed",
+        "repository_writes_allowed", "confirmation_read_policy",
+        "repo_read_path_count", "repo_read_paths_sha256", "repo_read_paths",
+        "violations",
+    }
+    if (
+        not isinstance(io_guard, Mapping)
+        or set(io_guard) != io_guard_keys
+        or io_guard.get("format") != DEVELOPMENT_REPLAY_IO_GUARD_FORMAT
+        or io_guard.get("network_access_allowed") is not False
+        or io_guard.get("subprocess_allowed") is not False
+        or io_guard.get("repository_writes_allowed") is not False
+        or io_guard.get("confirmation_read_policy")
+        != _development_replay_confirmation_read_policy()
+        or io_guard.get("violations") != []
+    ):
+        raise ValueError("development replay I/O guard attestation changed")
+    read_paths = io_guard.get("repo_read_paths")
+    if not isinstance(read_paths, list) or any(
+        not isinstance(value, str)
+        or not value
+        or PurePosixPath(value).is_absolute()
+        or ".." in PurePosixPath(value).parts
+        or PurePosixPath(value).as_posix() != value
+        for value in read_paths
+    ):
+        raise ValueError("development replay read-path evidence is malformed")
+    if (
+        read_paths != sorted(set(read_paths))
+        or io_guard.get("repo_read_path_count") != len(read_paths)
+        or io_guard.get("repo_read_paths_sha256") != _sha256_json(read_paths)
+        or suite_path not in read_paths
+        or any(
+            value not in DEVELOPMENT_REPLAY_ALLOWED_CONFIRMATION_READ_PATHS
+            and any(
+                value.startswith(stem)
+                for stem in DEVELOPMENT_REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS
+            )
+            for value in read_paths
+        )
+    ):
+        raise ValueError("development replay read-path evidence is malformed")
+
+    rows = replay.get("models")
+    expected_registry = [
+        (cohort, model)
+        for cohort in ("temporal", "external")
+        for model in DEVELOPMENT_REPLAY_LEARNED_MODELS[cohort]
+    ]
+    if not isinstance(rows, list) or len(rows) != len(expected_registry):
+        raise ValueError("development replay model registry changed")
+    for row, (cohort, model) in zip(rows, expected_registry, strict=True):
+        expected_executor = (
+            "lightgbm_bundle" if model == "LightGBM"
+            else "lstm_bundle" if model == "LSTM"
+            else "thermoroute_bundle"
+        )
+        expected_members = 5 if model in {"LightGBM", "LSTM", "ThermoRoute"} else 1
+        if (
+            not isinstance(row, Mapping)
+            or set(row) != {
+                "cohort", "model", "executor", "members", "rows", "atol",
+                "max_abs_difference", "status",
+            }
+            or row.get("cohort") != cohort
+            or row.get("model") != model
+            or row.get("executor") != expected_executor
+            or type(row.get("members")) is not int
+            or row.get("members") != expected_members
+            or type(row.get("rows")) is not int
+            or row["rows"] < 1
+            or row.get("status") != "PASS"
+        ):
+            raise ValueError("development replay model row schema/registry changed")
+        tolerance = row.get("atol")
+        difference = row.get("max_abs_difference")
+        if (
+            isinstance(tolerance, bool)
+            or not isinstance(tolerance, (int, float))
+            or isinstance(difference, bool)
+            or not isinstance(difference, (int, float))
+            or not math.isfinite(float(tolerance))
+            or not math.isfinite(float(difference))
+            or float(tolerance) < 0.0
+            or float(difference) < 0.0
+            or float(difference) > float(tolerance)
+        ):
+            raise ValueError("development replay model row tolerance failed")
 
 
 def _matches_source_inventory(relative: str) -> bool:
@@ -1711,10 +2009,10 @@ def _postopen_revision_contract(
         if require_git:
             raise ValueError("authorization lacks the computational Git commit")
         compute_commit = "0" * 40
-    whitelist = ["README.md", "paper/**"]
+    whitelist = [POSTOPEN_CLAIM_DOCUMENT]
 
     def allowed_document(relative: str) -> bool:
-        return relative == "README.md" or relative.startswith("paper/")
+        return relative == POSTOPEN_CLAIM_DOCUMENT
 
     def git(*arguments: str) -> subprocess.CompletedProcess[Any]:
         return _run_git(root, *arguments, text=True)
@@ -5222,20 +5520,32 @@ def _gather_postopen_categories(
         label="authorized full development replay receipt",
     )
     replay = _load_json(replay_path, label="development replay receipt")
-    if (
-        replay.get("format") != "thermoroute.route-a-development-replay.v1"
-        or replay.get("status")
-        != "PASS_FULL_DEVELOPMENT_REPLAY_NO_CONFIRMATION_DATA"
-        or replay.get("suite") != authorization.get("model_suite")
-        or replay.get("source_tree_sha256")
-        != authorization.get("source", {}).get("source_tree_sha256")
-        or replay.get("runtime_sha256")
-        != authorization.get("runtime", {}).get("runtime_sha256")
-        or replay.get("source_tree_sha256") != development.get("source_sha256")
-        or replay.get("runtime_sha256") != suite_runtime
-        or replay.get("confirmation_period_read") is not False
-    ):
-        raise ValueError("authorized development replay receipt is stale or malformed")
+    entrypoint_path = _resolve_release_path(
+        root,
+        DEVELOPMENT_REPLAY_ENTRYPOINT,
+        label="development replay entrypoint",
+    )
+    replay_relative = _relative(
+        root, replay_path, label="development replay receipt"
+    )
+    suite_relative = _relative(root, suite_path, label="model suite")
+    runtime = authorization.get("runtime")
+    python_identity = runtime.get("python_executable") if isinstance(
+        runtime, Mapping
+    ) else None
+    _validate_development_replay_document(
+        replay,
+        suite=suite,
+        suite_binding={"path": suite_relative, "sha256": sha256_file(suite_path)},
+        replay_path=replay_relative,
+        source_sha256=authorization.get("source", {}).get("source_tree_sha256"),
+        runtime_sha256=authorization.get("runtime", {}).get("runtime_sha256"),
+        entrypoint_binding={
+            "path": DEVELOPMENT_REPLAY_ENTRYPOINT,
+            "sha256": sha256_file(entrypoint_path),
+        },
+        expected_python_identity=python_identity,
+    )
 
     _validate_prelabel_chronology_structure(root, categories, authorization)
 
@@ -7092,6 +7402,7 @@ def _reconstruct_model_dependency_paths(
     *,
     suite_path: str,
     replay_path: str,
+    expected_python_identity: object,
 ) -> set[str]:
     output = {suite_path, replay_path}
     suite = _git_json_document(bare, commit, suite_path, label="model suite")
@@ -7302,8 +7613,6 @@ def _reconstruct_model_dependency_paths(
     if learned < 1:
         raise ValueError("Git model suite contains no learned artifact")
     replay = _git_json_document(bare, commit, replay_path, label="development replay")
-    if replay.get("format") != "thermoroute.route-a-development-replay.v1":
-        raise ValueError("Git development replay format changed")
     replay_suite = replay.get("suite")
     if (
         not isinstance(replay_suite, Mapping)
@@ -7313,10 +7622,31 @@ def _reconstruct_model_dependency_paths(
         ) != suite_path
     ):
         raise ValueError("Git development replay binds another model suite")
-    if replay.get("source_tree_sha256") != suite_source_sha:
-        raise ValueError("Git development replay and model suite source trees differ")
-    if replay.get("runtime_sha256") != suite_runtime:
-        raise ValueError("Git development replay and model suite runtimes differ")
+    execution = replay.get("execution_attestation")
+    replay_entrypoint = execution.get("entrypoint") if isinstance(
+        execution, Mapping
+    ) else None
+    if (
+        _git_declared_binding_path(
+            bare,
+            commit,
+            replay_entrypoint,
+            label="development replay entrypoint",
+        )
+        != DEVELOPMENT_REPLAY_ENTRYPOINT
+    ):
+        raise ValueError("Git development replay entrypoint changed")
+    assert isinstance(replay_entrypoint, Mapping)
+    _validate_development_replay_document(
+        replay,
+        suite=suite,
+        suite_binding=replay_suite,
+        replay_path=replay_path,
+        source_sha256=suite_source_sha,
+        runtime_sha256=suite_runtime,
+        entrypoint_binding=replay_entrypoint,
+        expected_python_identity=expected_python_identity,
+    )
     return output
 
 
@@ -7649,6 +7979,9 @@ def _verify_prelabel_chronology_from_bundle(
         model_commit,
         suite_path=str(chronology_paths.get("model_suite", "")),
         replay_path=str(chronology_paths.get("development_replay", "")),
+        expected_python_identity=authorization.get("runtime", {}).get(
+            "python_executable"
+        ),
     )
     if declared_model_artifacts != reconstructed_models:
         raise ValueError(
@@ -7835,10 +8168,7 @@ def _verify_git_history_evidence(
                     f"{status} {relative}"
                     for status, relative in _git_commit_name_status(bare, commit)
                     if status not in {"A", "M"}
-                    or not (
-                        relative == "README.md"
-                        or relative.startswith("paper/")
-                    )
+                    or relative != POSTOPEN_CLAIM_DOCUMENT
                 ]
                 if forbidden_intermediate:
                     raise ValueError(
@@ -7868,10 +8198,7 @@ def _verify_git_history_evidence(
                 if (
                     status not in {"A", "M"}
                     or relative in observed
-                    or not (
-                        relative == "README.md"
-                        or relative.startswith("paper/")
-                    )
+                    or relative != POSTOPEN_CLAIM_DOCUMENT
                 ):
                     raise ValueError(
                         "Git bundle contains a forbidden compute-to-manuscript change"
@@ -8228,7 +8555,7 @@ def _verify_archived_revision_contract(
     compute = str(authorization.get("source", {}).get("git_commit_before_authorization", ""))
     expected_static = {
         "compute_commit": compute,
-        "committed_document_whitelist": ["README.md", "paper/**"],
+        "committed_document_whitelist": [POSTOPEN_CLAIM_DOCUMENT],
         "tracked_changes_allowed": False,
         "staged_changes_allowed": False,
         "untracked_exact": [str(marker["authorization"]["path"])],
@@ -8247,7 +8574,7 @@ def _verify_archived_revision_contract(
         if not isinstance(binding, Mapping):
             raise ValueError("committed document binding is malformed")
         path = str(binding.get("path", ""))
-        if not (path == "README.md" or path.startswith("paper/")):
+        if path != POSTOPEN_CLAIM_DOCUMENT:
             raise ValueError("committed document diff leaves its whitelist")
         if path in paths:
             raise ValueError("committed document diff duplicates a path")

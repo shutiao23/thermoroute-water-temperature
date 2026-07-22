@@ -187,6 +187,130 @@ def _binding(verifier, root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "sha256": verifier.sha256_file(path)}
 
 
+def _development_replay_fixture(
+    verifier,
+    root: Path,
+    *,
+    suite: dict[str, object],
+    source_sha256: str,
+    runtime_sha256: str,
+    python_sha256: str = "d" * 64,
+) -> dict[str, object]:
+    suite_path = "data_usgs/confirmatory_model_suite_v1.json"
+    receipt_path = verifier.DEVELOPMENT_REPLAY_RECEIPT
+    entrypoint = verifier.DEVELOPMENT_REPLAY_ENTRYPOINT
+    rows = []
+    for cohort in ("temporal", "external"):
+        for model in verifier.DEVELOPMENT_REPLAY_LEARNED_MODELS[cohort]:
+            rows.append({
+                "cohort": cohort,
+                "model": model,
+                "executor": (
+                    "lightgbm_bundle" if model == "LightGBM"
+                    else "lstm_bundle" if model == "LSTM"
+                    else "thermoroute_bundle"
+                ),
+                "members": (
+                    5 if model in {"LightGBM", "LSTM", "ThermoRoute"} else 1
+                ),
+                "rows": 12,
+                "atol": 1e-12,
+                "max_abs_difference": 0.0,
+                "status": "PASS",
+            })
+    read_paths = sorted([entrypoint, suite_path])
+    document = {
+        "format": verifier.DEVELOPMENT_REPLAY_FORMAT,
+        "status": "PASS_FULL_DEVELOPMENT_REPLAY_NO_CONFIRMATION_DATA",
+        "isolated_process_required": True,
+        "suite": _binding(verifier, root, suite_path),
+        "source_tree_sha256": source_sha256,
+        "runtime_sha256": runtime_sha256,
+        "suite_numerical_runtime_sha256": runtime_sha256,
+        "development_contract_sha256": verifier._sha256_json(
+            suite["development_contract"]
+        ),
+        "replayed_splits": ["val", "calib", "test_2019_2020_development"],
+        "confirmation_period_read": False,
+        "builtins_validated_by_suite_contract": [
+            "Climatology", "DampedPersistence", "Persistence"
+        ],
+        "models": rows,
+        "execution_attestation": {
+            "format": verifier.DEVELOPMENT_REPLAY_EXECUTION_FORMAT,
+            "entrypoint": _binding(verifier, root, entrypoint),
+            "interpreter": {
+                "invoked_path": "/fixture/python",
+                "realpath": "/fixture/python-real",
+                "sha256": python_sha256,
+                "implementation": "CPython",
+                "version": "3.12.0",
+            },
+            "isolated_mode": True,
+            "required_python_flags": {
+                "isolated": 1,
+                "ignore_environment": 1,
+                "no_user_site": 1,
+                "safe_path": True,
+                "dont_write_bytecode": 0,
+            },
+            "fresh_pycache_policy": {
+                "required": True,
+                "controller_created_initially_empty_prefix": True,
+                "repository_local_cache_allowed": False,
+                "preexisting_repository_pyc_eligible": False,
+                "prefix_lifetime": "one_isolated_child",
+            },
+            "logical_command_contract": {
+                "create": [
+                    "<bound-python>", "-I", "-X",
+                    "pycache_prefix=<fresh-temporary-directory>", entrypoint,
+                    "--_isolated-worker", "--suite", suite_path,
+                    "--receipt", receipt_path,
+                ],
+                "fresh_check": [
+                    "<bound-python>", "-I", "-X",
+                    "pycache_prefix=<different-fresh-temporary-directory>",
+                    entrypoint, "--_isolated-worker", "--suite", suite_path,
+                    "--receipt", receipt_path, "--check",
+                ],
+            },
+            "formal_environment": {
+                "OMP_NUM_THREADS": "1",
+                "MKL_NUM_THREADS": "1",
+                "OPENBLAS_NUM_THREADS": "1",
+                "VECLIB_MAXIMUM_THREADS": "1",
+                "NUMEXPR_NUM_THREADS": "1",
+                "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+                "PYTHONHASHSEED": "0",
+            },
+            "python_hash_seed_interpreter_effect": (
+                "environment declaration present but ignored by CPython -I; replay "
+                "code must sort identity-bearing collections"
+            ),
+            "io_guard": {
+                "format": verifier.DEVELOPMENT_REPLAY_IO_GUARD_FORMAT,
+                "network_access_allowed": False,
+                "subprocess_allowed": False,
+                "repository_writes_allowed": False,
+                "confirmation_read_policy": (
+                    verifier._development_replay_confirmation_read_policy()
+                ),
+                "repo_read_path_count": len(read_paths),
+                "repo_read_paths_sha256": verifier._sha256_json(read_paths),
+                "repo_read_paths": read_paths,
+                "violations": [],
+            },
+            "security_boundary": (
+                "fresh-process honest-owner replay guard; not protection against "
+                "replacement of CPython, the operating system, or the repository owner"
+            ),
+        },
+    }
+    document["receipt_self_sha256"] = verifier._sha256_json(document)
+    return document
+
+
 @pytest.mark.parametrize(
     "alias",
     (
@@ -234,6 +358,126 @@ def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
     with pytest.raises(ValueError, match="hard-linked"):
         verifier._add_binding(
             tmp_path, {}, "fixture", binding, label="fixture binding"
+        )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    (
+        "extra_top", "missing_top", "source_binding", "policy_allowlist",
+        "underscore_sibling_read", "read_count", "read_hash", "io_extra_key",
+        "execution_flags", "fresh_pycache", "execution_environment",
+        "execution_command", "interpreter", "model_missing", "model_duplicate",
+        "model_reordered", "wrong_executor", "wrong_members", "failed_status",
+        "difference_over_tolerance", "entrypoint_binding", "suite_binding",
+    ),
+)
+def test_release_verifier_rejects_forged_development_replay_receipt(
+    tmp_path, attack,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_replay_attack_{attack}"
+    )
+    _write_bytes(
+        tmp_path,
+        verifier.DEVELOPMENT_REPLAY_ENTRYPOINT,
+        b"#!/usr/bin/env python3\n",
+    )
+    source_sha256 = "a" * 64
+    runtime_sha256 = "c" * 64
+    suite = {
+        "numerical_runtime_sha256": runtime_sha256,
+        "development_contract": {"source_sha256": source_sha256},
+    }
+    suite_path = "data_usgs/confirmatory_model_suite_v1.json"
+    _write_bytes(
+        tmp_path,
+        suite_path,
+        json.dumps(suite, sort_keys=True).encode() + b"\n",
+    )
+    replay = _development_replay_fixture(
+        verifier,
+        tmp_path,
+        suite=suite,
+        source_sha256=source_sha256,
+        runtime_sha256=runtime_sha256,
+    )
+    execution = replay["execution_attestation"]
+    io_guard = execution["io_guard"]
+    models = replay["models"]
+    if attack == "extra_top":
+        replay["forged"] = True
+    elif attack == "missing_top":
+        replay.pop("builtins_validated_by_suite_contract")
+    elif attack == "source_binding":
+        replay["source_tree_sha256"] = "0" * 64
+    elif attack == "policy_allowlist":
+        io_guard["confirmation_read_policy"]["allowed_exact_paths"].append(
+            "data_usgs/confirmatory_outcomes/labels.parquet"
+        )
+    elif attack == "underscore_sibling_read":
+        paths = sorted([
+            *io_guard["repo_read_paths"],
+            "data_usgs/confirmatory_model_suite_v1.json_backup",
+        ])
+        io_guard["repo_read_paths"] = paths
+        io_guard["repo_read_path_count"] = len(paths)
+        io_guard["repo_read_paths_sha256"] = verifier._sha256_json(paths)
+    elif attack == "read_count":
+        io_guard["repo_read_path_count"] += 1
+    elif attack == "read_hash":
+        io_guard["repo_read_paths_sha256"] = "0" * 64
+    elif attack == "io_extra_key":
+        io_guard["forged"] = False
+    elif attack == "execution_flags":
+        execution["required_python_flags"]["isolated"] = 0
+    elif attack == "fresh_pycache":
+        execution["fresh_pycache_policy"][
+            "controller_created_initially_empty_prefix"
+        ] = False
+    elif attack == "execution_environment":
+        execution["formal_environment"]["OMP_NUM_THREADS"] = "2"
+    elif attack == "execution_command":
+        execution["logical_command_contract"]["create"].append("--forged")
+    elif attack == "interpreter":
+        execution["interpreter"]["realpath"] = "/attacker/python"
+    elif attack == "model_missing":
+        models.pop()
+    elif attack == "model_duplicate":
+        models.append(dict(models[-1]))
+    elif attack == "model_reordered":
+        models[0], models[1] = models[1], models[0]
+    elif attack == "wrong_executor":
+        models[0]["executor"] = "thermoroute_bundle"
+    elif attack == "wrong_members":
+        models[0]["members"] = 4
+    elif attack == "failed_status":
+        models[0]["status"] = "FAIL"
+    elif attack == "difference_over_tolerance":
+        models[0]["max_abs_difference"] = 2e-12
+    elif attack == "entrypoint_binding":
+        execution["entrypoint"]["sha256"] = "0" * 64
+    elif attack == "suite_binding":
+        replay["suite"]["sha256"] = "0" * 64
+    replay.pop("receipt_self_sha256", None)
+    replay["receipt_self_sha256"] = verifier._sha256_json(replay)
+
+    with pytest.raises(ValueError, match="development replay"):
+        verifier._validate_development_replay_document(
+            replay,
+            suite=suite,
+            suite_binding=_binding(verifier, tmp_path, suite_path),
+            replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
+            source_sha256=source_sha256,
+            runtime_sha256=runtime_sha256,
+            entrypoint_binding=_binding(
+                verifier, tmp_path, verifier.DEVELOPMENT_REPLAY_ENTRYPOINT
+            ),
+            expected_python_identity={
+                "invoked_path": "/fixture/python",
+                "realpath": "/fixture/python-real",
+                "sha256": "d" * 64,
+            },
         )
 
 
@@ -547,6 +791,11 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 "artifact": _binding(verifier, root, relative),
             })
         model_entries[cohort] = entries
+    _write_bytes(
+        root,
+        verifier.DEVELOPMENT_REPLAY_ENTRYPOINT,
+        b"#!/usr/bin/env python3\n# frozen replay fixture\n",
+    )
     runtime_sha256 = "c" * 64
     model_control_paths = sorted(verifier._working_model_control_paths(root))
     source_inventory = {
@@ -1193,15 +1442,14 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     suite_path = root / "data_usgs/confirmatory_model_suite_v1.json"
     suite_path.write_text(json.dumps(suite), encoding="utf-8")
     source_tree_sha256 = source_sha256
-    development_replay = {
-        "format": "thermoroute.route-a-development-replay.v1",
-        "status": "PASS_FULL_DEVELOPMENT_REPLAY_NO_CONFIRMATION_DATA",
-        "suite": _binding(verifier, root, "data_usgs/confirmatory_model_suite_v1.json"),
-        "source_tree_sha256": source_tree_sha256,
-        "runtime_sha256": runtime_sha256,
-        "confirmation_period_read": False,
-    }
-    development_replay_path = root / "outputs/model_replay/route_a_development_replay_v1.json"
+    development_replay = _development_replay_fixture(
+        verifier,
+        root,
+        suite=suite,
+        source_sha256=source_tree_sha256,
+        runtime_sha256=runtime_sha256,
+    )
+    development_replay_path = root / verifier.DEVELOPMENT_REPLAY_RECEIPT
     development_replay_path.parent.mkdir(parents=True, exist_ok=True)
     development_replay_path.write_text(json.dumps(development_replay), encoding="utf-8")
 
@@ -1492,7 +1740,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "numerical_runtime_contract": {"fixture": True},
             "runtime_sha256": runtime_sha256,
             "python_executable": {
-                "realpath": str(root / "fixture-python"),
+                "invoked_path": "/fixture/python",
+                "realpath": "/fixture/python-real",
                 "sha256": "d" * 64,
             },
             "golden_inference_sha256": "e" * 64,
@@ -2920,6 +3169,7 @@ def test_postopen_coverage_replays_even_when_full_trusted_replay_is_disabled(
     _materialize_claim_fixture(verifier, stage, verifier.POSTOPEN_PROFILE)
 
     real_module = verifier._load_canonical_coverage_bridge_module(stage)
+    real_replay_validator = verifier._validate_development_replay_document
     calls: list[str] = []
 
     class ReplayProxy:
@@ -2934,6 +3184,14 @@ def test_postopen_coverage_replays_even_when_full_trusted_replay_is_disabled(
         verifier,
         "_verify_git_history_evidence",
         lambda *_args, **_kwargs: calls.append("git"),
+    )
+
+    def validate_replay(*args, **kwargs):
+        calls.append("development-replay-receipt")
+        return real_replay_validator(*args, **kwargs)
+
+    monkeypatch.setattr(
+        verifier, "_validate_development_replay_document", validate_replay
     )
     monkeypatch.setattr(
         verifier,
@@ -2952,7 +3210,7 @@ def test_postopen_coverage_replays_even_when_full_trusted_replay_is_disabled(
         verifier.verify_release_profile(stage, run_trusted_replay=False)
         == verifier.POSTOPEN_PROFILE
     )
-    assert calls == ["git", "coverage"]
+    assert calls == ["git", "development-replay-receipt", "coverage"]
 
 
 def test_postopen_archive_code_cannot_execute_before_git_identity_check(
@@ -4052,8 +4310,14 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         ["git", "rev-parse", "HEAD"], cwd=source, text=True,
         capture_output=True, check=True,
     ).stdout.strip()
-    _write_bytes(source, "README.md", b"later documentation\n")
-    subprocess.run(["git", "add", "README.md"], cwd=source, check=True)
+    _write_bytes(
+        source, verifier.POSTOPEN_CLAIM_DOCUMENT, b"later documentation\n"
+    )
+    subprocess.run(
+        ["git", "add", verifier.POSTOPEN_CLAIM_DOCUMENT],
+        cwd=source,
+        check=True,
+    )
     subprocess.run(
         ["git", "commit", "-q", "-m", "later docs"],
         cwd=source,
@@ -4110,7 +4374,9 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         ["git", "rev-parse", "HEAD"], cwd=source, text=True,
         capture_output=True, check=True,
     ).stdout.strip()
-    shutil.copy2(source / "README.md", relocated / "README.md")
+    manuscript_path = relocated / verifier.POSTOPEN_CLAIM_DOCUMENT
+    manuscript_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source / verifier.POSTOPEN_CLAIM_DOCUMENT, manuscript_path)
     authorization_relative = "data_usgs/opening_authorization.json"
     _write_bytes(
         relocated,
@@ -4124,8 +4390,8 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         }).encode(),
     )
     document_binding = {
-        **_binding(verifier, relocated, "README.md"),
-        "bytes": (relocated / "README.md").stat().st_size,
+        **_binding(verifier, relocated, verifier.POSTOPEN_CLAIM_DOCUMENT),
+        "bytes": manuscript_path.stat().st_size,
     }
     marker["profile"] = verifier.POSTOPEN_PROFILE
     marker["authorization"] = {"path": authorization_relative}
@@ -4193,7 +4459,11 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
     hidden_evidence = verifier.materialize_git_history_evidence(
         source, hidden_stage, verifier.PREOPEN_PROFILE
     )
-    shutil.copy2(source / "README.md", hidden_stage / "README.md")
+    hidden_manuscript = hidden_stage / verifier.POSTOPEN_CLAIM_DOCUMENT
+    hidden_manuscript.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        source / verifier.POSTOPEN_CLAIM_DOCUMENT, hidden_manuscript
+    )
     _write_bytes(
         hidden_stage,
         authorization_relative,
@@ -4209,8 +4479,10 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
     hidden_marker["git_history_evidence"] = hidden_evidence
     hidden_marker["authorized_worktree_dirt_policy"] = {
         "committed_document_diff": [{
-            **_binding(verifier, hidden_stage, "README.md"),
-            "bytes": (hidden_stage / "README.md").stat().st_size,
+            **_binding(
+                verifier, hidden_stage, verifier.POSTOPEN_CLAIM_DOCUMENT
+            ),
+            "bytes": hidden_manuscript.stat().st_size,
         }],
     }
     with pytest.raises(ValueError, match="forbidden compute-to-manuscript"):
@@ -4385,6 +4657,11 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     for relative in gate_paths:
         _write_bytes(source, relative, f"# frozen gate: {relative}\n".encode())
+    _write_bytes(
+        source,
+        verifier.DEVELOPMENT_REPLAY_ENTRYPOINT,
+        b"#!/usr/bin/env python3\n# frozen replay fixture\n",
+    )
     fixed_modules = {
         "thermoroute.opening": "src/thermoroute/opening.py",
         "thermoroute.model_suite": "src/thermoroute/model_suite.py",
@@ -4879,12 +5156,13 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     write_json(model_suite_path, suite)
     write_json(
         development_replay_path,
-        {
-            "format": "thermoroute.route-a-development-replay.v1",
-            "suite": _binding(verifier, source, model_suite_path),
-            "source_tree_sha256": frozen_source_sha,
-            "runtime_sha256": runtime_sha256,
-        },
+        _development_replay_fixture(
+            verifier,
+            source,
+            suite=suite,
+            source_sha256=frozen_source_sha,
+            runtime_sha256=runtime_sha256,
+        ),
     )
     model_artifact_paths = {
         model_suite_path,
@@ -5209,6 +5487,11 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "hashed_requirements_lock": _binding(
                 verifier, source, verifier.REPRODUCIBILITY_LOCK
             ),
+            "python_executable": {
+                "invoked_path": "/fixture/python",
+                "realpath": "/fixture/python-real",
+                "sha256": "d" * 64,
+            },
         },
         "fixed_code": {
             "format": "thermoroute.route-a-fixed-code.v1",
@@ -5223,8 +5506,16 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     }
     write_json(authorization_path, authorization)
 
-    readme = _write_bytes(source, "README.md", b"post-opening manuscript only\n")
-    subprocess.run(["git", "add", "README.md"], cwd=source, check=True)
+    manuscript = _write_bytes(
+        source,
+        verifier.POSTOPEN_CLAIM_DOCUMENT,
+        b"post-opening manuscript only\n",
+    )
+    subprocess.run(
+        ["git", "add", verifier.POSTOPEN_CLAIM_DOCUMENT],
+        cwd=source,
+        check=True,
+    )
     subprocess.run(
         ["git", "commit", "-q", "-m", "render post-opening manuscript"],
         cwd=source,
@@ -5247,8 +5538,8 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     stage = tmp_path / "chronology-stage"
     shutil.copytree(source, stage, ignore=shutil.ignore_patterns(".git"))
     document_binding = {
-        **_binding(verifier, stage, "README.md"),
-        "bytes": readme.stat().st_size,
+        **_binding(verifier, stage, verifier.POSTOPEN_CLAIM_DOCUMENT),
+        "bytes": manuscript.stat().st_size,
     }
     _write_bytes(
         stage,
@@ -5393,6 +5684,57 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     with pytest.raises(ValueError, match="chronology evidence differs from its receipt"):
         verifier._verify_git_history_evidence(
             relocated, tampered, verifier.POSTOPEN_PROFILE
+        )
+
+    # A forged Git receipt retaining plausible top-level PASS/source/runtime
+    # fields must still fail on its nested execution contract.
+    subprocess.run(
+        ["git", "checkout", "-q", "--detach", model_commit],
+        cwd=source,
+        check=True,
+    )
+    forged_replay = json.loads(
+        (source / development_replay_path).read_text(encoding="utf-8")
+    )
+    forged_replay["execution_attestation"]["fresh_pycache_policy"][
+        "required"
+    ] = False
+    forged_replay.pop("receipt_self_sha256")
+    forged_replay["receipt_self_sha256"] = verifier._sha256_json(forged_replay)
+    write_json(development_replay_path, forged_replay)
+    subprocess.run(
+        ["git", "add", development_replay_path], cwd=source, check=True
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "--amend", "--no-edit"],
+        cwd=source,
+        env=environment,
+        check=True,
+    )
+    forged_commit = git_text("rev-parse", "HEAD")
+    forged_bundle = tmp_path / "forged-development-replay.bundle"
+    subprocess.run(
+        ["git", "bundle", "create", str(forged_bundle), "HEAD"],
+        cwd=source,
+        check=True,
+    )
+    forged_bare = tmp_path / "forged-audit.git"
+    subprocess.run(["git", "init", "--bare", "-q", forged_bare], check=True)
+    subprocess.run(
+        [
+            "git", "fetch", "-q", str(forged_bundle),
+            "HEAD:refs/heads/forged",
+        ],
+        cwd=forged_bare,
+        check=True,
+    )
+    with pytest.raises(ValueError, match="development replay execution identity"):
+        verifier._reconstruct_model_dependency_paths(
+            forged_bare,
+            forged_commit,
+            suite_path=model_suite_path,
+            replay_path=development_replay_path,
+            expected_python_identity=authorization["runtime"]["python_executable"],
         )
 
 
@@ -5721,8 +6063,16 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
     assert policy["untracked_exact"] == [authorization_relative]
     assert policy["untracked_prefixes"] == [base + "/"]
 
-    readme = _write_bytes(root, "README.md", b"post-opening manuscript\n")
-    subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+    manuscript = _write_bytes(
+        root,
+        verifier.POSTOPEN_CLAIM_DOCUMENT,
+        b"post-opening manuscript\n",
+    )
+    subprocess.run(
+        ["git", "add", verifier.POSTOPEN_CLAIM_DOCUMENT],
+        cwd=root,
+        check=True,
+    )
     subprocess.run(
         ["git", "commit", "-q", "-m", "docs after opening"],
         cwd=root, env=environment, check=True,
@@ -5731,9 +6081,29 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
     assert doc_policy["compute_commit"] == head
     assert doc_policy["manuscript_commit"] != head
     assert [row["path"] for row in doc_policy["committed_document_diff"]] == [
-        "README.md"
+        verifier.POSTOPEN_CLAIM_DOCUMENT
     ]
-    assert readme.is_file()
+    assert manuscript.is_file()
+
+    for relative in (
+        "README.md",
+        "paper/ThermoRoute_paper.tex",
+        "paper/ThermoRoute_paper.docx",
+        "paper/ThermoRoute_paper.pdf",
+        "paper/supplement.md",
+    ):
+        _write_bytes(root, relative, f"forbidden {relative}\n".encode())
+    subprocess.run(
+        ["git", "add", "README.md", "paper"], cwd=root, check=True
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "forbidden document formats"],
+        cwd=root,
+        env=environment,
+        check=True,
+    )
+    with pytest.raises(ValueError, match="outside the documentation whitelist"):
+        verifier.validate_postopen_git_dirt(root, authorization_path)
 
     hidden = _write_bytes(root, "src/hidden_then_reverted.py", b"hidden = True\n")
     subprocess.run(["git", "add", "src/hidden_then_reverted.py"], cwd=root, check=True)
