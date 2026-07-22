@@ -1727,6 +1727,40 @@ _STAGE09B_KEY_COLUMNS = [
 ]
 
 
+def _stage09b_assert_prediction_arrow_schema(path: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = pq.ParquetFile(path).schema_arrow
+    if schema.names != _STAGE09B_PREDICTION_COLUMNS:
+        raise ValueError("Stage-09b prediction Arrow columns/order changed")
+    text_columns = {"model", "scope", "feature_set", "site_id", "split"}
+    integer_columns = {"seed", "horizon"}
+    date_columns = {"issue_date", "target_date"}
+    float_columns = {"y_true", "y_pred", "q05", "q50", "q95", "p_exceed"}
+    for field in schema:
+        if field.name in text_columns and not pa.types.is_string(field.type):
+            raise ValueError(
+                f"Stage-09b prediction {field.name} Arrow type changed"
+            )
+        if field.name in integer_columns and not pa.types.is_integer(field.type):
+            raise ValueError(
+                f"Stage-09b prediction {field.name} Arrow type changed"
+            )
+        if field.name in date_columns and not (
+            pa.types.is_timestamp(field.type)
+            and field.type.unit == "ns"
+            and field.type.tz is None
+        ):
+            raise ValueError(
+                f"Stage-09b prediction {field.name} Arrow type changed"
+            )
+        if field.name in float_columns and not pa.types.is_floating(field.type):
+            raise ValueError(
+                f"Stage-09b prediction {field.name} Arrow type changed"
+            )
+
+
 def _stage09b_window_registry_digest(frame: Any) -> str:
     """Independent implementation of the canonical window-registry digest."""
     import numpy as np
@@ -1951,6 +1985,48 @@ def _normalise_stage09b_release_prediction(
         raise ValueError("Stage-09b prediction columns/order changed")
     output = frame.loc[:, _STAGE09B_PREDICTION_COLUMNS].copy()
     for column in ("model", "scope", "feature_set", "site_id", "split"):
+        values = output[column]
+        if not (
+            pd.api.types.is_object_dtype(values.dtype)
+            or pd.api.types.is_string_dtype(values.dtype)
+        ) or not all(
+            isinstance(value, str) and bool(value.strip()) for value in values
+        ):
+            raise ValueError(
+                f"Stage-09b prediction {column} values are not non-empty strings"
+            )
+    for column in ("seed", "horizon"):
+        values = output[column]
+        if not all(
+            isinstance(value, (int, np.integer))
+            and not isinstance(value, (bool, np.bool_))
+            for value in values
+        ) or (
+            not pd.api.types.is_integer_dtype(values.dtype)
+            or pd.api.types.is_bool_dtype(values.dtype)
+        ):
+            raise ValueError(
+                f"Stage-09b prediction {column} values are not true integers"
+            )
+    for column in ("issue_date", "target_date"):
+        values = output[column]
+        if str(values.dtype) != "datetime64[ns]":
+            raise ValueError(
+                f"Stage-09b prediction {column} is not naive datetime64[ns]"
+            )
+        if values.isna().any() or not values.equals(values.dt.normalize()):
+            raise ValueError(
+                "Stage-09b prediction dates are not timezone-naive normalized days"
+            )
+    for column in ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed"):
+        values = output[column]
+        if not pd.api.types.is_float_dtype(values.dtype) or not all(
+            isinstance(value, (float, np.floating)) for value in values
+        ):
+            raise ValueError(
+                f"Stage-09b prediction {column} values are not floating point"
+            )
+    for column in ("model", "scope", "feature_set", "site_id", "split"):
         if output[column].isna().any():
             raise ValueError(f"Stage-09b prediction {column} contains nulls")
         output[column] = output[column].astype(str)
@@ -1960,20 +2036,12 @@ def _normalise_stage09b_release_prediction(
         or set(output["feature_set"]) != {feature_set}
     ):
         raise ValueError("Stage-09b prediction static identity changed")
-    numeric_seed = pd.to_numeric(output["seed"], errors="raise")
-    horizon = pd.to_numeric(output["horizon"], errors="raise")
-    if (
-        not np.equal(numeric_seed, np.floor(numeric_seed)).all()
-        or set(numeric_seed.astype("int64")) != {seed}
-        or not np.equal(horizon, np.floor(horizon)).all()
-    ):
+    numeric_seed = output["seed"].astype("int64")
+    horizon = output["horizon"].astype("int64")
+    if set(numeric_seed) != {seed}:
         raise ValueError("Stage-09b prediction seed/horizon changed")
-    output["seed"] = numeric_seed.astype("int64")
-    output["horizon"] = horizon.astype("int64")
-    output["issue_date"] = pd.to_datetime(output["issue_date"], errors="raise")
-    output["target_date"] = pd.to_datetime(output["target_date"], errors="raise")
-    if output[["issue_date", "target_date"]].isna().any().any():
-        raise ValueError("Stage-09b prediction dates contain nulls")
+    output["seed"] = numeric_seed
+    output["horizon"] = horizon
     numerical = ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed")
     for column in numerical:
         output[column] = pd.to_numeric(output[column], errors="raise").astype("float64")
@@ -2076,33 +2144,346 @@ def _stage09b_recompute_summary(frames: Mapping[tuple[str, int], Any]) -> Any:
     import numpy as np
     import pandas as pd
 
+    station_metrics = _stage09b_recompute_station_rmse(frames)
     rows: list[dict[str, object]] = []
     for (arm_id, seed), frame in frames.items():
         for (split, horizon), group in frame.groupby(["split", "horizon"], sort=True):
-            error = group["y_pred"].to_numpy(float) - group["y_true"].to_numpy(float)
-            if not np.isfinite(error).all():
-                raise ValueError("Stage-09b metric arithmetic overflowed")
-            scale = float(np.max(np.abs(error), initial=0.0))
-            rmse = 0.0 if scale == 0.0 else scale * float(
-                np.sqrt(np.mean((error / scale) ** 2))
+            with np.errstate(over="ignore", invalid="ignore"):
+                error = (
+                    group["y_pred"].to_numpy(dtype="float64")
+                    - group["y_true"].to_numpy(dtype="float64")
+                )
+            micro_rmse, micro_mae = _stage09b_stable_error_metrics(error)
+            stations = station_metrics.loc[
+                station_metrics["arm_id"].eq(str(arm_id))
+                & station_metrics["seed"].eq(int(seed))
+                & station_metrics["split"].eq(str(split))
+                & station_metrics["horizon"].eq(int(horizon))
+            ]
+            if stations.empty:
+                raise ValueError("Stage-09b member metric lacks station units")
+            station_median = float(
+                np.median(stations["station_rmse_c"].to_numpy(dtype="float64"))
             )
-            mae = float(np.mean(np.abs(error)))
-            if not math.isfinite(rmse) or not math.isfinite(mae):
-                raise ValueError("Stage-09b prediction-derived metric is non-finite")
+            if not math.isfinite(station_median):
+                raise ValueError("Stage-09b station-median RMSE is non-finite")
             rows.append({
                 "arm_id": arm_id,
                 "seed": seed,
                 "split": str(split),
                 "horizon": int(horizon),
-                "n": len(group),
-                "rmse": rmse,
-                "mae": mae,
+                "forecast_keys": len(group),
+                "stations": len(stations),
+                "median_station_rmse_c": station_median,
+                "micro_rmse_c": micro_rmse,
+                "micro_mae_c": micro_mae,
             })
     return pd.DataFrame.from_records(
-        rows, columns=("arm_id", "seed", "split", "horizon", "n", "rmse", "mae")
+        rows,
+        columns=(
+            "arm_id", "seed", "split", "horizon", "forecast_keys", "stations",
+            "median_station_rmse_c", "micro_rmse_c", "micro_mae_c",
+        ),
     ).sort_values(
         ["arm_id", "seed", "split", "horizon"], kind="mergesort"
     ).reset_index(drop=True)
+
+
+def _stage09b_stable_error_metrics(error: Any) -> tuple[float, float]:
+    import numpy as np
+
+    values = np.asarray(error, dtype="float64")
+    if values.ndim != 1 or len(values) < 1 or not np.isfinite(values).all():
+        raise ValueError("Stage-09b metric arithmetic overflowed")
+    scale = float(np.max(np.abs(values), initial=0.0))
+    if scale == 0.0:
+        return 0.0, 0.0
+    scaled = values / scale
+    rmse = scale * float(np.sqrt(np.mean(scaled ** 2)))
+    mae = scale * float(np.mean(np.abs(scaled)))
+    if not math.isfinite(rmse) or not math.isfinite(mae):
+        raise ValueError("Stage-09b prediction-derived metric is non-finite")
+    return rmse, mae
+
+
+def _stage09b_recompute_station_rmse(
+    frames: Mapping[tuple[str, int], Any],
+) -> Any:
+    import numpy as np
+    import pandas as pd
+
+    rows: list[dict[str, object]] = []
+    for (arm_id, seed), frame in frames.items():
+        for (split, horizon, site_id), group in frame.groupby(
+            ["split", "horizon", "site_id"], sort=True,
+        ):
+            with np.errstate(over="ignore", invalid="ignore"):
+                error = (
+                    group["y_pred"].to_numpy(dtype="float64")
+                    - group["y_true"].to_numpy(dtype="float64")
+                )
+            station_rmse, _station_mae = _stage09b_stable_error_metrics(error)
+            rows.append({
+                "arm_id": str(arm_id), "seed": int(seed), "split": str(split),
+                "horizon": int(horizon), "site_id": str(site_id),
+                "forecast_keys": int(len(group)), "station_rmse_c": station_rmse,
+            })
+    columns = (
+        "arm_id", "seed", "split", "horizon", "site_id", "forecast_keys",
+        "station_rmse_c",
+    )
+    output = pd.DataFrame.from_records(rows, columns=columns)
+    if output.empty:
+        raise ValueError("Stage-09b station RMSE registry is empty")
+    return output.sort_values(
+        ["arm_id", "seed", "split", "horizon", "site_id"], kind="mergesort"
+    ).reset_index(drop=True)
+
+
+def _stage09b_paired_comparison_registry() -> list[dict[str, object]]:
+    full = "ThermoRoute-ladder-07_plus_WDSP"
+    ladder = (
+        "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
+        "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
+    )
+    controls = [
+        {
+            "comparison_family": "full_vs_control",
+            "comparison_id": f"{full}-minus-{reference}",
+            "candidate_arm_id": full,
+            "reference_arm_id": reference,
+            "seeds": [0, 1, 2],
+        }
+        for reference in ("PlainMLP-7var", "PlainCausalTCN-7var")
+    ]
+    arms = [f"ThermoRoute-ladder-{rung}" for rung in ladder]
+    adjacent = [
+        {
+            "comparison_family": "adjacent_feature_ladder",
+            "comparison_id": f"{candidate}-minus-{reference}",
+            "candidate_arm_id": candidate,
+            "reference_arm_id": reference,
+            "seeds": [0, 1, 2],
+        }
+        for reference, candidate in zip(arms[:-1], arms[1:], strict=True)
+    ]
+    return controls + adjacent
+
+
+def _stage09b_recompute_paired_effects(station_metrics: Any) -> Any:
+    import numpy as np
+    import pandas as pd
+
+    observed_members = set(zip(
+        station_metrics["arm_id"].astype(str),
+        station_metrics["seed"].astype(int),
+        strict=True,
+    ))
+    if observed_members != set(_stage09b_release_members()):
+        raise ValueError("Stage-09b paired effects lack the exact 31 members")
+    if set(station_metrics["split"].astype(str)) != {"val", "calib", "test"}:
+        raise ValueError("Stage-09b paired-effect split registry changed")
+    if set(station_metrics["horizon"].astype(int)) != {1, 3, 7}:
+        raise ValueError("Stage-09b paired-effect horizon registry changed")
+    rows: list[dict[str, object]] = []
+    pair_keys = ["split", "horizon", "site_id"]
+    for comparison in _stage09b_paired_comparison_registry():
+        for seed in comparison["seeds"]:
+            candidate = station_metrics.loc[
+                station_metrics["arm_id"].eq(comparison["candidate_arm_id"])
+                & station_metrics["seed"].eq(seed)
+            ].sort_values(pair_keys, kind="mergesort").reset_index(drop=True)
+            reference = station_metrics.loc[
+                station_metrics["arm_id"].eq(comparison["reference_arm_id"])
+                & station_metrics["seed"].eq(seed)
+            ].sort_values(pair_keys, kind="mergesort").reset_index(drop=True)
+            if (
+                candidate.empty
+                or reference.empty
+                or not candidate[pair_keys].equals(reference[pair_keys])
+                or not np.array_equal(
+                    candidate["forecast_keys"].to_numpy(dtype="int64"),
+                    reference["forecast_keys"].to_numpy(dtype="int64"),
+                )
+            ):
+                raise ValueError("Stage-09b paired station registry changed")
+            paired = candidate[pair_keys + ["forecast_keys"]].copy()
+            paired["effect_c"] = (
+                candidate["station_rmse_c"].to_numpy(dtype="float64")
+                - reference["station_rmse_c"].to_numpy(dtype="float64")
+            )
+            if not np.isfinite(paired["effect_c"]).all():
+                raise ValueError("Stage-09b paired effect is non-finite")
+            for (split, horizon), group in paired.groupby(
+                ["split", "horizon"], sort=True,
+            ):
+                rows.append({
+                    "comparison_family": comparison["comparison_family"],
+                    "comparison_id": comparison["comparison_id"],
+                    "candidate_arm_id": comparison["candidate_arm_id"],
+                    "reference_arm_id": comparison["reference_arm_id"],
+                    "seed": int(seed), "split": str(split),
+                    "horizon": int(horizon),
+                    "common_forecast_keys": int(group["forecast_keys"].sum()),
+                    "stations": int(len(group)),
+                    "median_paired_station_rmse_difference_c": float(
+                        np.median(group["effect_c"].to_numpy(dtype="float64"))
+                    ),
+                })
+    columns = (
+        "comparison_family", "comparison_id", "candidate_arm_id",
+        "reference_arm_id", "seed", "split", "horizon", "common_forecast_keys",
+        "stations", "median_paired_station_rmse_difference_c",
+    )
+    output = pd.DataFrame.from_records(rows, columns=columns)
+    expected_identities = [
+        (
+            comparison["comparison_family"], comparison["comparison_id"],
+            comparison["candidate_arm_id"], comparison["reference_arm_id"],
+            seed, split, horizon,
+        )
+        for comparison in _stage09b_paired_comparison_registry()
+        for seed in (0, 1, 2)
+        for split in ("calib", "test", "val")
+        for horizon in (1, 3, 7)
+    ]
+    observed_identities = list(output[[
+        "comparison_family", "comparison_id", "candidate_arm_id",
+        "reference_arm_id", "seed", "split", "horizon",
+    ]].itertuples(index=False, name=None))
+    if observed_identities != expected_identities:
+        raise ValueError("Stage-09b paired-effect registry is incomplete")
+    return output.reset_index(drop=True)
+
+
+def _stage09b_scientific_summary(paired_effects: Any) -> dict[str, object]:
+    records = [
+        {
+            "comparison_family": str(row.comparison_family),
+            "comparison_id": str(row.comparison_id),
+            "candidate_arm_id": str(row.candidate_arm_id),
+            "reference_arm_id": str(row.reference_arm_id),
+            "seed": int(row.seed), "split": str(row.split),
+            "horizon": int(row.horizon),
+            "common_forecast_keys": int(row.common_forecast_keys),
+            "stations": int(row.stations),
+            "median_paired_station_rmse_difference_c": float(
+                row.median_paired_station_rmse_difference_c
+            ),
+        }
+        for row in paired_effects.itertuples(index=False)
+    ]
+    payload = json.dumps(
+        records, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    ladder_variables = (
+        ("01_WTEMP", ["WTEMP"]),
+        ("02_plus_FLOW", ["WTEMP", "FLOW"]),
+        ("03_plus_TEMP", ["WTEMP", "FLOW", "TEMP"]),
+        ("04_plus_PRCP", ["WTEMP", "FLOW", "TEMP", "PRCP"]),
+        ("05_plus_RHMEAN", ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN"]),
+        ("06_plus_DH", ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH"]),
+        (
+            "07_plus_WDSP",
+            ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"],
+        ),
+    )
+    return {
+        "format": "thermoroute.development-controls-scientific-summary.v1",
+        "metric_summary_format": (
+            "thermoroute.development-controls-metric-summary.v2"
+        ),
+        "primary_member_estimand": {
+            "name": "median_across_stations_of_within_station_rmse_c",
+            "column": "median_station_rmse_c", "unit": "degree_Celsius",
+            "aggregation": "median_of_within_station_RMSE",
+            "station_weighting": "one_station_one_value",
+        },
+        "secondary_member_estimands": {
+            "micro_rmse_c": {
+                "role": "secondary_not_primary_estimand",
+                "aggregation": "RMSE_over_all_forecast_keys",
+            },
+            "micro_mae_c": {
+                "role": "secondary_not_primary_estimand",
+                "aggregation": "MAE_over_all_forecast_keys",
+            },
+        },
+        "paired_descriptive_effects": {
+            "estimand": (
+                "median_across_stations_of_candidate_rmse_minus_reference_rmse_c"
+            ),
+            "effect_convention": "candidate_minus_reference",
+            "negative_favours": "candidate", "same_seed": True,
+            "exact_common_forecast_keys_verified": True,
+            "comparison_registry": _stage09b_paired_comparison_registry(),
+            "feature_ladder_order": [
+                {"rung": rung, "variables": variables}
+                for rung, variables in ladder_variables
+            ],
+            "feature_ladder_fixed_order_path_dependent": True,
+            "independent_feature_contribution_claimed": False,
+            "causal_effect_claimed": False,
+            "records_sha256": hashlib.sha256(payload).hexdigest(),
+            "records": records,
+        },
+    }
+
+
+def _stage09b_validate_scientific_summary_document(value: object) -> None:
+    import pandas as pd
+
+    if not isinstance(value, Mapping):
+        raise ValueError("Stage-09b scientific summary is malformed")
+    paired = value.get("paired_descriptive_effects")
+    records = paired.get("records") if isinstance(paired, Mapping) else None
+    if not isinstance(records, list):
+        raise ValueError("Stage-09b paired effects are malformed")
+    columns = (
+        "comparison_family", "comparison_id", "candidate_arm_id",
+        "reference_arm_id", "seed", "split", "horizon", "common_forecast_keys",
+        "stations", "median_paired_station_rmse_difference_c",
+    )
+    expected_identities = [
+        (
+            comparison["comparison_family"], comparison["comparison_id"],
+            comparison["candidate_arm_id"], comparison["reference_arm_id"],
+            seed, split, horizon,
+        )
+        for comparison in _stage09b_paired_comparison_registry()
+        for seed in (0, 1, 2)
+        for split in ("calib", "test", "val")
+        for horizon in (1, 3, 7)
+    ]
+    observed: list[tuple[object, ...]] = []
+    for record in records:
+        effect = (
+            record.get("median_paired_station_rmse_difference_c")
+            if isinstance(record, Mapping) else None
+        )
+        if (
+            not isinstance(record, Mapping)
+            or set(record) != set(columns)
+            or type(record.get("seed")) is not int
+            or type(record.get("horizon")) is not int
+            or type(record.get("common_forecast_keys")) is not int
+            or int(record["common_forecast_keys"]) < 1
+            or type(record.get("stations")) is not int
+            or int(record["stations"]) < 1
+            or type(effect) not in {int, float}
+            or not math.isfinite(float(effect))
+        ):
+            raise ValueError("Stage-09b paired-effect record is malformed")
+        observed.append((
+            record["comparison_family"], record["comparison_id"],
+            record["candidate_arm_id"], record["reference_arm_id"],
+            record["seed"], record["split"], record["horizon"],
+        ))
+    if observed != expected_identities:
+        raise ValueError("Stage-09b paired-effect registry changed")
+    frame = pd.DataFrame.from_records(records, columns=columns)
+    if dict(value) != _stage09b_scientific_summary(frame):
+        raise ValueError("Stage-09b scientific summary contract changed")
 
 
 def _stage09b_markdown_table(frame: Any) -> str:
@@ -2127,18 +2508,39 @@ def _stage09b_markdown_table(frame: Any) -> str:
 
 def _stage09b_expected_report(
     *, run_id: str, audit: Mapping[str, Any], budget: Any, summary: Any,
+    paired_effects: Any,
 ) -> bytes:
     development = summary.loc[summary["split"].eq("test")]
     aggregate = (
         development.groupby(["arm_id", "horizon"], as_index=False)
         .agg(
-            rmse_mean=("rmse", "mean"),
-            rmse_sd=("rmse", "std"),
+            primary_median_station_rmse_seed_mean_c=(
+                "median_station_rmse_c", "mean",
+            ),
+            primary_median_station_rmse_seed_sd_c=(
+                "median_station_rmse_c", "std",
+            ),
+            secondary_micro_rmse_seed_mean_c=("micro_rmse_c", "mean"),
             seeds=("seed", "nunique"),
         )
-        .sort_values(["horizon", "rmse_mean", "arm_id"], kind="mergesort")
+        .sort_values(
+            ["horizon", "primary_median_station_rmse_seed_mean_c", "arm_id"],
+            kind="mergesort",
+        )
     )
     result_table = _stage09b_markdown_table(aggregate)
+    development_pairs = paired_effects.loc[paired_effects["split"].eq("test")]
+    pair_columns = [
+        "candidate_arm_id", "reference_arm_id", "seed", "horizon", "stations",
+        "median_paired_station_rmse_difference_c",
+    ]
+    control_effects = _stage09b_markdown_table(development_pairs.loc[
+        development_pairs["comparison_family"].eq("full_vs_control"), pair_columns,
+    ])
+    ladder_effects = _stage09b_markdown_table(development_pairs.loc[
+        development_pairs["comparison_family"].eq("adjacent_feature_ladder"),
+        pair_columns,
+    ])
     budget_table = _stage09b_markdown_table(budget[[
         "arm_id", "variables", "seed_count", "trainable_parameters",
         "parameter_ratio_to_full_thermoroute", "maximum_optimizer_steps_per_seed",
@@ -2185,12 +2587,37 @@ These values are deterministically derived from the machine-readable summary,
 which is itself recomputed from every stored prediction row. `test` means the
 already-inspected 2019--2020 development partition, never a blind test.
 
+The primary member-level estimand is median station RMSE: RMSE is first computed
+within each station on the exact common forecast keys and then the station RMSEs
+are aggregated by their median. Micro RMSE is retained only as a secondary,
+non-primary estimand; it weights stations according to their available row count.
+
 {result_table}
+
+## Same-seed station-paired descriptive effects
+
+Every effect below is the median across stations of candidate RMSE minus
+reference RMSE on the same seed and exact common forecast keys. Negative values
+favour the candidate. These are descriptive development effects, not hypothesis
+tests.
+
+### Full ThermoRoute versus matched neural controls
+
+{control_effects}
+
+### Adjacent cumulative feature-ladder rungs
+
+{ladder_effects}
+
+The ladder order is fixed as WTEMP, FLOW, TEMP, PRCP, RHMEAN, DH, WDSP. Each
+adjacent contrast is path-dependent on every preceding rung. It is not an
+independent feature contribution, feature importance score, or causal effect.
 
 ## Interpretation boundary
 
-These artifacts diagnose architecture and cumulative feature contribution on
-historical development data. They verify best-state prediction replay, not the
+These artifacts describe architecture comparisons and fixed-path adjacent
+ladder contrasts on historical development data. They verify best-state
+prediction replay, not the
 full training trajectory, and cannot establish prospective, operational, causal,
 safety, or confirmatory performance. They do not modify the frozen Route-A suite
 pointer.
@@ -2408,21 +2835,24 @@ def _validate_preopening_completion_gates(
         (
             "architecture_budget", "architecture_budget_sidecar",
             "development_controls_budget",
-            "text/csv", "architecture_budget",
+            "thermoroute.development-controls-architecture-budget.v1",
+            "architecture_budget",
         ),
         (
             "metric_summary", "metric_summary_sidecar",
             "development_controls_metric_summary",
-            "text/csv", "metric_summary",
+            "thermoroute.development-controls-metric-summary.v2",
+            "metric_summary",
         ),
         (
             "report", "report_sidecar", "development_controls_report",
-            "text/markdown", "report",
+            "thermoroute.development-controls-report.v2", "report",
         ),
         (
             "semantic_audit", "semantic_audit_sidecar",
             "development_controls_semantic_audit",
-            "application/json", "semantic_audit",
+            "thermoroute.development-controls-semantic-audit.v3",
+            "semantic_audit",
         ),
     )
     for artifact, sidecar, kind, content_schema, _role in final_sidecar_specs:
@@ -2687,7 +3117,11 @@ def _validate_preopening_completion_gates(
         }
         member_digests: dict[tuple[str, int], str] = {}
         summary_frames: list[Any] = []
+        station_frames: list[Any] = []
         for member in expected_members:
+            _stage09b_assert_prediction_arrow_schema(
+                member_prediction_paths[member]
+            )
             frame = pd.read_parquet(member_prediction_paths[member])
             normalised = _normalise_stage09b_release_prediction(
                 frame,
@@ -2698,10 +3132,16 @@ def _validate_preopening_completion_gates(
             )
             member_digests[member] = _stage09b_prediction_content_digest(normalised)
             summary_frames.append(_stage09b_recompute_summary({member: normalised}))
+            station_frames.append(
+                _stage09b_recompute_station_rmse({member: normalised})
+            )
             del frame, normalised
         recomputed_summary = pd.concat(summary_frames, ignore_index=True).sort_values(
             ["arm_id", "seed", "split", "horizon"], kind="mergesort"
         ).reset_index(drop=True)
+        paired_effects = _stage09b_recompute_paired_effects(
+            pd.concat(station_frames, ignore_index=True)
+        )
         expected_summary_bytes = recomputed_summary.to_csv(
             index=False, float_format="%.17g", lineterminator="\n"
         ).encode("utf-8")
@@ -2840,9 +3280,13 @@ def _validate_preopening_completion_gates(
         summary_registry != expected_summary_registry
         or len(summary_rows) != len(expected_summary_registry)
         or any(
-            int(row.get("n", "0")) < 1
-            or not math.isfinite(float(row.get("rmse", "nan")))
-            or not math.isfinite(float(row.get("mae", "nan")))
+            int(row.get("forecast_keys", "0")) < 1
+            or int(row.get("stations", "0")) < 1
+            or not math.isfinite(
+                float(row.get("median_station_rmse_c", "nan"))
+            )
+            or not math.isfinite(float(row.get("micro_rmse_c", "nan")))
+            or not math.isfinite(float(row.get("micro_mae_c", "nan")))
             for row in summary_rows
         )
     ):
@@ -2854,6 +3298,7 @@ def _validate_preopening_completion_gates(
             audit=audit,
             budget=budget_frame,
             summary=recomputed_summary,
+            paired_effects=paired_effects,
         )
     except Exception as exc:
         raise ValueError("authorized Stage-09b report cannot be regenerated") from exc
@@ -2873,11 +3318,12 @@ def _validate_preopening_completion_gates(
             "training_replay_verified",
             "best_model_state_prediction_replay_verified",
             "post_2020_outcomes_requested_or_read", "matrix_audit",
-            "canonical_window_registry", "members", "derived_artifacts",
+            "canonical_window_registry", "scientific_summary", "members",
+            "derived_artifacts",
             "semantic_audit_self_sha256",
         }
         or semantic.get("format")
-        != "thermoroute.development-controls-semantic-audit.v2"
+        != "thermoroute.development-controls-semantic-audit.v3"
         or semantic.get("status")
         != "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY"
         or semantic.get("run_id") != controls.get("run_id")
@@ -2901,6 +3347,8 @@ def _validate_preopening_completion_gates(
         != audit["common_forecast_keys"]
         or canonical_window.get("train_examples_per_epoch")
         != canonical_train_examples
+        or semantic.get("scientific_summary")
+        != _stage09b_scientific_summary(paired_effects)
         or not isinstance(derived, Mapping)
         or set(derived) != {
             "architecture_budget", "combined_predictions", "metric_summary", "report"
@@ -5123,13 +5571,14 @@ def _git_preopening_gate_dependency_paths(
             "format", "status", "run_id", "evidence_scope",
             "training_replay_verified", "post_2020_outcomes_requested_or_read",
             "best_model_state_prediction_replay_verified",
-            "matrix_audit", "canonical_window_registry", "members",
+            "matrix_audit", "canonical_window_registry", "scientific_summary",
+            "members",
             "derived_artifacts", "semantic_audit_self_sha256",
         }
         if (
             set(semantic) != expected_semantic_keys
             or semantic.get("format")
-            != "thermoroute.development-controls-semantic-audit.v2"
+            != "thermoroute.development-controls-semantic-audit.v3"
             or semantic.get("status")
             != "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY"
             or semantic.get("run_id") != run_id
@@ -5142,6 +5591,9 @@ def _git_preopening_gate_dependency_paths(
             or semantic_hash != _sha256_json(stable_semantic)
         ):
             raise ValueError("Git Stage-09b semantic audit changed")
+        _stage09b_validate_scientific_summary_document(
+            semantic.get("scientific_summary")
+        )
         registry = semantic.get("canonical_window_registry")
         if (
             not isinstance(registry, Mapping)

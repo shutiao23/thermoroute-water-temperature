@@ -133,12 +133,19 @@ from thermoroute.development_controls_gate import (  # noqa: E402
     publish_stage09b_completion_receipt,
 )
 from thermoroute.development_controls import (  # noqa: E402
+    ARCHITECTURE_BUDGET_FORMAT,
     ArmSpec,
     DEVELOPMENT_DISCLOSURE,
     DEVELOPMENT_SCOPE,
     FEATURE_LADDER,  # noqa: F401 - public script contract used by tests/audits
+    FULL_LADDER_ARM_ID,  # noqa: F401 - public scientific-summary contract
     FULL_VARIABLES,
+    METRIC_SUMMARY_FORMAT,
+    MICRO_RMSE_ROLE,  # noqa: F401 - public scientific-summary contract
     MatrixAudit,
+    REPORT_FORMAT,
+    SEMANTIC_AUDIT_FORMAT,
+    STATION_RMSE_COLUMNS,  # noqa: F401 - public scientific-summary contract
     TRAIN_CONFIG,
     architecture_budget_rows,
     architecture_configuration,
@@ -153,7 +160,10 @@ from thermoroute.development_controls import (  # noqa: E402
     physics_count,
     prediction_content_digest,
     recompute_metric_summary,
+    recompute_paired_effect_summary,
+    recompute_station_rmse,
     render_report,
+    scientific_summary_document,
     summary_csv_bytes,
     window_registry_digest,
     window_registry_from_windowed,
@@ -192,7 +202,6 @@ FINAL_PREDICTION_KIND = "development_controls_combined_predictions"
 FINAL_FORMAT = "thermoroute.development-controls.v2"
 SUMMARY_KIND = "development_controls_metric_summary"
 SEMANTIC_AUDIT_KIND = "development_controls_semantic_audit"
-SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v2"
 
 
 class ControlExperimentError(RuntimeError):
@@ -989,6 +998,7 @@ def _semantic_audit_document(
     canonical_train_registry_sha256: str,
     member_paths: Mapping[tuple[str, int], Path],
     member_digests: Mapping[tuple[str, int], str],
+    paired_effects: pd.DataFrame,
     final_paths: Mapping[str, Path],
 ) -> dict[str, Any]:
     def descriptor(path: Path) -> dict[str, Any]:
@@ -1009,6 +1019,7 @@ def _semantic_audit_document(
             "train_examples_per_epoch": train_examples,
             "train_registry_sha256": canonical_train_registry_sha256,
         },
+        "scientific_summary": scientific_summary_document(paired_effects),
         "members": [
             {
                 "arm_id": arm_id,
@@ -1101,6 +1112,8 @@ def publish_final_artifacts(
     arm_by_id = {arm.arm_id: arm for arm in arms}
     member_digests: dict[tuple[str, int], str] = {}
     recomputed_parts: list[pd.DataFrame] = []
+    station_parts: list[pd.DataFrame] = []
+    common_registry: pd.DataFrame | None = None
     for member in expected_member_registry(arms):
         frame = pd.read_parquet(member_paths[member], columns=R.PRED_COLS)
         try:
@@ -1111,10 +1124,30 @@ def publish_final_artifacts(
             raise ControlExperimentError(f"member semantic validation failed: {exc}") from exc
         member_digests[member] = prediction_content_digest(normalised)
         recomputed_parts.append(recompute_metric_summary({member: normalised}))
+        station_parts.append(recompute_station_rmse({member: normalised}))
+        current_registry = normalised[["split", *FORECAST_KEY, "y_true"]]
+        if common_registry is None:
+            common_registry = current_registry.copy()
+        elif (
+            not current_registry[["split", *FORECAST_KEY]].equals(
+                common_registry[["split", *FORECAST_KEY]]
+            )
+            or not targets_match_at_model_precision(
+                current_registry["y_true"], common_registry["y_true"]
+            )
+        ):
+            raise ControlExperimentError(
+                "final publication member forecast-key/truth registry changed"
+            )
         del frame, normalised
+    assert common_registry is not None
     recomputed_summary = pd.concat(recomputed_parts, ignore_index=True).sort_values(
         ["arm_id", "seed", "split", "horizon"], kind="mergesort"
     ).reset_index(drop=True)
+    paired_effects = recompute_paired_effect_summary(
+        pd.concat(station_parts, ignore_index=True),
+        exact_common_forecast_keys_verified=True,
+    )
     declared_summary = pd.DataFrame.from_records(summaries)
     if list(declared_summary.columns) != list(recomputed_summary.columns):
         declared_summary = declared_summary.reindex(columns=recomputed_summary.columns)
@@ -1128,16 +1161,19 @@ def publish_final_artifacts(
         raise ControlExperimentError("metric summary is malformed") from exc
     report_bytes = render_report(
         run_id=identity.run_id, audit=audit, budget=budget,
-        summary=recomputed_summary,
+        summary=recomputed_summary, paired_effects=paired_effects,
     ).encode("utf-8")
     base_specs = (
         (
             prediction_path, FINAL_PREDICTION_KIND,
             R.PREDICTION_SCHEMA_VERSION, "combined_predictions",
         ),
-        (budget_path, "development_controls_budget", "text/csv", "architecture_budget"),
-        (summary_path, SUMMARY_KIND, "text/csv", "metric_summary"),
-        (report_path, "development_controls_report", "text/markdown", "report"),
+        (
+            budget_path, "development_controls_budget",
+            ARCHITECTURE_BUDGET_FORMAT, "architecture_budget",
+        ),
+        (summary_path, SUMMARY_KIND, METRIC_SUMMARY_FORMAT, "metric_summary"),
+        (report_path, "development_controls_report", REPORT_FORMAT, "report"),
     )
     exact_bytes = {
         budget_path: budget_csv_bytes(budget),
@@ -1191,6 +1227,7 @@ def publish_final_artifacts(
         canonical_registry_sha256=canonical_registry_sha256,
         canonical_train_registry_sha256=canonical_train_registry_sha256,
         member_paths=member_paths, member_digests=member_digests,
+        paired_effects=paired_effects,
         final_paths={
             "architecture_budget": budget_path,
             "combined_predictions": prediction_path,
@@ -1209,11 +1246,11 @@ def publish_final_artifacts(
     if not sidecar_path(semantic_audit_path).exists():
         seal_artifact(
             semantic_audit_path, identity, kind=SEMANTIC_AUDIT_KIND,
-            schema="application/json", parents=final_parents,
+            schema=SEMANTIC_AUDIT_FORMAT, parents=final_parents,
             extra=_final_extra(audit, artifact_role="semantic_audit"),
         )
     metadata = validate_artifact_sidecar(
-        semantic_audit_path, identity=identity, schema="application/json",
+        semantic_audit_path, identity=identity, schema=SEMANTIC_AUDIT_FORMAT,
         kind=SEMANTIC_AUDIT_KIND,
     )
     if (

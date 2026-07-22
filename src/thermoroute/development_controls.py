@@ -57,7 +57,32 @@ DEVELOPMENT_DISCLOSURE = (
     "2019-2020 outcomes were already inspected during development; this is "
     "exploratory development evidence, not a blind or confirmatory test."
 )
-SUMMARY_COLUMNS = ("arm_id", "seed", "split", "horizon", "n", "rmse", "mae")
+METRIC_SUMMARY_FORMAT = "thermoroute.development-controls-metric-summary.v2"
+ARCHITECTURE_BUDGET_FORMAT = (
+    "thermoroute.development-controls-architecture-budget.v1"
+)
+REPORT_FORMAT = "thermoroute.development-controls-report.v2"
+SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v3"
+SCIENTIFIC_SUMMARY_FORMAT = "thermoroute.development-controls-scientific-summary.v1"
+PRIMARY_ESTIMAND = "median_across_stations_of_within_station_rmse_c"
+MICRO_RMSE_ROLE = "secondary_not_primary_estimand"
+PAIRED_EFFECT_ESTIMAND = (
+    "median_across_stations_of_candidate_rmse_minus_reference_rmse_c"
+)
+FULL_LADDER_ARM_ID = "ThermoRoute-ladder-07_plus_WDSP"
+SUMMARY_COLUMNS = (
+    "arm_id", "seed", "split", "horizon", "forecast_keys", "stations",
+    "median_station_rmse_c", "micro_rmse_c", "micro_mae_c",
+)
+STATION_RMSE_COLUMNS = (
+    "arm_id", "seed", "split", "horizon", "site_id", "forecast_keys",
+    "station_rmse_c",
+)
+PAIRED_EFFECT_COLUMNS = (
+    "comparison_family", "comparison_id", "candidate_arm_id",
+    "reference_arm_id", "seed", "split", "horizon", "common_forecast_keys",
+    "stations", "median_paired_station_rmse_difference_c",
+)
 CANONICAL_REGISTRY_COLUMNS = ("split", *FORECAST_KEY, "y_true")
 PREDICTION_DIGEST_FORMAT = "thermoroute.prediction-content-digest.v1"
 WINDOW_REGISTRY_DIGEST_FORMAT = "thermoroute.window-registry-digest.v1"
@@ -73,6 +98,15 @@ class ArmSpec:
     family: str
     feature_set: str
     variables: tuple[str, ...]
+    seeds: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class PairedComparison:
+    comparison_family: str
+    comparison_id: str
+    candidate_arm_id: str
+    reference_arm_id: str
     seeds: tuple[int, ...]
 
 
@@ -126,6 +160,43 @@ def expected_member_registry(
     if len(members) != len(set(members)):
         raise DevelopmentControlsContractError("control member registry is not unique")
     return members
+
+
+def paired_comparison_registry() -> tuple[PairedComparison, ...]:
+    """Return the frozen same-seed descriptive-comparison registry.
+
+    The full ThermoRoute arm is compared with both matched neural controls on
+    seeds 0--2.  Each feature-ladder rung is compared only with its immediately
+    preceding rung on those same seeds.  The latter comparisons are therefore
+    fixed-order, path-dependent contrasts, not independent feature importance
+    or causal effects.
+    """
+    controls = tuple(
+        PairedComparison(
+            comparison_family="full_vs_control",
+            comparison_id=f"{FULL_LADDER_ARM_ID}-minus-{reference}",
+            candidate_arm_id=FULL_LADDER_ARM_ID,
+            reference_arm_id=reference,
+            seeds=LADDER_SEEDS,
+        )
+        for reference in ("PlainMLP-7var", "PlainCausalTCN-7var")
+    )
+    ladder_arm_ids = tuple(
+        f"ThermoRoute-ladder-{rung}" for rung, _variables in FEATURE_LADDER
+    )
+    adjacent = tuple(
+        PairedComparison(
+            comparison_family="adjacent_feature_ladder",
+            comparison_id=f"{candidate}-minus-{reference}",
+            candidate_arm_id=candidate,
+            reference_arm_id=reference,
+            seeds=LADDER_SEEDS,
+        )
+        for reference, candidate in zip(
+            ladder_arm_ids[:-1], ladder_arm_ids[1:], strict=True,
+        )
+    )
+    return controls + adjacent
 
 
 def physics_count(variables: Sequence[str]) -> int:
@@ -469,6 +540,57 @@ def rebuild_canonical_window_contract(
     )
 
 
+def _is_true_integer(value: object) -> bool:
+    return isinstance(value, (int, np.integer)) and not isinstance(
+        value, (bool, np.bool_)
+    )
+
+
+def _assert_prediction_physical_schema(frame: pd.DataFrame) -> None:
+    text_columns = ("model", "scope", "feature_set", "site_id", "split")
+    for column in text_columns:
+        values = frame[column]
+        if not (
+            pd.api.types.is_object_dtype(values.dtype)
+            or pd.api.types.is_string_dtype(values.dtype)
+        ) or not all(
+            isinstance(value, str) and bool(value.strip()) for value in values
+        ):
+            raise DevelopmentControlsContractError(
+                f"prediction {column} values must be non-empty strings"
+            )
+    for column in ("seed", "horizon"):
+        values = frame[column]
+        if (
+            not pd.api.types.is_integer_dtype(values.dtype)
+            or pd.api.types.is_bool_dtype(values.dtype)
+            or not all(_is_true_integer(value) for value in values)
+        ):
+            raise DevelopmentControlsContractError(
+                f"prediction {column} values must be true integers"
+            )
+    for column in ("issue_date", "target_date"):
+        values = frame[column]
+        if str(values.dtype) != "datetime64[ns]":
+            raise DevelopmentControlsContractError(
+                f"prediction {column} must have naive datetime64[ns] dtype"
+            )
+        if values.isna().any():
+            raise DevelopmentControlsContractError("prediction dates contain nulls")
+        if not values.equals(values.dt.normalize()):
+            raise DevelopmentControlsContractError(
+                "prediction dates must be timezone-naive normalized days"
+            )
+    for column in ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed"):
+        values = frame[column]
+        if not pd.api.types.is_float_dtype(values.dtype) or not all(
+            isinstance(value, (float, np.floating)) for value in values
+        ):
+            raise DevelopmentControlsContractError(
+                f"prediction {column} values must have floating dtype"
+            )
+
+
 def normalise_prediction_frame(
     frame: pd.DataFrame,
     *,
@@ -479,6 +601,7 @@ def normalise_prediction_frame(
 ) -> pd.DataFrame:
     if list(frame.columns) != R.PRED_COLS:
         raise DevelopmentControlsContractError("prediction columns/order changed")
+    _assert_prediction_physical_schema(frame)
     out = frame.loc[:, R.PRED_COLS].copy()
     for column in ("model", "scope", "feature_set", "site_id", "split"):
         if out[column].isna().any():
@@ -493,20 +616,11 @@ def normalise_prediction_frame(
     for column in ("model", "scope", "feature_set"):
         if set(out[column]) != {str(expected_static[column])}:
             raise DevelopmentControlsContractError(f"prediction {column} changed")
-    numeric_seed = pd.to_numeric(out["seed"], errors="raise")
-    if not np.equal(numeric_seed, np.floor(numeric_seed)).all() or set(
-        numeric_seed.astype("int64")
-    ) != {int(seed)}:
+    numeric_seed = out["seed"].astype("int64")
+    if set(numeric_seed) != {int(seed)}:
         raise DevelopmentControlsContractError("prediction seed changed")
-    out["seed"] = numeric_seed.astype("int64")
-    horizon = pd.to_numeric(out["horizon"], errors="raise")
-    if not np.equal(horizon, np.floor(horizon)).all():
-        raise DevelopmentControlsContractError("prediction horizon is non-integral")
-    out["horizon"] = horizon.astype("int64")
-    out["issue_date"] = pd.to_datetime(out["issue_date"], errors="raise")
-    out["target_date"] = pd.to_datetime(out["target_date"], errors="raise")
-    if out[["issue_date", "target_date"]].isna().any().any():
-        raise DevelopmentControlsContractError("prediction dates contain nulls")
+    out["seed"] = numeric_seed
+    out["horizon"] = out["horizon"].astype("int64")
     numeric = ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed")
     for column in numeric:
         out[column] = pd.to_numeric(out[column], errors="raise").astype("float64")
@@ -558,42 +672,316 @@ def prediction_content_digest(frame: pd.DataFrame) -> str:
     )
 
 
+def _stable_error_metrics(
+    error: np.ndarray, *, context: str,
+) -> tuple[float, float]:
+    values = np.asarray(error, dtype="float64")
+    if values.ndim != 1 or len(values) < 1 or not np.isfinite(values).all():
+        raise DevelopmentControlsContractError(
+            f"{context} overflows finite metric arithmetic"
+        )
+    scale = float(np.max(np.abs(values), initial=0.0))
+    if scale == 0.0:
+        return 0.0, 0.0
+    scaled = values / scale
+    rmse = scale * float(np.sqrt(np.mean(scaled ** 2)))
+    mae = scale * float(np.mean(np.abs(scaled)))
+    if not math.isfinite(rmse) or not math.isfinite(mae):
+        raise DevelopmentControlsContractError(
+            f"{context} metrics are non-finite"
+        )
+    return rmse, mae
+
+
+def recompute_station_rmse(
+    frames: Mapping[tuple[str, int], pd.DataFrame],
+) -> pd.DataFrame:
+    """Derive the station-level RMSE units used by every primary summary."""
+    rows: list[dict[str, Any]] = []
+    for (arm_id, seed), frame in frames.items():
+        required = {"split", "horizon", "site_id", "y_pred", "y_true"}
+        if not required.issubset(frame.columns):
+            raise DevelopmentControlsContractError(
+                "station RMSE input lacks required prediction columns"
+            )
+        for (split, horizon, site_id), group in frame.groupby(
+            ["split", "horizon", "site_id"], sort=True,
+        ):
+            with np.errstate(over="ignore", invalid="ignore"):
+                error = (
+                    group["y_pred"].to_numpy(dtype="float64")
+                    - group["y_true"].to_numpy(dtype="float64")
+                )
+            station_rmse, _station_mae = _stable_error_metrics(
+                error,
+                context=(
+                    f"{arm_id}/seed{seed}/{split}/h{horizon}/{site_id} "
+                    "station error"
+                ),
+            )
+            rows.append({
+                "arm_id": str(arm_id),
+                "seed": int(seed),
+                "split": str(split),
+                "horizon": int(horizon),
+                "site_id": str(site_id),
+                "forecast_keys": int(len(group)),
+                "station_rmse_c": station_rmse,
+            })
+    station = pd.DataFrame.from_records(rows, columns=STATION_RMSE_COLUMNS)
+    if station.empty:
+        raise DevelopmentControlsContractError("station RMSE registry is empty")
+    return station.sort_values(
+        ["arm_id", "seed", "split", "horizon", "site_id"], kind="mergesort"
+    ).reset_index(drop=True)
+
+
 def recompute_metric_summary(
     frames: Mapping[tuple[str, int], pd.DataFrame],
 ) -> pd.DataFrame:
+    station_metrics = recompute_station_rmse(frames)
     rows: list[dict[str, Any]] = []
     for (arm_id, seed), frame in frames.items():
         for (split, horizon), group in frame.groupby(["split", "horizon"], sort=True):
             with np.errstate(over="ignore", invalid="ignore"):
                 error = (
-                    group["y_pred"].to_numpy(float)
-                    - group["y_true"].to_numpy(float)
+                    group["y_pred"].to_numpy(dtype="float64")
+                    - group["y_true"].to_numpy(dtype="float64")
                 )
-            if not np.isfinite(error).all():
-                raise DevelopmentControlsContractError(
-                    "prediction error overflows finite metric arithmetic"
-                )
-            scale = float(np.max(np.abs(error), initial=0.0))
-            rmse = (
-                0.0
-                if scale == 0.0
-                else scale * float(np.sqrt(np.mean((error / scale) ** 2)))
+            micro_rmse, micro_mae = _stable_error_metrics(
+                error, context="prediction error",
             )
-            mae = float(np.mean(np.abs(error)))
-            if not math.isfinite(rmse) or not math.isfinite(mae):
+            station_group = station_metrics.loc[
+                station_metrics["arm_id"].eq(str(arm_id))
+                & station_metrics["seed"].eq(int(seed))
+                & station_metrics["split"].eq(str(split))
+                & station_metrics["horizon"].eq(int(horizon))
+            ]
+            if station_group.empty:
                 raise DevelopmentControlsContractError(
-                    "prediction-derived metrics are non-finite"
+                    "member metric has no station-level RMSE units"
+                )
+            median_station_rmse = float(
+                np.median(station_group["station_rmse_c"].to_numpy(dtype="float64"))
+            )
+            if not math.isfinite(median_station_rmse):
+                raise DevelopmentControlsContractError(
+                    "station-median RMSE is non-finite"
                 )
             rows.append({
                 "arm_id": str(arm_id), "seed": int(seed), "split": str(split),
-                "horizon": int(horizon), "n": int(len(group)),
-                "rmse": rmse,
-                "mae": mae,
+                "horizon": int(horizon), "forecast_keys": int(len(group)),
+                "stations": int(len(station_group)),
+                "median_station_rmse_c": median_station_rmse,
+                "micro_rmse_c": micro_rmse,
+                "micro_mae_c": micro_mae,
             })
     summary = pd.DataFrame.from_records(rows, columns=SUMMARY_COLUMNS)
     return summary.sort_values(
         ["arm_id", "seed", "split", "horizon"], kind="mergesort"
     ).reset_index(drop=True)
+
+
+def recompute_paired_effect_summary(
+    station_metrics: pd.DataFrame,
+    *,
+    exact_common_forecast_keys_verified: bool,
+) -> pd.DataFrame:
+    """Derive frozen same-seed station-paired descriptive RMSE effects.
+
+    The caller must first prove that every member shares the same exact
+    forecast-key/truth registry.  This function then verifies the derived
+    station registry and per-station key counts for every pair before taking
+    the median of station-level RMSE differences.  Negative values favour the
+    candidate arm named in the record.
+    """
+    if exact_common_forecast_keys_verified is not True:
+        raise DevelopmentControlsContractError(
+            "paired effects require verified exact common forecast keys"
+        )
+    if list(station_metrics.columns) != list(STATION_RMSE_COLUMNS):
+        raise DevelopmentControlsContractError("station RMSE schema changed")
+    if station_metrics.empty or station_metrics.duplicated(
+        ["arm_id", "seed", "split", "horizon", "site_id"]
+    ).any():
+        raise DevelopmentControlsContractError("station RMSE registry is incomplete")
+    observed_members = set(zip(
+        station_metrics["arm_id"].astype(str),
+        station_metrics["seed"].astype(int),
+        strict=True,
+    ))
+    if observed_members != set(expected_member_registry()):
+        raise DevelopmentControlsContractError(
+            "paired effects require the exact 31-member registry"
+        )
+    if set(station_metrics["split"].astype(str)) != {"val", "calib", "test"}:
+        raise DevelopmentControlsContractError("paired-effect split registry changed")
+    if set(station_metrics["horizon"].astype(int)) != set(C.HORIZONS):
+        raise DevelopmentControlsContractError("paired-effect horizon registry changed")
+    numeric = station_metrics[["forecast_keys", "station_rmse_c"]].to_numpy(
+        dtype="float64"
+    )
+    if (
+        not np.isfinite(numeric).all()
+        or (station_metrics["forecast_keys"] < 1).any()
+        or (station_metrics["station_rmse_c"] < 0.0).any()
+    ):
+        raise DevelopmentControlsContractError("station RMSE values are invalid")
+
+    rows: list[dict[str, Any]] = []
+    pair_keys = ["split", "horizon", "site_id"]
+    for comparison in paired_comparison_registry():
+        for seed in comparison.seeds:
+            candidate = station_metrics.loc[
+                station_metrics["arm_id"].eq(comparison.candidate_arm_id)
+                & station_metrics["seed"].eq(seed)
+            ].sort_values(pair_keys, kind="mergesort").reset_index(drop=True)
+            reference = station_metrics.loc[
+                station_metrics["arm_id"].eq(comparison.reference_arm_id)
+                & station_metrics["seed"].eq(seed)
+            ].sort_values(pair_keys, kind="mergesort").reset_index(drop=True)
+            if (
+                candidate.empty
+                or reference.empty
+                or not candidate[pair_keys].equals(reference[pair_keys])
+                or not np.array_equal(
+                    candidate["forecast_keys"].to_numpy(dtype="int64"),
+                    reference["forecast_keys"].to_numpy(dtype="int64"),
+                )
+            ):
+                raise DevelopmentControlsContractError(
+                    f"{comparison.comparison_id}/seed{seed} station registry changed"
+                )
+            paired = candidate[pair_keys + ["forecast_keys"]].copy()
+            paired["effect_c"] = (
+                candidate["station_rmse_c"].to_numpy(dtype="float64")
+                - reference["station_rmse_c"].to_numpy(dtype="float64")
+            )
+            if not np.isfinite(paired["effect_c"]).all():
+                raise DevelopmentControlsContractError(
+                    "paired station RMSE effect is non-finite"
+                )
+            for (split, horizon), group in paired.groupby(
+                ["split", "horizon"], sort=True,
+            ):
+                effect = float(np.median(group["effect_c"].to_numpy(dtype="float64")))
+                if not math.isfinite(effect):
+                    raise DevelopmentControlsContractError(
+                        "paired station RMSE summary is non-finite"
+                    )
+                rows.append({
+                    "comparison_family": comparison.comparison_family,
+                    "comparison_id": comparison.comparison_id,
+                    "candidate_arm_id": comparison.candidate_arm_id,
+                    "reference_arm_id": comparison.reference_arm_id,
+                    "seed": int(seed),
+                    "split": str(split),
+                    "horizon": int(horizon),
+                    "common_forecast_keys": int(group["forecast_keys"].sum()),
+                    "stations": int(len(group)),
+                    "median_paired_station_rmse_difference_c": effect,
+                })
+    paired_summary = pd.DataFrame.from_records(rows, columns=PAIRED_EFFECT_COLUMNS)
+    expected_identities = [
+        (
+            comparison.comparison_family,
+            comparison.comparison_id,
+            comparison.candidate_arm_id,
+            comparison.reference_arm_id,
+            seed,
+            split,
+            horizon,
+        )
+        for comparison in paired_comparison_registry()
+        for seed in LADDER_SEEDS
+        for split in ("calib", "test", "val")
+        for horizon in C.HORIZONS
+    ]
+    observed_identities = list(paired_summary[[
+        "comparison_family", "comparison_id", "candidate_arm_id",
+        "reference_arm_id", "seed", "split", "horizon",
+    ]].itertuples(index=False, name=None))
+    if observed_identities != expected_identities:
+        raise DevelopmentControlsContractError("paired-effect registry is incomplete")
+    return paired_summary.reset_index(drop=True)
+
+
+def scientific_summary_document(paired_effects: pd.DataFrame) -> dict[str, Any]:
+    """Build the machine-readable estimand and paired-effect contract."""
+    if list(paired_effects.columns) != list(PAIRED_EFFECT_COLUMNS):
+        raise DevelopmentControlsContractError("paired-effect schema changed")
+    records: list[dict[str, Any]] = [
+        {
+            "comparison_family": str(row.comparison_family),
+            "comparison_id": str(row.comparison_id),
+            "candidate_arm_id": str(row.candidate_arm_id),
+            "reference_arm_id": str(row.reference_arm_id),
+            "seed": int(row.seed),
+            "split": str(row.split),
+            "horizon": int(row.horizon),
+            "common_forecast_keys": int(row.common_forecast_keys),
+            "stations": int(row.stations),
+            "median_paired_station_rmse_difference_c": float(
+                row.median_paired_station_rmse_difference_c
+            ),
+        }
+        for row in paired_effects.itertuples(index=False)
+    ]
+    if any(
+        not math.isfinite(record["median_paired_station_rmse_difference_c"])
+        for record in records
+    ):
+        raise DevelopmentControlsContractError("paired-effect record is non-finite")
+    records_bytes = json.dumps(
+        records, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return {
+        "format": SCIENTIFIC_SUMMARY_FORMAT,
+        "metric_summary_format": METRIC_SUMMARY_FORMAT,
+        "primary_member_estimand": {
+            "name": PRIMARY_ESTIMAND,
+            "column": "median_station_rmse_c",
+            "unit": "degree_Celsius",
+            "aggregation": "median_of_within_station_RMSE",
+            "station_weighting": "one_station_one_value",
+        },
+        "secondary_member_estimands": {
+            "micro_rmse_c": {
+                "role": MICRO_RMSE_ROLE,
+                "aggregation": "RMSE_over_all_forecast_keys",
+            },
+            "micro_mae_c": {
+                "role": "secondary_not_primary_estimand",
+                "aggregation": "MAE_over_all_forecast_keys",
+            },
+        },
+        "paired_descriptive_effects": {
+            "estimand": PAIRED_EFFECT_ESTIMAND,
+            "effect_convention": "candidate_minus_reference",
+            "negative_favours": "candidate",
+            "same_seed": True,
+            "exact_common_forecast_keys_verified": True,
+            "comparison_registry": [
+                {
+                    "comparison_family": comparison.comparison_family,
+                    "comparison_id": comparison.comparison_id,
+                    "candidate_arm_id": comparison.candidate_arm_id,
+                    "reference_arm_id": comparison.reference_arm_id,
+                    "seeds": list(comparison.seeds),
+                }
+                for comparison in paired_comparison_registry()
+            ],
+            "feature_ladder_order": [
+                {"rung": rung, "variables": list(variables)}
+                for rung, variables in FEATURE_LADDER
+            ],
+            "feature_ladder_fixed_order_path_dependent": True,
+            "independent_feature_contribution_claimed": False,
+            "causal_effect_claimed": False,
+            "records_sha256": hashlib.sha256(records_bytes).hexdigest(),
+            "records": records,
+        },
+    }
 
 
 def summary_csv_bytes(frame: pd.DataFrame) -> bytes:
@@ -624,16 +1012,47 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def render_report(
     *, run_id: str, audit: MatrixAudit | Mapping[str, Any],
-    budget: pd.DataFrame, summary: pd.DataFrame,
+    budget: pd.DataFrame, summary: pd.DataFrame, paired_effects: pd.DataFrame,
 ) -> str:
     values = asdict(audit) if isinstance(audit, MatrixAudit) else dict(audit)
     development = summary.loc[summary["split"].eq("test")]
     aggregate = (
         development.groupby(["arm_id", "horizon"], as_index=False)
-        .agg(rmse_mean=("rmse", "mean"), rmse_sd=("rmse", "std"), seeds=("seed", "nunique"))
-        .sort_values(["horizon", "rmse_mean", "arm_id"], kind="mergesort")
+        .agg(
+            primary_median_station_rmse_seed_mean_c=(
+                "median_station_rmse_c", "mean",
+            ),
+            primary_median_station_rmse_seed_sd_c=(
+                "median_station_rmse_c", "std",
+            ),
+            secondary_micro_rmse_seed_mean_c=("micro_rmse_c", "mean"),
+            seeds=("seed", "nunique"),
+        )
+        .sort_values(
+            ["horizon", "primary_median_station_rmse_seed_mean_c", "arm_id"],
+            kind="mergesort",
+        )
     )
     result_table = _markdown_table(aggregate)
+    development_pairs = paired_effects.loc[paired_effects["split"].eq("test")]
+    pair_columns = [
+        "candidate_arm_id", "reference_arm_id", "seed", "horizon", "stations",
+        "median_paired_station_rmse_difference_c",
+    ]
+    control_effects = _markdown_table(
+        development_pairs.loc[
+            development_pairs["comparison_family"].eq("full_vs_control"),
+            pair_columns,
+        ]
+    )
+    ladder_effects = _markdown_table(
+        development_pairs.loc[
+            development_pairs["comparison_family"].eq(
+                "adjacent_feature_ladder"
+            ),
+            pair_columns,
+        ]
+    )
     budget_view = _markdown_table(budget[[
         "arm_id", "variables", "seed_count", "trainable_parameters",
         "parameter_ratio_to_full_thermoroute", "maximum_optimizer_steps_per_seed",
@@ -680,12 +1099,37 @@ These values are deterministically derived from the machine-readable summary,
 which is itself recomputed from every stored prediction row. `test` means the
 already-inspected 2019--2020 development partition, never a blind test.
 
+The primary member-level estimand is median station RMSE: RMSE is first computed
+within each station on the exact common forecast keys and then the station RMSEs
+are aggregated by their median. Micro RMSE is retained only as a secondary,
+non-primary estimand; it weights stations according to their available row count.
+
 {result_table}
+
+## Same-seed station-paired descriptive effects
+
+Every effect below is the median across stations of candidate RMSE minus
+reference RMSE on the same seed and exact common forecast keys. Negative values
+favour the candidate. These are descriptive development effects, not hypothesis
+tests.
+
+### Full ThermoRoute versus matched neural controls
+
+{control_effects}
+
+### Adjacent cumulative feature-ladder rungs
+
+{ladder_effects}
+
+The ladder order is fixed as WTEMP, FLOW, TEMP, PRCP, RHMEAN, DH, WDSP. Each
+adjacent contrast is path-dependent on every preceding rung. It is not an
+independent feature contribution, feature importance score, or causal effect.
 
 ## Interpretation boundary
 
-These artifacts diagnose architecture and cumulative feature contribution on
-historical development data. They verify best-state prediction replay, not the
+These artifacts describe architecture comparisons and fixed-path adjacent
+ladder contrasts on historical development data. They verify best-state
+prediction replay, not the
 full training trajectory, and cannot establish prospective, operational, causal,
 safety, or confirmatory performance. They do not modify the frozen Route-A suite
 pointer.

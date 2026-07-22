@@ -20,6 +20,7 @@ from thermoroute.chronology import (  # noqa: E402
     ChronologyError,
     STAGE09_ARTIFACT_PATHS,
     STAGE09B_MEMBERS,
+    _stage09b_scientific_comparison_registry,
     freeze_prelabel_chronology,
     validate_prelabel_chronology,
 )
@@ -70,6 +71,84 @@ def _file_sha(root: Path, relative: str) -> str:
 
 def _binding(root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "sha256": _file_sha(root, relative)}
+
+
+def _stage09b_scientific_summary() -> dict[str, Any]:
+    comparisons = _stage09b_scientific_comparison_registry()
+    records = [
+        {
+            "comparison_family": comparison["comparison_family"],
+            "comparison_id": comparison["comparison_id"],
+            "candidate_arm_id": comparison["candidate_arm_id"],
+            "reference_arm_id": comparison["reference_arm_id"],
+            "seed": seed,
+            "split": split,
+            "horizon": horizon,
+            "common_forecast_keys": 1,
+            "stations": 1,
+            "median_paired_station_rmse_difference_c": 0.0,
+        }
+        for comparison in comparisons
+        for seed in (0, 1, 2)
+        for split in ("calib", "test", "val")
+        for horizon in (1, 3, 7)
+    ]
+    records_sha = _sha(json.dumps(
+        records, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8"))
+    ladder = (
+        ("01_WTEMP", ["WTEMP"]),
+        ("02_plus_FLOW", ["WTEMP", "FLOW"]),
+        ("03_plus_TEMP", ["WTEMP", "FLOW", "TEMP"]),
+        ("04_plus_PRCP", ["WTEMP", "FLOW", "TEMP", "PRCP"]),
+        ("05_plus_RHMEAN", ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN"]),
+        ("06_plus_DH", ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH"]),
+        (
+            "07_plus_WDSP",
+            ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"],
+        ),
+    )
+    return {
+        "format": "thermoroute.development-controls-scientific-summary.v1",
+        "metric_summary_format": (
+            "thermoroute.development-controls-metric-summary.v2"
+        ),
+        "primary_member_estimand": {
+            "name": "median_across_stations_of_within_station_rmse_c",
+            "column": "median_station_rmse_c",
+            "unit": "degree_Celsius",
+            "aggregation": "median_of_within_station_RMSE",
+            "station_weighting": "one_station_one_value",
+        },
+        "secondary_member_estimands": {
+            "micro_rmse_c": {
+                "role": "secondary_not_primary_estimand",
+                "aggregation": "RMSE_over_all_forecast_keys",
+            },
+            "micro_mae_c": {
+                "role": "secondary_not_primary_estimand",
+                "aggregation": "MAE_over_all_forecast_keys",
+            },
+        },
+        "paired_descriptive_effects": {
+            "estimand": (
+                "median_across_stations_of_candidate_rmse_minus_reference_rmse_c"
+            ),
+            "effect_convention": "candidate_minus_reference",
+            "negative_favours": "candidate",
+            "same_seed": True,
+            "exact_common_forecast_keys_verified": True,
+            "comparison_registry": comparisons,
+            "feature_ladder_order": [
+                {"rung": rung, "variables": variables} for rung, variables in ladder
+            ],
+            "feature_ladder_fixed_order_path_dependent": True,
+            "independent_feature_contribution_claimed": False,
+            "causal_effect_claimed": False,
+            "records_sha256": records_sha,
+            "records": records,
+        },
+    }
 
 
 def _commit(root: Path, message: str) -> str:
@@ -358,7 +437,7 @@ def _seed_model_commit(
         "bytes": (root / relative).stat().st_size,
     }
     semantic = {
-        "format": "thermoroute.development-controls-semantic-audit.v2",
+        "format": "thermoroute.development-controls-semantic-audit.v3",
         "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "run_id": stage09b_run_id,
         "evidence_scope": "best_model_state_prediction_replay",
@@ -372,6 +451,7 @@ def _seed_model_commit(
             "train_examples_per_epoch": 3,
             "train_registry_sha256": "d" * 64,
         },
+        "scientific_summary": _stage09b_scientific_summary(),
         "members": semantic_members,
         "derived_artifacts": {
             "architecture_budget": {

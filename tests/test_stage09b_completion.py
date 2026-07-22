@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import importlib.util
 import json
 import os
@@ -173,6 +174,55 @@ def _prediction(arm, seed: int, sites: list[str]) -> pd.DataFrame:
         q95=truth + 0.5,
         p_exceed=np.full(len(records), 0.25),
     )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    (
+        "seed_bool", "horizon_float", "site_integer", "string_date",
+        "timezone", "intraday", "y_true_bool", "q50_integer",
+    ),
+)
+def test_gate_rejects_raw_prediction_coercion_aliases(attack: str) -> None:
+    arm = DC.declared_arms()[0]
+    frame = _prediction(arm, 0, ["12345678"])
+    if attack == "seed_bool":
+        frame["seed"] = False
+    elif attack == "horizon_float":
+        frame["horizon"] = frame["horizon"].astype("float64")
+    elif attack == "site_integer":
+        frame["site_id"] = 12_345_678
+    elif attack == "string_date":
+        frame["issue_date"] = frame["issue_date"].dt.strftime("%Y-%m-%d")
+    elif attack == "timezone":
+        frame["issue_date"] = frame["issue_date"].dt.tz_localize("UTC")
+        frame["target_date"] = frame["target_date"].dt.tz_localize("UTC")
+    elif attack == "intraday":
+        frame["issue_date"] += pd.Timedelta(hours=1)
+        frame["target_date"] += pd.Timedelta(hours=1)
+    elif attack == "y_true_bool":
+        frame["y_true"] = False
+    else:
+        frame["q50"] = 1
+    with pytest.raises(DevelopmentControlsGateError, match="Stage-09b member"):
+        CONTROLS_GATE._assert_raw_prediction_physical_schema(frame)
+
+
+@pytest.mark.parametrize("attack", ("string_date", "y_true_bool", "q50_integer"))
+def test_gate_rejects_noncanonical_prediction_arrow_types(
+    tmp_path: Path, attack: str,
+) -> None:
+    frame = _prediction(DC.declared_arms()[0], 0, ["12345678"])
+    if attack == "string_date":
+        frame["issue_date"] = frame["issue_date"].dt.strftime("%Y-%m-%d")
+    elif attack == "y_true_bool":
+        frame["y_true"] = False
+    else:
+        frame["q50"] = 1
+    path = tmp_path / "attacked.parquet"
+    frame.to_parquet(path, index=False)
+    with pytest.raises(DevelopmentControlsGateError, match="Arrow type"):
+        CONTROLS_GATE._assert_prediction_arrow_schema(path)
 
 
 def _fixture_window_contract(sites: list[str]) -> CanonicalWindowContract:
@@ -762,7 +812,7 @@ def test_rehashed_metric_summary_forgery_is_recomputed_and_rejected(fixture) -> 
     forged = fixture["document"]
     summary = fixture["root"] / forged["artifacts"]["metric_summary"]["path"]
     table = pd.read_csv(summary)
-    table.loc[0, "rmse"] += 0.1
+    table.loc[0, "median_station_rmse_c"] += 0.1
     table.to_csv(summary, index=False)
     _reseal_existing_artifact(summary)
     forged["artifacts"]["metric_summary"] = _binding(fixture["root"], summary)
@@ -771,6 +821,32 @@ def test_rehashed_metric_summary_forgery_is_recomputed_and_rejected(fixture) -> 
     )
     _rehash(forged)
     with pytest.raises(DevelopmentControlsGateError, match="not prediction-derived"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"], document=forged
+        )
+
+
+def test_rehashed_paired_effect_forgery_is_recomputed_and_rejected(fixture) -> None:
+    forged = fixture["document"]
+    semantic = fixture["root"] / forged["artifacts"]["semantic_audit"]["path"]
+    document = json.loads(semantic.read_text(encoding="utf-8"))
+    paired = document["scientific_summary"]["paired_descriptive_effects"]
+    paired["records"][0]["median_paired_station_rmse_difference_c"] += 0.1
+    paired["records_sha256"] = hashlib.sha256(json.dumps(
+        paired["records"], sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    document.pop("semantic_audit_self_sha256")
+    document["semantic_audit_self_sha256"] = sha256_json(document)
+    semantic.write_text(json.dumps(document), encoding="utf-8")
+    _reseal_existing_artifact(semantic)
+    forged["artifacts"]["semantic_audit"] = _binding(
+        fixture["root"], semantic
+    )
+    forged["artifacts"]["semantic_audit_sidecar"] = _binding(
+        fixture["root"], sidecar_path(semantic)
+    )
+    _rehash(forged)
+    with pytest.raises(DevelopmentControlsGateError, match="semantic audit"):
         validate_stage09b_completion_receipt(
             fixture["receipt"], root=fixture["root"], document=forged
         )

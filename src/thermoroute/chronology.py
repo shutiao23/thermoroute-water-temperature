@@ -16,6 +16,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import subprocess
@@ -111,6 +112,154 @@ STAGE09B_MEMBERS = tuple(
     for arm_id, seeds in STAGE09B_ARM_SEEDS
     for seed in seeds
 )
+
+
+def _stage09b_scientific_comparison_registry() -> list[dict[str, Any]]:
+    full = "ThermoRoute-ladder-07_plus_WDSP"
+    controls = [
+        {
+            "comparison_family": "full_vs_control",
+            "comparison_id": f"{full}-minus-{reference}",
+            "candidate_arm_id": full,
+            "reference_arm_id": reference,
+            "seeds": [0, 1, 2],
+        }
+        for reference in ("PlainMLP-7var", "PlainCausalTCN-7var")
+    ]
+    ladder_arms = [arm_id for arm_id, _seeds in STAGE09B_ARM_SEEDS[2:]]
+    adjacent = [
+        {
+            "comparison_family": "adjacent_feature_ladder",
+            "comparison_id": f"{candidate}-minus-{reference}",
+            "candidate_arm_id": candidate,
+            "reference_arm_id": reference,
+            "seeds": [0, 1, 2],
+        }
+        for reference, candidate in zip(
+            ladder_arms[:-1], ladder_arms[1:], strict=True,
+        )
+    ]
+    return controls + adjacent
+
+
+def _validate_stage09b_scientific_summary(value: object) -> None:
+    if not isinstance(value, Mapping) or set(value) != {
+        "format", "metric_summary_format", "primary_member_estimand",
+        "secondary_member_estimands", "paired_descriptive_effects",
+    }:
+        raise ChronologyError("Stage-09b scientific summary schema changed")
+    primary = {
+        "name": "median_across_stations_of_within_station_rmse_c",
+        "column": "median_station_rmse_c",
+        "unit": "degree_Celsius",
+        "aggregation": "median_of_within_station_RMSE",
+        "station_weighting": "one_station_one_value",
+    }
+    secondary = {
+        "micro_rmse_c": {
+            "role": "secondary_not_primary_estimand",
+            "aggregation": "RMSE_over_all_forecast_keys",
+        },
+        "micro_mae_c": {
+            "role": "secondary_not_primary_estimand",
+            "aggregation": "MAE_over_all_forecast_keys",
+        },
+    }
+    paired = value.get("paired_descriptive_effects")
+    comparisons = _stage09b_scientific_comparison_registry()
+    ladder_variables = (
+        ("01_WTEMP", ["WTEMP"]),
+        ("02_plus_FLOW", ["WTEMP", "FLOW"]),
+        ("03_plus_TEMP", ["WTEMP", "FLOW", "TEMP"]),
+        ("04_plus_PRCP", ["WTEMP", "FLOW", "TEMP", "PRCP"]),
+        ("05_plus_RHMEAN", ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN"]),
+        ("06_plus_DH", ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH"]),
+        (
+            "07_plus_WDSP",
+            ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"],
+        ),
+    )
+    if (
+        value.get("format")
+        != "thermoroute.development-controls-scientific-summary.v1"
+        or value.get("metric_summary_format")
+        != "thermoroute.development-controls-metric-summary.v2"
+        or value.get("primary_member_estimand") != primary
+        or value.get("secondary_member_estimands") != secondary
+        or not isinstance(paired, Mapping)
+        or set(paired) != {
+            "estimand", "effect_convention", "negative_favours", "same_seed",
+            "exact_common_forecast_keys_verified", "comparison_registry",
+            "feature_ladder_order", "feature_ladder_fixed_order_path_dependent",
+            "independent_feature_contribution_claimed", "causal_effect_claimed",
+            "records_sha256", "records",
+        }
+        or paired.get("estimand")
+        != "median_across_stations_of_candidate_rmse_minus_reference_rmse_c"
+        or paired.get("effect_convention") != "candidate_minus_reference"
+        or paired.get("negative_favours") != "candidate"
+        or paired.get("same_seed") is not True
+        or paired.get("exact_common_forecast_keys_verified") is not True
+        or paired.get("comparison_registry") != comparisons
+        or paired.get("feature_ladder_order") != [
+            {"rung": rung, "variables": variables}
+            for rung, variables in ladder_variables
+        ]
+        or paired.get("feature_ladder_fixed_order_path_dependent") is not True
+        or paired.get("independent_feature_contribution_claimed") is not False
+        or paired.get("causal_effect_claimed") is not False
+    ):
+        raise ChronologyError("Stage-09b scientific estimand contract changed")
+    records = paired.get("records")
+    expected_identities = [
+        (
+            comparison["comparison_family"], comparison["comparison_id"],
+            comparison["candidate_arm_id"], comparison["reference_arm_id"],
+            seed, split, horizon,
+        )
+        for comparison in comparisons
+        for seed in (0, 1, 2)
+        for split in ("calib", "test", "val")
+        for horizon in (1, 3, 7)
+    ]
+    if not isinstance(records, list) or len(records) != len(expected_identities):
+        raise ChronologyError("Stage-09b paired-effect registry is incomplete")
+    observed_identities: list[tuple[object, ...]] = []
+    record_keys = {
+        "comparison_family", "comparison_id", "candidate_arm_id",
+        "reference_arm_id", "seed", "split", "horizon", "common_forecast_keys",
+        "stations", "median_paired_station_rmse_difference_c",
+    }
+    for record in records:
+        if not isinstance(record, Mapping) or set(record) != record_keys:
+            raise ChronologyError("Stage-09b paired-effect record schema changed")
+        effect = record.get("median_paired_station_rmse_difference_c")
+        if (
+            type(record.get("seed")) is not int
+            or type(record.get("horizon")) is not int
+            or type(record.get("common_forecast_keys")) is not int
+            or int(record["common_forecast_keys"]) < 1
+            or type(record.get("stations")) is not int
+            or int(record["stations"]) < 1
+            or type(effect) not in {int, float}
+        ):
+            raise ChronologyError("Stage-09b paired-effect record is malformed")
+        assert isinstance(effect, (int, float))
+        if not math.isfinite(float(effect)):
+            raise ChronologyError("Stage-09b paired-effect record is malformed")
+        observed_identities.append((
+            record["comparison_family"], record["comparison_id"],
+            record["candidate_arm_id"], record["reference_arm_id"],
+            record["seed"], record["split"], record["horizon"],
+        ))
+    encoded = json.dumps(
+        records, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    if (
+        observed_identities != expected_identities
+        or paired.get("records_sha256") != hashlib.sha256(encoded).hexdigest()
+    ):
+        raise ChronologyError("Stage-09b paired-effect evidence changed")
 
 PROTECTED_DIRECTORIES = ("src", "scripts", "tests", "protocols", ".github")
 PROTECTED_EXACT_FILES = (".gitignore", "pyproject.toml")
@@ -1004,13 +1153,14 @@ def _collect_preopening_receipts(
             "format", "status", "run_id", "evidence_scope",
             "training_replay_verified", "post_2020_outcomes_requested_or_read",
             "best_model_state_prediction_replay_verified",
-            "matrix_audit", "canonical_window_registry", "members",
+            "matrix_audit", "canonical_window_registry", "scientific_summary",
+            "members",
             "derived_artifacts", "semantic_audit_self_sha256",
         }
         if (
             set(semantic) != expected_semantic_keys
             or semantic.get("format")
-            != "thermoroute.development-controls-semantic-audit.v2"
+            != "thermoroute.development-controls-semantic-audit.v3"
             or semantic.get("status")
             != "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY"
             or semantic.get("run_id") != run_id
@@ -1022,6 +1172,7 @@ def _collect_preopening_receipts(
             or semantic_self != _repro_sha256_json(stable_semantic)
         ):
             raise ChronologyError("Stage-09b semantic audit changed")
+        _validate_stage09b_scientific_summary(semantic.get("scientific_summary"))
         registry = semantic.get("canonical_window_registry")
         if (
             not isinstance(registry, Mapping)

@@ -632,11 +632,18 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         sys.path.insert(0, str(ROOT / "src"))
         try:
             from thermoroute.development_controls import (
+                ARCHITECTURE_BUDGET_FORMAT,
+                METRIC_SUMMARY_FORMAT,
+                REPORT_FORMAT,
+                SEMANTIC_AUDIT_FORMAT,
                 architecture_budget_rows,
                 budget_csv_bytes,
                 declared_arms,
                 recompute_metric_summary,
+                recompute_paired_effect_summary,
+                recompute_station_rmse,
                 render_report,
+                scientific_summary_document,
                 summary_csv_bytes,
             )
         finally:
@@ -845,6 +852,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             budget_csv_bytes(budget),
         )
         summary = recompute_metric_summary(member_frames)
+        paired_effects = recompute_paired_effect_summary(
+            recompute_station_rmse(member_frames),
+            exact_common_forecast_keys_verified=True,
+        )
         _write_bytes(
             root, final_paths["metric_summary"], summary_csv_bytes(summary)
         )
@@ -856,6 +867,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 audit=matrix_audit,
                 budget=budget,
                 summary=summary,
+                paired_effects=paired_effects,
             ).encode("utf-8"),
         )
         final_specs = {
@@ -864,16 +876,18 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 "thermoroute.predictions.v1", "combined_predictions",
             ),
             "architecture_budget": (
-                "development_controls_budget", "text/csv", "architecture_budget",
+                "development_controls_budget", ARCHITECTURE_BUDGET_FORMAT,
+                "architecture_budget",
             ),
             "metric_summary": (
-                "development_controls_metric_summary", "text/csv", "metric_summary",
+                "development_controls_metric_summary", METRIC_SUMMARY_FORMAT,
+                "metric_summary",
             ),
             "report": (
-                "development_controls_report", "text/markdown", "report",
+                "development_controls_report", REPORT_FORMAT, "report",
             ),
             "semantic_audit": (
-                "development_controls_semantic_audit", "application/json",
+                "development_controls_semantic_audit", SEMANTIC_AUDIT_FORMAT,
                 "semantic_audit",
             ),
         }
@@ -999,7 +1013,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 },
             }
         semantic = {
-            "format": "thermoroute.development-controls-semantic-audit.v2",
+            "format": "thermoroute.development-controls-semantic-audit.v3",
             "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
             "run_id": identity["run_id"],
             "evidence_scope": "best_model_state_prediction_replay",
@@ -1013,6 +1027,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 "train_examples_per_epoch": 9,
                 "train_registry_sha256": canonical_train_sha256,
             },
+            "scientific_summary": scientific_summary_document(paired_effects),
             "members": semantic_members,
             "derived_artifacts": derived,
         }
@@ -2207,7 +2222,9 @@ def test_postopen_release_distinguishes_transport_resume_from_second_opening(
         )
 
 
-def test_release_verifier_requires_both_receipts_and_exact_control_members(tmp_path):
+def test_release_verifier_requires_both_receipts_and_exact_control_members(
+    tmp_path, monkeypatch,
+):
     verifier = _load_script(
         VERIFY_SCRIPT, "thermoroute_verify_preopening_control_gates_test"
     )
@@ -2218,9 +2235,24 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(tmp_p
     suite_path = source / authorization["model_suite"]["path"]
     suite = json.loads(suite_path.read_text(encoding="utf-8"))
     development = suite["development_contract"]
+    original_paired_recompute = verifier._stage09b_recompute_paired_effects
+    paired_recompute_calls: list[int] = []
+
+    def observed_paired_recompute(station_metrics):
+        paired_recompute_calls.append(len(set(zip(
+            station_metrics["arm_id"].astype(str),
+            station_metrics["seed"].astype(int),
+            strict=True,
+        ))))
+        return original_paired_recompute(station_metrics)
+
+    monkeypatch.setattr(
+        verifier, "_stage09b_recompute_paired_effects", observed_paired_recompute,
+    )
     verifier._validate_preopening_completion_gates(
         source, {}, suite, development, suite["numerical_runtime_sha256"]
     )
+    assert paired_recompute_calls == [31]
 
     missing = json.loads(json.dumps(suite))
     missing["preopening_gates"].pop("stage09b_development_controls")
@@ -2246,6 +2278,168 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(tmp_p
         verifier._validate_preopening_completion_gates(
             source, {}, suite, development, suite["numerical_runtime_sha256"]
         )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    (
+        "seed_bool", "seed_float", "horizon_bool", "horizon_float",
+        "site_integer", "string_date", "timezone", "intraday",
+        "y_true_bool", "y_pred_integer", "q05_integer", "q50_bool",
+        "q95_integer", "probability_bool",
+    ),
+)
+def test_independent_release_normaliser_rejects_coercion_aliases(
+    attack: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_stage09b_{attack}_alias_test",
+    )
+    records = []
+    for split_index, split in enumerate(("val", "calib", "test")):
+        for horizon in (1, 3, 7):
+            issue = pd.Timestamp("2017-01-01") + pd.Timedelta(days=split_index)
+            records.append({
+                "model": "PlainMLP-7var",
+                "scope": "development_only_2006_2020",
+                "feature_set": "all_7",
+                "seed": 0,
+                "site_id": "12345678",
+                "horizon": horizon,
+                "split": split,
+                "issue_date": issue,
+                "target_date": issue + pd.Timedelta(days=horizon),
+                "y_true": 1.0,
+                "y_pred": 1.1,
+                "q05": 0.5,
+                "q50": 1.1,
+                "q95": 1.5,
+                "p_exceed": 0.25,
+            })
+    frame = pd.DataFrame.from_records(records)
+    if attack == "seed_bool":
+        frame["seed"] = False
+    elif attack == "seed_float":
+        frame["seed"] = frame["seed"].astype("float64")
+    elif attack == "horizon_bool":
+        frame["horizon"] = frame["horizon"].astype(object)
+        frame.loc[frame["horizon"].eq(1), "horizon"] = True
+    elif attack == "horizon_float":
+        frame["horizon"] = frame["horizon"].astype("float64")
+    elif attack == "site_integer":
+        frame["site_id"] = 12_345_678
+    elif attack == "string_date":
+        frame["issue_date"] = frame["issue_date"].dt.strftime("%Y-%m-%d")
+    elif attack == "timezone":
+        frame["issue_date"] = frame["issue_date"].dt.tz_localize("UTC")
+        frame["target_date"] = frame["target_date"].dt.tz_localize("UTC")
+    elif attack == "intraday":
+        frame["issue_date"] += pd.Timedelta(hours=1)
+        frame["target_date"] += pd.Timedelta(hours=1)
+    elif attack == "y_true_bool":
+        frame["y_true"] = False
+    elif attack == "y_pred_integer":
+        frame["y_pred"] = 1
+    elif attack == "q05_integer":
+        frame["q05"] = 0
+    elif attack == "q50_bool":
+        frame["q50"] = True
+    elif attack == "q95_integer":
+        frame["q95"] = 2
+    else:
+        frame["p_exceed"] = False
+    with pytest.raises(ValueError, match="Stage-09b prediction"):
+        verifier._normalise_stage09b_release_prediction(
+            frame,
+            arm_id="PlainMLP-7var",
+            seed=0,
+            feature_set="all_7",
+            reference=None,
+        )
+
+
+@pytest.mark.parametrize("attack", ("string_date", "y_true_bool", "q50_integer"))
+def test_independent_release_rejects_noncanonical_prediction_arrow_types(
+    tmp_path: Path, attack: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_stage09b_{attack}_arrow_test",
+    )
+    issue = pd.Timestamp("2017-01-01")
+    frame = pd.DataFrame([{
+        "model": "PlainMLP-7var",
+        "scope": "development_only_2006_2020",
+        "feature_set": "all_7",
+        "seed": 0,
+        "site_id": "12345678",
+        "horizon": 1,
+        "split": "test",
+        "issue_date": issue,
+        "target_date": issue + pd.Timedelta(days=1),
+        "y_true": 1.0,
+        "y_pred": 1.1,
+        "q05": 0.5,
+        "q50": 1.1,
+        "q95": 1.5,
+        "p_exceed": 0.25,
+    }])
+    if attack == "string_date":
+        frame["issue_date"] = frame["issue_date"].dt.strftime("%Y-%m-%d")
+    elif attack == "y_true_bool":
+        frame["y_true"] = False
+    else:
+        frame["q50"] = 1
+    path = tmp_path / "attacked.parquet"
+    frame.to_parquet(path, index=False)
+    with pytest.raises(ValueError, match="Arrow type"):
+        verifier._stage09b_assert_prediction_arrow_schema(path)
+
+
+@pytest.mark.parametrize("attack", ("split", "station", "seed", "horizon"))
+def test_independent_release_paired_recompute_rejects_registry_attacks(
+    attack: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_stage09b_{attack}_registry_test",
+    )
+    rows = [
+        {
+            "arm_id": arm_id,
+            "seed": seed,
+            "split": split,
+            "horizon": horizon,
+            "site_id": site,
+            "forecast_keys": 2,
+            "station_rmse_c": 1.0 + seed / 100,
+        }
+        for arm_id, seed in verifier._stage09b_release_members()
+        for split in ("calib", "test", "val")
+        for horizon in (1, 3, 7)
+        for site in ("01234567", "12345678")
+    ]
+    station = pd.DataFrame.from_records(rows)
+    if attack == "split":
+        station = station.loc[~station["split"].eq("val")].copy()
+    elif attack == "station":
+        mask = (
+            station["arm_id"].eq("ThermoRoute-ladder-07_plus_WDSP")
+            & station["seed"].eq(0)
+            & station["split"].eq("test")
+            & station["horizon"].eq(1)
+            & station["site_id"].eq("12345678")
+        )
+        station.loc[mask, "site_id"] = "99999999"
+    elif attack == "seed":
+        station = station.loc[
+            ~(
+                station["arm_id"].eq("PlainMLP-7var")
+                & station["seed"].eq(4)
+            )
+        ].copy()
+    else:
+        station.loc[station["horizon"].eq(7), "horizon"] = 5
+    with pytest.raises(ValueError, match="registry|31 members"):
+        verifier._stage09b_recompute_paired_effects(station)
 
 
 def test_release_lineage_hash_matches_live_opening_under_non_ascii_root(
@@ -3123,8 +3317,29 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "bytes": (source / relative).stat().st_size,
         }
 
+    stage09b_paired_records = [
+        {
+            "comparison_family": comparison["comparison_family"],
+            "comparison_id": comparison["comparison_id"],
+            "candidate_arm_id": comparison["candidate_arm_id"],
+            "reference_arm_id": comparison["reference_arm_id"],
+            "seed": seed,
+            "split": split,
+            "horizon": horizon,
+            "common_forecast_keys": 1,
+            "stations": 1,
+            "median_paired_station_rmse_difference_c": 0.0,
+        }
+        for comparison in verifier._stage09b_paired_comparison_registry()
+        for seed in (0, 1, 2)
+        for split in ("calib", "test", "val")
+        for horizon in (1, 3, 7)
+    ]
+    stage09b_scientific = verifier._stage09b_scientific_summary(
+        pd.DataFrame.from_records(stage09b_paired_records)
+    )
     semantic_audit = {
-        "format": "thermoroute.development-controls-semantic-audit.v2",
+        "format": "thermoroute.development-controls-semantic-audit.v3",
         "status": "PASS_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "run_id": stage09b_run_id,
         "evidence_scope": "best_model_state_prediction_replay",
@@ -3138,6 +3353,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "train_examples_per_epoch": 3,
             "train_registry_sha256": "d" * 64,
         },
+        "scientific_summary": stage09b_scientific,
         "members": semantic_members,
         "derived_artifacts": {
             "architecture_budget": {

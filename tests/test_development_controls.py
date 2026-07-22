@@ -202,6 +202,65 @@ def test_prediction_semantics_reject_nat_crossing_and_probability(
 
 
 @pytest.mark.parametrize(
+    ("attack", "message"),
+    (
+        ("seed_bool", "seed values must be true integers"),
+        ("seed_float", "seed values must be true integers"),
+        ("horizon_bool", "horizon values must be true integers"),
+        ("horizon_float", "horizon values must be true integers"),
+        ("site_integer", "site_id values must be non-empty strings"),
+        ("string_date", "must have naive datetime64\\[ns\\] dtype"),
+        ("timezone", "must have naive datetime64\\[ns\\] dtype"),
+        ("intraday", "timezone-naive normalized days"),
+        ("y_true_bool", "y_true values must have floating dtype"),
+        ("y_pred_integer", "y_pred values must have floating dtype"),
+        ("q05_integer", "q05 values must have floating dtype"),
+        ("q50_bool", "q50 values must have floating dtype"),
+        ("q95_integer", "q95 values must have floating dtype"),
+        ("probability_bool", "p_exceed values must have floating dtype"),
+    ),
+)
+def test_prediction_physical_schema_rejects_coercion_aliases(
+    attack: str, message: str,
+) -> None:
+    arm = DC.declared_arms()[0]
+    frame = _tiny_predictions(arm, 0, site="12345678")
+    if attack == "seed_bool":
+        frame["seed"] = False
+    elif attack == "seed_float":
+        frame["seed"] = frame["seed"].astype("float64")
+    elif attack == "horizon_bool":
+        frame["horizon"] = frame["horizon"].astype(object)
+        frame.loc[frame["horizon"].eq(1), "horizon"] = True
+    elif attack == "horizon_float":
+        frame["horizon"] = frame["horizon"].astype("float64")
+    elif attack == "site_integer":
+        frame["site_id"] = 12_345_678
+    elif attack == "string_date":
+        frame["issue_date"] = frame["issue_date"].dt.strftime("%Y-%m-%d")
+    elif attack == "timezone":
+        frame["issue_date"] = frame["issue_date"].dt.tz_localize("UTC")
+        frame["target_date"] = frame["target_date"].dt.tz_localize("UTC")
+    elif attack == "intraday":
+        frame["issue_date"] += pd.Timedelta(hours=1)
+        frame["target_date"] += pd.Timedelta(hours=1)
+    elif attack == "y_true_bool":
+        frame["y_true"] = False
+    elif attack == "y_pred_integer":
+        frame["y_pred"] = 1
+    elif attack == "q05_integer":
+        frame["q05"] = 0
+    elif attack == "q50_bool":
+        frame["q50"] = True
+    elif attack == "q95_integer":
+        frame["q95"] = 2
+    else:
+        frame["p_exceed"] = False
+    with pytest.raises(DevelopmentControlsContractError, match=message):
+        DC.normalise_prediction_frame(frame, arm=arm, seed=0)
+
+
+@pytest.mark.parametrize(
     ("column", "operation"),
     (
         ("y_pred", lambda value: value + 0.05),
@@ -235,6 +294,115 @@ def test_metric_recomputation_rejects_finite_inputs_with_overflowing_error() -> 
         DevelopmentControlsContractError, match="overflows finite metric"
     ):
         DC.recompute_metric_summary({(arm.arm_id, 0): frame})
+
+
+def test_metric_summary_uses_station_median_as_primary_and_micro_as_secondary() -> None:
+    arm = DC.declared_arms()[0]
+    frame = pd.DataFrame({
+        "split": ["test"] * 10,
+        "horizon": [1] * 10,
+        "site_id": ["01234567"] * 9 + ["12345678"],
+        "y_true": np.zeros(10),
+        "y_pred": np.asarray([0.0] * 9 + [10.0]),
+    })
+    summary = DC.recompute_metric_summary({(arm.arm_id, 0): frame}).iloc[0]
+    assert summary["forecast_keys"] == 10
+    assert summary["stations"] == 2
+    assert summary["median_station_rmse_c"] == pytest.approx(5.0)
+    assert summary["micro_rmse_c"] == pytest.approx(np.sqrt(10.0))
+    assert summary["median_station_rmse_c"] != summary["micro_rmse_c"]
+    assert DC.MICRO_RMSE_ROLE == "secondary_not_primary_estimand"
+
+
+def _paired_station_metric_fixture() -> pd.DataFrame:
+    arm_level = {
+        "PlainMLP-7var": 2.0,
+        "PlainCausalTCN-7var": 3.0,
+        **{
+            f"ThermoRoute-ladder-{rung}": float(index)
+            for index, (rung, _variables) in enumerate(DC.FEATURE_LADDER, start=1)
+        },
+    }
+    rows = [
+        {
+            "arm_id": arm.arm_id,
+            "seed": seed,
+            "split": split,
+            "horizon": horizon,
+            "site_id": site,
+            "forecast_keys": 2,
+            "station_rmse_c": arm_level[arm.arm_id] + seed / 100,
+        }
+        for arm in DC.declared_arms()
+        for seed in arm.seeds
+        for split in ("calib", "test", "val")
+        for horizon in DC.C.HORIZONS
+        for site in ("01234567", "12345678")
+    ]
+    return pd.DataFrame.from_records(rows, columns=DC.STATION_RMSE_COLUMNS)
+
+
+def test_same_seed_station_paired_effects_and_ladder_semantics_are_exact() -> None:
+    effects = DC.recompute_paired_effect_summary(
+        _paired_station_metric_fixture(),
+        exact_common_forecast_keys_verified=True,
+    )
+    assert len(effects) == 8 * 3 * 3 * 3
+    control = effects.loc[
+        effects["candidate_arm_id"].eq(DC.FULL_LADDER_ARM_ID)
+        & effects["reference_arm_id"].eq("PlainMLP-7var")
+        & effects["seed"].eq(0)
+        & effects["split"].eq("test")
+        & effects["horizon"].eq(1)
+    ].iloc[0]
+    assert control["common_forecast_keys"] == 4
+    assert control["stations"] == 2
+    assert control["median_paired_station_rmse_difference_c"] == pytest.approx(5.0)
+
+    ladder = effects.loc[
+        effects["candidate_arm_id"].eq("ThermoRoute-ladder-02_plus_FLOW")
+        & effects["reference_arm_id"].eq("ThermoRoute-ladder-01_WTEMP")
+        & effects["seed"].eq(2)
+        & effects["split"].eq("calib")
+        & effects["horizon"].eq(7)
+    ].iloc[0]
+    assert ladder["median_paired_station_rmse_difference_c"] == pytest.approx(1.0)
+    scientific = DC.scientific_summary_document(effects)
+    paired = scientific["paired_descriptive_effects"]
+    assert paired["same_seed"] is True
+    assert paired["exact_common_forecast_keys_verified"] is True
+    assert paired["feature_ladder_fixed_order_path_dependent"] is True
+    assert paired["independent_feature_contribution_claimed"] is False
+    assert paired["causal_effect_claimed"] is False
+
+
+@pytest.mark.parametrize("attack", ("split", "station", "seed", "horizon"))
+def test_paired_effect_registry_rejects_missing_or_replaced_units(attack: str) -> None:
+    station = _paired_station_metric_fixture()
+    if attack == "split":
+        station = station.loc[~station["split"].eq("val")].copy()
+    elif attack == "station":
+        mask = (
+            station["arm_id"].eq(DC.FULL_LADDER_ARM_ID)
+            & station["seed"].eq(0)
+            & station["split"].eq("test")
+            & station["horizon"].eq(1)
+            & station["site_id"].eq("12345678")
+        )
+        station.loc[mask, "site_id"] = "99999999"
+    elif attack == "seed":
+        station = station.loc[
+            ~(
+                station["arm_id"].eq("PlainMLP-7var")
+                & station["seed"].eq(4)
+            )
+        ].copy()
+    else:
+        station.loc[station["horizon"].eq(7), "horizon"] = 5
+    with pytest.raises(DevelopmentControlsContractError, match="registry|31-member"):
+        DC.recompute_paired_effect_summary(
+            station, exact_common_forecast_keys_verified=True,
+        )
 
 
 def test_canonical_registry_replaces_float32_equivalent_attacker_truth() -> None:
@@ -516,9 +684,18 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
     assert "historical_tuning_budget_equalized" in report
     semantic = json.loads(semantic_audit_path.read_text(encoding="utf-8"))
     assert semantic["training_replay_verified"] is False
+    assert semantic["format"] == "thermoroute.development-controls-semantic-audit.v3"
+    assert semantic["scientific_summary"]["primary_member_estimand"]["column"] == (
+        "median_station_rmse_c"
+    )
+    assert len(
+        semantic["scientific_summary"]["paired_descriptive_effects"]["records"]
+    ) == 8 * 3 * 3 * 3
     for output in (combined, budget_path, summary_path, report_path, semantic_audit_path):
         metadata = json.loads(sidecar_path(output).read_text(encoding="utf-8"))
         assert metadata["extra"]["suite_pointer_written"] is False
+    summary_sidecar = json.loads(sidecar_path(summary_path).read_text(encoding="utf-8"))
+    assert summary_sidecar["content_schema"] == DC.METRIC_SUMMARY_FORMAT
     assert not any("pointer" in path.name.lower() for path in tmp_path.rglob("*"))
 
     # Final-publication crash windows are also recoverable only while the later

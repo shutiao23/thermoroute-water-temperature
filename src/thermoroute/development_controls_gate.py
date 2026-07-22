@@ -19,7 +19,9 @@ from pathlib import Path
 import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 
@@ -30,8 +32,12 @@ from . import features as F
 from . import results as R
 from .checkpoint import checkpoint_sidecar_path, load_training_checkpoint
 from .development_controls import (
+    ARCHITECTURE_BUDGET_FORMAT,
     DEVELOPMENT_DISCLOSURE,
     FULL_VARIABLES,
+    METRIC_SUMMARY_FORMAT,
+    REPORT_FORMAT,
+    SEMANTIC_AUDIT_FORMAT,
     TRAIN_CONFIG,
     ArmSpec,
     CanonicalWindowContract,
@@ -47,7 +53,10 @@ from .development_controls import (
     prediction_content_digest,
     rebuild_canonical_window_contract,
     recompute_metric_summary,
+    recompute_paired_effect_summary,
+    recompute_station_rmse,
     render_report,
+    scientific_summary_document,
     summary_csv_bytes,
 )
 from .predictor_bridge import (
@@ -79,7 +88,7 @@ STAGE09B_MEMBER_EXTRA_FORMAT = "thermoroute.development-control-arm.v2"
 STAGE09B_FINAL_PREDICTION_KIND = "development_controls_combined_predictions"
 STAGE09B_SUMMARY_KIND = "development_controls_metric_summary"
 STAGE09B_SEMANTIC_AUDIT_KIND = "development_controls_semantic_audit"
-STAGE09B_SEMANTIC_AUDIT_FORMAT = "thermoroute.development-controls-semantic-audit.v2"
+STAGE09B_SEMANTIC_AUDIT_FORMAT = SEMANTIC_AUDIT_FORMAT
 STAGE09B_FINAL_ARTIFACTS = (
     "run_manifest", "frozen_panel_spec", "panel", "registry", "predictor_bridge",
     "predictions", "prediction_sidecar", "architecture_budget",
@@ -97,6 +106,85 @@ _CANONICAL_DATA_PATHS = {
 
 class DevelopmentControlsGateError(ValueError):
     """The Stage-09b closure is absent, stale, incomplete, or inconsistent."""
+
+
+def _assert_raw_prediction_physical_schema(frame: pd.DataFrame) -> None:
+    """Reject coercion aliases before shared semantic normalisation."""
+    if list(frame.columns) != R.PRED_COLS:
+        raise DevelopmentControlsGateError("Stage-09b member column order changed")
+    for column in ("model", "scope", "feature_set", "site_id", "split"):
+        values = frame[column]
+        if not (
+            pd.api.types.is_object_dtype(values.dtype)
+            or pd.api.types.is_string_dtype(values.dtype)
+        ) or not all(
+            isinstance(value, str) and bool(value.strip()) for value in values
+        ):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {column} values are not non-empty strings"
+            )
+    for column in ("seed", "horizon"):
+        values = frame[column]
+        if not all(
+            isinstance(value, (int, np.integer))
+            and not isinstance(value, (bool, np.bool_))
+            for value in values
+        ) or (
+            not pd.api.types.is_integer_dtype(values.dtype)
+            or pd.api.types.is_bool_dtype(values.dtype)
+        ):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {column} values are not true integers"
+            )
+    for column in ("issue_date", "target_date"):
+        values = frame[column]
+        if str(values.dtype) != "datetime64[ns]":
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {column} is not naive datetime64[ns]"
+            )
+        if values.isna().any() or not values.equals(values.dt.normalize()):
+            raise DevelopmentControlsGateError(
+                "Stage-09b member dates are not timezone-naive normalized days"
+            )
+    for column in ("y_true", "y_pred", "q05", "q50", "q95", "p_exceed"):
+        values = frame[column]
+        if not pd.api.types.is_float_dtype(values.dtype) or not all(
+            isinstance(value, (float, np.floating)) for value in values
+        ):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {column} values are not floating point"
+            )
+
+
+def _assert_prediction_arrow_schema(path: Path) -> None:
+    schema = pq.ParquetFile(path).schema_arrow
+    if schema.names != R.PRED_COLS:
+        raise DevelopmentControlsGateError("Stage-09b member schema changed")
+    text_columns = {"model", "scope", "feature_set", "site_id", "split"}
+    integer_columns = {"seed", "horizon"}
+    date_columns = {"issue_date", "target_date"}
+    float_columns = {"y_true", "y_pred", "q05", "q50", "q95", "p_exceed"}
+    for field in schema:
+        if field.name in text_columns and not pa.types.is_string(field.type):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {field.name} Arrow type changed"
+            )
+        if field.name in integer_columns and not pa.types.is_integer(field.type):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {field.name} Arrow type changed"
+            )
+        if field.name in date_columns and not (
+            pa.types.is_timestamp(field.type)
+            and field.type.unit == "ns"
+            and field.type.tz is None
+        ):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {field.name} Arrow type changed"
+            )
+        if field.name in float_columns and not pa.types.is_floating(field.type):
+            raise DevelopmentControlsGateError(
+                f"Stage-09b member {field.name} Arrow type changed"
+            )
 
 
 def expected_stage09b_members() -> tuple[tuple[str, int], ...]:
@@ -608,6 +696,7 @@ def _replay_member_best_state(
         frame["scope"] = "development_only_2006_2020"
         frame["feature_set"] = arm.feature_set
         frame["seed"] = int(seed)
+        _assert_raw_prediction_physical_schema(frame)
         normalised = normalise_prediction_frame(
             frame, arm=arm, seed=seed, allowed_sites=set(contract.stations),
             canonical_registry=contract.registry,
@@ -656,13 +745,19 @@ def _validate_member_predictions(
     identity: Mapping[str, Any], expected_parents: Mapping[str, str],
     contract: CanonicalWindowContract, config: Mapping[str, Any],
     panel_path: Path, frozen_spec_path: Path,
-) -> tuple[dict[tuple[str, int], int], dict[tuple[str, int], str], pd.DataFrame]:
+) -> tuple[
+    dict[tuple[str, int], int],
+    dict[tuple[str, int], str],
+    pd.DataFrame,
+    pd.DataFrame,
+]:
     expected = expected_stage09b_members()
     arms = {arm.arm_id: arm for arm in declared_arms()}
     observed: list[tuple[str, int]] = []
     counts: dict[tuple[str, int], int] = {}
     digests: dict[tuple[str, int], str] = {}
     summaries: list[pd.DataFrame] = []
+    station_parts: list[pd.DataFrame] = []
     run_identity = RunIdentity(**identity)
     allowed_sites = set(contract.stations)
     try:
@@ -759,9 +854,9 @@ def _validate_member_predictions(
                 "Stage-09b training summary differs from checkpoint"
             )
         try:
-            if pq.ParquetFile(prediction).schema_arrow.names != R.PRED_COLS:
-                raise DevelopmentControlsGateError("Stage-09b member schema changed")
+            _assert_prediction_arrow_schema(prediction)
             frame = pd.read_parquet(prediction, columns=R.PRED_COLS)
+            _assert_raw_prediction_physical_schema(frame)
             normalised = normalise_prediction_frame(
                 frame, arm=arms[arm_id], seed=seed, allowed_sites=allowed_sites,
                 canonical_registry=contract.registry,
@@ -779,12 +874,17 @@ def _validate_member_predictions(
                 "Stage-09b prediction differs from checkpoint best_model_state"
             )
         summaries.append(recompute_metric_summary({member: normalised}))
+        station_parts.append(recompute_station_rmse({member: normalised}))
     if tuple(observed) != expected:
         raise DevelopmentControlsGateError("Stage-09b receipt does not bind exactly 31 members")
     summary = pd.concat(summaries, ignore_index=True).sort_values(
         ["arm_id", "seed", "split", "horizon"], kind="mergesort"
     ).reset_index(drop=True)
-    return counts, digests, summary
+    paired_effects = recompute_paired_effect_summary(
+        pd.concat(station_parts, ignore_index=True),
+        exact_common_forecast_keys_verified=True,
+    )
+    return counts, digests, summary, paired_effects
 
 
 def _expected_final_extra(audit: Mapping[str, Any], *, role: str) -> dict[str, Any]:
@@ -890,6 +990,7 @@ def _assert_no_transaction_temps(run_dir: Path) -> None:
 def _expected_semantic_audit(
     *, run_id: str, audit: Mapping[str, Any], contract: CanonicalWindowContract,
     member_registry: Sequence[Mapping[str, Any]], member_digests: Mapping[tuple[str, int], str],
+    paired_effects: pd.DataFrame,
     paths: Mapping[str, Path],
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
@@ -907,6 +1008,7 @@ def _expected_semantic_audit(
             "train_examples_per_epoch": contract.train_examples,
             "train_registry_sha256": contract.train_registry_sha256,
         },
+        "scientific_summary": scientific_summary_document(paired_effects),
         "members": [
             {
                 "arm_id": str(entry["arm_id"]),
@@ -1120,7 +1222,7 @@ def validate_stage09b_completion_receipt(
         "frozen_station_registry": identity["registry_sha256"],
         "development_predictor_bridge": sha256_file(paths["predictor_bridge"]),
     }
-    counts, member_digests, summary = _validate_member_predictions(
+    counts, member_digests, summary, paired_effects = _validate_member_predictions(
         root=root, member_registry=members, identity=identity,
         expected_parents=parents, contract=contract, config=config,
         panel_path=paths["panel"], frozen_spec_path=paths["frozen_panel_spec"],
@@ -1165,10 +1267,19 @@ def validate_stage09b_completion_receipt(
     }
     specs = (
         ("predictions", STAGE09B_FINAL_PREDICTION_KIND, R.PREDICTION_SCHEMA_VERSION, "combined_predictions"),
-        ("architecture_budget", "development_controls_budget", "text/csv", "architecture_budget"),
-        ("metric_summary", STAGE09B_SUMMARY_KIND, "text/csv", "metric_summary"),
-        ("report", "development_controls_report", "text/markdown", "report"),
-        ("semantic_audit", STAGE09B_SEMANTIC_AUDIT_KIND, "application/json", "semantic_audit"),
+        (
+            "architecture_budget", "development_controls_budget",
+            ARCHITECTURE_BUDGET_FORMAT, "architecture_budget",
+        ),
+        (
+            "metric_summary", STAGE09B_SUMMARY_KIND,
+            METRIC_SUMMARY_FORMAT, "metric_summary",
+        ),
+        ("report", "development_controls_report", REPORT_FORMAT, "report"),
+        (
+            "semantic_audit", STAGE09B_SEMANTIC_AUDIT_KIND,
+            STAGE09B_SEMANTIC_AUDIT_FORMAT, "semantic_audit",
+        ),
     )
     run_identity = RunIdentity(**identity)
     for label, kind, schema, role in specs:
@@ -1192,6 +1303,7 @@ def validate_stage09b_completion_receipt(
         raise DevelopmentControlsGateError("Stage-09b metric summary is not prediction-derived")
     expected_report = render_report(
         run_id=run_id, audit=audit, budget=expected_budget, summary=summary,
+        paired_effects=paired_effects,
     ).encode("utf-8")
     if paths["report"].read_bytes() != expected_report:
         raise DevelopmentControlsGateError("Stage-09b report is not summary-derived")
@@ -1200,7 +1312,8 @@ def validate_stage09b_completion_receipt(
     )
     expected_semantic = _expected_semantic_audit(
         run_id=run_id, audit=audit, contract=contract,
-        member_registry=members, member_digests=member_digests, paths=paths,
+        member_registry=members, member_digests=member_digests,
+        paired_effects=paired_effects, paths=paths,
     )
     semantic = _load_json(paths["semantic_audit"], label="Stage-09b semantic audit")
     if semantic != expected_semantic:
