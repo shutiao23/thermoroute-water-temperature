@@ -1318,6 +1318,278 @@ def _required_model_ids(cohort: str) -> set[str]:
     }
 
 
+def _stage09b_release_members() -> tuple[tuple[str, int], ...]:
+    ladder = (
+        "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
+        "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
+    )
+    return (
+        *(("PlainMLP-7var", seed) for seed in range(5)),
+        *(("PlainCausalTCN-7var", seed) for seed in range(5)),
+        *(
+            (f"ThermoRoute-ladder-{rung}", seed)
+            for rung in ladder for seed in range(3)
+        ),
+    )
+
+
+def _validate_receipt_self_hash(receipt: Mapping[str, Any], *, label: str) -> None:
+    stable = {
+        key: value for key, value in receipt.items()
+        if key != "receipt_self_sha256"
+    }
+    if receipt.get("receipt_self_sha256") != _sha256_json(stable):
+        raise ValueError(f"{label} self hash changed")
+
+
+def _validate_preopening_completion_gates(
+    root: Path,
+    categories: dict[str, set[Path]],
+    suite: Mapping[str, Any],
+    development: Mapping[str, Any],
+    suite_runtime: str,
+) -> None:
+    """Independently verify both pre-opening admission receipts.
+
+    This verifier deliberately does not import or execute archive Python.  It
+    checks the receipt schemas, self hashes, byte bindings, 31-member registry,
+    sidecar/run alignment and architecture-budget registry with the standard
+    library before any trusted replay is considered.
+    """
+    gates = suite.get("preopening_gates")
+    required = {"stage09_completion", "stage09b_development_controls"}
+    if not isinstance(gates, Mapping) or set(gates) != required:
+        raise ValueError("authorized model suite lacks Stage-9/09b completion gates")
+
+    def add(binding: object, *, label: str) -> Path:
+        return _add_binding(
+            root, categories, "model_suite", binding, label=label
+        )
+
+    stage9_path = add(gates["stage09_completion"], label="Stage-9 completion gate")
+    stage9 = _load_json(stage9_path, label="Stage-9 completion receipt")
+    stage9_keys = {
+        "format", "status", "stage", "run_id", "run_identity",
+        "formal_configuration", "confirmation_outcomes_requested_or_read",
+        "artifacts", "receipt_self_sha256",
+    }
+    stage9_artifacts = {
+        "run_manifest", "predictions", "prediction_sidecar", "scores", "report",
+        "lightgbm_selection", "thermoroute_pointer", "lightgbm_pointer",
+        "components_pointer",
+    }
+    stage9_identity = stage9.get("run_identity")
+    if (
+        set(stage9) != stage9_keys
+        or stage9.get("format") != "thermoroute.stage09-completion-receipt.v1"
+        or stage9.get("status") != "PASS_FORMAL_STAGE09_COMPLETE"
+        or stage9.get("stage") != "09_usgs_experiment"
+        or stage9.get("confirmation_outcomes_requested_or_read") is not False
+        or not isinstance(stage9_identity, Mapping)
+        or stage9_identity.get("panel_sha256") != development.get("panel", {}).get("sha256")
+        or stage9_identity.get("registry_sha256")
+        != development.get("registry", {}).get("sha256")
+        or stage9_identity.get("source_sha256") != development.get("source_sha256")
+        or stage9_identity.get("runtime_sha256") != suite_runtime
+    ):
+        raise ValueError("authorized Stage-9 completion receipt is stale or malformed")
+    _validate_receipt_self_hash(stage9, label="Stage-9 receipt")
+    artifacts = stage9.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != stage9_artifacts:
+        raise ValueError("authorized Stage-9 completion artifact registry is incomplete")
+    for label, binding in artifacts.items():
+        add(binding, label=f"Stage-9 receipt {label}")
+
+    controls_path = add(
+        gates["stage09b_development_controls"],
+        label="Stage-09b development-controls completion gate",
+    )
+    controls = _load_json(
+        controls_path, label="Stage-09b development-controls completion receipt"
+    )
+    control_keys = {
+        "format", "status", "stage", "run_id", "run_identity",
+        "formal_configuration", "matrix_audit", "member_registry", "artifacts",
+        "post_2020_outcomes_requested_or_read", "receipt_self_sha256",
+    }
+    control_artifacts = {
+        "run_manifest", "frozen_panel_spec", "panel", "registry",
+        "predictor_bridge", "predictions", "prediction_sidecar",
+        "architecture_budget", "architecture_budget_sidecar", "report",
+        "report_sidecar",
+    }
+    identity = controls.get("run_identity")
+    config = controls.get("formal_configuration")
+    if (
+        set(controls) != control_keys
+        or controls.get("format") != "thermoroute.stage09b-completion-receipt.v1"
+        or controls.get("status") != "PASS_FORMAL_STAGE09B_CONTROLS_COMPLETE"
+        or controls.get("stage") != "09b_development_controls"
+        or controls.get("post_2020_outcomes_requested_or_read") is not False
+        or not isinstance(identity, Mapping)
+        or not isinstance(config, Mapping)
+        or controls.get("run_id") != identity.get("run_id")
+        or identity.get("panel_sha256") != development.get("panel", {}).get("sha256")
+        or identity.get("registry_sha256")
+        != development.get("registry", {}).get("sha256")
+        or identity.get("source_sha256") != development.get("source_sha256")
+        or identity.get("runtime_sha256") != suite_runtime
+        or config.get("stage") != "09b_development_controls"
+        or config.get("training_device") != "cpu"
+        or config.get("panel_date_range") != ["2006-01-01", "2020-12-31"]
+        or config.get("blind_or_confirmatory") is not False
+        or config.get("suite_pointer_written") is not False
+        or config.get("expected_member_registry")
+        != [[arm, seed] for arm, seed in _stage09b_release_members()]
+        or config.get("development_predictor_bridge")
+        != development.get("predictor_bridge")
+    ):
+        raise ValueError("authorized Stage-09b completion receipt is stale or malformed")
+    _validate_receipt_self_hash(controls, label="Stage-09b receipt")
+    artifacts = controls.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != control_artifacts:
+        raise ValueError("authorized Stage-09b completion artifact registry is incomplete")
+    if (
+        artifacts.get("frozen_panel_spec") != development.get("frozen_panel_spec")
+        or artifacts.get("panel") != development.get("panel")
+        or artifacts.get("registry") != development.get("registry")
+        or artifacts.get("predictor_bridge") != development.get("predictor_bridge")
+    ):
+        raise ValueError("authorized Stage-09b receipt binds another development contract")
+    resolved_artifacts = {
+        label: add(binding, label=f"Stage-09b receipt {label}")
+        for label, binding in artifacts.items()
+    }
+    for artifact, sidecar in (
+        ("predictions", "prediction_sidecar"),
+        ("architecture_budget", "architecture_budget_sidecar"),
+        ("report", "report_sidecar"),
+    ):
+        if resolved_artifacts[sidecar] != resolved_artifacts[artifact].with_name(
+            resolved_artifacts[artifact].name + ".meta.json"
+        ):
+            raise ValueError("Stage-09b final artifact/sidecar alignment changed")
+    for artifact, sidecar, kind in (
+        (
+            "predictions", "prediction_sidecar",
+            "development_controls_combined_predictions",
+        ),
+        (
+            "architecture_budget", "architecture_budget_sidecar",
+            "development_controls_budget",
+        ),
+        ("report", "report_sidecar", "development_controls_report"),
+    ):
+        metadata = _load_json(
+            resolved_artifacts[sidecar], label=f"Stage-09b {artifact} sidecar"
+        )
+        extra = metadata.get("extra")
+        if (
+            metadata.get("kind") != kind
+            or metadata.get("artifact_sha256") != artifacts[artifact].get("sha256")
+            or metadata.get("run") != identity
+            or not isinstance(extra, Mapping)
+            or extra.get("expected_members") != 31
+            or extra.get("development_only") is not True
+            or extra.get("blind_or_confirmatory") is not False
+        ):
+            raise ValueError("authorized Stage-09b final sidecar changed")
+    run_manifest = _load_json(
+        resolved_artifacts["run_manifest"], label="Stage-09b run manifest"
+    )
+    if (
+        run_manifest.get("identity") != identity
+        or run_manifest.get("resolved_config") != config
+    ):
+        raise ValueError("Stage-09b run manifest differs from its receipt")
+
+    audit = controls.get("matrix_audit")
+    members = controls.get("member_registry")
+    expected_members = _stage09b_release_members()
+    if (
+        not isinstance(audit, Mapping)
+        or set(audit) != {
+            "expected_members", "prediction_rows", "common_forecast_keys",
+            "splits", "reference_member",
+        }
+        or audit.get("expected_members") != 31
+        or not isinstance(audit.get("common_forecast_keys"), int)
+        or audit["common_forecast_keys"] < 1
+        or audit.get("prediction_rows") != 31 * audit["common_forecast_keys"]
+        or audit.get("splits") != ["calib", "test", "val"]
+        or audit.get("reference_member") != "PlainMLP-7var/seed0"
+        or not isinstance(members, list)
+        or len(members) != 31
+    ):
+        raise ValueError("authorized Stage-09b matrix audit is incomplete")
+    observed: list[tuple[str, int]] = []
+    for entry in members:
+        if not isinstance(entry, Mapping) or set(entry) != {
+            "arm_id", "seed", "prediction", "prediction_sidecar",
+        }:
+            raise ValueError("authorized Stage-09b member binding is malformed")
+        arm_id, seed = entry.get("arm_id"), entry.get("seed")
+        if not isinstance(arm_id, str) or type(seed) is not int:
+            raise ValueError("authorized Stage-09b member identity is malformed")
+        observed.append((arm_id, seed))
+        prediction = add(
+            entry["prediction"], label=f"Stage-09b {arm_id}/seed{seed} prediction"
+        )
+        sidecar = add(
+            entry["prediction_sidecar"],
+            label=f"Stage-09b {arm_id}/seed{seed} sidecar",
+        )
+        if sidecar != prediction.with_name(prediction.name + ".meta.json"):
+            raise ValueError("authorized Stage-09b member sidecar path changed")
+        metadata = _load_json(sidecar, label="Stage-09b member sidecar")
+        extra = metadata.get("extra")
+        if (
+            metadata.get("kind") != "development_control_arm_predictions"
+            or metadata.get("artifact_sha256") != entry["prediction"].get("sha256")
+            or metadata.get("run") != identity
+            or not isinstance(extra, Mapping)
+            or extra.get("arm_id") != arm_id
+            or extra.get("seed") != seed
+            or extra.get("training_device") != "cpu"
+            or extra.get("development_only") is not True
+            or extra.get("blind_or_confirmatory") is not False
+        ):
+            raise ValueError("authorized Stage-09b member sidecar changed")
+    if tuple(observed) != expected_members:
+        raise ValueError("authorized Stage-09b receipt does not bind exactly 31 members")
+
+    expected_parameters = {
+        "PlainMLP-7var": 38_545,
+        "PlainCausalTCN-7var": 38_031,
+        "ThermoRoute-ladder-01_WTEMP": 37_775,
+        "ThermoRoute-ladder-02_plus_FLOW": 37_896,
+        "ThermoRoute-ladder-03_plus_TEMP": 38_018,
+        "ThermoRoute-ladder-04_plus_PRCP": 38_139,
+        "ThermoRoute-ladder-05_plus_RHMEAN": 38_261,
+        "ThermoRoute-ladder-06_plus_DH": 38_383,
+        "ThermoRoute-ladder-07_plus_WDSP": 38_505,
+    }
+    try:
+        with resolved_artifacts["architecture_budget"].open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            rows = list(csv.DictReader(handle))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("authorized Stage-09b architecture budget is unreadable") from exc
+    if (
+        [row.get("arm_id") for row in rows] != list(expected_parameters)
+        or any(
+            int(row.get("trainable_parameters", "-1")) != expected_parameters[row["arm_id"]]
+            or row.get("training_device") != "cpu"
+            or row.get("historical_tuning_budget_equalized") != "False"
+            for row in rows
+        )
+    ):
+        raise ValueError("authorized Stage-09b architecture budget changed")
+    _walk_json_dependencies(root, categories, "model_suite", stage9_path)
+    _walk_json_dependencies(root, categories, "model_suite", controls_path)
+
+
 def _gather_postopen_categories(
     root: Path, authorization_path: Path
 ) -> tuple[dict[str, set[Path]], dict[str, Any], dict[str, str]]:
@@ -1430,10 +1702,18 @@ def _gather_postopen_categories(
         or bridge.get("outcome_values_requested_or_read") is not False
         or bridge.get("panel") != development.get("panel")
         or bridge.get("registry") != development.get("registry")
-        or bridge.get("source_tree_sha256") != development.get("source_sha256")
+        # The bridge records the source that produced the earlier outcome-free
+        # compatibility audit.  Its manifest bytes are frozen below; it is not
+        # expected to equal the later, gate-hardened training source identity.
+        or not re.fullmatch(
+            r"[0-9a-f]{64}", str(bridge.get("source_tree_sha256", ""))
+        )
     ):
         raise ValueError("development predictor bridge is stale or not an exact PASS")
     _walk_json_dependencies(root, categories, "model_suite", bridge_path)
+    _validate_preopening_completion_gates(
+        root, categories, suite, development, suite_runtime
+    )
     cohorts = suite.get("cohorts")
     if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
         raise ValueError("model suite lacks temporal/external cohorts")

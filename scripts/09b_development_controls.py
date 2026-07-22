@@ -123,6 +123,11 @@ from thermoroute import datasets as DS  # noqa: E402
 from thermoroute import features as F  # noqa: E402
 from thermoroute import results as R  # noqa: E402
 from thermoroute.evidence import FrozenPanelSpec  # noqa: E402
+from thermoroute.development_controls_gate import (  # noqa: E402
+    STAGE09B_COMPLETION_RECEIPT_PATH,
+    build_stage09b_completion_receipt,
+    publish_stage09b_completion_receipt,
+)
 from thermoroute.model_suite import (  # noqa: E402
     ModelSuiteError,
     development_predictor_bridge_binding,
@@ -1398,25 +1403,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         budget=budget,
         summaries=summaries,
     )
-    completion_path = run_dir / "completion.json"
-    completion = {
-        "format": FINAL_FORMAT,
-        "run_id": identity.run_id,
-        "status": "COMPLETE_DEVELOPMENT_ONLY",
-        "matrix_audit": asdict(audit),
-        "outputs": [path.name for path in outputs],
-        "development_only": True,
-        "post_2020_outcomes_requested_or_read": False,
-        "suite_pointer_written": False,
-    }
-    completion_bytes = (
-        json.dumps(completion, sort_keys=True, indent=2, allow_nan=False) + "\n"
-    ).encode("utf-8")
-    if completion_path.exists():
-        if completion_path.read_bytes() != completion_bytes:
-            raise ControlExperimentError("existing completion record changed")
-    else:
-        _create_only_bytes(completion_bytes, completion_path)
+    predictions, architecture_budget, report = outputs
+    receipt_path = ROOT / STAGE09B_COMPLETION_RECEIPT_PATH
+    receipt = build_stage09b_completion_receipt(
+        root=ROOT,
+        run_id=identity.run_id,
+        run_manifest=run_dir / "run.json",
+        frozen_panel_spec=frozen_spec_path,
+        panel=panel_path,
+        registry=registry_path,
+        predictor_bridge=ROOT / predictor_bridge["path"],
+        member_paths=resolved_members,
+        predictions=predictions,
+        architecture_budget=architecture_budget,
+        report=report,
+        matrix_audit=asdict(audit),
+    )
+    # This is deliberately the final write in the transaction.  Any missing
+    # member, budget/report failure, sidecar drift, or common-key mismatch raises
+    # before the stable receipt can be replaced.
+    publish_stage09b_completion_receipt(receipt_path, receipt, root=ROOT)
     print(
         json.dumps(
             {
@@ -1425,6 +1431,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "run_dir": str(run_dir),
                 "members": audit.expected_members,
                 "common_forecast_keys": audit.common_forecast_keys,
+                "completion_receipt": str(receipt_path),
             },
             sort_keys=True,
         )

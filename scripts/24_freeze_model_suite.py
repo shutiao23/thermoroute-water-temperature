@@ -3,9 +3,11 @@
 
 The current pointer is written only when Stage 9, Stage 16 and the pooled
 external training stage have all produced complete, checksum-valid components.
-Stage 9 is accepted only with its final content-bound completion receipt; a
-missing report, interrupted pointer transaction or stale receipt fails closed.
-The accepted receipt path and checksum become part of the frozen suite itself.
+Stage 9 and the separate Stage-09b matched-control matrix are accepted only with
+their final content-bound completion receipts.  A missing report, incomplete
+31-member matrix, key/budget drift, interrupted transaction or stale receipt
+fails closed.  Both accepted receipt paths and checksums become part of the
+frozen suite identity.
 This command performs no fitting and has no network or post-2020 input path.
 """
 
@@ -77,6 +79,11 @@ _isolate_project_bytecode()
 sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute import config as C  # noqa: E402
+from thermoroute.development_controls_gate import (  # noqa: E402
+    STAGE09B_COMPLETION_RECEIPT_PATH,
+    DevelopmentControlsGateError,
+    validate_stage09b_completion_receipt,
+)
 from thermoroute.model_suite import (  # noqa: E402
     BUILTIN_MODELS,
     EXTERNAL_MODELS,
@@ -110,11 +117,23 @@ def _load_verified_stage9(
     return stage9, file_binding(root, receipt_path)
 
 
+def _load_verified_stage09b(
+    receipt_path: Path, *, root: Path = ROOT,
+) -> tuple[dict, dict[str, str]]:
+    """Require the exact 31-member control closure before suite freezing."""
+    try:
+        receipt = validate_stage09b_completion_receipt(receipt_path, root=root)
+    except DevelopmentControlsGateError as exc:
+        raise ModelSuiteError("Stage-09b development-controls gate failed") from exc
+    return receipt, file_binding(root, receipt_path)
+
+
 def _model_suite_id(
     *,
     protocol_sha256: str,
     stage9: dict,
     stage09_completion: dict[str, str],
+    stage09b_completion: dict[str, str],
     lstm: dict,
     external: dict,
     features: tuple[str, ...],
@@ -124,6 +143,7 @@ def _model_suite_id(
         "protocol_sha256": protocol_sha256,
         "stage9": stage9,
         "stage09_completion": stage09_completion,
+        "stage09b_completion": stage09b_completion,
         "lstm": lstm,
         "external": external,
         "features": features,
@@ -143,6 +163,11 @@ def main() -> None:
     parser.add_argument(
         "--stage9-receipt", type=Path,
         default=ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
+    )
+    parser.add_argument(
+        "--stage09b-receipt",
+        type=Path,
+        default=ROOT / STAGE09B_COMPLETION_RECEIPT_PATH,
     )
     parser.add_argument(
         "--lstm", type=Path,
@@ -166,6 +191,9 @@ def main() -> None:
     stage9, stage09_completion = _load_verified_stage9(
         args.stage9, args.stage9_receipt
     )
+    controls_receipt, stage09b_completion = _load_verified_stage09b(
+        args.stage09b_receipt
+    )
     lstm = load_component_pointer(args.lstm)
     external = load_component_pointer(args.external)
     if stage9.get("cohort") != "temporal_stage9":
@@ -188,6 +216,23 @@ def main() -> None:
         value == contracts[0] for value in contracts[1:]
     ):
         raise ModelSuiteError("component pointers do not share one canonical source/data contract")
+    controls_identity = controls_receipt["run_identity"]
+    controls_config = controls_receipt["formal_configuration"]
+    controls_artifacts = controls_receipt["artifacts"]
+    if (
+        controls_identity["panel_sha256"] != contracts[0]["panel"]["sha256"]
+        or controls_identity["registry_sha256"] != contracts[0]["registry"]["sha256"]
+        or controls_identity["source_sha256"] != contracts[0]["source_sha256"]
+        or controls_config["development_predictor_bridge"]
+        != contracts[0]["predictor_bridge"]
+        or controls_artifacts["frozen_panel_spec"]
+        != contracts[0]["frozen_panel_spec"]
+        or controls_artifacts["panel"] != contracts[0]["panel"]
+        or controls_artifacts["registry"] != contracts[0]["registry"]
+        or controls_artifacts["predictor_bridge"]
+        != contracts[0]["predictor_bridge"]
+    ):
+        raise ModelSuiteError("Stage-09b receipt differs from the canonical development contract")
 
     stage9_entries = _entries(stage9)
     expected_stage9 = {"ThermoRoute", "LightGBM", *MANDATORY_ABLATIONS}
@@ -219,6 +264,7 @@ def main() -> None:
         protocol_sha256=protocol_sha,
         stage9=stage9,
         stage09_completion=stage09_completion,
+        stage09b_completion=stage09b_completion,
         lstm=lstm,
         external=external,
         features=feature_order,
@@ -231,6 +277,7 @@ def main() -> None:
         actual_feature_order=feature_order,
         development_contract=contracts[0],
         stage09_completion=stage09_completion,
+        stage09b_completion=stage09b_completion,
         registry_alias=args.destination,
     )
     print(f"frozen content-addressed Route-A model suite: {versioned}")

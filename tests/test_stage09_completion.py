@@ -448,11 +448,15 @@ def test_stage09_receipt_requires_full_prediction_sidecar_identity(tmp_path):
         )
 
 
-def test_suite_identity_and_frozen_document_bind_stage09_receipt(
+def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
     tmp_path, monkeypatch,
 ):
     receipt = _write_bytes(tmp_path / "outputs" / "receipt.json", b"receipt\n")
     gate = file_binding(tmp_path, receipt)
+    controls_receipt = _write_bytes(
+        tmp_path / "outputs" / "controls-receipt.json", b"controls receipt\n"
+    )
+    controls_gate = file_binding(tmp_path, controls_receipt)
     common = {
         "protocol_sha256": "a" * 64,
         "stage9": {"run_id": "stage9"},
@@ -461,13 +465,22 @@ def test_suite_identity_and_frozen_document_bind_stage09_receipt(
         "features": ("WTEMP", "FLOW"),
     }
     first_id = STAGE24._model_suite_id(
-        **common, stage09_completion=gate
+        **common,
+        stage09_completion=gate,
+        stage09b_completion=controls_gate,
     )
     second_id = STAGE24._model_suite_id(
         **common,
         stage09_completion={**gate, "sha256": "f" * 64},
+        stage09b_completion=controls_gate,
     )
     assert first_id != second_id
+    third_id = STAGE24._model_suite_id(
+        **common,
+        stage09_completion=gate,
+        stage09b_completion={**controls_gate, "sha256": "e" * 64},
+    )
+    assert first_id != third_id
 
     monkeypatch.setattr(
         MODEL_SUITE, "_learned_metadata_runtime_sha256",
@@ -488,9 +501,13 @@ def test_suite_identity_and_frozen_document_bind_stage09_receipt(
         actual_feature_order=("WTEMP", "FLOW"),
         development_contract={},
         stage09_completion=gate,
+        stage09b_completion=controls_gate,
     )
     frozen = json.loads(destination.read_text(encoding="utf-8"))
-    assert frozen["preopening_gates"] == {"stage09_completion": gate}
+    assert frozen["preopening_gates"] == {
+        "stage09_completion": gate,
+        "stage09b_development_controls": controls_gate,
+    }
 
 
 def test_frozen_suite_rejects_entries_from_another_stage09_closure(tmp_path):

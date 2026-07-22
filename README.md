@@ -136,8 +136,15 @@ The intended order is strict:
    and pooled external model bundles; replay every model head on development data.
    Stage 9 publishes its content-bound completion receipt only after the canonical
    predictions, tables, report, bundle parity checks, and all three formal pointers
-   succeed. Stage 24 rejects a missing, stale, or mismatched Stage-9 receipt and
-   binds that receipt's path and SHA-256 into the frozen suite identity.
+   succeed. `scripts/run_all.sh` then explicitly runs Stage 09b. Stage 09b publishes
+   its own receipt as its final atomic write only after the exact 31-member
+   (5 MLP + 5 TCN + 21 feature-ladder) registry, common forecast keys and truth,
+   architecture/optimisation budget, combined predictions, report, and every
+   lineage sidecar validate. Stage 24 rejects either receipt when it is missing,
+   stale, incomplete, tampered, or bound to another source/runtime/panel/registry.
+   It binds both receipt paths and SHA-256 digests into the frozen suite identity;
+   the independent release verifier enforces the same two-gate closure without
+   executing archive code.
 4. Commit the model-suite registry while candidate metadata and target-period
    predictor artifacts are absent.
 5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET

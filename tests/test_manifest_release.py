@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -263,11 +265,189 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
     }
     _write_bytes(root, bridge_path, json.dumps(bridge).encode())
+
+    def write_preopening_gate_fixtures() -> dict[str, dict[str, str]]:
+        identity = {
+            "run_id": "stage09b-fixture",
+            "panel_sha256": bridge["panel"]["sha256"],
+            "registry_sha256": bridge["registry"]["sha256"],
+            "config_sha256": "d" * 64,
+            "source_sha256": source_sha256,
+            "runtime_sha256": runtime_sha256,
+            "schema_version": "thermoroute.run.v1",
+        }
+        expected_members = verifier._stage09b_release_members()
+        controls_config = {
+            "stage": "09b_development_controls",
+            "training_device": "cpu",
+            "panel_date_range": ["2006-01-01", "2020-12-31"],
+            "blind_or_confirmatory": False,
+            "suite_pointer_written": False,
+            "expected_member_registry": [
+                [arm, seed] for arm, seed in expected_members
+            ],
+            "development_predictor_bridge": _binding(verifier, root, bridge_path),
+        }
+        run_manifest_path = "outputs/runs/09b-fixture/run.json"
+        _write_bytes(root, run_manifest_path, json.dumps({
+            "identity": identity,
+            "resolved_config": controls_config,
+        }).encode())
+        member_registry = []
+        for arm_id, seed in expected_members:
+            relative = f"outputs/runs/09b-fixture/members/{arm_id}/seed{seed}.parquet"
+            prediction = _write_bytes(root, relative, f"{arm_id}/{seed}\n".encode())
+            sidecar_relative = relative + ".meta.json"
+            _write_bytes(root, sidecar_relative, json.dumps({
+                "kind": "development_control_arm_predictions",
+                "artifact_sha256": verifier.sha256_file(prediction),
+                "run": identity,
+                "extra": {
+                    "arm_id": arm_id,
+                    "seed": seed,
+                    "training_device": "cpu",
+                    "development_only": True,
+                    "blind_or_confirmatory": False,
+                },
+            }).encode())
+            member_registry.append({
+                "arm_id": arm_id,
+                "seed": seed,
+                "prediction": _binding(verifier, root, relative),
+                "prediction_sidecar": _binding(verifier, root, sidecar_relative),
+            })
+        final_paths = {
+            "predictions": "outputs/runs/09b-fixture/controls.parquet",
+            "architecture_budget": "outputs/runs/09b-fixture/budget.csv",
+            "report": "outputs/runs/09b-fixture/report.md",
+        }
+        _write_bytes(root, final_paths["predictions"], b"combined fixture\n")
+        parameters = {
+            "PlainMLP-7var": 38_545,
+            "PlainCausalTCN-7var": 38_031,
+            "ThermoRoute-ladder-01_WTEMP": 37_775,
+            "ThermoRoute-ladder-02_plus_FLOW": 37_896,
+            "ThermoRoute-ladder-03_plus_TEMP": 38_018,
+            "ThermoRoute-ladder-04_plus_PRCP": 38_139,
+            "ThermoRoute-ladder-05_plus_RHMEAN": 38_261,
+            "ThermoRoute-ladder-06_plus_DH": 38_383,
+            "ThermoRoute-ladder-07_plus_WDSP": 38_505,
+        }
+        budget_buffer = io.StringIO()
+        writer = csv.DictWriter(budget_buffer, fieldnames=(
+            "arm_id", "trainable_parameters", "training_device",
+            "historical_tuning_budget_equalized",
+        ))
+        writer.writeheader()
+        for arm_id, count in parameters.items():
+            writer.writerow({
+                "arm_id": arm_id,
+                "trainable_parameters": count,
+                "training_device": "cpu",
+                "historical_tuning_budget_equalized": False,
+            })
+        _write_bytes(
+            root, final_paths["architecture_budget"],
+            budget_buffer.getvalue().encode(),
+        )
+        _write_bytes(root, final_paths["report"], b"complete controls fixture\n")
+        final_kinds = {
+            "predictions": "development_controls_combined_predictions",
+            "architecture_budget": "development_controls_budget",
+            "report": "development_controls_report",
+        }
+        for name, relative in final_paths.items():
+            _write_bytes(root, relative + ".meta.json", json.dumps({
+                "kind": final_kinds[name],
+                "artifact_sha256": verifier.sha256_file(root / relative),
+                "run": identity,
+                "extra": {
+                    "expected_members": 31,
+                    "development_only": True,
+                    "blind_or_confirmatory": False,
+                },
+            }).encode())
+        controls_artifacts = {
+            "run_manifest": _binding(verifier, root, run_manifest_path),
+            "frozen_panel_spec": _binding(
+                verifier, root, "data_usgs/frozen_panel_v1.json"
+            ),
+            "panel": bridge["panel"],
+            "registry": bridge["registry"],
+            "predictor_bridge": _binding(verifier, root, bridge_path),
+            **{
+                name: _binding(verifier, root, relative)
+                for name, relative in final_paths.items()
+            },
+            "prediction_sidecar": _binding(
+                verifier, root, final_paths["predictions"] + ".meta.json"
+            ),
+            "architecture_budget_sidecar": _binding(
+                verifier, root, final_paths["architecture_budget"] + ".meta.json"
+            ),
+            "report_sidecar": _binding(
+                verifier, root, final_paths["report"] + ".meta.json"
+            ),
+        }
+        controls = {
+            "format": "thermoroute.stage09b-completion-receipt.v1",
+            "status": "PASS_FORMAL_STAGE09B_CONTROLS_COMPLETE",
+            "stage": "09b_development_controls",
+            "run_id": identity["run_id"],
+            "run_identity": identity,
+            "formal_configuration": controls_config,
+            "matrix_audit": {
+                "expected_members": 31,
+                "prediction_rows": 31 * 9,
+                "common_forecast_keys": 9,
+                "splits": ["calib", "test", "val"],
+                "reference_member": "PlainMLP-7var/seed0",
+            },
+            "member_registry": member_registry,
+            "artifacts": controls_artifacts,
+            "post_2020_outcomes_requested_or_read": False,
+        }
+        controls["receipt_self_sha256"] = verifier._sha256_json(controls)
+        controls_path = "outputs/models/route_a_stage09b_completion.json"
+        _write_bytes(root, controls_path, json.dumps(controls).encode())
+
+        stage9_artifacts = {}
+        for name in (
+            "run_manifest", "predictions", "prediction_sidecar", "scores",
+            "report", "lightgbm_selection", "thermoroute_pointer",
+            "lightgbm_pointer", "components_pointer",
+        ):
+            relative = f"outputs/runs/stage9-fixture/{name}.json"
+            _write_bytes(root, relative, b"{}\n")
+            stage9_artifacts[name] = _binding(verifier, root, relative)
+        stage9_identity = {**identity, "run_id": "stage9-fixture"}
+        stage9 = {
+            "format": "thermoroute.stage09-completion-receipt.v1",
+            "status": "PASS_FORMAL_STAGE09_COMPLETE",
+            "stage": "09_usgs_experiment",
+            "run_id": stage9_identity["run_id"],
+            "run_identity": stage9_identity,
+            "formal_configuration": {"stage": "09_usgs_experiment"},
+            "confirmation_outcomes_requested_or_read": False,
+            "artifacts": stage9_artifacts,
+        }
+        stage9["receipt_self_sha256"] = verifier._sha256_json(stage9)
+        stage9_path = "outputs/models/route_a_stage09_completion.json"
+        _write_bytes(root, stage9_path, json.dumps(stage9).encode())
+        return {
+            "stage09_completion": _binding(verifier, root, stage9_path),
+            "stage09b_development_controls": _binding(
+                verifier, root, controls_path
+            ),
+        }
+
+    preopening_gates = write_preopening_gate_fixtures()
     suite = {
         "format": "thermoroute.route-a-model-suite.v1",
         "status": "FROZEN_BEFORE_LABEL_OPENING",
         "training_device": "cpu",
         "numerical_runtime_sha256": runtime_sha256,
+        "preopening_gates": preopening_gates,
         "development_contract": {
             "frozen_panel_spec": _binding(
                 verifier, root, "data_usgs/frozen_panel_v1.json"
@@ -1087,6 +1267,47 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     with pytest.raises(ValueError, match="outside the authorization closure"):
         verifier.verify_release_profile(stage, run_trusted_replay=False)
     stale.unlink()
+
+
+def test_release_verifier_requires_both_receipts_and_exact_control_members(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_preopening_control_gates_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _representatives = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    suite_path = source / authorization["model_suite"]["path"]
+    suite = json.loads(suite_path.read_text(encoding="utf-8"))
+    development = suite["development_contract"]
+    verifier._validate_preopening_completion_gates(
+        source, {}, suite, development, suite["numerical_runtime_sha256"]
+    )
+
+    missing = json.loads(json.dumps(suite))
+    missing["preopening_gates"].pop("stage09b_development_controls")
+    with pytest.raises(ValueError, match="Stage-9/09b"):
+        verifier._validate_preopening_completion_gates(
+            source, {}, missing, development, suite["numerical_runtime_sha256"]
+        )
+
+    controls_binding = suite["preopening_gates"]["stage09b_development_controls"]
+    controls_path = source / controls_binding["path"]
+    controls = json.loads(controls_path.read_text(encoding="utf-8"))
+    controls["member_registry"].pop()
+    stable = {
+        key: value for key, value in controls.items()
+        if key != "receipt_self_sha256"
+    }
+    controls["receipt_self_sha256"] = verifier._sha256_json(stable)
+    controls_path.write_text(json.dumps(controls), encoding="utf-8")
+    suite["preopening_gates"]["stage09b_development_controls"] = _binding(
+        verifier, source, controls_binding["path"]
+    )
+    with pytest.raises(ValueError, match="matrix audit|31 members"):
+        verifier._validate_preopening_completion_gates(
+            source, {}, suite, development, suite["numerical_runtime_sha256"]
+        )
 
 
 def test_release_lineage_hash_matches_live_opening_under_non_ascii_root(

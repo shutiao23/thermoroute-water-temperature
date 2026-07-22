@@ -35,6 +35,10 @@ from .checkpoint import (
     load_inference_bundle,
     neural_output_head_schema,
 )
+from .development_controls_gate import (
+    DevelopmentControlsGateError,
+    validate_stage09b_completion_receipt,
+)
 from .provenance import sha256_file
 from .repro import (
     RUN_SCHEMA_VERSION,
@@ -1998,8 +2002,9 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
     if document.get("training_device") != "cpu":
         raise ModelSuiteError("formal model suite is not CPU-trained")
     gates = document.get("preopening_gates")
-    if not isinstance(gates, Mapping) or set(gates) != {"stage09_completion"}:
-        raise ModelSuiteError("model suite lacks the Stage-9 completion gate")
+    required_gates = {"stage09_completion", "stage09b_development_controls"}
+    if not isinstance(gates, Mapping) or set(gates) != required_gates:
+        raise ModelSuiteError("model suite lacks the Stage-9/09b completion gates")
     receipt_path = _validated_file_binding(
         root, gates["stage09_completion"], label="Stage-9 completion gate"
     )
@@ -2024,6 +2029,47 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
     if not isinstance(temporal_entries, list):
         raise ModelSuiteError("temporal model registry is malformed")
     _validate_stage09_suite_alignment(stage9, temporal_entries, development)
+
+    controls_receipt_path = _validated_file_binding(
+        root,
+        gates["stage09b_development_controls"],
+        label="Stage-09b development-controls completion gate",
+    )
+    try:
+        controls_receipt = validate_stage09b_completion_receipt(
+            controls_receipt_path, root=root
+        )
+    except DevelopmentControlsGateError as exc:
+        raise ModelSuiteError(
+            "model suite Stage-09b development-controls gate failed"
+        ) from exc
+    if dict(gates["stage09b_development_controls"]) != file_binding(
+        root, controls_receipt_path
+    ):
+        raise ModelSuiteError("model suite Stage-09b completion binding changed")
+    controls_identity = controls_receipt.get("run_identity")
+    controls_config = controls_receipt.get("formal_configuration")
+    controls_artifacts = controls_receipt.get("artifacts")
+    if (
+        not isinstance(controls_identity, Mapping)
+        or not isinstance(controls_config, Mapping)
+        or not isinstance(controls_artifacts, Mapping)
+        or controls_identity.get("panel_sha256") != development["panel"]["sha256"]
+        or controls_identity.get("registry_sha256") != development["registry"]["sha256"]
+        or controls_identity.get("source_sha256") != development["source_sha256"]
+        or controls_identity.get("runtime_sha256") != runtime_digest
+        or controls_config.get("development_predictor_bridge")
+        != development["predictor_bridge"]
+        or controls_artifacts.get("frozen_panel_spec")
+        != development["frozen_panel_spec"]
+        or controls_artifacts.get("panel") != development["panel"]
+        or controls_artifacts.get("registry") != development["registry"]
+        or controls_artifacts.get("predictor_bridge")
+        != development["predictor_bridge"]
+    ):
+        raise ModelSuiteError(
+            "model suite Stage-09b gate differs from its Stage-9 development closure"
+        )
 
 
 def _learned_metadata_runtime_sha256(
@@ -2077,6 +2123,7 @@ def freeze_model_suite(
     actual_feature_order: Sequence[str],
     development_contract: Mapping[str, Any],
     stage09_completion: Mapping[str, Any] | None = None,
+    stage09b_completion: Mapping[str, Any] | None = None,
     registry_alias: str | Path | None = None,
 ) -> Path:
     """Write the versioned suite, then (and only then) publish its current pointer."""
@@ -2096,8 +2143,10 @@ def freeze_model_suite(
         **(
             {"preopening_gates": {
                 "stage09_completion": dict(stage09_completion),
+                "stage09b_development_controls": dict(stage09b_completion),
             }}
-            if stage09_completion is not None else {}
+            if stage09_completion is not None and stage09b_completion is not None
+            else {}
         ),
         "cohorts": {
             "temporal": {
