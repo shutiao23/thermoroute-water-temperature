@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "26_validate_claims.py"
 PRODUCTION_REGISTRY = ROOT / "protocols" / "route_a_claim_registry_v1.json"
 PRODUCTION_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
+PRODUCTION_OUTCOME_QC_POLICY = (
+    ROOT / "protocols" / "route_a_outcome_qc_policy_v1.json"
+)
 
 
 def _module():
@@ -88,14 +91,24 @@ def _state(namespace: str = "a" * 24) -> dict[str, str]:
         "run_directory": base,
         "intent": f"{base}/opening_intent_v1.json",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
         "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
     }
 
 
-def _write_authorization(tmp_path: Path, registry: dict) -> tuple[Path, dict[str, str]]:
+def _write_authorization(
+    tmp_path: Path,
+    registry: dict,
+    *,
+    inference_claim_eligible: bool = False,
+) -> tuple[Path, dict[str, str]]:
     state = _state()
+    policy_path = tmp_path / "protocols" / "route_a_outcome_qc_policy_v1.json"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_bytes(PRODUCTION_OUTCOME_QC_POLICY.read_bytes())
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
     authorization = {
         "format": "thermoroute.route-a-opening-authorization.v1",
         "status": "AUTHORIZED_LABELS_STILL_SEALED",
@@ -105,9 +118,20 @@ def _write_authorization(tmp_path: Path, registry: dict) -> tuple[Path, dict[str
         "protocol": dict(registry["protocol_binding"]),
         "inference_gate": {
             "format": "thermoroute.route-a-inference-gate.v1",
-            "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
-            "claim_eligible": False,
+            "status": (
+                "PASS_CLAIM_ELIGIBLE"
+                if inference_claim_eligible
+                else "FAIL_CLOSED_DESCRIPTIVE_ONLY"
+            ),
+            "claim_eligible": inference_claim_eligible,
             "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
+        },
+        "outcome_qc_policy": {
+            "path": "protocols/route_a_outcome_qc_policy_v1.json",
+            "sha256": _sha256(policy_path),
+            "format": policy["format"],
+            "policy_id": policy["policy_id"],
+            "required": True,
         },
         "state_paths": state,
     }
@@ -203,8 +227,14 @@ def _post_fixture(
     monkeypatch: pytest.MonkeyPatch,
     *,
     conflict: bool = False,
+    inference_claim_eligible: bool = False,
+    outcome_qc_pass: bool = True,
 ) -> tuple[dict, dict[str, str]]:
-    _, state = _write_authorization(tmp_path, registry)
+    authorization_path, state = _write_authorization(
+        tmp_path,
+        registry,
+        inference_claim_eligible=inference_claim_eligible,
+    )
     for key in ("intent", "receipt"):
         path = tmp_path / state[key]
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +242,86 @@ def _post_fixture(
     report_path = tmp_path / state["report"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("# Receipt-bound trusted report\n", encoding="utf-8")
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    policy_path = tmp_path / authorization["outcome_qc_policy"]["path"]
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    family = protocol["primary_inference_contract"]["confirmatory_family"]
+    test_ids = [str(row["test_id"]) for row in family]
+    outside_records = [] if outcome_qc_pass else [
+        {"site_no": "fixture", "date": "2021-01-01", "wtemp_c": 51.0}
+    ]
+    components = {
+        "target_plausibility_pass": outcome_qc_pass,
+        "single_extreme_influence_pass": True,
+        "leave_one_huc_direction_pass": True,
+    }
+    gate = {
+        "format": "thermoroute.route-a-outcome-qc-gate.v1",
+        "status": (
+            "PASS_DIRECTIONAL_REPORTING_QC"
+            if outcome_qc_pass
+            else "FAIL_WITHHOLD_DIRECTIONAL_CLAIMS"
+        ),
+        "policy": {
+            "path": authorization["outcome_qc_policy"]["path"],
+            "sha256": authorization["outcome_qc_policy"]["sha256"],
+            "policy_id": authorization["outcome_qc_policy"]["policy_id"],
+        },
+        "confirmatory_family_sha256": hashlib.sha256(
+            json.dumps(
+                family,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest(),
+        "minimum_valid_targets_per_station_horizon": protocol[
+            "availability_contract"
+        ]["minimum_valid_targets_per_station_horizon"],
+        "primary_statistics_filtered_or_recomputed_on_selected_rows": False,
+        "models_retrained_or_recalibrated": False,
+        "sites_or_primary_keys_removed_by_qc": False,
+        "target_plausibility": {
+            "outside_range_count": len(outside_records),
+            "outside_range_records": outside_records,
+            "outside_range_values_retained_in_primary_analysis": True,
+            "pass": outcome_qc_pass,
+        },
+        "single_extreme_influence": [
+            {"test_id": test_id, "pass": True} for test_id in test_ids
+        ],
+        "leave_one_huc_direction": [
+            {"test_id": test_id, "pass": True} for test_id in test_ids
+        ],
+        "components": components,
+        "pass": outcome_qc_pass,
+        "directional_claims_allowed_by_outcome_qc": outcome_qc_pass,
+        "failure_action": policy["decision"]["failure_action"],
+    }
+    gate["gate_self_sha256"] = hashlib.sha256(
+        json.dumps(
+            gate,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    gate_path = tmp_path / state["outcome_qc_gate"]
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    gate_path.write_text(json.dumps(gate), encoding="utf-8")
+    gate_binding = {
+        "path": state["outcome_qc_gate"],
+        "sha256": _sha256(gate_path),
+    }
+
     statistics = _statistics(protocol, conflict=conflict)
+    statistics["outcome_qc_gate"] = {
+        **gate_binding,
+        "format": gate["format"],
+        "status": gate["status"],
+        "pass": outcome_qc_pass,
+        "directional_claims_allowed": outcome_qc_pass,
+    }
     statistics_path = tmp_path / state["statistics"]
     statistics_path.parent.mkdir(parents=True, exist_ok=True)
     statistics_path.write_text(json.dumps(statistics), encoding="utf-8")
@@ -221,7 +330,8 @@ def _post_fixture(
             "statistics": {
                 "path": state["statistics"],
                 "sha256": _sha256(statistics_path),
-            }
+            },
+            "outcome_qc_gate": gate_binding,
         },
         "formal_tests": statistics["tests"],
     }
@@ -439,6 +549,21 @@ def test_v2_statistics_must_match_receipt_binding_and_exact_family(
         module.validate_claims(root=tmp_path, registry_path=registry_path)
 
 
+def test_v2_outcome_qc_gate_must_match_receipt_and_self_hash(
+    tmp_path, monkeypatch,
+) -> None:
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _, state = _post_fixture(
+        module, tmp_path, registry, protocol, monkeypatch
+    )
+    gate_path = tmp_path / state["outcome_qc_gate"]
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["directional_claims_allowed_by_outcome_qc"] = False
+    gate_path.write_text(json.dumps(gate), encoding="utf-8")
+    with pytest.raises(module.ClaimRegistryError, match="SHA-256 changed"):
+        module.validate_claims(root=tmp_path, registry_path=registry_path)
+
+
 def test_v2_conflicting_p_and_ci_rules_render_not_supported(
     tmp_path, monkeypatch
 ):
@@ -464,11 +589,41 @@ def test_strong_p_values_and_favorable_intervals_cannot_override_failed_gate() -
     }
 
     assert module._result_verdict(
-        row, inference_claim_eligible=False
+        row,
+        inference_claim_eligible=False,
+        outcome_qc_claim_eligible=True,
     ) == "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED"
     assert module._result_verdict(
-        row, inference_claim_eligible=True
+        row,
+        inference_claim_eligible=True,
+        outcome_qc_claim_eligible=True,
     ) == "SUPERIORITY_SUPPORTED"
+    assert module._result_verdict(
+        row,
+        inference_claim_eligible=True,
+        outcome_qc_claim_eligible=False,
+    ) == "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED"
+
+
+def test_failed_outcome_qc_gate_withholds_directional_claims(
+    tmp_path, monkeypatch,
+) -> None:
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _post_fixture(
+        module,
+        tmp_path,
+        registry,
+        protocol,
+        monkeypatch,
+        inference_claim_eligible=True,
+        outcome_qc_pass=False,
+    )
+    rendered = module.render_result_claim_blocks(
+        root=tmp_path, registry_path=registry_path
+    )["paper/main.md"]
+    assert b"DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED" in rendered
+    assert b"SUPERIORITY_SUPPORTED for" not in rendered
+    assert b"NONINFERIORITY_SUPPORTED for" not in rendered
 
 
 def test_cli_has_no_phase_override(tmp_path):

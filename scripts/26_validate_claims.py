@@ -19,7 +19,7 @@ import math
 from pathlib import Path
 import re
 import sys
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -212,11 +212,15 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         ],
         "support_requires": [
             "authorization.inference_gate.claim_eligible == true",
+            "statistics.outcome_qc_gate.directional_claims_allowed == true",
             "status == ESTIMABLE",
             "p_holm <= 0.05",
             "ci_high_c < margin_c",
         ],
         "inference_gate_failure": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
+        "outcome_qc_gate_failure": (
+            "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED"
+        ),
         "p_ci_disagreement": "EVIDENCE_CONFLICT_NOT_SUPPORTED",
         "coherent_failure": "NOT_ESTABLISHED",
         "nonestimable": "NOT_ESTIMABLE",
@@ -236,6 +240,7 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
             "SUPERIORITY_SUPPORTED", "NONINFERIORITY_SUPPORTED",
             "EVIDENCE_CONFLICT_NOT_SUPPORTED", "NOT_ESTABLISHED",
             "NOT_ESTIMABLE", "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
+            "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED",
         )
     ):
         raise ClaimRegistryError("decision rule lacks a fixed result template")
@@ -475,6 +480,7 @@ def _canonical_state(authorization: Mapping[str, Any], *, root: Path) -> Mapping
         "run_directory": base,
         "intent": f"{base}/opening_intent_v1.json",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
         "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
@@ -581,7 +587,7 @@ def _finite_number(value: object, *, label: str) -> float:
     if isinstance(value, bool):
         raise ClaimRegistryError(f"statistics {label} is boolean, not numeric")
     try:
-        number = float(value)
+        number = float(cast(Any, value))
     except (TypeError, ValueError) as exc:
         raise ClaimRegistryError(f"statistics {label} is not numeric") from exc
     if not math.isfinite(number):
@@ -765,6 +771,215 @@ def _load_verified_statistics(
     return statistics, str(binding["sha256"])
 
 
+def _outcome_qc_claim_eligibility(
+    *,
+    root: Path,
+    phase: Mapping[str, Any],
+    statistics: Mapping[str, Any],
+    protocol: Mapping[str, Any],
+) -> bool:
+    """Verify the receipt-bound QC gate before permitting directional prose."""
+    receipt = phase.get("receipt")
+    state = phase.get("state")
+    authorization = phase.get("authorization")
+    if (
+        not isinstance(receipt, Mapping)
+        or not isinstance(state, Mapping)
+        or not isinstance(authorization, Mapping)
+    ):
+        raise ClaimRegistryError("verified POST lacks outcome-QC evidence")
+    artifacts = receipt.get("artifacts")
+    receipt_binding = (
+        artifacts.get("outcome_qc_gate")
+        if isinstance(artifacts, Mapping)
+        else None
+    )
+    if (
+        not isinstance(receipt_binding, Mapping)
+        or set(receipt_binding) != {"path", "sha256"}
+        or receipt_binding.get("path") != state.get("outcome_qc_gate")
+    ):
+        raise ClaimRegistryError("receipt lacks the canonical outcome-QC gate")
+    gate_path = _inside(root, receipt_binding["path"], require_file=True)
+    if _sha256_file(gate_path) != receipt_binding.get("sha256"):
+        raise ClaimRegistryError("receipt-bound outcome-QC gate SHA-256 changed")
+    gate = _load_json(gate_path, label="receipt-bound outcome-QC gate")
+    exact_gate_keys = {
+        "format", "status", "policy", "confirmatory_family_sha256",
+        "minimum_valid_targets_per_station_horizon",
+        "primary_statistics_filtered_or_recomputed_on_selected_rows",
+        "models_retrained_or_recalibrated", "sites_or_primary_keys_removed_by_qc",
+        "target_plausibility", "single_extreme_influence",
+        "leave_one_huc_direction", "components", "pass",
+        "directional_claims_allowed_by_outcome_qc", "failure_action",
+        "gate_self_sha256",
+    }
+    if set(gate) != exact_gate_keys or gate.get("format") != (
+        "thermoroute.route-a-outcome-qc-gate.v1"
+    ):
+        raise ClaimRegistryError("outcome-QC gate schema or format changed")
+    stable = dict(gate)
+    self_digest = stable.pop("gate_self_sha256")
+    expected_self_digest = hashlib.sha256(
+        json.dumps(
+            stable,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    if self_digest != expected_self_digest:
+        raise ClaimRegistryError("outcome-QC gate self-hash is invalid")
+
+    policy_binding = authorization.get("outcome_qc_policy")
+    gate_policy = gate.get("policy")
+    if (
+        not isinstance(policy_binding, Mapping)
+        or set(policy_binding)
+        != {"path", "sha256", "format", "policy_id", "required"}
+        or policy_binding.get("required") is not True
+        or policy_binding.get("format")
+        != "thermoroute.route-a-outcome-qc-policy.v1"
+        or not isinstance(gate_policy, Mapping)
+        or dict(gate_policy)
+        != {
+            "path": policy_binding.get("path"),
+            "sha256": policy_binding.get("sha256"),
+            "policy_id": policy_binding.get("policy_id"),
+        }
+    ):
+        raise ClaimRegistryError("outcome-QC gate differs from its frozen policy")
+    policy_path = _inside(root, policy_binding["path"], require_file=True)
+    if _sha256_file(policy_path) != policy_binding.get("sha256"):
+        raise ClaimRegistryError("frozen outcome-QC policy SHA-256 changed")
+    policy = _load_json(policy_path, label="frozen outcome-QC policy")
+    if (
+        policy.get("format") != policy_binding.get("format")
+        or policy.get("policy_id") != policy_binding.get("policy_id")
+        or policy.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or policy.get("post_2020_wtemp_requested_or_inspected") is not False
+        or policy.get("outcome_independent") is not True
+    ):
+        raise ClaimRegistryError("frozen outcome-QC policy identity changed")
+    inference = protocol.get("primary_inference_contract")
+    family = (
+        inference.get("confirmatory_family")
+        if isinstance(inference, Mapping)
+        else None
+    )
+    availability = protocol.get("availability_contract")
+    if (
+        not isinstance(family, list)
+        or len(family) != 5
+        or not isinstance(availability, Mapping)
+        or gate.get("confirmatory_family_sha256")
+        != hashlib.sha256(
+            json.dumps(
+                family,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        or gate.get("minimum_valid_targets_per_station_horizon")
+        != availability.get("minimum_valid_targets_per_station_horizon")
+    ):
+        raise ClaimRegistryError("outcome-QC gate differs from the bound protocol")
+    decision = policy.get("decision")
+    if (
+        not isinstance(decision, Mapping)
+        or gate.get("failure_action") != decision.get("failure_action")
+    ):
+        raise ClaimRegistryError("outcome-QC gate failure action changed")
+
+    plausibility = gate.get("target_plausibility")
+    components = gate.get("components")
+    single = gate.get("single_extreme_influence")
+    leave_one = gate.get("leave_one_huc_direction")
+    if (
+        not isinstance(plausibility, Mapping)
+        or not isinstance(components, Mapping)
+        or set(components)
+        != {
+            "target_plausibility_pass", "single_extreme_influence_pass",
+            "leave_one_huc_direction_pass",
+        }
+        or not isinstance(single, list)
+        or not isinstance(leave_one, list)
+        or len(single) != 5
+        or len(leave_one) != 5
+    ):
+        raise ClaimRegistryError("outcome-QC component registry changed")
+    test_rows = statistics.get("tests")
+    if not isinstance(test_rows, list) or len(test_rows) != 5:
+        raise ClaimRegistryError("outcome-QC gate lacks the five-test statistics")
+    expected_test_ids = [str(row["test_id"]) for row in test_rows]
+    if (
+        [str(row.get("test_id", "")) for row in single
+         if isinstance(row, Mapping)] != expected_test_ids
+        or [str(row.get("test_id", "")) for row in leave_one
+            if isinstance(row, Mapping)] != expected_test_ids
+        or not all(
+            isinstance(row, Mapping) and isinstance(row.get("pass"), bool)
+            for row in [*single, *leave_one]
+        )
+    ):
+        raise ClaimRegistryError("outcome-QC gate does not cover the exact five tests")
+    outside_records = plausibility.get("outside_range_records")
+    outside_count = plausibility.get("outside_range_count")
+    if (
+        not isinstance(outside_records, list)
+        or not isinstance(outside_count, int)
+        or isinstance(outside_count, bool)
+        or outside_count != len(outside_records)
+        or plausibility.get("outside_range_values_retained_in_primary_analysis")
+        is not True
+        or plausibility.get("pass") is not (outside_count == 0)
+    ):
+        raise ClaimRegistryError("outcome-QC plausibility decision is inconsistent")
+    expected_components = {
+        "target_plausibility_pass": bool(plausibility["pass"]),
+        "single_extreme_influence_pass": all(bool(row["pass"]) for row in single),
+        "leave_one_huc_direction_pass": all(
+            bool(row["pass"]) for row in leave_one
+        ),
+    }
+    if dict(components) != expected_components:
+        raise ClaimRegistryError("outcome-QC component decision is inconsistent")
+    passed = all(expected_components.values())
+    expected_status = (
+        "PASS_DIRECTIONAL_REPORTING_QC"
+        if passed
+        else "FAIL_WITHHOLD_DIRECTIONAL_CLAIMS"
+    )
+    if (
+        gate.get("pass") is not passed
+        or gate.get("directional_claims_allowed_by_outcome_qc") is not passed
+        or gate.get("status") != expected_status
+        or gate.get("primary_statistics_filtered_or_recomputed_on_selected_rows")
+        is not False
+        or gate.get("models_retrained_or_recalibrated") is not False
+        or gate.get("sites_or_primary_keys_removed_by_qc") is not False
+    ):
+        raise ClaimRegistryError("outcome-QC final decision is inconsistent")
+
+    statistics_binding = statistics.get("outcome_qc_gate")
+    expected_statistics_binding = {
+        "path": receipt_binding["path"],
+        "sha256": receipt_binding["sha256"],
+        "format": gate["format"],
+        "status": gate["status"],
+        "pass": passed,
+        "directional_claims_allowed": passed,
+    }
+    if (
+        not isinstance(statistics_binding, Mapping)
+        or dict(statistics_binding) != expected_statistics_binding
+    ):
+        raise ClaimRegistryError("statistics outcome-QC binding or verdict changed")
+    return passed
+
+
 def _number(value: object) -> str:
     if value is None:
         return "NA"
@@ -773,12 +988,16 @@ def _number(value: object) -> str:
 
 
 def _result_verdict(
-    row: Mapping[str, Any], *, inference_claim_eligible: bool
+    row: Mapping[str, Any], *,
+    inference_claim_eligible: bool,
+    outcome_qc_claim_eligible: bool,
 ) -> str:
     if row["status"] != "ESTIMABLE":
         return "NOT_ESTIMABLE"
     if inference_claim_eligible is not True:
         return "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED"
+    if outcome_qc_claim_eligible is not True:
+        return "DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED"
     p_support = row["reject_at_0_05"] is True
     interval_support = row["confidence_bound_supports_margin"] is True
     if p_support != interval_support:
@@ -795,9 +1014,12 @@ def _render_result_text(
     templates: Mapping[str, Any],
     *,
     inference_claim_eligible: bool,
+    outcome_qc_claim_eligible: bool,
 ) -> tuple[str, str]:
     verdict = _result_verdict(
-        row, inference_claim_eligible=inference_claim_eligible
+        row,
+        inference_claim_eligible=inference_claim_eligible,
+        outcome_qc_claim_eligible=outcome_qc_claim_eligible,
     )
     template = templates.get(verdict)
     if not isinstance(template, str) or not template:
@@ -851,6 +1073,7 @@ def _expected_claims(
     phase: str,
     statistics: Mapping[str, Any] | None,
     inference_claim_eligible: bool = False,
+    outcome_qc_claim_eligible: bool = False,
 ) -> Mapping[str, Mapping[str, Any]]:
     templates = registry["claim_templates"]
     expected: dict[str, Mapping[str, Any]] = {}
@@ -874,6 +1097,7 @@ def _expected_claims(
                 by_id[test_id],
                 templates,
                 inference_claim_eligible=inference_claim_eligible,
+                outcome_qc_claim_eligible=outcome_qc_claim_eligible,
             )
             entry = dict(spec)
             entry["polarity"] = verdict
@@ -910,11 +1134,18 @@ def render_result_claim_blocks(
         raise ClaimRegistryError(
             "verified Route-A authorization lacks a boolean inference gate"
         )
+    outcome_qc_claim_eligible = _outcome_qc_claim_eligibility(
+        root=root,
+        phase=phase,
+        statistics=statistics,
+        protocol=protocol,
+    )
     expected = _expected_claims(
         registry=registry,
         phase=POST_PHASE,
         statistics=statistics,
         inference_claim_eligible=bool(gate["claim_eligible"]),
+        outcome_qc_claim_eligible=outcome_qc_claim_eligible,
     )
     grouped: dict[str, list[bytes]] = defaultdict(list)
     result_ids = set(registry["required_postopen_coverage"]["claim_ids"])
@@ -954,10 +1185,10 @@ def _parse_blocks(text: str) -> tuple[list[Mapping[str, Any]], str, list[str]]:
         position = stop
     outside_parts = []
     cursor = 0
-    for start, stop in spans:
-        outside_parts.append(text[cursor:start])
+    for span_start, span_stop in spans:
+        outside_parts.append(text[cursor:span_start])
         outside_parts.append("\n")
-        cursor = stop
+        cursor = span_stop
     outside_parts.append(text[cursor:])
     outside = "".join(outside_parts)
     if BLOCK_TOKEN in outside:
@@ -1044,6 +1275,7 @@ def validate_claims(
         )
     statistics: Mapping[str, Any] | None = None
     inference_claim_eligible = False
+    outcome_qc_claim_eligible = False
     if phase == POST_PHASE:
         statistics, _ = _load_verified_statistics(
             root=root,
@@ -1062,11 +1294,18 @@ def validate_claims(
                 "verified Route-A authorization lacks a boolean inference gate"
             )
         inference_claim_eligible = bool(gate["claim_eligible"])
+        outcome_qc_claim_eligible = _outcome_qc_claim_eligibility(
+            root=root,
+            phase=phase_evidence,
+            statistics=statistics,
+            protocol=protocol,
+        )
     expected = _expected_claims(
         registry=registry,
         phase=phase,
         statistics=statistics,
         inference_claim_eligible=inference_claim_eligible,
+        outcome_qc_claim_eligible=outcome_qc_claim_eligible,
     )
     expected_entries = {
         str(item["claim"]["claim_id"]): item["claim"]
