@@ -627,6 +627,7 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         "thermoroute.usgs": "src/thermoroute/usgs.py",
         "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
         "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
+        "thermoroute.quantiles": "src/thermoroute/quantiles.py",
     }
     modules: dict[str, dict[str, str]] = {}
     for name, relative in module_names.items():
