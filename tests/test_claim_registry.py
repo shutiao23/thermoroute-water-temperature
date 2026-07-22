@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -16,6 +17,9 @@ SCRIPT = ROOT / "scripts" / "26_validate_claims.py"
 PRODUCTION_REGISTRY = ROOT / "protocols" / "route_a_claim_registry_v1.json"
 PRODUCTION_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
 PRODUCTION_OUTCOME_QC_POLICY = ROOT / "protocols" / "route_a_outcome_qc_policy_v1.json"
+PRODUCTION_COVERAGE_POLICY = (
+    ROOT / "protocols" / "route_a_temporal_coverage_policy_v1.json"
+)
 
 
 def _module():
@@ -95,6 +99,9 @@ def _state(namespace: str = "a" * 24) -> dict[str, str]:
         "run_directory": base,
         "intent": f"{base}/opening_intent_v1.json",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "temporal_coverage_audit": (
+            f"{base}/trusted/temporal_coverage_audit_v1.json"
+        ),
         "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
@@ -113,6 +120,11 @@ def _write_authorization(
     policy_path.parent.mkdir(parents=True, exist_ok=True)
     policy_path.write_bytes(PRODUCTION_OUTCOME_QC_POLICY.read_bytes())
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    coverage_policy_path = (
+        tmp_path / "protocols" / "route_a_temporal_coverage_policy_v1.json"
+    )
+    coverage_policy_path.write_bytes(PRODUCTION_COVERAGE_POLICY.read_bytes())
+    coverage_policy = json.loads(coverage_policy_path.read_text(encoding="utf-8"))
     authorization = {
         "format": "thermoroute.route-a-opening-authorization.v1",
         "status": "AUTHORIZED_LABELS_STILL_SEALED",
@@ -134,6 +146,24 @@ def _write_authorization(
             "format": policy["format"],
             "policy_id": policy["policy_id"],
             "required": True,
+        },
+        "temporal_coverage_policy": {
+            "path": "protocols/route_a_temporal_coverage_policy_v1.json",
+            "sha256": _sha256(coverage_policy_path),
+            "format": coverage_policy["format"],
+            "policy_id": coverage_policy["policy_id"],
+            "status": coverage_policy["status"],
+            "required": True,
+        },
+        "registries": {
+            "development": {
+                "path": "data_usgs/development_site_registry.json",
+                "sha256": "1" * 64,
+            },
+            "external": {
+                "path": "data_usgs/external_site_registry.json",
+                "sha256": "2" * 64,
+            },
         },
         "state_paths": state,
     }
@@ -335,13 +365,128 @@ def _post_fixture(
     statistics_path = tmp_path / state["statistics"]
     statistics_path.parent.mkdir(parents=True, exist_ok=True)
     statistics_path.write_text(json.dumps(statistics), encoding="utf-8")
+    source_artifacts = {
+        "acquisition_manifest": {
+            "path": "data_usgs/acquisition_manifest.json",
+            "sha256": "3" * 64,
+        },
+        "temporal_normalized_outcomes": {
+            "path": "data_usgs/temporal_normalized.parquet",
+            "sha256": "4" * 64,
+        },
+        "external_normalized_outcomes": {
+            "path": "data_usgs/external_normalized.parquet",
+            "sha256": "5" * 64,
+        },
+        "temporal_predictions": {
+            "path": "outputs/temporal_predictions.parquet",
+            "sha256": "6" * 64,
+        },
+        "external_predictions": {
+            "path": "outputs/external_predictions.parquet",
+            "sha256": "7" * 64,
+        },
+        "availability_registry": {
+            "path": "outputs/availability_registry.csv",
+            "sha256": "8" * 64,
+        },
+    }
+    statistics_binding = {
+        "path": state["statistics"],
+        "sha256": _sha256(statistics_path),
+    }
+    source_bindings = {
+        "policy": {
+            "path": authorization["temporal_coverage_policy"]["path"],
+            "sha256": authorization["temporal_coverage_policy"]["sha256"],
+        },
+        "protocol": dict(authorization["protocol"]),
+        "acquisition_manifest": dict(source_artifacts["acquisition_manifest"]),
+        "temporal_normalized_outcomes": dict(
+            source_artifacts["temporal_normalized_outcomes"]
+        ),
+        "external_normalized_outcomes": dict(
+            source_artifacts["external_normalized_outcomes"]
+        ),
+        "temporal_site_registry": dict(authorization["registries"]["development"]),
+        "external_site_registry": dict(authorization["registries"]["external"]),
+        "temporal_full_predictions": dict(source_artifacts["temporal_predictions"]),
+        "external_full_predictions": dict(source_artifacts["external_predictions"]),
+        "availability_registry": dict(source_artifacts["availability_registry"]),
+        "statistics": dict(statistics_binding),
+    }
+    sensitivity_sources = (
+        "equal_12cell",
+        "leave_one_year_2021",
+        "leave_one_year_2022",
+        "leave_one_year_2023",
+        "leave_one_season_DJF",
+        "leave_one_season_MAM",
+        "leave_one_season_JJA",
+        "leave_one_season_SON",
+    )
+    coverage_audit = {
+        "format": "thermoroute.route-a-temporal-coverage-audit.v1",
+        "status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+        "primary_statistics_unchanged": True,
+        "primary_station_set_unchanged": True,
+        "sensitivity_changes_primary_result_or_decision": False,
+        "inference_computed": False,
+        "source_bindings": source_bindings,
+        "comparison_sensitivities": [
+            {
+                "test_id": row["test_id"],
+                "formal_statistics_status": row["status"],
+                "formal_median_effect_c": row["median_effect_c"],
+                "prediction_derived_descriptive_median_effect_c": row[
+                    "median_effect_c"
+                ],
+                "prediction_derived_descriptive_effect_does_not_upgrade_inference": True,
+                "n_primary_reportable_stations": row["n_stations"],
+                "n_all_12_cells_nonempty_stations": row["n_stations"],
+                "frozen_sensitivity_candidates": [
+                    {
+                        "source": source,
+                        "descriptive_median_effect_c": row["median_effect_c"],
+                    }
+                    for source in sensitivity_sources
+                ],
+                "frozen_worst_unfavorable_sensitivity": {
+                    "frozen_order_index": 0,
+                    "source": sensitivity_sources[0],
+                    "descriptive_median_effect_c": row["median_effect_c"],
+                },
+            }
+            for row in statistics["tests"]
+        ],
+    }
+    coverage_audit["audit_self_sha256"] = hashlib.sha256(
+        json.dumps(
+            coverage_audit,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    coverage_path = tmp_path / state["temporal_coverage_audit"]
+    coverage_path.write_text(json.dumps(coverage_audit), encoding="utf-8")
+    coverage_binding = {
+        "path": state["temporal_coverage_audit"],
+        "sha256": _sha256(coverage_path),
+    }
     receipt = {
         "artifacts": {
-            "statistics": {
-                "path": state["statistics"],
-                "sha256": _sha256(statistics_path),
-            },
+            **source_artifacts,
+            "statistics": statistics_binding,
             "outcome_qc_gate": gate_binding,
+            "temporal_coverage_audit": coverage_binding,
+        },
+        "temporal_coverage_audit": {
+            **coverage_binding,
+            "format": "thermoroute.route-a-temporal-coverage-audit.v1",
+            "core_status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+            "physical_replay_verified": True,
+            "source_binding_count": 11,
         },
         "formal_tests": statistics["tests"],
     }
@@ -349,6 +494,11 @@ def _post_fixture(
         module,
         "_validate_completed_receipt",
         lambda authorization_path, *, root, allow_gitless_archive: receipt,
+    )
+    monkeypatch.setattr(
+        module,
+        "_coverage_replay_api",
+        lambda _root: (lambda **kwargs: kwargs["expected_audit"]),
     )
     return statistics, state, receipt
 
@@ -828,6 +978,127 @@ def test_both_failed_gates_are_jointly_disclosed(tmp_path, monkeypatch) -> None:
     assert b"DESCRIPTIVE_ONLY_OUTCOME_QC_GATE_FAILED" not in rendered
 
 
+def test_coverage_claim_evidence_keeps_nonestimable_formal_effect_null(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _registry_path, registry, protocol = _v2_fixture(tmp_path)
+    statistics, state, receipt = _post_fixture(
+        module, tmp_path, registry, protocol, monkeypatch
+    )
+    formal = statistics["tests"][0]
+    formal["status"] = "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS"
+    formal["median_effect_c"] = None
+    formal["n_stations"] = 1
+    statistics_path = tmp_path / state["statistics"]
+    statistics_path.write_text(json.dumps(statistics), encoding="utf-8")
+    receipt["artifacts"]["statistics"]["sha256"] = _sha256(statistics_path)
+
+    audit_path = tmp_path / state["temporal_coverage_audit"]
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["source_bindings"]["statistics"] = dict(
+        receipt["artifacts"]["statistics"]
+    )
+    coverage_row = audit["comparison_sensitivities"][0]
+    coverage_row["formal_statistics_status"] = formal["status"]
+    coverage_row["formal_median_effect_c"] = None
+    coverage_row["n_primary_reportable_stations"] = 1
+    audit.pop("audit_self_sha256")
+    audit["audit_self_sha256"] = hashlib.sha256(
+        json.dumps(
+            audit,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+    receipt["artifacts"]["temporal_coverage_audit"]["sha256"] = _sha256(
+        audit_path
+    )
+    receipt["temporal_coverage_audit"]["sha256"] = _sha256(audit_path)
+    authorization = json.loads(
+        (
+            tmp_path / "data_usgs/confirmatory_opening_authorization_v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    phase = {
+        "authorization": authorization,
+        "state": state,
+        "receipt": receipt,
+    }
+    module._temporal_coverage_claim_evidence(
+        root=tmp_path,
+        phase=phase,
+        statistics=statistics,
+    )
+
+    coverage_row["formal_median_effect_c"] = coverage_row[
+        "prediction_derived_descriptive_median_effect_c"
+    ]
+    audit.pop("audit_self_sha256")
+    audit["audit_self_sha256"] = hashlib.sha256(
+        json.dumps(
+            audit,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+    receipt["artifacts"]["temporal_coverage_audit"]["sha256"] = _sha256(
+        audit_path
+    )
+    receipt["temporal_coverage_audit"]["sha256"] = _sha256(audit_path)
+    with pytest.raises(module.ClaimRegistryError, match="conflates formal and descriptive"):
+        module._temporal_coverage_claim_evidence(
+            root=tmp_path,
+            phase=phase,
+            statistics=statistics,
+        )
+
+
+def test_postopen_claims_require_successful_physical_coverage_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _post_fixture(module, tmp_path, registry, protocol, monkeypatch)
+
+    def rejected_replay(**_kwargs: Any) -> None:
+        raise RuntimeError("synthetic physical mismatch")
+
+    monkeypatch.setattr(
+        module,
+        "_coverage_replay_api",
+        lambda _root: rejected_replay,
+    )
+    with pytest.raises(module.ClaimRegistryError, match="failed physical replay"):
+        module.render_result_claim_blocks(
+            root=tmp_path,
+            registry_path=registry_path,
+        )
+
+
+def test_postopen_claims_require_explicit_receipt_coverage_replay_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, registry_path, registry, protocol = _v2_fixture(tmp_path)
+    _statistics_value, _state_value, receipt = _post_fixture(
+        module, tmp_path, registry, protocol, monkeypatch
+    )
+    del receipt["temporal_coverage_audit"]
+    with pytest.raises(
+        module.ClaimRegistryError,
+        match="lacks verified temporal-coverage physical replay evidence",
+    ):
+        module.render_result_claim_blocks(
+            root=tmp_path,
+            registry_path=registry_path,
+        )
+
+
 def test_trusted_report_renderer_exposes_gates_without_unstructured_verdict() -> None:
     sys.path.insert(0, str(ROOT / "src"))
     from thermoroute.opening import _render_confirmatory_report
@@ -855,6 +1126,21 @@ def test_trusted_report_renderer_exposes_gates_without_unstructured_verdict() ->
         }
         for test in family
     ]
+    tests[0].update(
+        {
+            "status": "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS",
+            "median_effect_c": None,
+            "ci_low_c": None,
+            "ci_high_c": None,
+            "n_stations": 1,
+            "n_clusters": 1,
+            "win_rate": None,
+            "p_one_sided_raw": 1.0,
+            "p_holm": 1.0,
+            "reject_at_0_05": False,
+            "confidence_bound_supports_margin": False,
+        }
+    )
     availability = pd.DataFrame(
         [
             {
@@ -944,6 +1230,39 @@ def test_trusted_report_renderer_exposes_gates_without_unstructured_verdict() ->
         approved_target_sensitivity={"comparisons": []},
         spatial_sensitivity={"comparisons": []},
         probabilistic_evaluation={"rows": []},
+        temporal_coverage_audit={
+            "status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+            "comparison_sensitivities": [
+                {
+                    "test_id": test["test_id"],
+                    "formal_statistics_status": test["status"],
+                    "formal_median_effect_c": test["median_effect_c"],
+                    "prediction_derived_descriptive_median_effect_c": -0.1,
+                    "n_all_12_cells_nonempty_stations": 1,
+                    "frozen_sensitivity_candidates": [
+                        {
+                            "source": source,
+                            "descriptive_median_effect_c": -0.1,
+                        }
+                        for source in (
+                            "equal_12cell",
+                            "leave_one_year_2021",
+                            "leave_one_year_2022",
+                            "leave_one_year_2023",
+                            "leave_one_season_DJF",
+                            "leave_one_season_MAM",
+                            "leave_one_season_JJA",
+                            "leave_one_season_SON",
+                        )
+                    ],
+                    "frozen_worst_unfavorable_sensitivity": {
+                        "source": "equal_12cell",
+                        "descriptive_median_effect_c": -0.1,
+                    },
+                }
+                for test in tests
+            ],
+        },
         transport_summary={
             "opening_count": 1,
             "attempt_count": 1,
@@ -966,6 +1285,11 @@ def test_trusted_report_renderer_exposes_gates_without_unstructured_verdict() ->
         "Predeclared five-test family"
     )
     assert "CI supports margin" not in rendered
+    assert (
+        "| H1-h1-vs-damped | "
+        "NOT_ESTIMABLE_INSUFFICIENT_STATIONS_OR_CLUSTERS | NA | -0.1 |"
+    ) in rendered
+    assert "The separate prediction-derived effect remains a fixed-cohort descriptive" in rendered
     validator = _module()
     assert (
         validator._compile_lint(result_lint, lint_id="LINT_UNSTRUCTURED_ROUTE_A_RESULT").search(

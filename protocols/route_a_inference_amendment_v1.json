@@ -103,6 +103,12 @@
       "sha256": "e8fb0b6857e2c4ce76fc37704ebce3d8b821585362a3a1dd4fe980edbe059b96",
       "required": true,
       "role": "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_directional_reporting_gate_not_complete_outcome_quality_certification"
+    },
+    "temporal_coverage_policy": {
+      "path": "protocols/route_a_temporal_coverage_policy_v1.json",
+      "sha256": "6b08850ced16de6f97ceda8b16ce89b301d5c5cccb794a4427da0a3e39e211ad",
+      "required": true,
+      "role": "predeclared_nonfiltering_temporal_coverage_and_equal_cell_descriptive_sensitivity_never_changes_formal_result_or_decision"
     }
   },
   "trusted_scoring_recovery_contract": {

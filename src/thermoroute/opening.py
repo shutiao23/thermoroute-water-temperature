@@ -50,6 +50,17 @@ from .chronology import (
     validate_prelabel_chronology,
 )
 from .confirmatory import CANDIDATE_COLUMNS, replay_candidate_evidence
+from .coverage_audit import (
+    AUDIT_FORMAT as TEMPORAL_COVERAGE_AUDIT_FORMAT,
+    CoverageAuditError,
+    POLICY_RELATIVE as TEMPORAL_COVERAGE_POLICY_RELATIVE,
+    SOURCE_BINDING_KEYS as TEMPORAL_COVERAGE_SOURCE_BINDING_KEYS,
+    validate_temporal_coverage_policy,
+)
+from .coverage_bridge import (
+    CoverageBridgeError,
+    replay_temporal_coverage_from_physical_files,
+)
 from .development_replay import validate_development_replay_receipt
 from .frozen_inference import (
     FrozenInferenceError,
@@ -898,6 +909,9 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
         "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
         "thermoroute.quantiles": "src/thermoroute/quantiles.py",
+        "thermoroute.coverage_audit": "src/thermoroute/coverage_audit.py",
+        "thermoroute.coverage_bridge": "src/thermoroute/coverage_bridge.py",
+        "thermoroute.repro": "src/thermoroute/repro.py",
     }
     modules: dict[str, dict[str, str]] = {}
     for name, relative in module_names.items():
@@ -1020,6 +1034,7 @@ def _canonical_state_paths(
     inference_gate_sha256: str,
     inference_amendment_seal_sha256: str,
     outcome_qc_policy_sha256: str,
+    temporal_coverage_policy_sha256: str,
 ) -> dict[str, str]:
     namespace = sha256_json({
         "protocol_sha256": protocol_sha256,
@@ -1030,6 +1045,7 @@ def _canonical_state_paths(
         "inference_gate_sha256": inference_gate_sha256,
         "inference_amendment_seal_sha256": inference_amendment_seal_sha256,
         "outcome_qc_policy_sha256": outcome_qc_policy_sha256,
+        "temporal_coverage_policy_sha256": temporal_coverage_policy_sha256,
     })[:24]
     base = Path("outputs") / "confirmatory" / f"route_a_{namespace}"
     values = {
@@ -1079,6 +1095,9 @@ def _canonical_state_paths(
             base / "trusted" / "external_predictions_v1.parquet"
         ).as_posix(),
         "statistics": (base / "trusted" / "statistics_v1.json").as_posix(),
+        "temporal_coverage_audit": (
+            base / "trusted" / "temporal_coverage_audit_v1.json"
+        ).as_posix(),
         "report": (base / "trusted" / "report_v1.md").as_posix(),
         "receipt": (base / "opening_receipt_v1.json").as_posix(),
         "receipt_sha256": (base / "opening_receipt_v1.sha256").as_posix(),
@@ -3794,6 +3813,7 @@ def freeze_opening_authorization(
     inference_amendment: str | Path = INFERENCE_AMENDMENT_RELATIVE,
     inference_amendment_seal: str | Path = INFERENCE_AMENDMENT_SEAL_RELATIVE,
     outcome_qc_policy: str | Path = OUTCOME_QC_POLICY_RELATIVE,
+    temporal_coverage_policy: str | Path = TEMPORAL_COVERAGE_POLICY_RELATIVE,
 ) -> dict[str, Any]:
     """Validate all pre-label evidence and create the immutable authorization."""
     root = Path(root).resolve()
@@ -3825,6 +3845,10 @@ def freeze_opening_authorization(
     if not outcome_qc_policy_path.is_absolute():
         outcome_qc_policy_path = root / outcome_qc_policy_path
     outcome_qc_policy_path = outcome_qc_policy_path.resolve()
+    temporal_coverage_policy_path = Path(temporal_coverage_policy)
+    if not temporal_coverage_policy_path.is_absolute():
+        temporal_coverage_policy_path = root / temporal_coverage_policy_path
+    temporal_coverage_policy_path = temporal_coverage_policy_path.resolve()
     protocol_info = validate_protocol(protocol_path, root=root)
     try:
         amendment = validate_inference_amendment(
@@ -3850,7 +3874,10 @@ def freeze_opening_authorization(
             root=root,
             protocol_path=protocol_path,
         )
-    except (InferenceGateError, OutcomeQCGateError) as exc:
+        temporal_coverage_policy_document = validate_temporal_coverage_policy(
+            temporal_coverage_policy_path
+        )
+    except (InferenceGateError, OutcomeQCGateError, CoverageAuditError) as exc:
         raise OpeningContractError(
             "prelabel inference/QC gate or amendment is absent or stale"
         ) from exc
@@ -3956,6 +3983,9 @@ def freeze_opening_authorization(
             inference_amendment_seal_path
         ),
         outcome_qc_policy_sha256=sha256_file(outcome_qc_policy_path),
+        temporal_coverage_policy_sha256=sha256_file(
+            temporal_coverage_policy_path
+        ),
     )
     stable = {
         "format": AUTHORIZATION_FORMAT,
@@ -4018,6 +4048,13 @@ def freeze_opening_authorization(
             **_binding(root, outcome_qc_policy_path),
             "format": outcome_qc_policy_document["format"],
             "policy_id": outcome_qc_policy_document["policy_id"],
+            "required": True,
+        },
+        "temporal_coverage_policy": {
+            **_binding(root, temporal_coverage_policy_path),
+            "format": temporal_coverage_policy_document["format"],
+            "policy_id": temporal_coverage_policy_document["policy_id"],
+            "status": temporal_coverage_policy_document["status"],
             "required": True,
         },
         "actual_inputs": _binding(root, input_manifest),
@@ -4219,6 +4256,51 @@ def validate_authorization(
     ):
         raise OpeningContractError(
             "authorized outcome-QC policy differs from the sealed amendment"
+        )
+    temporal_coverage_policy_binding = authorization.get(
+        "temporal_coverage_policy"
+    )
+    if not isinstance(temporal_coverage_policy_binding, Mapping) or set(
+        temporal_coverage_policy_binding
+    ) != {"path", "sha256", "format", "policy_id", "status", "required"}:
+        raise OpeningContractError(
+            "authorization lacks temporal-coverage policy binding"
+        )
+    temporal_coverage_policy_path = _verify_file_binding(
+        root,
+        temporal_coverage_policy_binding,
+        label="temporal-coverage policy",
+    )
+    try:
+        temporal_coverage_policy_document = validate_temporal_coverage_policy(
+            temporal_coverage_policy_path
+        )
+    except CoverageAuditError as exc:
+        raise OpeningContractError(
+            "authorized temporal-coverage policy is stale"
+        ) from exc
+    expected_temporal_coverage_policy_binding = {
+        **_binding(root, temporal_coverage_policy_path),
+        "format": temporal_coverage_policy_document["format"],
+        "policy_id": temporal_coverage_policy_document["policy_id"],
+        "status": temporal_coverage_policy_document["status"],
+        "required": True,
+    }
+    amendment_coverage = amendment.get("additional_preopen_gates", {}).get(
+        "temporal_coverage_policy", {}
+    )
+    if (
+        dict(temporal_coverage_policy_binding)
+        != expected_temporal_coverage_policy_binding
+        or not isinstance(amendment_coverage, Mapping)
+        or {
+            "path": amendment_coverage.get("path"),
+            "sha256": amendment_coverage.get("sha256"),
+        }
+        != _binding(root, temporal_coverage_policy_path)
+    ):
+        raise OpeningContractError(
+            "authorized temporal-coverage policy differs from the sealed amendment"
         )
     bindings = authorization.get("registries")
     if not isinstance(bindings, Mapping) or set(bindings) != {
@@ -4444,6 +4526,9 @@ def validate_authorization(
         outcome_qc_policy_sha256=str(
             outcome_qc_policy_binding.get("sha256", "")
         ),
+        temporal_coverage_policy_sha256=str(
+            temporal_coverage_policy_binding.get("sha256", "")
+        ),
     )
     if not isinstance(state_paths, Mapping) or dict(state_paths) != expected_state_paths:
         raise OpeningContractError("authorization lacks opening state paths")
@@ -4471,6 +4556,7 @@ def validate_authorization(
         "inference_amendment_seal": amendment_seal,
         "inference_gate": gate,
         "outcome_qc_policy": outcome_qc_policy_document,
+        "temporal_coverage_policy": temporal_coverage_policy_document,
         "inputs": inputs,
         "intent_path": intent,
         "receipt_path": receipt,
@@ -5304,6 +5390,7 @@ class OpeningProducts:
     temporal_predictions: Path
     external_predictions: Path
     statistics: Path
+    temporal_coverage_audit: Path
     report: Path
 
 
@@ -5319,6 +5406,7 @@ def _opening_products_from_state(state: Mapping[str, Any]) -> OpeningProducts:
         temporal_predictions=Path(state["temporal_predictions"]),
         external_predictions=Path(state["external_predictions"]),
         statistics=Path(state["statistics"]),
+        temporal_coverage_audit=Path(state["temporal_coverage_audit"]),
         report=Path(state["report"]),
     )
 
@@ -5384,6 +5472,8 @@ def _preflight_attestation(preflight: Mapping[str, Any]) -> dict[str, Any]:
         "inference_claim_eligible": preflight["inference_gate"]["claim_eligible"],
         "outcome_qc_policy_sha256": preflight["authorization"]
         ["outcome_qc_policy"]["sha256"],
+        "temporal_coverage_policy_sha256": preflight["authorization"]
+        ["temporal_coverage_policy"]["sha256"],
         "prelabel_inputs_sha256": preflight["inputs"]["sha256"],
         "actual_feature_order": list(preflight["suite"]["feature_order"]),
         "required_models": {
@@ -5418,6 +5508,9 @@ def _trusted_validator_identity(root: Path) -> dict[str, Any]:
         "src/thermoroute/usgs.py",
         "src/thermoroute/results.py",
         "src/thermoroute/significance.py",
+        "src/thermoroute/coverage_audit.py",
+        "src/thermoroute/coverage_bridge.py",
+        "src/thermoroute/repro.py",
     )
     files = {
         relative: sha256_file(_resolve_inside(root, relative)) for relative in paths
@@ -7959,6 +8052,7 @@ def _render_confirmatory_report(
     approved_target_sensitivity: Mapping[str, Any],
     spatial_sensitivity: Mapping[str, Any],
     probabilistic_evaluation: Mapping[str, Any],
+    temporal_coverage_audit: Mapping[str, Any],
     transport_summary: Mapping[str, Any],
 ) -> bytes:
     reportable_flags = availability.reportable.astype(str).str.lower().map(
@@ -8232,6 +8326,69 @@ def _render_confirmatory_report(
         "",
         "Availability is never used for site replacement or model selection.",
         "",
+        "## Temporal coverage and equal-cell sensitivity (descriptive only)",
+        "",
+        (
+            "This receipt-bound audit covers only forecast keys for which both "
+            "issue-date and target-date WTEMP are retained finite values in the "
+            "normalized raw-outcome tables. It is not an all-calendar-day or "
+            "missing-at-random analysis, and it does not establish year or season "
+            "stability. It inherits the failed/conditional inference gate and the "
+            "outcome-QC gate above. No favorable sensitivity can rescue a primary "
+            "result, and no sensitivity changes a formal effect, p-value, Holm "
+            "decision, claim eligibility, model, site, or forecast key."
+        ),
+        (
+            "The formal effect column is NA whenever the formal statistic is "
+            "NOT_ESTIMABLE. The separate prediction-derived effect remains a "
+            "fixed-cohort descriptive number only and never upgrades inference."
+        ),
+        "",
+        (
+            "| Test | Formal status | Formal effect (°C) | Descriptive primary "
+            "effect (°C) | Eligible 12-cell stations | Equal 12 | LOY 2021 | "
+            "LOY 2022 | LOY 2023 | LOS DJF | LOS MAM | LOS JJA | LOS SON | "
+            "Frozen worst source | Frozen worst effect (°C) |"
+        ),
+        (
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "---:|---|---:|"
+        ),
+    ])
+    if (
+        temporal_coverage_audit.get("status")
+        != "DERIVED_CORE_REQUIRES_RECEIPT_BINDING"
+    ):
+        raise OpeningContractError("report received a changed coverage-core status")
+    for row in temporal_coverage_audit.get("comparison_sensitivities", []):
+        candidates = row.get("frozen_sensitivity_candidates")
+        worst = row.get("frozen_worst_unfavorable_sensitivity")
+        if (
+            not isinstance(candidates, list)
+            or len(candidates) != 8
+            or not isinstance(worst, Mapping)
+        ):
+            raise OpeningContractError("report received incomplete coverage sensitivity")
+        values = [candidate["descriptive_median_effect_c"] for candidate in candidates]
+        lines.append(
+            f"| {row['test_id']} | {row['formal_statistics_status']} | "
+            f"{number(row['formal_median_effect_c'])} | "
+            f"{number(row['prediction_derived_descriptive_median_effect_c'])} | "
+            f"{row['n_all_12_cells_nonempty_stations']} | "
+            + " | ".join(number(value) for value in values)
+            + f" | {worst['source'] if worst['source'] is not None else 'NA'} | "
+            f"{number(worst['descriptive_median_effect_c'])} |"
+        )
+    lines.extend([
+        "",
+        (
+            "All eight frozen candidates are always shown in the fixed order "
+            "equal-12-cell, leave-one-year 2021/2022/2023, then leave-one-season "
+            "DJF/MAM/JJA/SON. Larger candidate-minus-reference effects are more "
+            "unfavorable; exact ties use that fixed order. Zero eligible stations "
+            "produce explicit NA values and an NA worst source."
+        ),
+        "",
         "## NWIS outcome-quality audit",
         "",
         "Primary WTEMP/FLOW results use every finite parsed 00003 daily mean; "
@@ -8422,7 +8579,10 @@ def produce_trusted_opening_products(
             sites=tuple(sorted(sites)),
             interval=(protocol_info["target_start"], protocol_info["target_end"]),
             suite=preflight["suite"],
-        )
+        ).sort_values(
+            ["model", "site_id", "horizon", "issue_date", "target_date"],
+            kind="mergesort",
+        ).reset_index(drop=True)
         truth[cohort] = trusted[cohort][trusted[cohort].model.eq("ThermoRoute")][
             [*_FORECAST_KEY, "y_true"]
         ].copy()
@@ -8550,6 +8710,19 @@ def produce_trusted_opening_products(
     _exclusive_create_parquet(state["temporal_predictions"], trusted["temporal"])
     _exclusive_create_parquet(state["external_predictions"], trusted["external"])
     exclusive_create_json(state["statistics"], statistics)
+    try:
+        temporal_coverage_audit = replay_temporal_coverage_from_physical_files(
+            root=root,
+            authorization=preflight["authorization"],
+            trusted_physical_directory=stage,
+        )
+    except CoverageBridgeError as exc:
+        raise OpeningContractError(
+            "temporal coverage audit could not replay physical staged files"
+        ) from exc
+    exclusive_create_json(
+        state["temporal_coverage_audit"], temporal_coverage_audit
+    )
     _exclusive_create_bytes(
         state["report"],
         _render_confirmatory_report(
@@ -8564,6 +8737,7 @@ def produce_trusted_opening_products(
             approved_target_sensitivity=approved_sensitivity,
             spatial_sensitivity=spatial_sensitivity,
             probabilistic_evaluation=probabilistic_evaluation,
+            temporal_coverage_audit=temporal_coverage_audit,
             transport_summary=_load_json(
                 state["acquisition_manifest"],
                 label="opened acquisition manifest",
@@ -8922,6 +9096,23 @@ def validate_opening_products(
     }
     actual_statistics = _load_json(products.statistics, label="confirmatory statistics")
     _assert_statistics_equal(expected_statistics, actual_statistics)
+    actual_temporal_coverage_audit = _load_json(
+        products.temporal_coverage_audit,
+        label="temporal coverage audit",
+    )
+    try:
+        expected_temporal_coverage_audit = (
+            replay_temporal_coverage_from_physical_files(
+                root=root,
+                authorization=preflight["authorization"],
+                trusted_physical_directory=products.statistics.parent,
+                expected_audit=actual_temporal_coverage_audit,
+            )
+        )
+    except CoverageBridgeError as exc:
+        raise OpeningContractError(
+            "temporal coverage audit differs from physical trusted replay"
+        ) from exc
     report = Path(products.report)
     availability_frame = pd.read_csv(
         availability_path, dtype={"site_no": "string"}, keep_default_na=False
@@ -8938,6 +9129,7 @@ def validate_opening_products(
         approved_target_sensitivity=expected_approved_sensitivity,
         spatial_sensitivity=expected_spatial_sensitivity,
         probabilistic_evaluation=expected_probabilistic_evaluation,
+        temporal_coverage_audit=expected_temporal_coverage_audit,
         transport_summary=transport_summary,
     )
     if not report.is_file() or report.read_bytes() != expected_report:
@@ -8997,6 +9189,11 @@ def validate_opening_products(
             products.statistics,
             canonical_state["statistics"],
         ),
+        "temporal_coverage_audit": _logical_binding(
+            root,
+            products.temporal_coverage_audit,
+            canonical_state["temporal_coverage_audit"],
+        ),
         "report": _logical_binding(
             root,
             products.report,
@@ -9011,12 +9208,28 @@ def validate_opening_products(
         cohort: sorted(str(value) for value in values)
         for cohort, values in preflight["suite"]["required_models"].items()
     }
+    coverage_receipt_evidence = {
+        **artifacts["temporal_coverage_audit"],
+        "format": TEMPORAL_COVERAGE_AUDIT_FORMAT,
+        "core_status": expected_temporal_coverage_audit["status"],
+        "physical_replay_verified": True,
+        "source_binding_count": len(
+            expected_temporal_coverage_audit["source_bindings"]
+        ),
+    }
+    if coverage_receipt_evidence["source_binding_count"] != len(
+        TEMPORAL_COVERAGE_SOURCE_BINDING_KEYS
+    ):
+        raise OpeningContractError(
+            "temporal coverage receipt source closure is incomplete"
+        )
     return {
         "artifacts": artifacts,
         "formal_tests": expected_statistics["tests"],
         "trusted_prediction_hashes": trusted_hashes,
         "reported_models": reported_models,
         "all_required_models_reported": reported_models == expected_models,
+        "temporal_coverage_audit": coverage_receipt_evidence,
     }
 
 
@@ -9405,6 +9618,7 @@ def _release_artifact_formats() -> dict[str, str]:
         "temporal_predictions": R.PREDICTION_SCHEMA_VERSION,
         "external_predictions": R.PREDICTION_SCHEMA_VERSION,
         "statistics": STATISTICS_FORMAT,
+        "temporal_coverage_audit": TEMPORAL_COVERAGE_AUDIT_FORMAT,
         "report": "thermoroute.route-a-confirmatory-report.v1",
     }
 
@@ -9466,6 +9680,7 @@ def _assert_receipt_matches_validation(
         "artifacts": validated["artifacts"],
         "trusted_prediction_hashes": validated["trusted_prediction_hashes"],
         "formal_tests": validated["formal_tests"],
+        "temporal_coverage_audit": validated["temporal_coverage_audit"],
     }
     wrong = [key for key, value in expected.items() if receipt.get(key) != value]
     if wrong:
@@ -9679,6 +9894,9 @@ def isolated_score_and_receipt(
                 "trusted_prediction_hashes"
             ],
             "formal_tests": validated["formal_tests"],
+            "temporal_coverage_audit": validated[
+                "temporal_coverage_audit"
+            ],
             "state_paths": dict(preflight["authorization"]["state_paths"]),
             "release_bindings": release_bindings,
             "intent_self_sha256": intent["intent_self_sha256"],
@@ -9878,12 +10096,38 @@ def _read_completed_receipt(
             "temporal_predictions": "temporal_predictions",
             "external_predictions": "external_predictions",
             "statistics": "statistics",
+            "temporal_coverage_audit": "temporal_coverage_audit",
             "report": "report",
         }.get(key)
         if canonical_key is not None and artifact_path != (
             root / str(state[canonical_key])
         ).resolve():
             raise OpeningContractError(f"receipt artifact path is noncanonical: {key}")
+    coverage_binding = artifacts["temporal_coverage_audit"]
+    coverage_document = _load_json(
+        _resolve_inside(root, coverage_binding["path"]),
+        label="receipt-bound temporal coverage audit",
+    )
+    coverage_sources = coverage_document.get("source_bindings")
+    expected_coverage_receipt_evidence = {
+        **dict(coverage_binding),
+        "format": TEMPORAL_COVERAGE_AUDIT_FORMAT,
+        "core_status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+        "physical_replay_verified": True,
+        "source_binding_count": len(TEMPORAL_COVERAGE_SOURCE_BINDING_KEYS),
+    }
+    if (
+        coverage_document.get("format") != TEMPORAL_COVERAGE_AUDIT_FORMAT
+        or coverage_document.get("status")
+        != "DERIVED_CORE_REQUIRES_RECEIPT_BINDING"
+        or not isinstance(coverage_sources, Mapping)
+        or set(coverage_sources) != set(TEMPORAL_COVERAGE_SOURCE_BINDING_KEYS)
+        or receipt.get("temporal_coverage_audit")
+        != expected_coverage_receipt_evidence
+    ):
+        raise OpeningContractError(
+            "opening receipt temporal-coverage replay evidence changed"
+        )
     expected_release_identity = {
         "format": "thermoroute.route-a-release-bindings.v1",
         "opening_id": authorization["opening_id"],

@@ -34,6 +34,7 @@ def _publication_state(root: Path) -> dict[str, Path]:
         "temporal_predictions": "temporal_predictions_v1.parquet",
         "external_predictions": "external_predictions_v1.parquet",
         "statistics": "statistics_v1.json",
+        "temporal_coverage_audit": "temporal_coverage_audit_v1.json",
         "report": "report_v1.md",
     }
     return {
@@ -827,6 +828,11 @@ def test_trusted_staging_rejects_cross_directory_or_traversal_layout(
     with pytest.raises(opening.OpeningContractError, match="do not share"):
         opening._trusted_directory_from_state(broken)
 
+    colliding = dict(state)
+    colliding["temporal_coverage_audit"] = colliding["statistics"]
+    with pytest.raises(opening.OpeningContractError, match="do not share"):
+        opening._trusted_directory_from_state(colliding)
+
     outside = tmp_path / "another-filesystem-in-principle" / "stage"
     with pytest.raises(opening.OpeningContractError, match="same-filesystem sibling"):
         opening._trusted_state_at_directory(state, outside)
@@ -1007,6 +1013,13 @@ def _stub_trusted_scorer(
             "trusted_prediction_hashes": {},
             "reported_models": {"temporal": [], "external": []},
             "all_required_models_reported": True,
+            "temporal_coverage_audit": {
+                **artifacts["temporal_coverage_audit"],
+                "format": opening.TEMPORAL_COVERAGE_AUDIT_FORMAT,
+                "core_status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+                "physical_replay_verified": True,
+                "source_binding_count": 11,
+            },
         }
 
     monkeypatch.setattr(opening, "produce_trusted_opening_products", produce)
@@ -1058,6 +1071,13 @@ def test_synthetic_crash_recovery_never_reacquires_or_replaces_labels(
 
     receipt = opening.isolated_score_and_receipt(work_order, root=tmp_path)
     assert receipt["status"] == "OPENED_AND_SCORED_ONCE"
+    assert receipt["temporal_coverage_audit"] == {
+        **receipt["artifacts"]["temporal_coverage_audit"],
+        "format": opening.TEMPORAL_COVERAGE_AUDIT_FORMAT,
+        "core_status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+        "physical_replay_verified": True,
+        "source_binding_count": 11,
+    }
     assert calls["produce"] == expected_produce_calls
     assert acquisition_path.read_bytes() == acquisition_before
     assert Path(state["receipt"]).is_file()

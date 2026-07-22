@@ -40,6 +40,7 @@ TRUSTED_STATE_KEYS = (
     "temporal_predictions",
     "external_predictions",
     "statistics",
+    "temporal_coverage_audit",
     "report",
 )
 RAW_DERIVED_STATE_KEYS = (

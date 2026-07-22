@@ -253,6 +253,7 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         "support_requires": [
             "authorization.inference_gate.claim_eligible == true",
             "statistics.outcome_qc_gate.directional_claims_allowed == true",
+            "receipt.temporal_coverage_audit.physical_replay_verified == true",
             "status == ESTIMABLE",
             "p_holm <= 0.05",
             "ci_high_c < margin_c",
@@ -501,6 +502,30 @@ def _outcome_qc_structure_api(root: Path) -> Any:
     return module.validate_outcome_qc_gate_structure
 
 
+def _coverage_replay_api(root: Path) -> Any:
+    """Load the canonical physical coverage replay only after POST verification."""
+    source = (root / "src").resolve()
+    source_text = str(source)
+    inserted = source_text not in sys.path
+    if inserted:
+        sys.path.insert(0, source_text)
+    try:
+        module = importlib.import_module("thermoroute.coverage_bridge")
+    except Exception as exc:
+        raise ClaimRegistryError(
+            "cannot load the canonical temporal-coverage verifier"
+        ) from exc
+    finally:
+        if inserted and sys.path and sys.path[0] == source_text:
+            sys.path.pop(0)
+    module_path = Path(getattr(module, "__file__", "")).resolve()
+    if module_path != (source / "thermoroute" / "coverage_bridge.py").resolve():
+        raise ClaimRegistryError(
+            "imported temporal-coverage verifier is noncanonical"
+        )
+    return module.replay_temporal_coverage_from_physical_files
+
+
 def _validate_authorization(
     authorization_path: Path, *, root: Path, allow_gitless_archive: bool
 ) -> Mapping[str, Any]:
@@ -547,6 +572,9 @@ def _canonical_state(authorization: Mapping[str, Any], *, root: Path) -> Mapping
         "run_directory": base,
         "intent": f"{base}/opening_intent_v1.json",
         "statistics": f"{base}/trusted/statistics_v1.json",
+        "temporal_coverage_audit": (
+            f"{base}/trusted/temporal_coverage_audit_v1.json"
+        ),
         "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "report": f"{base}/trusted/report_v1.md",
         "receipt": f"{base}/opening_receipt_v1.json",
@@ -979,6 +1007,177 @@ def _outcome_qc_claim_eligibility(
     return passed
 
 
+def _temporal_coverage_claim_evidence(
+    *,
+    root: Path,
+    phase: Mapping[str, Any],
+    statistics: Mapping[str, Any],
+) -> None:
+    """Require the receipt-bound, physically replayed nonfiltering audit."""
+    receipt = phase.get("receipt")
+    state = phase.get("state")
+    authorization = phase.get("authorization")
+    if not all(isinstance(value, Mapping) for value in (receipt, state, authorization)):
+        raise ClaimRegistryError("verified POST lacks temporal-coverage evidence")
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        raise ClaimRegistryError("receipt lacks temporal-coverage artifacts")
+    audit_binding = artifacts.get("temporal_coverage_audit")
+    if (
+        not isinstance(audit_binding, Mapping)
+        or set(audit_binding) != {"path", "sha256"}
+        or audit_binding.get("path") != state.get("temporal_coverage_audit")
+    ):
+        raise ClaimRegistryError("receipt lacks canonical temporal-coverage audit")
+    expected_receipt_evidence = {
+        **dict(audit_binding),
+        "format": "thermoroute.route-a-temporal-coverage-audit.v1",
+        "core_status": "DERIVED_CORE_REQUIRES_RECEIPT_BINDING",
+        "physical_replay_verified": True,
+        "source_binding_count": 11,
+    }
+    if receipt.get("temporal_coverage_audit") != expected_receipt_evidence:
+        raise ClaimRegistryError(
+            "receipt lacks verified temporal-coverage physical replay evidence"
+        )
+    audit_path = _inside(root, audit_binding["path"], require_file=True)
+    if _sha256_file(audit_path) != audit_binding.get("sha256"):
+        raise ClaimRegistryError("receipt-bound temporal-coverage audit changed")
+    audit = _load_json(audit_path, label="receipt-bound temporal-coverage audit")
+    stable = dict(audit)
+    self_hash = stable.pop("audit_self_sha256", None)
+    if (
+        audit.get("format") != "thermoroute.route-a-temporal-coverage-audit.v1"
+        or audit.get("status") != "DERIVED_CORE_REQUIRES_RECEIPT_BINDING"
+        or not isinstance(self_hash, str)
+        or self_hash
+        != hashlib.sha256(_canonical_json(stable).encode("utf-8")).hexdigest()
+        or audit.get("primary_statistics_unchanged") is not True
+        or audit.get("primary_station_set_unchanged") is not True
+        or audit.get("sensitivity_changes_primary_result_or_decision") is not False
+        or audit.get("inference_computed") is not False
+    ):
+        raise ClaimRegistryError("temporal-coverage audit role/status changed")
+    policy_binding = authorization.get("temporal_coverage_policy")
+    if (
+        not isinstance(policy_binding, Mapping)
+        or set(policy_binding)
+        != {"path", "sha256", "format", "policy_id", "status", "required"}
+        or policy_binding.get("path")
+        != "protocols/route_a_temporal_coverage_policy_v1.json"
+        or policy_binding.get("format")
+        != "thermoroute.route-a-temporal-coverage-policy.v1"
+        or policy_binding.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or policy_binding.get("required") is not True
+    ):
+        raise ClaimRegistryError("authorization lacks frozen temporal-coverage policy")
+    policy_path = _inside(root, policy_binding["path"], require_file=True)
+    if _sha256_file(policy_path) != policy_binding.get("sha256"):
+        raise ClaimRegistryError("frozen temporal-coverage policy bytes changed")
+    source_bindings = audit.get("source_bindings")
+    registries = authorization.get("registries")
+    if not isinstance(source_bindings, Mapping) or not isinstance(registries, Mapping):
+        raise ClaimRegistryError("temporal-coverage source closure is absent")
+    expected_sources = {
+        "policy": {
+            "path": policy_binding["path"],
+            "sha256": policy_binding["sha256"],
+        },
+        "protocol": {
+            "path": authorization["protocol"]["path"],
+            "sha256": authorization["protocol"]["sha256"],
+        },
+        "acquisition_manifest": dict(artifacts["acquisition_manifest"]),
+        "temporal_normalized_outcomes": dict(
+            artifacts["temporal_normalized_outcomes"]
+        ),
+        "external_normalized_outcomes": dict(
+            artifacts["external_normalized_outcomes"]
+        ),
+        "temporal_site_registry": dict(registries["development"]),
+        "external_site_registry": dict(registries["external"]),
+        "temporal_full_predictions": dict(artifacts["temporal_predictions"]),
+        "external_full_predictions": dict(artifacts["external_predictions"]),
+        "availability_registry": dict(artifacts["availability_registry"]),
+        "statistics": dict(artifacts["statistics"]),
+    }
+    if dict(source_bindings) != expected_sources:
+        raise ClaimRegistryError(
+            "temporal-coverage audit source bindings differ from receipt/authorization"
+        )
+    try:
+        _coverage_replay_api(root)(
+            root=root,
+            authorization=authorization,
+            receipt_artifacts=artifacts,
+            expected_audit=audit,
+        )
+    except Exception as exc:
+        raise ClaimRegistryError(
+            "receipt-bound temporal-coverage audit failed physical replay"
+        ) from exc
+    if "temporal_coverage_audit" in statistics:
+        raise ClaimRegistryError("statistics creates a temporal-coverage hash cycle")
+    rows = audit.get("comparison_sensitivities")
+    statistic_rows = statistics.get("tests")
+    if not isinstance(rows, list) or not isinstance(statistic_rows, list) or len(rows) != 5:
+        raise ClaimRegistryError("temporal-coverage audit lacks the five-test family")
+    by_id = {str(row.get("test_id")): row for row in statistic_rows if isinstance(row, Mapping)}
+    frozen_order = [
+        "equal_12cell",
+        "leave_one_year_2021",
+        "leave_one_year_2022",
+        "leave_one_year_2023",
+        "leave_one_season_DJF",
+        "leave_one_season_MAM",
+        "leave_one_season_JJA",
+        "leave_one_season_SON",
+    ]
+    for row in rows:
+        if not isinstance(row, Mapping) or str(row.get("test_id")) not in by_id:
+            raise ClaimRegistryError("temporal-coverage comparison identity changed")
+        formal = by_id[str(row["test_id"])]
+        if (
+            row.get("formal_statistics_status") != formal.get("status")
+            or row.get("formal_median_effect_c") != formal.get("median_effect_c")
+            or row.get("n_primary_reportable_stations") != formal.get("n_stations")
+            or row.get(
+                "prediction_derived_descriptive_effect_does_not_upgrade_inference"
+            )
+            is not True
+        ):
+            raise ClaimRegistryError(
+                "temporal coverage conflates formal and descriptive effects"
+            )
+        if formal.get("status") != "ESTIMABLE" and row.get(
+            "formal_median_effect_c"
+        ) is not None:
+            raise ClaimRegistryError("NOT_ESTIMABLE coverage row carries a formal effect")
+        candidates = row.get("frozen_sensitivity_candidates")
+        worst = row.get("frozen_worst_unfavorable_sensitivity")
+        if (
+            not isinstance(candidates, list)
+            or [value.get("source") for value in candidates if isinstance(value, Mapping)]
+            != frozen_order
+            or not isinstance(worst, Mapping)
+        ):
+            raise ClaimRegistryError("temporal coverage omits a frozen sensitivity")
+        values = [value.get("descriptive_median_effect_c") for value in candidates]
+        if all(value is None for value in values):
+            expected_worst = (None, None, None)
+        elif any(value is None for value in values):
+            raise ClaimRegistryError("temporal coverage partially omits sensitivities")
+        else:
+            index = max(range(8), key=lambda item: (float(values[item]), -item))
+            expected_worst = (index, frozen_order[index], values[index])
+        if (
+            worst.get("frozen_order_index"),
+            worst.get("source"),
+            worst.get("descriptive_median_effect_c"),
+        ) != expected_worst:
+            raise ClaimRegistryError("temporal coverage worst sensitivity changed")
+
+
 def _number(value: object) -> str:
     if value is None:
         return "NA"
@@ -1136,6 +1335,9 @@ def render_result_claim_blocks(*, root: Path, registry_path: Path) -> Mapping[st
         phase=phase,
         statistics=statistics,
         protocol=protocol,
+    )
+    _temporal_coverage_claim_evidence(
+        root=root, phase=phase, statistics=statistics
     )
     expected = _expected_claims(
         registry=registry,
@@ -1534,6 +1736,11 @@ def validate_claims(
             phase=phase_evidence,
             statistics=statistics,
             protocol=protocol,
+        )
+        _temporal_coverage_claim_evidence(
+            root=root,
+            phase=phase_evidence,
+            statistics=statistics,
         )
     expected = _expected_claims(
         registry=registry,

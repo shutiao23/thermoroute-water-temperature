@@ -28,6 +28,13 @@ The repository is in a **pre-opening reconstruction state**.
 - Old files under `outputs/` were produced by a legacy cohort and lack the current
   lineage sidecars. They are historical artifacts, not current evidence, and must
   not be cited as results of the present pipeline.
+- The outcome-free 2018–2020 Daymet/gridMET compatibility bridge is complete and
+  records `PASS_EXACT_PRODUCT_BRIDGE`. This proves exact agreement for the frozen
+  bridge projection, not operational predictor availability or local-day
+  equivalence with NWIS.
+- The temporal-coverage policy, deterministic audit core, and physical replay
+  path are implemented, but no target-period coverage result exists before the
+  one-time opening and receipt binding.
 - No current Route-A model suite, opening authorization, completed receipt, or
   verified formal result exists yet.
 
@@ -87,6 +94,12 @@ count 9.54 before attrition), so exact enumeration removes Monte Carlo error but
 does not remove the joint sign-symmetry assumption or make cluster-bootstrap
 coverage reliable in small samples.
 
+The two H2 rows concern only the frozen LightGBM procedure: selection from four
+predeclared candidate settings on 2016–2017, followed by the frozen five-seed fit.
+They do not establish non-inferiority to LightGBM in general, to a larger search,
+or to a differently resourced implementation. Historical model-selection budgets
+are documented but were not equalized across model classes.
+
 ## Model design
 
 For issue time `t` and horizon `h`, the point forecast has four main pieces:
@@ -114,6 +127,15 @@ Exceedance events use a frozen seasonal statistical reference derived without
 target-period labels. Probability,
 spatial-influence, exact-qualifier, and architecture-control outputs are descriptive
 or exploratory unless the protocol explicitly places them in the five-test family.
+The seven Stage 09 controls are seed-0-versus-seed-0, single-seed functionality and
+intervention diagnostics. They do not prove that a component is necessary, identify
+a causal mechanism, or establish cross-seed stability.
+
+The Platt calibrator for each horizon is fitted with calibration rows as the fitting
+units, whereas target-period probability metrics give each retained station equal
+total weight. That frozen weighting difference must be kept visible when interpreting
+calibration. The optional Air2stream-style reference is an unofficial style-based
+implementation, not the official Air2stream code or a validated reproduction of it.
 
 Temporal learned models receive stable site identity, while the pooled external
 models do not. The latter still consume each new gauge's observed WTEMP history.
@@ -123,6 +145,26 @@ The 32 days are a construction buffer, not an effective 32-day memory claim: the
 router is restricted to lags 0--14, and the current two-block, kernel-three TCN
 has a theoretical seven-step receptive field. Consequently, no input older than
 lag 14 can affect the current model output.
+
+## Temporal coverage audit
+
+The predeclared audit describes the fixed, availability-enriched Route-A cohort on
+forecast keys where both the issue-date and target-date WTEMP values are retained
+finite observations. It does not impute unobserved outcomes, test a missing-at-random
+assumption, estimate performance on all calendar days, or establish stability by
+year or season.
+
+For each of the five formal model comparisons, the audit reports all eight frozen
+descriptive alternatives: equal weighting of the 12 year-by-season cells, leave-one-
+year for 2021, 2022, and 2023, and leave-one-season for DJF, MAM, JJA, and SON. The
+largest candidate-minus-reference effect is the deterministic worst case; exact ties
+use the frozen candidate order. These values cannot change the primary station set,
+formal statistic, p-value, Holm decision, or claim eligibility, and a favorable
+sensitivity cannot rescue an unfavorable or non-estimable primary result. When the
+formal row is not estimable, its formal effect remains `NA`; any separately computable
+prediction-derived effect remains descriptive only. The audit becomes evidence only
+after all physical source files are independently replayed and its exact bytes are
+bound into the opening receipt and completed release.
 
 ## Observed 7DADM description
 
@@ -148,12 +190,13 @@ The intended order is strict:
 
 1. Commit the protocol, seal, claim ledger, dependency locks, source, tests, and
    training code.
-2. Re-fetch 2018–2020 Daymet/gridMET with the confirmation parser, archive the
-   exact responses, and require the development predictor-product bridge to
-   reproduce the frozen panel on the exact site/date registry. This checks product
-   and parser compatibility, but not subdaily local-day equivalence or as-issued
-   availability. This outcome-free engineering gate was added after the local
-   protocol seal and cannot change its hypotheses or decisions.
+2. Validate the committed 2018–2020 Daymet/gridMET re-fetch, archived exact
+   responses, and development predictor-product bridge against the frozen panel on
+   the exact site/date registry. The committed gate records
+   `PASS_EXACT_PRODUCT_BRIDGE`. This checks product and parser compatibility, but
+   not subdaily local-day equivalence or as-issued availability. This outcome-free
+   engineering gate was added after the local protocol seal and cannot change its
+   hypotheses or decisions.
 3. Rebuild the canonical development chain, including the separate matched
    MLP/TCN and multi-seed feature-ladder audit; freeze all five-member temporal
    and pooled external model bundles; replay every model head on development data.
@@ -214,7 +257,7 @@ Failure of the chronology gate demotes the exercise to retrospective exploration
 ## Repository layout
 
 ```text
-data/                         three-station legacy case-study inputs
+data/                         legacy inputs for three ordinary monitoring stations
 data_usgs/                    canonical panel, registries, and frozen evidence
 protocols/                    protocol, protocol seal, and structured claim ledger
 src/thermoroute/              model, data, inference, provenance, and opening code

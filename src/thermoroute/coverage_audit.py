@@ -33,7 +33,7 @@ POLICY_RELATIVE = "protocols/route_a_temporal_coverage_policy_v1.json"
 POLICY_ID = "route-a-temporal-coverage-audit-001"
 # Filled from the final frozen policy bytes.  It is intentionally a file digest,
 # distinct from the semantic self-hash stored inside the policy.
-POLICY_FILE_SHA256 = "3146965e3909a41ecf59db5754f84c6f28253d00ccdaca13b87ef9d7b20b5ae3"
+POLICY_FILE_SHA256 = "6b08850ced16de6f97ceda8b16ce89b301d5c5cccb794a4427da0a3e39e211ad"
 
 COHORT_ORDER = ("temporal", "external")
 HORIZONS = (1, 3, 7)
@@ -240,6 +240,25 @@ def _expected_policy_stable() -> dict[str, Any]:
                 "same_all_12_cells_nonempty_stations_and_equal_weight_over_"
                 "remaining_nine_cells"
             ),
+            "frozen_candidate_order": [
+                "equal_12cell",
+                "leave_one_year_2021",
+                "leave_one_year_2022",
+                "leave_one_year_2023",
+                "leave_one_season_DJF",
+                "leave_one_season_MAM",
+                "leave_one_season_JJA",
+                "leave_one_season_SON",
+            ],
+            "unfavorable_direction": (
+                "larger_candidate_minus_reference_effect_is_more_unfavorable"
+            ),
+            "unfavorable_selection_rule": (
+                "maximum_descriptive_median_effect_c_with_first_frozen_"
+                "candidate_order_entry_winning_exact_ties"
+            ),
+            "all_eight_candidates_must_be_reported": True,
+            "no_eligible_station_requires_explicit_null_value_and_source": True,
             "does_not_establish_year_or_season_stability": True,
             "retraining_or_recalibration_performed": False,
             "favorable_sensitivity_may_rescue_primary_result": False,
@@ -298,17 +317,30 @@ def _validated_policy(policy: Mapping[str, Any]) -> dict[str, Any]:
     return {**document, "policy_self_sha256": self_hash}
 
 
-def validate_temporal_coverage_policy(path: str | Path) -> dict[str, Any]:
-    """Load and validate the exact frozen, outcome-free coverage policy."""
+def validate_temporal_coverage_policy_bytes(payload: bytes) -> dict[str, Any]:
+    """Validate the one frozen physical byte serialization of the policy."""
+    if hashlib.sha256(payload).hexdigest() != POLICY_FILE_SHA256:
+        raise CoverageAuditError("temporal-coverage policy physical bytes changed")
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CoverageAuditError(
             "temporal-coverage policy is absent or malformed"
         ) from exc
     if not isinstance(value, dict):
         raise CoverageAuditError("temporal-coverage policy is not a JSON object")
     return _validated_policy(value)
+
+
+def validate_temporal_coverage_policy(path: str | Path) -> dict[str, Any]:
+    """Load and validate the exact frozen, outcome-free coverage policy."""
+    try:
+        payload = Path(path).read_bytes()
+    except OSError as exc:
+        raise CoverageAuditError(
+            "temporal-coverage policy is absent or malformed"
+        ) from exc
+    return validate_temporal_coverage_policy_bytes(payload)
 
 
 def _parse_date(value: object, *, label: str) -> pd.Timestamp:
@@ -1249,6 +1281,68 @@ def _comparison_sensitivities(
             sensitivity_status = (
                 "DESCRIPTIVE_NOT_ESTIMABLE_NO_STATION_WITH_ALL_12_CELLS_NONEMPTY"
             )
+        frozen_candidates = [
+            {
+                "source": "equal_12cell",
+                "descriptive_median_effect_c": equal_effect,
+            },
+            *[
+                {
+                    "source": f"leave_one_year_{value['omitted_year']}",
+                    "descriptive_median_effect_c": value[
+                        "descriptive_median_effect_c"
+                    ],
+                }
+                for value in leave_year
+            ],
+            *[
+                {
+                    "source": f"leave_one_season_{value['omitted_season']}",
+                    "descriptive_median_effect_c": value[
+                        "descriptive_median_effect_c"
+                    ],
+                }
+                for value in leave_season
+            ],
+        ]
+        expected_candidate_order = list(
+            _expected_policy_stable()["sensitivity_contract"][
+                "frozen_candidate_order"
+            ]
+        )
+        if [value["source"] for value in frozen_candidates] != expected_candidate_order:
+            raise CoverageAuditError("frozen sensitivity candidate order changed")
+        if selected_sites:
+            worst_index, worst = max(
+                enumerate(frozen_candidates),
+                key=lambda item: (
+                    cast(float, item[1]["descriptive_median_effect_c"]),
+                    -item[0],
+                ),
+            )
+            worst_sensitivity = {
+                "status": "DESCRIPTIVE_ESTIMABLE",
+                "direction": (
+                    "LARGER_CANDIDATE_MINUS_REFERENCE_IS_MORE_UNFAVORABLE"
+                ),
+                "tie_rule": "FIRST_IN_FROZEN_CANDIDATE_ORDER",
+                "frozen_order_index": worst_index,
+                "source": worst["source"],
+                "descriptive_median_effect_c": worst[
+                    "descriptive_median_effect_c"
+                ],
+            }
+        else:
+            worst_sensitivity = {
+                "status": "DESCRIPTIVE_NOT_ESTIMABLE_NO_ELIGIBLE_STATION",
+                "direction": (
+                    "LARGER_CANDIDATE_MINUS_REFERENCE_IS_MORE_UNFAVORABLE"
+                ),
+                "tie_rule": "FIRST_IN_FROZEN_CANDIDATE_ORDER",
+                "frozen_order_index": None,
+                "source": None,
+                "descriptive_median_effect_c": None,
+            }
         output.append(
             {
                 "test_id": test["test_id"],
@@ -1271,6 +1365,8 @@ def _comparison_sensitivities(
                 "equal_12cell_descriptive_median_effect_c": equal_effect,
                 "leave_one_year_equal_cell_descriptive": leave_year,
                 "leave_one_season_equal_cell_descriptive": leave_season,
+                "frozen_sensitivity_candidates": frozen_candidates,
+                "frozen_worst_unfavorable_sensitivity": worst_sensitivity,
                 "sensitivity_changes_primary_result_or_decision": False,
                 "does_not_establish_year_or_season_stability": True,
             }

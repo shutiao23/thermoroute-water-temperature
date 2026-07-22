@@ -158,18 +158,18 @@ hindcast; it does not establish that the same predictor vintages were available
 operationally at that time.
 
 Because the legacy panel lacks its original HTTP responses, a separate pre-opening
-bridge must re-fetch 2018–2020 Daymet/gridMET with the confirmation parser and
-compare every predictor on the exact site/date registry. This gate can detect
-product-version, parsing, scaling, missingness, and one-day alignment drift. It
-cannot prove that provider calendar days share NWIS local-day boundaries, nor can
-it reconstruct as-issued data availability; those remain permanent limitations.
+bridge re-fetched 2018–2020 Daymet/gridMET with the confirmation parser and compared
+every predictor on the exact site/date registry. Its committed manifest records
+`PASS_EXACT_PRODUCT_BRIDGE`. This gate can detect product-version, parsing, scaling,
+missingness, and one-day alignment drift. It cannot prove that provider calendar
+days share NWIS local-day boundaries, nor can it reconstruct as-issued data
+availability; those remain permanent limitations.
 
 After the final local protocol seal, we added this outcome-free 2018–2020
 parser/product compatibility gate. The post-seal engineering gate strengthens
 reproducibility but was not part of the sealed protocol and does not alter its
-hypotheses, estimands, model registry, margins, or decision rules. Formal training
-remains blocked until the offline comparison publishes
-`PASS_EXACT_PRODUCT_BRIDGE`.
+hypotheses, estimands, model registry, margins, or decision rules. The committed
+offline comparison has passed; later gates must retain its exact path and digest.
 
 The raw-only opening child is restricted to USGS daily-value requests for daily
 mean water temperature, streamflow, and water level. It records exact request and
@@ -235,8 +235,10 @@ left exactly unchanged.
 Temporal CQR offsets are station-by-horizon, whereas external offsets are pooled
 by horizon. A separate event head uses each temporal station's 2006–2015 q90, or
 one pooled development-training q90 in the external arm, and one Platt calibrator
-per horizon fitted on 2018. Probability summaries give every retained station
-equal total weight and claim empirical marginal coverage only. Quantile crossing,
+per horizon fitted on 2018. Platt fitting is calibration-row weighted, whereas
+target-period probability summaries give every retained station equal total weight;
+that frozen weighting difference is part of the interpretation. The summaries
+claim empirical marginal coverage only. Quantile crossing,
 station-balanced achieved coverage, interval width, three-quantile pinball mean,
 Brier score, log loss, discrimination, reliability, and calibration slope/intercept
 are descriptive outputs.
@@ -253,8 +255,10 @@ three candidate architectures with seed 0 before fitting five members. These
 tuning budgets are documented but not identical. The
 temporal mechanism audit additionally freezes seven one-factor controls:
 prior-only, no dynamic prior, fixed relaxation, no router, no mixture, no TCN, and
-unbounded residual. Every comparison uses identical station/date/horizon target
-keys for the two models.
+unbounded residual. Each Stage 09 control is a seed-0-versus-seed-0, single-seed
+functionality/intervention diagnostic. It does not prove component necessity,
+identify a causal mechanism, or establish cross-seed stability. Every comparison
+uses identical station/date/horizon target keys for the two models.
 
 The temporal arm is future-time hindcasting at known gauges. ThermoRoute and the
 LSTM receive a stable station embedding, and temporal LightGBM receives the same
@@ -305,6 +309,12 @@ upper bound is strictly below the frozen margin. Disagreement between the p-valu
 and interval rules is reported conservatively. The 1-day LightGBM comparison is
 descriptive only.
 
+The H2 claim is scoped only to the frozen LightGBM procedure: four predeclared
+candidate settings are compared on 2016–2017 and the selected setting is then fit
+with the frozen five seeds. H2 is not a claim about LightGBM generally, a larger
+hyperparameter search, or a differently resourced implementation. Historical
+tuning budgets were not equalized across model classes.
+
 The sign-flip procedure assumes independent whole-cluster sign reversals and
 joint sign symmetry of each complete HUC2 effect vector around the tested margin.
 Exact enumeration removes Monte Carlo error but does not make this assumption
@@ -324,11 +334,33 @@ perturbations. They cannot promote or replace a failed formal test. A hypothetic
 cost–loss calculation, if retained, is an illustration rather than observed
 decision impact.
 
-The optional Air2stream-style a4/a8 implementation is an exploratory physical
-reference variant fitted by deterministic six-start bounded least squares on
-measured drivers. It is not the official Air2stream implementation, and no result
-against it supports a claim against the published model. A published-model
-comparison requires the official implementation and documented calibration search.
+The optional Air2stream-style a4/a8 implementation is an unofficial, exploratory
+style reference fitted by deterministic six-start bounded least squares on measured
+drivers. It is not the official Air2stream implementation or a validated
+reproduction, and no result against it supports a claim against the published model.
+A published-model comparison requires the official implementation and documented
+calibration search.
+
+### 4.4 Temporal coverage and calendar-balance audit
+
+The predeclared audit is restricted to the fixed, availability-enriched Route-A
+cohort and forecast keys for which both issue-date and target-date WTEMP are retained
+finite observations in the normalized outcome tables. It does not impute unavailable
+outcomes, test missing at random, estimate all-calendar-day performance, or establish
+stability across years or seasons.
+
+For every formal comparison, the audit reports all eight frozen descriptive
+candidates: equal weighting of the 12 year-by-season cells, leave-one-year for each
+of 2021–2023, and leave-one-season for DJF, MAM, JJA, and SON. The maximum
+candidate-minus-reference effect is the deterministic unfavorable value, with exact
+ties resolved by the frozen candidate order. The audit never filters or replaces a
+primary station and cannot alter the formal effect, p-value, confidence interval,
+Holm decision, or claim eligibility; a favorable sensitivity cannot rescue the
+primary result. If a formal test is `NOT_ESTIMABLE`, its formal effect is `NA`, while
+any separately computable prediction-derived effect remains explicitly descriptive
+and cannot upgrade inference. The artifact becomes evidence only after independent
+physical replay of every bound source and exact binding into the opening receipt and
+completed release.
 
 ## 5. Reproducibility and one-time opening
 
@@ -375,23 +407,25 @@ owner or same-UID adversary.
 Completed repository work includes the canonical panel/registry seal, the final
 pre-label protocol, deterministic model serialization contracts, development replay
 code, exact clustered inference, probability/event contracts, outcome-quality
-provenance, a dual-profile release verifier, and a structured claim ledger.
+provenance, the committed `PASS_EXACT_PRODUCT_BRIDGE` evidence, the predeclared
+temporal-coverage audit and its receipt-binding implementation, a dual-profile
+release verifier, and a structured claim ledger.
 
 Required work still outstanding at this manuscript state is:
 
-1. complete the offline 2018–2020 predictor bridge and publish
-   `PASS_EXACT_PRODUCT_BRIDGE`;
-2. rerun the canonical six-model development experiment, the seven mandatory
-   single-seed controls, and the separate matched plain-neural/feature-ladder audit;
-3. freeze and independently replay every five-member temporal and pooled external
+1. rerun the canonical six-model development experiment, the seven mandatory
+   seed-0-versus-seed-0 diagnostic controls, and the separate matched
+   plain-neural/feature-ladder audit;
+2. freeze and independently replay every five-member temporal and pooled external
    learned-model bundle;
-4. commit the model-suite registry before obtaining external metadata and target-period
+3. commit the model-suite registry before obtaining external metadata and target-period
    predictor artifacts;
-5. freeze those outcome-free inputs and validate the Git chronology receipt;
-6. run the full preflight suite, including the implemented same-opening transport
+4. freeze those outcome-free inputs and validate the Git chronology receipt;
+5. run the full preflight suite, including the implemented same-opening transport
    continuation, before creating the unique authorization;
-7. execute the fixed opening, render all five receipt-derived statements,
-   regenerate artifacts, and verify the clean-room release.
+6. execute the fixed opening, physically replay and receipt-bind the temporal-
+   coverage audit, render all five receipt-derived statements, regenerate artifacts,
+   and verify the clean-room release.
 
 Until those steps finish, all legacy numeric outputs are considered stale and no
 current empirical performance conclusion is available.

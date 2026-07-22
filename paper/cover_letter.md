@@ -20,19 +20,26 @@ residuals, a separate MSE point head, three pinball-trained quantile heads, and 
 split-conformal 90% interval. The evaluation design emphasizes
 common target keys, station-balanced effects, clustered spatial inference, frozen
 model/input chronology, raw qualifier provenance, and receipt-derived statements.
+The H2 comparison is limited to the frozen four-candidate, five-seed LightGBM
+procedure; historical tuning budgets were not equalized. The Stage 09 controls are
+single-seed functionality/intervention diagnostics rather than evidence of causal
+mechanisms, component necessity, or cross-seed stability.
 
-At present, the canonical development rerun, model-suite freeze, later covariate
-freeze, one-time authorization, and target-period scoring have not finished. We
-have therefore removed all legacy performance numbers from the manuscript. A
-future submission will include every predeclared formal comparison, including
-negative, conflicting, or non-estimable outcomes, only after the fixed evidence
-chain passes.
+The outcome-free 2018–2020 predictor-product bridge has passed. At present, the
+canonical development rerun, model-suite freeze, later covariate freeze, one-time
+authorization, and target-period scoring have not finished. We have therefore
+removed all legacy performance numbers from the manuscript. A future submission
+will include every predeclared formal comparison, including negative, conflicting,
+or non-estimable outcomes, only after the fixed evidence chain passes.
 
 The intended contribution is twofold: a constrained hindcasting architecture and
 an auditable evaluation/release workflow. The manuscript will explicitly delimit
 the availability-enriched sample, retrospective finalized covariates, coarse HUC2
 dependence groups, daily-mean target, point-scale meteorology, missing development
-request provenance, numerical comparison margin, and local honest-owner Git seal.
+request provenance, numerical comparison margin, calibration-row-weighted Platt
+fitting versus station-balanced target metrics, observable-outcome conditioning,
+the descriptive-only temporal-coverage sensitivities, the unofficial status of the
+Air2stream-style reference, and the local honest-owner Git seal.
 
 Before submission we must also replace all author, affiliation, ORCID, e-mail,
 funding, competing-interest, repository, DOI, and data-license placeholders with

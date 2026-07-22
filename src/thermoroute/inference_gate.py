@@ -32,6 +32,11 @@ from .outcome_qc import (
     file_binding as outcome_qc_file_binding,
     validate_outcome_qc_policy,
 )
+from .coverage_audit import (
+    POLICY_RELATIVE as TEMPORAL_COVERAGE_POLICY_RELATIVE,
+    CoverageAuditError,
+    validate_temporal_coverage_policy,
+)
 
 
 GATE_FORMAT = "thermoroute.route-a-inference-gate.v1"
@@ -479,9 +484,12 @@ def validate_inference_amendment(
         raise InferenceGateError("inference amendment is not fail closed")
     additional = amendment.get("additional_preopen_gates")
     if not isinstance(additional, Mapping) or set(additional) != {
-        "outcome_qc_policy"
+        "outcome_qc_policy",
+        "temporal_coverage_policy",
     }:
-        raise InferenceGateError("inference amendment lacks the outcome-QC policy gate")
+        raise InferenceGateError(
+            "inference amendment lacks the outcome-QC/coverage policy gates"
+        )
     policy_binding = additional.get("outcome_qc_policy")
     if not isinstance(policy_binding, Mapping) or set(policy_binding) != {
         "path", "sha256", "required", "role"
@@ -511,6 +519,39 @@ def validate_inference_amendment(
         or policy.get("post_2020_wtemp_requested_or_inspected") is not False
     ):
         raise InferenceGateError("outcome-QC policy amendment binding changed")
+    coverage_binding = additional.get("temporal_coverage_policy")
+    if not isinstance(coverage_binding, Mapping) or set(coverage_binding) != {
+        "path",
+        "sha256",
+        "required",
+        "role",
+    }:
+        raise InferenceGateError(
+            "temporal-coverage policy amendment binding is malformed"
+        )
+    coverage_path = root_path / TEMPORAL_COVERAGE_POLICY_RELATIVE
+    try:
+        coverage_policy = validate_temporal_coverage_policy(coverage_path)
+    except CoverageAuditError as exc:
+        raise InferenceGateError(
+            "temporal-coverage policy is absent or stale"
+        ) from exc
+    expected_coverage_binding = {
+        "path": TEMPORAL_COVERAGE_POLICY_RELATIVE,
+        "sha256": _sha256_file(coverage_path),
+        "required": True,
+        "role": (
+            "predeclared_nonfiltering_temporal_coverage_and_equal_cell_"
+            "descriptive_sensitivity_never_changes_formal_result_or_decision"
+        ),
+    }
+    if (
+        dict(coverage_binding) != expected_coverage_binding
+        or coverage_policy.get("post_2020_wtemp_requested_or_inspected") is not False
+    ):
+        raise InferenceGateError(
+            "temporal-coverage policy amendment binding changed"
+        )
     recovery = amendment.get("trusted_scoring_recovery_contract")
     expected_recovery = {
         "maximum_logical_openings": 1,

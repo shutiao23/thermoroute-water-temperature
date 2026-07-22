@@ -21,11 +21,11 @@
     "paper/agu_submission/ThermoRoute_WRR.tex"
   ],
   "preopen_document_sha256": {
-    "README.md": "952678fd04435fdf6805ac5a89ccd80cd870f72965085ed6c8879c31065eb13a",
-    "paper/ThermoRoute_paper.md": "5a5cf14ec64c73bafd12dcf7e8a8941d10edcbf71cbd35670e1f7871e2485034",
-    "paper/highlights.md": "d5df703d71b940ffcb3af515d6966c4664829598afabd9744cc8c8d1dcdd9e42",
-    "paper/cover_letter.md": "ad5725f1c81c0638bce5fefa4d4e90807fef15fee28b80bb9cc0ac4453ca6dd8",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "a4206e5db87f163b8d923460411128a396a884f5d7aca02b010ee85e1134ee56"
+    "README.md": "b84587d00e81b23c98ad4953cb7dd598154640a6bdf4ecc654a06c934d65f1c8",
+    "paper/ThermoRoute_paper.md": "0edef6807f79b53b6d9b61af03f3b882a7736cd4c9e3060242c062b2c5d08f6e",
+    "paper/highlights.md": "1afac8c57150ffd505cee129c6253b0cfb6d1287f79dd095fc7dc936f61b48c6",
+    "paper/cover_letter.md": "0dc82aa624116b36c810815ccd9bfda3e15f6726fa36c2fe460947056fd2dcbc",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "a230af38001303d1846e5bdab3666ecf09810d43bc6640b2d1e9c82690a5e183"
   },
   "postopen_document_transform": {
     "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
@@ -510,6 +510,7 @@
     "support_requires": [
       "authorization.inference_gate.claim_eligible == true",
       "statistics.outcome_qc_gate.directional_claims_allowed == true",
+      "receipt.temporal_coverage_audit.physical_replay_verified == true",
       "status == ESTIMABLE",
       "p_holm <= 0.05",
       "ci_high_c < margin_c"

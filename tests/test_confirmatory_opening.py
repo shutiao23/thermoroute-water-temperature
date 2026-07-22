@@ -1904,10 +1904,17 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         "development_replay.json", "protocol_seal.json", "inference_gate.json",
         "inference_amendment.json", "inference_amendment_seal.json",
         "outcome_qc_policy.json",
+        "protocols/route_a_temporal_coverage_policy_v1.json",
     )
     paths = {name: tmp_path / name for name in relative_paths}
     for name, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{name}\n", encoding="utf-8")
+    paths[
+        "protocols/route_a_temporal_coverage_policy_v1.json"
+    ].write_bytes(
+        (ROOT / "protocols/route_a_temporal_coverage_policy_v1.json").read_bytes()
+    )
     chronology_path = (
         tmp_path / "outputs" / "prelabel" / "route_a_prelabel_chronology_v1.json"
     )
@@ -1959,7 +1966,7 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     }
     inputs = {
         "sha256": sha256_file(paths["inputs.json"]),
-        "history_start": "2020-12-01",
+        "history_start": "2020-11-30",
         "document": {},
     }
     monkeypatch.setattr(
@@ -1986,6 +1993,14 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
             "outcome_qc_policy": {
                 "path": "outcome_qc_policy.json",
                 "sha256": sha256_file(paths["outcome_qc_policy.json"]),
+            },
+            "temporal_coverage_policy": {
+                "path": "protocols/route_a_temporal_coverage_policy_v1.json",
+                "sha256": sha256_file(
+                    paths[
+                        "protocols/route_a_temporal_coverage_policy_v1.json"
+                    ]
+                ),
             },
         },
     }
@@ -2087,6 +2102,9 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         inference_amendment=paths["inference_amendment.json"],
         inference_amendment_seal=paths["inference_amendment_seal.json"],
         outcome_qc_policy=paths["outcome_qc_policy.json"],
+        temporal_coverage_policy=paths[
+            "protocols/route_a_temporal_coverage_policy_v1.json"
+        ],
     )
     assert frozen["source"]["post_freeze_allowed_git_status"] == (
         "?? data_usgs/confirmatory_opening_authorization_v1.json"

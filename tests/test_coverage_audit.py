@@ -335,6 +335,27 @@ def test_policy_freezes_real_family_models_interval_and_file_digest() -> None:
     assert sha256_file(ROOT / POLICY_RELATIVE) == POLICY_FILE_SHA256
 
 
+@pytest.mark.parametrize("rewrite", ["whitespace", "reserialize"])
+def test_policy_semantically_identical_physical_rewrite_fails_closed(
+    tmp_path: Path, rewrite: str
+) -> None:
+    source = ROOT / POLICY_RELATIVE
+    if rewrite == "whitespace":
+        payload = source.read_bytes() + b"\n"
+    else:
+        import json
+
+        payload = json.dumps(
+            json.loads(source.read_text(encoding="utf-8")),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    attacked = tmp_path / "policy.json"
+    attacked.write_bytes(payload)
+    with pytest.raises(CoverageAuditError, match="physical bytes"):
+        validate_temporal_coverage_policy(attacked)
+
+
 @pytest.mark.parametrize(
     "attack", ["self", "margin", "id", "order", "duplicate", "bool_h", "bool_m"]
 )
@@ -430,6 +451,33 @@ def test_full_build_binds_sources_models_cells_and_descriptive_support() -> None
                 <= station["max_valid_keys_per_cell"]
             )
         assert row["does_not_establish_year_or_season_stability"] is True
+        candidates = row["frozen_sensitivity_candidates"]
+        assert [candidate["source"] for candidate in candidates] == [
+            "equal_12cell",
+            "leave_one_year_2021",
+            "leave_one_year_2022",
+            "leave_one_year_2023",
+            "leave_one_season_DJF",
+            "leave_one_season_MAM",
+            "leave_one_season_JJA",
+            "leave_one_season_SON",
+        ]
+        assert len(candidates) == 8
+        effects = [
+            candidate["descriptive_median_effect_c"] for candidate in candidates
+        ]
+        worst = row["frozen_worst_unfavorable_sensitivity"]
+        expected_index = next(
+            index for index, value in enumerate(effects) if value == max(effects)
+        )
+        assert worst == {
+            "status": "DESCRIPTIVE_ESTIMABLE",
+            "direction": "LARGER_CANDIDATE_MINUS_REFERENCE_IS_MORE_UNFAVORABLE",
+            "tie_rule": "FIRST_IN_FROZEN_CANDIDATE_ORDER",
+            "frozen_order_index": expected_index,
+            "source": candidates[expected_index]["source"],
+            "descriptive_median_effect_c": effects[expected_index],
+        }
 
 
 def test_preaggregated_temporal_sensitivities_match_slow_reference() -> None:
@@ -575,6 +623,20 @@ def test_zero_key_horizon_and_empty_external_cohort_are_legal() -> None:
         if row["horizon"] == 7
     ]
     assert h7 and all(row["n_primary_reportable_stations"] == 0 for row in h7)
+    for row in h7:
+        assert len(row["frozen_sensitivity_candidates"]) == 8
+        assert all(
+            candidate["descriptive_median_effect_c"] is None
+            for candidate in row["frozen_sensitivity_candidates"]
+        )
+        assert row["frozen_worst_unfavorable_sensitivity"] == {
+            "status": "DESCRIPTIVE_NOT_ESTIMABLE_NO_ELIGIBLE_STATION",
+            "direction": "LARGER_CANDIDATE_MINUS_REFERENCE_IS_MORE_UNFAVORABLE",
+            "tie_rule": "FIRST_IN_FROZEN_CANDIDATE_ORDER",
+            "frozen_order_index": None,
+            "source": None,
+            "descriptive_median_effect_c": None,
+        }
 
 
 def test_empty_cohort_requires_canonical_empty_y_true_digest() -> None:

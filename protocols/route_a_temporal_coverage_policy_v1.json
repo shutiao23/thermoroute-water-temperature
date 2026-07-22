@@ -113,6 +113,20 @@
     "equal_cell_station_rmse": "sqrt_of_unweighted_mean_of_the_twelve_within_cell_MSE_values",
     "leave_one_year": "same_all_12_cells_nonempty_stations_and_equal_weight_over_remaining_eight_cells",
     "leave_one_season": "same_all_12_cells_nonempty_stations_and_equal_weight_over_remaining_nine_cells",
+    "frozen_candidate_order": [
+      "equal_12cell",
+      "leave_one_year_2021",
+      "leave_one_year_2022",
+      "leave_one_year_2023",
+      "leave_one_season_DJF",
+      "leave_one_season_MAM",
+      "leave_one_season_JJA",
+      "leave_one_season_SON"
+    ],
+    "unfavorable_direction": "larger_candidate_minus_reference_effect_is_more_unfavorable",
+    "unfavorable_selection_rule": "maximum_descriptive_median_effect_c_with_first_frozen_candidate_order_entry_winning_exact_ties",
+    "all_eight_candidates_must_be_reported": true,
+    "no_eligible_station_requires_explicit_null_value_and_source": true,
     "does_not_establish_year_or_season_stability": true,
     "retraining_or_recalibration_performed": false,
     "favorable_sensitivity_may_rescue_primary_result": false,
@@ -167,5 +181,5 @@
     "rewriting_only_the_self_hash_cannot_validate_changed_evidence": true
   },
   "output_artifact": "trusted/temporal_coverage_audit_v1.json",
-  "policy_self_sha256": "8a6cdf38dcf59e4c2818d2e9e0354a4ecd34922932a3be119e2ff4956c458c4f"
+  "policy_self_sha256": "9b4d6c784bb265b4022ea5d76eac867174e808a3e570e612b04a50054f15157e"
 }
