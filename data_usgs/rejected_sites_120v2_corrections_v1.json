@@ -1,0 +1,16 @@
+{
+  "format": "thermoroute.legacy-selection-wording-correction.v1",
+  "source": {
+    "path": "data_usgs/rejected_sites_120v2.csv",
+    "sha256": "bca746a03c41b4ca1112d02260c43f60faf82cf567aa4c5da31b5d98fddae6d6"
+  },
+  "corrections": [
+    {
+      "legacy_value": "low blind-test-period coverage",
+      "corrected_interpretation": "low 2019-2020 development-evaluation-period coverage",
+      "row_count": 19,
+      "reason": "The 2019-2020 period was inspected during cohort construction and is exploratory development data, not a blind or untouched test."
+    }
+  ],
+  "scope": "Terminology-only sidecar. It does not alter, filter, or replace any legacy row."
+}

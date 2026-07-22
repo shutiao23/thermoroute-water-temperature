@@ -1,53 +1,32 @@
-# Highlights
+# ThermoRoute — pre-opening highlights
 
-*(Journal of Hydrology format: ≤85 characters each, including spaces.)*
+> Draft status: the canonical computation and one-time target-period evaluation
+> remain incomplete. These are design highlights, not performance findings.
 
-- A dynamic thermal-relaxation prior makes damped persistence a special case
-- On 40 USGS stations it significantly beats persistence and damped persistence
-- Transfers to unseen basins in 4-fold leave-group-out (skill +0.13 to +0.23)
-- Conformal forecast intervals are near-nominal at 89–97% of stations
-- Three negative results reported in full, including no gain on a damped cascade
+- Is designed to hindcast daily river water temperature at 1-, 3-, and 7-day horizons.
+- Anchors a learned temporal model to damped persistence with a bounded residual.
+- Uses a stable 120-site USGS development panel covering 2006–2020.
+- Separates training, validation, calibration, and exploratory development years.
+- The frozen protocol specifies six primary model types and seven one-factor controls.
+- Uses station-balanced RMSE effects on identical model-pair target keys.
+- Enumerates whole-HUC2 signs and adjusts exactly five formal p-values with Holm.
+- The opening design will archive raw target requests, identifiers, qualifiers, and conflicts.
+- Requires a model-freeze commit before candidate metadata and later covariates.
+- Generates formal statements only from a fully verified one-time receipt.
 
----
+## Current status
 
-# One-page summary
+The legacy headline numbers have been withdrawn because they belong to a different
+station mapping and do not have the lineage sidecars required by the current code.
+The outstanding work is to rerun the canonical development chain, freeze and replay
+all model bundles, acquire outcome-free metadata and historical covariates in the
+required order, pass authorization, execute the fixed opening, and regenerate the
+manuscript and release evidence.
 
-**Problem.** Daily river water temperature is so autocorrelated that *persistence*
-is a punishing baseline, and many machine-learning studies inflate their skill by
-using covariates unavailable at forecast time. We ask whether a physics-guided
-learner can do better honestly — and we insist the answer be demonstrated on a
-large, diverse sample, not one site.
+## Scope
 
-**Method — ThermoRoute.** A learnable *dynamic thermal-relaxation prior* relaxes
-the temperature anomaly toward a horizon-shifted seasonal climatology at a flow- and
-season-modulated rate; with the modulation switched off it is *exactly* damped
-persistence, so the strong baseline is contained as a special case and any gain is
-attributable to the learned part. A horizon-conditioned sparse variable–lag router,
-a causal temporal encoder and a regime mixture-of-experts produce a **bounded**
-neural residual (it cannot override the prior). Outputs are conformally-calibrated
-quantiles plus a high-temperature exceedance probability. We forecast under a strict
-historical-information protocol (no future observed weather) with a one-shot
-2019–2020 blind test.
-
-**Evidence (40 public USGS stations + Daymet/gridMET forcing).**
-
-| Claim | Result |
-|---|---|
-| Beats the physics baselines | RMSE 0.554 / 1.175 / 1.490 °C at 1 / 3 / 7 d; significantly better than persistence and damped persistence (Wilcoxon p ≤ 10⁻⁶; wins 81–92 % of stations) |
-| ≥ parity with a strong learner | Significantly beats LightGBM at the station level at 3–7 days; ties at 1 day |
-| Transfers across basins | 4-fold leave-group-out: +0.13 / +0.14 / +0.23 skill vs persistence (std ≈ 0.02) |
-| Calibrated | PICP ≈ 0.90; 89–97 % of stations within ±0.05 of nominal |
-| Components matter | Removing the prior / experts / router significantly hurts (p ≤ 2×10⁻⁹) |
-
-**Honesty.** We report three negative results in full: no point-accuracy gain on a
-near-deterministic three-station reservoir cascade; the flow-dependent thermal memory
-does **not** generalise beyond it; and no robust cost–loss decision-value advantage
-over a (strong) deterministic persistence warning. The take-home is methodological as
-much as technical: a physics-guided forecaster's advantage exists only where the
-system has forecast headroom, and establishing it requires a large, transfer-tested
-sample — not a single cascade.
-
-**Reproducibility.** All code, the fixed evaluation protocol, the assembled datasets,
-13 leakage/metric unit tests, and one-command reproduction are provided; every
-headline claim was checked by an adversarial internal review against the result
-tables.
+The architecture is physics-inspired but remains a statistical predictor. Its
+event threshold and numerical comparison margin are methodological quantities.
+The external-site analysis uses local observation history and remains exploratory.
+The current Git seal is repository-internal and has no independent timestamp or
+custodian.

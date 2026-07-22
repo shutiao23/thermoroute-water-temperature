@@ -1,36 +1,34 @@
-# ThermoRoute — AGU / Water Resources Research submission
+# Pre-opening AGU / Water Resources Research typeset package
 
-Official AGU LaTeX template (`agujournal2019.cls`, downloaded from the AGU
-`myst-templates/agu2019` GitHub `original/` folder) with the ThermoRoute
-manuscript filled in.
+This directory uses the official `agujournal2019.cls` only as a typesetting
+target. It is not yet a submission-ready package: empirical results are pending,
+the author block is deliberately invalid, and repository/DOI/funding/license
+metadata still require verified author input.
 
-## Files
-- `ThermoRoute_WRR.tex` — the manuscript in AGU macros (`\journalname`, `\authors`,
-  `\keypoints`, `\begin{abstract}`, `\cite`/`\citeA`, `\bibliography`).
-- `references.bib` — 41 web-verified references (apacite/BibTeX).
-- `agujournal2019.cls`, `trackchanges.sty` — official AGU class + style.
-- `agujournaltemplate.tex` — the pristine AGU template (reference only).
-- `figures/` — the four manuscript figures.
-- `build_agu.py` — regenerates `ThermoRoute_WRR.tex` from
-  `../ThermoRoute_paper.md` (single source of truth for content).
+`../ThermoRoute_paper.md` is the only prose source. `build_agu.py` converts its
+current abstract and numbered body, removes machine-only claim comments, supplies
+status-safe AGU front matter, and refuses known withdrawn legacy claims. It does
+not contain or infer numerical results.
 
-## Compile
+## Rebuild and verify
+
+```bash
+python build_agu.py
+python build_agu.py --check
+pdflatex -interaction=nonstopmode -halt-on-error ThermoRoute_WRR.tex
+pdflatex -interaction=nonstopmode -halt-on-error ThermoRoute_WRR.tex
 ```
-pdflatex ThermoRoute_WRR
-bibtex   ThermoRoute_WRR
-pdflatex ThermoRoute_WRR
-pdflatex ThermoRoute_WRR
-```
-Produces `ThermoRoute_WRR.pdf` (19 pp). Also compiles unchanged on Overleaf:
-upload this folder and set `ThermoRoute_WRR.tex` as the main document.
 
-## Before submission (author actions)
-1. Replace `[Author One/Two/Three]`, affiliations, and the corresponding e-mail
-   in `ThermoRoute_WRR.tex` (front matter).
-2. Optional: increase inline citation density — the body currently cites a few
-   works with `\citeA`/`\cite` and pulls the full list via `\nocite{*}`; WRR
-   reviewers prefer each reference cited at its point of use.
-3. The single model-prior equation is set as a real `align` block; the remaining
-   pseudo-equations are inline `\texttt{}` — promote to display math if desired.
+The Markdown currently cites sources as linked author-year text, so the pre-opening
+TeX does not depend on BibTeX. `references.bib` is retained as an archival candidate
+and must be reconciled with in-text citations before submission.
 
-Content stays in `../ThermoRoute_paper.md`; re-run `build_agu.py` after edits.
+## Required author actions before submission
+
+1. Supply verified names, affiliations, ORCIDs, corresponding e-mail, funding,
+   competing interests, repository URL, DOI, and redistribution/license language.
+2. Complete the frozen computation and one-time evidence chain; regenerate the
+   canonical Markdown only through the verified receipt and claim renderer.
+3. Rebuild this TeX, run `--check`, compile it, and visually inspect every page.
+4. Reconcile every in-text reference with the final bibliography and current AGU
+   submission requirements.

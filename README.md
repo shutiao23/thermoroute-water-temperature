@@ -1,191 +1,197 @@
 # ThermoRoute
 
-**Physics-guided, dynamic-lag, calibrated, transferable river water-temperature forecasting.**
+ThermoRoute is a research repository for a retrospective daily river-water-
+temperature hindcasting benchmark at 1-, 3-, and 7-day horizons. It does not yet
+establish an as-issued operational forecast. The model combines a damped-persistence anchor,
+a learned thermal-relaxation proposal, a horizon-conditioned variable/lag router,
+a causal temporal convolutional encoder, a regime mixture, bounded residuals, and
+a separate MSE point head, three pinball-trained quantile heads, and split-conformal
+calibration of the nominal 90% interval.
 
-ThermoRoute forecasts daily water temperature (`WTEMP`) 1, 3 and 7 days ahead. It
-couples a *learnable dynamic thermal-relaxation prior* — a flow- and
-season-modulated generalisation of damped persistence toward climatology that
-contains the strong baseline as a special case — with a horizon-conditioned sparse
-variable–lag router, a causal TCN encoder, a regime mixture-of-experts, and a
-**bounded** neural residual; outputs are conformally-calibrated quantiles plus a
-high-temperature exceedance probability.
+## Current evidence status
 
-The study has two settings.
+The repository is in a **pre-opening reconstruction state**.
 
-* **Main analysis (large-sample, USGS).** 120 public USGS stream gages with
-  Daymet meteorology and gridMET wind, 2006–2020, free-flowing and
-  dam-regulated. On the 114 blind-test stations, with the seed budget matched
-  (each seed scored as a single model), **ThermoRoute beats persistence by
-  +0.19/+0.18/+0.24 skill (1/3/7 d) and damped persistence by +0.16/+0.07/+0.03**
-  (per-station Wilcoxon, Holm-adjusted, p ≤ 3×10⁻¹⁶; robust to a HUC2 cluster
-  bootstrap), and beats an air2stream-style 8-parameter physical model (a
-  *variant* of Toffolon–Piccolroaz) at every lead (0.630/1.289/1.658 vs
-  0.797/1.464/1.809 °C). Against a strong gradient-boosting learner (LightGBM)
-  the honest result is **parity, not superiority**: LightGBM is significantly
-  better at 1 day and the two are statistically tied at 3–7 days. In 4-fold
-  leave-group-out transfer to basins it never trained on it beats persistence by
-  +0.17/+0.17/+0.24. Conformal calibration delivers near-nominal PICP (≈0.90).
-* **Case study (3-station cascade).** Three reservoir-cascade stations
-  (`b1`→`s2`→`p3`), 2006–2020. The reservoir outlets are so heavily damped that
-  **no learned model consistently improves on per-station damped persistence on
-  point RMSE across horizons** — an honest negative result that motivates the
-  large-sample study and is reported in full.
+- The canonical development panel is
+  `data_usgs/panel_usgs_120v2.parquet`: 657,480 daily rows for 120 stable USGS
+  site numbers from 2006-01-01 through 2020-12-31.
+- The current registry covers 34 states and 15 HUC2 groups. It is bound to the
+  panel by `data_usgs/frozen_panel_v1.json`.
+- The 2019–2020 interval is development/exploratory data. It is not an independent
+  final evaluation.
+- The target interval for the one-time retrospective exercise is 2021-01-01
+  through 2023-12-31. Its outcome values have not been requested or inspected in
+  this workflow.
+- The final pre-label protocol and its honest-owner Git seal are in `protocols/`.
+  The seal has no external timestamp, public registration, independent custodian,
+  or write-once storage.
+- Old files under `outputs/` were produced by a legacy cohort and lack the current
+  lineage sidecars. They are historical artifacts, not current evidence, and must
+  not be cited as results of the present pipeline.
+- No current Route-A model suite, opening authorization, completed receipt, or
+  verified formal result exists yet.
 
-Two negative results are reported in full: no point gain on the cascade, and a
-flow-dependent thermal memory that does not generalise beyond it (κ rises with
-flow at 0 % of large-sample stations).
+This status is deliberately fail-closed: `scripts/26_validate_claims.py` rejects
+prohibited or malformed claims in the registered manuscript documents, and the
+release tooling cannot produce a completed profile without a valid one-time
+receipt. The validator is not a semantic proof over arbitrary repository prose;
+unregistered generators require their own guards and tests.
 
-See `paper/ThermoRoute_paper.md` for the full manuscript. Every headline number
-is traceable to a hashed artifact in `outputs/manifest.json` (`scripts/14`);
-`outputs/reports/adversarial_review_tri_persona.md` records the most recent
-three-expert adversarial review and `outputs/reports/review_response.md` an
-earlier six-lens one.
+## The problem
 
----
+Daily stream temperature is highly persistent. A useful model therefore has to
+beat strong, simple references on exactly the same station/date/horizon keys while
+using finalized values dated on or before each historical issue date. This is a
+date-indexed retrospective information rule, not proof that the same product
+vintages were operationally available at that time. The benchmark also has to
+report missingness, sensor qualifiers, geographic dependence, uncertainty, and
+model-selection history without silently changing the cohort after outcomes are
+seen.
 
-## Why the problem is hard (and honest)
+ThermoRoute is designed to test whether a constrained learned correction can add
+value over persistence, damped persistence, climatology, LightGBM, and a global
+LSTM. The repository treats that as an empirical question; the architecture name
+is not evidence of hydraulic transport or an identified physical mechanism.
 
-Reservoir water temperature has lag-1 autocorrelation ≈ 0.998. **Persistence is a
-brutal baseline**, and only damped persistence toward climatology reliably beats
-it. A generic strong learner (LightGBM) is at least as accurate as ThermoRoute —
-better at 1 day, statistically tied at 3–7 days once the seed budget is matched.
-The contribution is therefore (i) beating the *physics* baselines robustly, (ii)
-spatial transfer, (iii) calibrated uncertainty — established on a large,
-hydrologically diverse sample rather than a single site, **not** a claim of
-state-of-the-art point accuracy over all learners.
+## Frozen evaluation design
 
----
+The development split is:
+
+| Role | Dates | Use |
+|---|---|---|
+| Train | 2006–2015 | fit models and preprocessing |
+| Validation | 2016–2017 | model selection only |
+| Calibration | 2018 | conformal calibration and frozen event references |
+| Development evaluation | 2019–2020 | previously inspected; exploratory diagnostics only |
+| One-time target interval | 2021–2023 | labels remain sealed until all gates pass |
+
+The exact raw feature order is
+`WTEMP, FLOW, TEMP, PRCP, RHMEAN, DH, WDSP`. `WLEVEL` may be archived as raw
+provenance but is not consumed by the Route-A models. `DH` is the legacy name for
+Daymet daylight-period mean incoming shortwave radiation (W m⁻²), not day length;
+`RHMEAN` is a derived humidity proxy. The external 30-site exercise
+uses pooled, station-agnostic training but still uses each target site's observed
+water-temperature history through the issue date; it is permanently exploratory.
+The 2019–2020 period also informed station inclusion through minimum WTEMP/FLOW
+coverage thresholds and is not blind, untouched, or independently confirmatory.
+
+The formal family contains exactly five station-balanced comparisons. Every
+reportable station needs at least 100 common valid target keys for the relevant
+horizon and model pair. The effect is the median across station-level RMSE
+differences. Primary p-values use exact whole-HUC2 sign-flip enumeration, confidence
+intervals use a whole-HUC2 cluster bootstrap, and Holm adjustment covers exactly
+the five frozen tests. A favorable statement requires both the adjusted p-value
+and the predeclared confidence-bound rule; non-significance is never interpreted
+as equality. The 15 HUC2 groups are small and unequal (inverse-Herfindahl effective
+count 9.54 before attrition), so exact enumeration removes Monte Carlo error but
+does not remove the joint sign-symmetry assumption or make cluster-bootstrap
+coverage reliable in small samples.
+
+## Model design
+
+For issue time `t` and horizon `h`, the point forecast has four main pieces:
+
+1. A damped-persistence/climatology anchor supplies a strong conservative
+   reference trajectory.
+2. A learned flow- and season-conditioned relaxation proposal changes the thermal
+   memory, but remains a statistical component rather than an energy-balance
+   estimate.
+3. A sparse horizon-conditioned router selects among predeclared variables and
+   lags; a causal TCN and regime mixture encode recent history.
+4. A `tanh`-bounded residual limits the point prediction's deviation from its
+   anchor. This is an algebraic bounded-deviation property, not a deployment or
+   tail-risk guarantee.
+
+The learned models emit an MSE point and distinct pinball q05/q50/q95 heads. CQR
+fitted on 2018 widens q05/q95 only; q50 is not adjusted. Member-wise averaged
+quantiles are engineering ensemble summaries, not mixture-distribution quantiles.
+Exceedance events use a frozen seasonal statistical reference derived without
+target-period labels. Probability,
+spatial-influence, exact-qualifier, and architecture-control outputs are descriptive
+or exploratory unless the protocol explicitly places them in the five-test family.
+
+Temporal learned models receive stable site identity, while the pooled external
+models do not. The latter still consume each new gauge's observed WTEMP history.
+Other history cells may be filled by train-only seasonal medians while retaining
+missingness masks; there is no minimum observed fraction in the 32-day context.
+
+## Evidence workflow
+
+The intended order is strict:
+
+1. Commit the protocol, seal, claim ledger, dependency locks, source, tests, and
+   training code.
+2. Re-fetch 2018–2020 Daymet/gridMET with the confirmation parser, archive the
+   exact responses, and require the development predictor-product bridge to
+   reproduce the frozen panel on the exact site/date registry. This checks product
+   and parser compatibility, but not subdaily local-day equivalence or as-issued
+   availability. This outcome-free engineering gate was added after the local
+   protocol seal and cannot change its hypotheses or decisions.
+3. Rebuild the canonical development chain, including the separate matched
+   MLP/TCN and multi-seed feature-ladder audit; freeze all five-member temporal
+   and pooled external model bundles; replay every model head on development data.
+4. Commit the model-suite registry while candidate metadata and target-period
+   predictor artifacts are absent.
+5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET
+   inputs without requesting outcome values; commit those exact bytes.
+6. Replay Git ancestry and blob hashes, then create one immutable authorization.
+7. Execute the fixed raw-only acquisition child and trusted scorer. Network
+   transport may continue only within the same opening ID and exact request ledger,
+   before any normalized or trusted output exists.
+8. Render all five statements automatically from the verified receipt and build a
+   completed release profile.
+
+Failure of the chronology gate demotes the exercise to retrospective exploration.
 
 ## Repository layout
 
-```
-project1/
-├── data/                       raw 3-station cascade CSVs (b1, s2, p3)
-├── data_usgs/                  USGS large-sample panels (panel_usgs_100.parquet),
-│                                 per-station n*.csv, stations_meta.csv, acquisition report
-├── src/thermoroute/
-│   ├── config.py               protocol constants (split, topology, thresholds)
-│   ├── data.py                 loading, sentinel QC, fold-safe split + impute
-│   ├── features.py             harmonic climatology, tabular lag features
-│   ├── datasets.py             windowed tensors + leakage guard (NaN-safe)
-│   ├── baselines.py            persistence … LightGBM (3-station baselines)
-│   ├── air2stream.py           air2stream-*variant* physical baseline (a4 + a8; see caveat)
-│   ├── thermoroute.py          the model (prior + router + TCN + MoE + heads)
-│   ├── train.py                training loop, composite loss, GRU reference
-│   ├── conformal.py            conformalised quantile regression (CQR)
-│   ├── metrics.py              point / probabilistic / event metrics
-│   ├── significance.py         moving-block bootstrap, Diebold-Mariano
-│   ├── decision.py             cost-loss decision value (REV)
-│   ├── results.py              canonical predictions schema + scoring
-│   └── usgs.py                 NWIS + Daymet + gridMET acquisition
-├── scripts/
-│   ├── 01_prepare_data.py            3-station audit + processed panel
-│   ├── 04_run_experiments.py         3-station experiment matrix
-│   ├── 05_explain.py                 3-station mechanism extraction
-│   ├── 06_make_figures.py            3-station + USGS figures
-│   ├── 07_make_tables.py             3-station paper tables
-│   ├── 08_decision_value.py          REV decision-value analysis
-│   ├── 09_usgs_experiment.py    USGS main: baselines + air2stream + ThermoRoute × seeds + LGO + ablations
-│   ├── 10_usgs_analysis.py      USGS calibration, REV, mechanism (κ, router drivers)
-│   ├── 11_retune.py             residual-bound (delta_scale) tuning
-│   ├── 12_claim_stats.py        per-station Wilcoxon + bootstrap CI (Claims 1, 3)
-│   ├── 13_rigor.py              random K-fold LGO + 3-seed ablations (Claims 2, 4)
-│   ├── 13b_ablation_worker.py   parallel ablation-seed worker
-│   ├── 13c_region_transfer.py   leave-HUC2-region-out transfer vs LightGBM (Claim 2, strengthened)
-│   ├── 14_manifest.py           sha256 artifact manifest + --check drift detector
-│   ├── data_usgs/build_usgs_stations.py   acquisition driver
-│   └── run_all.sh                     one-command reproduction (both tracks)
-├── tests/                              leakage / split / metric / sample-consistency unit tests (14 tests)
-├── paper/
-│   ├── ThermoRoute_paper.md            manuscript
-│   ├── ThermoRoute_paper.pdf|.docx     rendered
-│   ├── cover_letter.md|.pdf|.docx      submission cover letter
-│   └── highlights.md|.pdf|.docx        JoH-format highlights + one-page summary
-└── outputs/                            tables, figures, predictions, reports, models
+```text
+data/                         three-station legacy case-study inputs
+data_usgs/                    canonical panel, registries, and frozen evidence
+protocols/                    protocol, protocol seal, and structured claim ledger
+src/thermoroute/              model, data, inference, provenance, and opening code
+scripts/                      development, freezing, opening, and release entrypoints
+tests/                        leakage, replay, schema, failure, and release tests
+paper/                        pre-opening manuscript sources; results currently pending
+outputs/                      legacy artifacts plus future content-addressed outputs
 ```
 
-## Quick start
+## Verification commands
+
+These commands are safe before label opening:
 
 ```bash
-pip install -r requirements.txt          # torch, lightgbm, sklearn, ...
-bash scripts/run_all.sh                   # full pipeline, both tracks (multi-hour on CPU)
+python -m pytest -q
+ruff check src tests
+ruff check --select F scripts
+mypy src/thermoroute --ignore-missing-imports
+python -I -B scripts/27_verify_development_replay.py --help
+python scripts/26_validate_claims.py \
+  --root . --registry protocols/route_a_claim_registry_v1.json
 ```
 
-Or step by step (set `PYTHONPATH=src`; first batch is the 3-station case study,
-second batch is the USGS large-sample main analysis):
+The full development/model-freezing pipeline is computationally expensive and is
+not represented by the legacy `outputs/` directory. Do not run the one-time opening
+command until the model suite, predictor evidence, chronology receipt, clean-source
+authorization, and all preflight tests are present.
 
-```bash
-# --- 3-station case study (~30 minutes on CPU) ---
-python3 scripts/01_prepare_data.py        # audit + processed panel
-python3 -m pytest tests/ -q               # leakage / metric / consistency tests (14 pass)
-python3 scripts/04_run_experiments.py     # 3-station experiment matrix
-python3 scripts/05_explain.py             # 3-station mechanism extraction
-python3 scripts/06_make_figures.py        # 3-station figures
-python3 scripts/07_make_tables.py         # 3-station paper tables
-python3 scripts/08_decision_value.py      # REV analysis
+## Reproducibility boundary
 
-# --- USGS large-sample main analysis (multi-hour on CPU) ---
-# acquisition (network-bound) — already pre-acquired in data_usgs/
-python3 scripts/data_usgs/build_usgs_stations.py --target 120 --max-probe 1500 \
-    --out panel_usgs_100.parquet --states CO OR WA PA NY MN WI CA ID MT [...]
-# main experiment (5 seeds + air2stream + LGO + ablations)
-# IMPORTANT: write to the *_v2 "current-truth" filenames that 10/12/13 read first,
-# otherwise the downstream stages compute on a stale file (see scripts/run_all.sh).
-python3 scripts/09_usgs_experiment.py --panel data_usgs/panel_usgs_100.parquet \
-    --air2stream --seeds 5 \
-    --out_predictions usgs_predictions_v2.parquet \
-    --out_report usgs_experiment_v2.md --out_scores usgs_scores_v2.csv
-# downstream: calibration / REV / mechanism + significance + rigor + region transfer
-python3 scripts/10_usgs_analysis.py
-python3 scripts/12_claim_stats.py
-python3 scripts/13_rigor.py
-python3 scripts/13c_region_transfer.py --fold 0   # (repeat 0..3, or run in parallel)
-python3 scripts/13c_region_transfer.py --assemble
-python3 scripts/14_manifest.py                    # sha256 evidence chain
-```
+The canonical 2006–2020 derived panel and stable registry are byte-bound, but the
+original provider HTTP responses and retrieval timestamps for that development
+panel are unavailable. Development reproduction is therefore conditional on the
+committed Parquet bytes. New candidate, meteorological, and opening acquisitions
+are designed to archive exact requests, responses, timestamps, qualifiers, and
+hashes.
 
-## The model in one screen
+The current protocol evidence is repository-internal and assumes an honest owner.
+It does not protect against an owner rewriting local Git history. No remote push,
+public registration, or external artifact publication is performed by this
+workflow.
 
-For station *s*, issue day *t*, horizon *h* ∈ {1,3,7}:
+## License
 
-```
-prior :  a_t = W_t − C_t                      today's anomaly
-         e_t = g(weather_t)                   weather-driven equilibrium anomaly
-         κ   = σ(b_s + c_q·z(logFLOW) + c_l·z(WLEVEL) + season)   daily relax rate
-         â_h = e_t + (1−κ)^h (a_t − e_t)
-         prior_h = C_{t+h} + â_h              (= damped persistence when e=0, κ=1−φ)
-
-residual: routed = sparsemax router over {variable × lag(0..14) × horizon}
-          latent = causal TCN(history)
-          Δ_h    = MoE(routed, latent | season, flow, precip regime)
-          Δ_h    is **bounded by ±delta_scale °C** (tanh) so the prior is never overridden
-
-output : median_h = prior_h + Δ_h
-         q05/q95  = median ∓ softplus(width)   → CQR-calibrated on 2018
-         P(exceed q90)_h
-```
-
-## Leakage discipline (enforced, not promised)
-
-* Split by date: **train 2006–2015 / val 2016–2017 / calib 2018 / blind test 2019–2020**.
-* All scalers, climatology, rating curves and imputation statistics are fit on
-  **train only**.
-* `datasets._assert_no_leakage` verifies every window's last step inverts to
-  `WTEMP_t`; `tests/test_leakage.py` checks splits, sentinels and target offsets.
-* Sentinel codes `WDSP=999.9`, `PRCP=99.99` are masked to NaN, never used as extremes.
-* For USGS panels, a station is included only if its 2006–2020 water-temperature
-  coverage is ≥55 %; per-split effective station counts (≤ nominal panel size)
-  are documented in `outputs/reports/usgs_acquisition.md` and reported in the
-  paper.
-
-## Notes / open items
-
-* **DH semantics on the 3-station data are unverified** (`config.DH_SEMANTICS_VERIFIED
-  = False`). The audit is consistent with a sunshine/insolation index but no
-  DH-specific claim is made. On USGS panels, `DH` is Daymet incident solar
-  radiation (W/m²), a physical replacement on a different scale.
-* This is a **historical-information (Track H)** study: inputs use only data
-  available at issue time. No future observed meteorology is used.
-* Three stations are intentionally a *case study* — the main analysis is the
-  120-station USGS large sample, which has the forecast headroom (persistence
-  h7 median ≈ 2.3 °C) needed to distinguish models.
+Code is provided under the repository license. Data redistribution and provider
+terms must be reviewed separately before public release, especially for the three
+station case-study files whose source and redistribution authorization are not yet
+documented.

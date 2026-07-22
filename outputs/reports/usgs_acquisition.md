@@ -1,15 +1,22 @@
 # USGS large-sample acquisition (120 stations)
 
+> **LEGACY / WITHDRAWN WORDING.** The 2019–2020 interval below informed station
+> inclusion and later model/narrative development. It is an exploratory
+> development-evaluation period, not a blind, untouched, or confirmatory test.
+> The retained ledgers support an audit of the recorded decisions, but original
+> discovery responses, timestamps, exact command line, and run configuration are
+> unavailable, so the 1,465-candidate acquisition cannot be source-replayed.
+
 _Window 2006-01-01…2020-12-31. Probed 1465 candidates in 12623s. Schema matches the original study._
 
 ## Inclusion criteria
 
 - Full-record WTEMP coverage ≥ 0.55
 - Full-record FLOW coverage ≥ 0.70
-- Blind-test-window (2019-01-01–2020-12-31) WTEMP coverage ≥ 0.80
-- Blind-test-window FLOW coverage ≥ 0.80
+- Development-evaluation-window (2019-01-01–2020-12-31) WTEMP coverage ≥ 0.80
+- Development-evaluation-window FLOW coverage ≥ 0.80
 
-These thresholds ensure that *every* accepted station can both train the model on the pre-2019 record and contribute observations to the 2019–2020 blind-test evaluation. Every probed candidate (kept or rejected) is recorded in `data_usgs/rejected_sites_120v2.csv` and `data_usgs/stations_meta_120v2.csv` so the inclusion process is auditable.
+These thresholds ensured that accepted stations could both train the model on the pre-2019 record and contribute observations to the previously inspected 2019–2020 development evaluation. Every recorded candidate (kept or rejected) appears in `data_usgs/rejected_sites_120v2.csv` and `data_usgs/stations_meta_120v2.csv`; this makes the surviving ledger auditable but does not recreate the missing source requests.
 
 ## Kept stations
 
