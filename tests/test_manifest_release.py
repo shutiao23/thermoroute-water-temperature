@@ -153,6 +153,14 @@ def _write_bytes(root: Path, relative: str, payload: bytes = b"fixture\n") -> Pa
     return path
 
 
+def _write_canonical_json(
+    verifier, root: Path, relative: str, document: object
+) -> Path:
+    return _write_bytes(
+        root, relative, verifier._canonical_json_bytes(document)
+    )
+
+
 def _commit_git_fixture(root: Path, message: str) -> str:
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(
@@ -412,7 +420,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "src/thermoroute/outcome_qc.py",
         "src/thermoroute/coverage_audit.py",
         "src/thermoroute/coverage_bridge.py",
+        "src/thermoroute/provenance.py",
         "src/thermoroute/repro.py",
+        "src/thermoroute/usgs.py",
     ):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1380,6 +1390,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     }
     authorization_path = root / "data_usgs/confirmatory_opening_authorization_v1.json"
     fixed_binding = _binding(verifier, root, "src/thermoroute/opening.py")
+    provenance_binding = _binding(
+        verifier, root, "src/thermoroute/provenance.py"
+    )
+    usgs_binding = _binding(verifier, root, "src/thermoroute/usgs.py")
     scorer_binding = _binding(verifier, root, "scripts/route_a_trusted_scorer.py")
     authorization = {
         "format": verifier.AUTHORIZATION_FORMAT,
@@ -1511,7 +1525,11 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             ],
         },
         "fixed_code": {
-            "modules": {"opening": fixed_binding},
+            "modules": {
+                "opening": fixed_binding,
+                "thermoroute.provenance": provenance_binding,
+                "thermoroute.usgs": usgs_binding,
+            },
             "files": {"opening": fixed_binding},
             "entrypoints": {"trusted_scorer": scorer_binding},
             "sha256": "9" * 64,
@@ -1552,7 +1570,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         **work_order_stable,
         "work_order_self_sha256": verifier._sha256_json(work_order_stable),
     }
-    _write_bytes(root, state["work_order"], json.dumps(work_order).encode())
+    _write_canonical_json(verifier, root, state["work_order"], work_order)
 
     trusted_validator = {"sha256": "f" * 64, "implementation": "fixture"}
     preflight = {
@@ -1578,7 +1596,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "started_at_utc": "2026-01-01T00:00:00+00:00",
     }
     intent["intent_self_sha256"] = verifier._sha256_json(intent)
-    (root / state["intent"]).write_text(json.dumps(intent), encoding="utf-8")
+    _write_canonical_json(verifier, root, state["intent"], intent)
 
     request_ledger = f"{state['transport_root']}/request_ledger_v1.json"
     attempt_index = f"{state['transport_root']}/transport_attempt_index_v1.json"
@@ -1628,9 +1646,11 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     }
     ledger = {
         **ledger_stable,
-        "request_ledger_self_sha256": verifier._sha256_json(ledger_stable),
+        "request_ledger_self_sha256": hashlib.sha256(
+            verifier._canonical_json_bytes(ledger_stable)
+        ).hexdigest(),
     }
-    _write_bytes(root, request_ledger, json.dumps(ledger).encode())
+    _write_canonical_json(verifier, root, request_ledger, ledger)
     ledger_sha256 = verifier.sha256_file(root / request_ledger)
 
     attempt_partitions = [
@@ -1683,10 +1703,12 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         }
         start = {
             **start_stable,
-            "attempt_start_self_sha256": verifier._sha256_json(start_stable),
+            "attempt_start_self_sha256": hashlib.sha256(
+                verifier._canonical_json_bytes(start_stable)
+            ).hexdigest(),
         }
         start_relative = f"{attempts_root}/attempt_{number:06d}_start.json"
-        _write_bytes(root, start_relative, json.dumps(start).encode())
+        _write_canonical_json(verifier, root, start_relative, start)
         result_stable = {
             "format": verifier.ACQUISITION_ATTEMPT_RESULT_FORMAT,
             "status": partition["status"],
@@ -1705,10 +1727,12 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         }
         result = {
             **result_stable,
-            "attempt_result_self_sha256": verifier._sha256_json(result_stable),
+            "attempt_result_self_sha256": hashlib.sha256(
+                verifier._canonical_json_bytes(result_stable)
+            ).hexdigest(),
         }
         result_relative = f"{attempts_root}/attempt_{number:06d}_result.json"
-        _write_bytes(root, result_relative, json.dumps(result).encode())
+        _write_canonical_json(verifier, root, result_relative, result)
         attempt_rows.append({
             "attempt_number": number,
             "mode": mode,
@@ -1717,9 +1741,15 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "result": _binding(verifier, root, result_relative),
         })
 
-    series_registry = {"WTEMP": [], "FLOW": [], "WLEVEL": []}
     snapshot_records = []
     request_map_rows = []
+    parsed_outcomes: dict[str, pd.DataFrame] = {}
+    outcome_dates = pd.date_range("2020-11-30", "2023-12-31", freq="D")
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from thermoroute.usgs import parse_nwis_confirmatory_daily
+    finally:
+        sys.path.pop(0)
     retrieval_times = {
         temporal_request: "2026-01-01T00:10:00+00:00",
         external_request: "2026-01-01T00:20:00+00:00",
@@ -1733,7 +1763,29 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         )
         response_relative = f"{transaction_root}/response.bin"
         metadata_relative = f"{transaction_root}/metadata.json"
-        payload = f"# fixture NWIS response for {spec['site_no']}\n".encode()
+        payload_lines = [
+            f"# fixture NWIS response for {spec['site_no']}",
+            "agency_cd\tsite_no\tdatetime\t00010_00003\t00010_00003_cd",
+            "5s\t15s\t20d\t14n\t10s",
+            *(
+                "\t".join((
+                    "USGS",
+                    str(spec["site_no"]),
+                    date.strftime("%Y-%m-%d"),
+                    f"{10.0 + date.dayofyear / 1000.0:.3f}",
+                    "A",
+                ))
+                for date in outcome_dates
+            ),
+        ]
+        payload = ("\n".join(payload_lines) + "\n").encode("utf-8")
+        series_registry = verifier._nwis_series_registry_from_payload(payload)
+        parsed_outcomes[str(spec["site_no"])] = parse_nwis_confirmatory_daily(
+            payload,
+            site_no=str(spec["site_no"]),
+            start=authorization["acquisition_plan"]["history_start"],
+            end=authorization["acquisition_plan"]["target_end"],
+        )
         _write_bytes(root, response_relative, payload)
         metadata = {
             "schema_version": 1,
@@ -1755,7 +1807,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES
             ),
         }
-        _write_bytes(root, metadata_relative, json.dumps(metadata).encode())
+        _write_canonical_json(verifier, root, metadata_relative, metadata)
         record = {
             "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
             "request_sha256": request_sha,
@@ -1787,25 +1839,30 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     # The live transport producer keeps this staging directory after atomically
     # publishing transactions.  It is intentionally empty and may disappear
     # when the release materializer copies only evidence files.
-    (root / state["raw_nwis_root"] / verifier.CONFIRMATORY_NWIS_PROVIDER / ".pending").mkdir(
+    (
+        root
+        / state["raw_nwis_root"]
+        / verifier.CONFIRMATORY_NWIS_PROVIDER
+        / ".pending"
+    ).mkdir(
         parents=True,
         exist_ok=True,
     )
     snapshot_records.sort(key=lambda row: row["request_sha256"])
-    _write_bytes(root, raw_index, json.dumps({
+    _write_canonical_json(verifier, root, raw_index, {
         "schema_version": 1,
         "snapshot_count": len(snapshot_records),
         "records": snapshot_records,
-    }).encode())
+    })
     request_map_rows.sort(key=lambda row: (row["cohort"], row["site_no"]))
-    _write_bytes(root, state["acquisition_request_map"], json.dumps({
+    _write_canonical_json(verifier, root, state["acquisition_request_map"], {
         "format": verifier.ACQUISITION_REQUEST_MAP_FORMAT,
         "opening_id": authorization["opening_id"],
         "authorization_sha256": authorization_sha,
         "provider": verifier.CONFIRMATORY_NWIS_PROVIDER,
         "request_count": len(request_map_rows),
         "requests": request_map_rows,
-    }).encode())
+    })
     attempt_index_stable = {
         "format": verifier.ACQUISITION_ATTEMPT_INDEX_FORMAT,
         "status": "ALL_LEDGER_TRANSACTIONS_COMPLETE",
@@ -1827,25 +1884,20 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     }
     attempt_index_document = {
         **attempt_index_stable,
-        "attempt_index_self_sha256": verifier._sha256_json(attempt_index_stable),
+        "attempt_index_self_sha256": hashlib.sha256(
+            verifier._canonical_json_bytes(attempt_index_stable)
+        ).hexdigest(),
     }
-    _write_bytes(root, attempt_index, json.dumps(attempt_index_document).encode())
-    outcome_dates = pd.date_range("2020-11-30", "2023-12-31", freq="D")
+    _write_canonical_json(
+        verifier, root, attempt_index, attempt_index_document
+    )
     for cohort, site in (
         ("temporal", "01073319"),
         ("external", "02000001"),
     ):
         outcome_path = root / state[f"{cohort}_outcomes"]
         outcome_path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
-            {
-                "site_no": [site] * len(outcome_dates),
-                "DATE": outcome_dates,
-                "WTEMP": 10.0 + outcome_dates.dayofyear / 1000.0,
-                "WTEMP_value_status": ["RETAINED_FINITE_VALUE"]
-                * len(outcome_dates),
-            }
-        ).to_parquet(outcome_path, index=False)
+        parsed_outcomes[site].to_parquet(outcome_path, index=False)
     acquisition = {
         "format": verifier.ACQUISITION_MANIFEST_FORMAT,
         "opening_id": authorization["opening_id"],
@@ -1880,8 +1932,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "producer_role": "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS",
     }
-    (root / state["acquisition_manifest"]).write_text(
-        json.dumps(acquisition), encoding="utf-8"
+    _write_canonical_json(
+        verifier, root, state["acquisition_manifest"], acquisition
     )
     availability_rows: list[dict[str, object]] = []
     for cohort, site in (
@@ -2154,7 +2206,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         ),
     }
     receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
-    (root / state["receipt"]).write_text(json.dumps(receipt), encoding="utf-8")
+    _write_canonical_json(verifier, root, state["receipt"], receipt)
     receipt_sha = verifier.sha256_file(root / state["receipt"])
     _write_bytes(
         root,
@@ -2226,7 +2278,7 @@ def _refresh_postopen_coverage_evidence(
     }
     receipt.pop("receipt_self_sha256", None)
     receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    receipt_path.write_bytes(verifier._canonical_json_bytes(receipt))
     receipt_digest = verifier.sha256_file(receipt_path)
     (root / state["receipt_sha256"]).write_text(
         f"{receipt_digest}  opening_receipt_v1.json\n", encoding="utf-8"
@@ -2256,12 +2308,18 @@ def _refresh_postopen_transport_evidence(
             if isinstance(binding, dict):
                 row[key] = _binding(verifier, root, binding["path"])
     index.pop("attempt_index_self_sha256", None)
-    index["attempt_index_self_sha256"] = verifier._sha256_json(index)
-    index_path.write_text(json.dumps(index), encoding="utf-8")
+    index["attempt_index_self_sha256"] = hashlib.sha256(
+        verifier._canonical_json_bytes(index)
+    ).hexdigest()
+    index_path.write_bytes(verifier._canonical_json_bytes(index))
     acquisition["transport_attempt_index"] = _binding(
         verifier, root, index_relative
     )
-    acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
+    for cohort in ("temporal", "external"):
+        acquisition["normalized_outcome_tables"][cohort] = _binding(
+            verifier, root, state[f"{cohort}_outcomes"]
+        )
+    acquisition_path.write_bytes(verifier._canonical_json_bytes(acquisition))
 
     receipt_path = root / state["receipt"]
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -2279,6 +2337,11 @@ def _refresh_postopen_transport_evidence(
         binding = dict(acquisition[acquisition_key])
         receipt["artifacts"][artifact_key] = binding
         receipt["release_bindings"]["artifacts"][artifact_key].update(binding)
+    for cohort in ("temporal", "external"):
+        binding = dict(acquisition["normalized_outcome_tables"][cohort])
+        artifact_key = f"{cohort}_normalized_outcomes"
+        receipt["artifacts"][artifact_key] = binding
+        receipt["release_bindings"]["artifacts"][artifact_key].update(binding)
     receipt["transport_recovery"] = acquisition.get("transport_summary")
     _reseal_postopen_fixture_receipt(verifier, root, state, receipt)
     _refresh_postopen_coverage_evidence(verifier, root, authorization_path)
@@ -2290,7 +2353,7 @@ def _reseal_postopen_fixture_receipt(
     receipt.pop("receipt_self_sha256", None)
     receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
     receipt_path = root / state["receipt"]
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    receipt_path.write_bytes(verifier._canonical_json_bytes(receipt))
     (root / state["receipt_sha256"]).write_text(
         f"{verifier.sha256_file(receipt_path)}  opening_receipt_v1.json\n",
         encoding="utf-8",
@@ -3082,17 +3145,17 @@ def test_fast_release_requires_exact_opening_transport_document_schemas(
         if relative == state["work_order"]:
             document.pop("work_order_self_sha256", None)
             document["work_order_self_sha256"] = verifier._sha256_json(document)
-            path.write_text(json.dumps(document), encoding="utf-8")
+            path.write_bytes(verifier._canonical_json_bytes(document))
         elif relative == state["intent"]:
             document.pop("intent_self_sha256", None)
             document["intent_self_sha256"] = verifier._sha256_json(document)
-            path.write_text(json.dumps(document), encoding="utf-8")
+            path.write_bytes(verifier._canonical_json_bytes(document))
         elif relative == state["receipt"]:
             _reseal_postopen_fixture_receipt(
                 verifier, attacked, state, document
             )
         else:
-            path.write_text(json.dumps(document), encoding="utf-8")
+            path.write_bytes(verifier._canonical_json_bytes(document))
             _refresh_postopen_transport_evidence(
                 verifier, attacked, attacked_authorization
             )
@@ -3132,10 +3195,18 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
         "path",
         "partition",
         "attempt-chain",
-        "attempt-time",
-        "time",
+        "attempt-time-format",
+        "retrieval-time-format",
         "series",
         "oversize",
+        "json-whitespace",
+        "json-duplicate-key",
+        "rdb-agency",
+        "rdb-site",
+        "rdb-date",
+        "rdb-duplicate",
+        "raw-normalized",
+        "normalized",
     ):
         attacked = tmp_path / f"transport-{attack}"
         shutil.copytree(source, attacked)
@@ -3169,8 +3240,14 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
             acquisition["request_ledger"] = _binding(
                 verifier, attacked, alias
             )
-            acquisition_path.write_text(json.dumps(acquisition), encoding="utf-8")
-        elif attack in {"partition", "attempt-chain", "attempt-time"}:
+            acquisition_path.write_bytes(
+                verifier._canonical_json_bytes(acquisition)
+            )
+        elif attack in {
+            "partition",
+            "attempt-chain",
+            "attempt-time-format",
+        }:
             index_path = attacked / acquisition["transport_attempt_index"]["path"]
             index = json.loads(index_path.read_text(encoding="utf-8"))
             row = index["attempts"][0 if attack == "partition" else 1]
@@ -3187,11 +3264,22 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
                 start["completed_before_attempt_request_sha256"] = []
                 start["missing_at_start_request_sha256"] = all_requests
             else:
-                start["started_at_utc"] = "2026-01-01T00:05:00+00:00"
+                start["started_at_utc"] = "2026-01-01T00:05:00Z"
             start.pop("attempt_start_self_sha256")
-            start["attempt_start_self_sha256"] = verifier._sha256_json(start)
-            start_path.write_text(json.dumps(start), encoding="utf-8")
-        elif attack in {"time", "series", "oversize"}:
+            start["attempt_start_self_sha256"] = hashlib.sha256(
+                verifier._canonical_json_bytes(start)
+            ).hexdigest()
+            start_path.write_bytes(verifier._canonical_json_bytes(start))
+        elif attack in {
+            "retrieval-time-format",
+            "series",
+            "oversize",
+            "rdb-agency",
+            "rdb-site",
+            "rdb-date",
+            "rdb-duplicate",
+            "raw-normalized",
+        }:
             snapshot_path = attacked / acquisition["raw_nwis_snapshot_index"]["path"]
             snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
             record = snapshot["records"][0]
@@ -3205,8 +3293,8 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
             metadata_path = raw_root / record["metadata_path"]
             response_path = raw_root / record["response_path"]
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if attack == "time":
-                forged_time = "2025-12-31T23:59:59+00:00"
+            if attack == "retrieval-time-format":
+                forged_time = "2025-12-31T23:59:59Z"
                 metadata["retrieved_at_utc"] = forged_time
                 record["retrieved_at_utc"] = forged_time
                 request_row["retrieved_at_utc"] = forged_time
@@ -3222,33 +3310,85 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
                 }
                 record["series_registry"] = forged_series
                 request_row["series_registry"] = forged_series
-            else:
+            elif attack == "oversize":
                 payload = b"x" * (
                     verifier.MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES + 1
                 )
                 response_path.write_bytes(payload)
+            else:
+                payload_lines = response_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+                first_data = 3
+                fields = payload_lines[first_data].split("\t")
+                if attack == "rdb-agency":
+                    fields[0] = "FAKE"
+                elif attack == "rdb-site":
+                    fields[1] = "99999999"
+                elif attack == "rdb-date":
+                    fields[2] = "2019-12-31"
+                elif attack == "raw-normalized":
+                    fields[3] = f"{float(fields[3]) + 1.0:.3f}"
+                payload_lines[first_data] = "\t".join(fields)
+                if attack == "rdb-duplicate":
+                    payload_lines.insert(first_data + 1, payload_lines[first_data])
+                payload = ("\n".join(payload_lines) + "\n").encode("utf-8")
+                response_path.write_bytes(payload)
+            if attack in {
+                "oversize",
+                "rdb-agency",
+                "rdb-site",
+                "rdb-date",
+                "rdb-duplicate",
+                "raw-normalized",
+            }:
                 metadata["byte_count"] = len(payload)
                 metadata["response_sha256"] = hashlib.sha256(payload).hexdigest()
                 record["byte_count"] = len(payload)
                 record["response_sha256"] = metadata["response_sha256"]
                 request_row["byte_count"] = len(payload)
                 request_row["response_sha256"] = metadata["response_sha256"]
-            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            metadata_path.write_bytes(verifier._canonical_json_bytes(metadata))
             record["metadata_sha256"] = verifier.sha256_file(metadata_path)
-            snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
-            request_map_path.write_text(json.dumps(request_map), encoding="utf-8")
+            snapshot_path.write_bytes(verifier._canonical_json_bytes(snapshot))
+            request_map_path.write_bytes(
+                verifier._canonical_json_bytes(request_map)
+            )
+        elif attack == "normalized":
+            normalized_path = attacked / state["temporal_outcomes"]
+            normalized = pd.read_parquet(normalized_path)
+            normalized.loc[0, "WTEMP"] = float(normalized.loc[0, "WTEMP"]) + 1.0
+            normalized.to_parquet(normalized_path, index=False)
+        elif attack == "json-whitespace":
+            ledger_path.write_text(
+                json.dumps(ledger, indent=2) + "\n", encoding="utf-8"
+            )
+        elif attack == "json-duplicate-key":
+            canonical = verifier._canonical_json_bytes(ledger).decode("utf-8")
+            duplicate = (
+                "{\"format\":"
+                + json.dumps(ledger["format"])
+                + ","
+                + canonical[1:]
+            )
+            ledger_path.write_text(duplicate, encoding="utf-8")
         elif attack == "hash":
             ledger["request_ledger_self_sha256"] = "0" * 64
 
         if attack not in {
-            "path", "partition", "attempt-chain", "attempt-time", "time",
-            "series", "oversize", "hash",
+            "path", "partition", "attempt-chain", "attempt-time-format",
+            "retrieval-time-format", "series", "oversize", "hash",
+            "json-whitespace", "json-duplicate-key", "rdb-agency",
+            "rdb-site", "rdb-date", "rdb-duplicate", "raw-normalized",
+            "normalized",
         }:
             ledger.pop("request_ledger_self_sha256", None)
-            ledger["request_ledger_self_sha256"] = verifier._sha256_json(ledger)
-            ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+            ledger["request_ledger_self_sha256"] = hashlib.sha256(
+                verifier._canonical_json_bytes(ledger)
+            ).hexdigest()
+            ledger_path.write_bytes(verifier._canonical_json_bytes(ledger))
         elif attack == "hash":
-            ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+            ledger_path.write_bytes(verifier._canonical_json_bytes(ledger))
         _refresh_postopen_transport_evidence(
             verifier, attacked, attacked_authorization
         )
@@ -3256,7 +3396,7 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
             ValueError,
             match=(
                 "transport|request ledger|request-ledger|attempt|partition|"
-                "canonical|exact contract|raw NWIS|response"
+                "canonical|exact contract|raw NWIS|response|normalized"
             ),
         ):
             verifier.build_release_profile(
@@ -3264,6 +3404,52 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
                 verifier.POSTOPEN_PROFILE,
                 authorization_path=attacked_authorization,
             )
+
+
+def test_transport_wall_clock_reversal_does_not_override_logical_chain(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_transport_wall_clock_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    acquisition = json.loads(
+        (source / state["acquisition_manifest"]).read_text(encoding="utf-8")
+    )
+    index = json.loads(
+        (
+            source / acquisition["transport_attempt_index"]["path"]
+        ).read_text(encoding="utf-8")
+    )
+    second = index["attempts"][1]
+    start_path = source / second["start"]["path"]
+    result_path = source / second["result"]["path"]
+    start = json.loads(start_path.read_text(encoding="utf-8"))
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    start["started_at_utc"] = "2025-12-31T23:59:59+00:00"
+    result["completed_at_utc"] = "2025-01-01T00:00:00+00:00"
+    start.pop("attempt_start_self_sha256")
+    start["attempt_start_self_sha256"] = hashlib.sha256(
+        verifier._canonical_json_bytes(start)
+    ).hexdigest()
+    start_path.write_bytes(verifier._canonical_json_bytes(start))
+    result["attempt_start_sha256"] = verifier.sha256_file(start_path)
+    result.pop("attempt_result_self_sha256")
+    result["attempt_result_self_sha256"] = hashlib.sha256(
+        verifier._canonical_json_bytes(result)
+    ).hexdigest()
+    result_path.write_bytes(verifier._canonical_json_bytes(result))
+    _refresh_postopen_transport_evidence(
+        verifier, source, authorization_path
+    )
+
+    verifier.build_release_profile(
+        source,
+        verifier.POSTOPEN_PROFILE,
+        authorization_path=authorization_path,
+    )
 
 
 def test_postopen_coverage_replay_rejects_tamper_and_path_topology_attacks(

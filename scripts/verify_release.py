@@ -934,6 +934,25 @@ def _load_json(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _require_canonical_json_file(
+    path: Path, document: Mapping[str, Any], *, label: str
+) -> None:
+    """Require the producer's one newline-terminated JSON representation.
+
+    A checksum over arbitrary JSON bytes does not establish a unique document:
+    duplicate keys, insignificant whitespace, and alternate escaping can encode
+    the same parsed object.  Opening/acquisition producers publish canonical
+    JSON, so the independent release verifier rejects every other byte form.
+    """
+    try:
+        expected = _canonical_json_bytes(dict(document))
+        actual = path.read_bytes()
+    except (OSError, TypeError, ValueError) as exc:
+        raise ValueError(f"cannot canonicalize {label}") from exc
+    if actual != expected:
+        raise ValueError(f"{label} bytes are not canonical producer JSON")
+
+
 def _load_canonical_outcome_qc_module(root: Path) -> Any:
     """Load the release root's one shared outcome-QC implementation.
 
@@ -1034,6 +1053,81 @@ def _load_canonical_coverage_bridge_module(root: Path) -> Any:
         getattr(module, "replay_temporal_coverage_from_physical_files", None)
     ):
         raise ValueError("canonical temporal-coverage bridge API is incomplete")
+    return module
+
+
+def _load_canonical_usgs_module(
+    root: Path, authorization: Mapping[str, Any]
+) -> Any:
+    """Load the Git/fixed-code-bound NWIS parser from the release itself."""
+    source_dir = (root / "src" / "thermoroute").resolve()
+    source = source_dir / "usgs.py"
+    provenance = source_dir / "provenance.py"
+    if (
+        not source.is_file()
+        or source.is_symlink()
+        or not provenance.is_file()
+        or provenance.is_symlink()
+    ):
+        raise ValueError("canonical NWIS parser source is absent or unsafe")
+    fixed_code = authorization.get("fixed_code")
+    modules = fixed_code.get("modules") if isinstance(fixed_code, Mapping) else None
+    expected = {
+        "thermoroute.usgs": source,
+        "thermoroute.provenance": provenance,
+    }
+    if not isinstance(modules, Mapping):
+        raise ValueError("authorization lacks fixed NWIS parser modules")
+    for name, path in expected.items():
+        binding = modules.get(name)
+        if (
+            not isinstance(binding, Mapping)
+            or binding.get("path") != path.relative_to(root).as_posix()
+            or binding.get("sha256") != sha256_file(path)
+        ):
+            raise ValueError(f"fixed-code binding changed for {name}")
+
+    fingerprint = hashlib.sha256(
+        str(root).encode("utf-8")
+        + b"\0usgs\0"
+        + source.read_bytes()
+        + b"\0provenance\0"
+        + provenance.read_bytes()
+    ).hexdigest()[:20]
+    package_name = f"_thermoroute_usgs_release_{fingerprint}"
+    module_name = f"{package_name}.usgs"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        if Path(getattr(existing, "__file__", "")).resolve() != source:
+            raise ValueError("cached NWIS parser is noncanonical")
+        return existing
+
+    package = types.ModuleType(package_name)
+    package.__package__ = package_name
+    package.__path__ = [str(source_dir)]
+    sys.modules[package_name] = package
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise ValueError("cannot construct canonical NWIS parser import")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        sys.modules.pop(module_name, None)
+        sys.modules.pop(package_name, None)
+        raise ValueError("cannot load canonical NWIS parser") from exc
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    if Path(getattr(module, "__file__", "")).resolve() != source:
+        raise ValueError("imported NWIS parser is noncanonical")
+    if not callable(getattr(module, "parse_nwis_confirmatory_daily", None)):
+        raise ValueError("canonical NWIS parser API is incomplete")
+    columns = getattr(module, "CONFIRMATORY_OUTCOME_COLUMNS", None)
+    if not isinstance(columns, tuple) or not columns:
+        raise ValueError("canonical NWIS outcome schema is absent")
     return module
 
 
@@ -4015,29 +4109,42 @@ def _expected_confirmatory_nwis_url(site: str, start: str, end: str) -> str:
     return f"https://waterservices.usgs.gov/nwis/dv/?{query}"
 
 
-def _nwis_series_registry_from_payload(
-    payload: bytes,
-) -> dict[str, list[dict[str, str | None]]]:
-    """Rebuild the frozen series/qualifier registry from the RDB header."""
+def _nwis_rdb_rows(payload: bytes) -> tuple[list[str], list[list[str]]]:
+    """Parse enough strict RDB structure for an independent identity audit."""
     try:
         text = payload.decode("utf-8", errors="strict")
     except UnicodeError as exc:
         raise ValueError("raw NWIS response is not strict UTF-8 RDB") from exc
-    rows = [
+    physical_rows = [
         line for line in text.splitlines()
         if line and not line.startswith("#")
     ]
-    if not rows:
-        columns: list[str] = []
-    else:
-        try:
-            columns = next(csv.reader([rows[0]], delimiter="\t"))
-        except csv.Error as exc:
-            raise ValueError("raw NWIS RDB header is malformed") from exc
-        if not columns or any(not value for value in columns):
-            raise ValueError("raw NWIS RDB header contains an empty column")
-        if len(columns) != len(set(columns)):
-            raise ValueError("raw NWIS RDB header duplicates a column")
+    if not physical_rows:
+        return [], []
+    try:
+        parsed = list(csv.reader(physical_rows, delimiter="\t", strict=True))
+    except csv.Error as exc:
+        raise ValueError("raw NWIS RDB table is malformed") from exc
+    columns, rows = parsed[0], parsed[1:]
+    if not columns or any(not value for value in columns):
+        raise ValueError("raw NWIS RDB header contains an empty column")
+    if len(columns) != len(set(columns)):
+        raise ValueError("raw NWIS RDB header duplicates a column")
+    if any(len(row) != len(columns) for row in rows):
+        raise ValueError("raw NWIS RDB row width differs from its header")
+    if rows and all(
+        not value or re.fullmatch(r"\d+[a-z]", value.strip()) is not None
+        for value in rows[0]
+    ):
+        rows = rows[1:]
+    return columns, rows
+
+
+def _nwis_series_registry_from_payload(
+    payload: bytes,
+) -> dict[str, list[dict[str, str | None]]]:
+    """Rebuild the frozen series/qualifier registry from the RDB header."""
+    columns, _rows = _nwis_rdb_rows(payload)
     registry: dict[str, list[dict[str, str | None]]] = {}
     for parameter_code, variable in (
         ("00010", "WTEMP"),
@@ -4064,6 +4171,147 @@ def _nwis_series_registry_from_payload(
     return registry
 
 
+def _validate_nwis_rdb_request_identity(
+    payload: bytes,
+    *,
+    site_no: str,
+    start: str,
+    end: str,
+) -> None:
+    """Check provider/site/date identity before the frozen pandas replay."""
+    columns, rows = _nwis_rdb_rows(payload)
+    if not columns:
+        return
+    required = {"agency_cd", "site_no", "datetime"}
+    if not required <= set(columns):
+        raise ValueError("raw NWIS RDB lacks agency/site/date identity columns")
+    positions = {name: columns.index(name) for name in required}
+    first = datetime.strptime(start, "%Y-%m-%d").date()
+    last = datetime.strptime(end, "%Y-%m-%d").date()
+    observed_dates = []
+    for row in rows:
+        agency = row[positions["agency_cd"]].strip()
+        returned_site = row[positions["site_no"]].strip()
+        raw_date = row[positions["datetime"]].strip()
+        if not agency or not returned_site or not raw_date:
+            raise ValueError("raw NWIS RDB contains an empty identity field")
+        if agency != "USGS" or returned_site != site_no:
+            raise ValueError("raw NWIS RDB agency/site identity changed")
+        try:
+            parsed_date = datetime.strptime(raw_date, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("raw NWIS RDB date is not canonical daily time") from exc
+        if parsed_date < first or parsed_date > last:
+            raise ValueError("raw NWIS RDB date leaves the frozen request interval")
+        observed_dates.append(parsed_date)
+    if len(observed_dates) != len(set(observed_dates)):
+        raise ValueError("raw NWIS RDB duplicates a site/date observation")
+
+
+def _replay_normalized_nwis_outcomes(
+    root: Path,
+    authorization: Mapping[str, Any],
+    *,
+    snapshot_path: Path,
+    records: list[dict[str, Any]],
+    sites_by_cohort: Mapping[str, list[str]],
+    normalized_paths: Mapping[str, Path],
+) -> None:
+    """Rebuild both normalized Parquets with the archived frozen parser."""
+    import pandas as pd
+
+    module = _load_canonical_usgs_module(root, authorization)
+    parse_daily = module.parse_nwis_confirmatory_daily
+    expected_columns = list(module.CONFIRMATORY_OUTCOME_COLUMNS)
+    plan = authorization.get("acquisition_plan")
+    if not isinstance(plan, Mapping):
+        raise ValueError("authorization lacks the NWIS replay interval")
+    history_start = str(plan.get("history_start", ""))
+    target_end = str(plan.get("target_end", ""))
+    snapshot_root = snapshot_path.parent.resolve()
+    frames = []
+    try:
+        for record in records:
+            request = record["request"]
+            query = parse_qs(urlparse(str(request["url"])).query)
+            sites = query.get("sites")
+            if not isinstance(sites, list) or len(sites) != 1:
+                raise ValueError("raw NWIS request has no single frozen site")
+            site = str(sites[0])
+            response_path = _resolve_release_path(
+                root,
+                record["response_path"],
+                label="raw NWIS parser replay response",
+                base=snapshot_root,
+                expected_sha256=str(record["response_sha256"]),
+            )
+            frame = parse_daily(
+                response_path.read_bytes(),
+                site_no=site,
+                start=history_start,
+                end=target_end,
+            )
+            if list(frame.columns) != expected_columns:
+                raise ValueError("frozen NWIS parser returned another schema")
+            frames.append(frame)
+    except (KeyError, OSError, TypeError, UnicodeError, ValueError) as exc:
+        raise ValueError("cannot replay the archived frozen NWIS parser") from exc
+    if not frames:
+        raise ValueError("raw NWIS parser replay has no transactions")
+    rebuilt = pd.concat(frames, ignore_index=True)
+    rebuilt["site_no"] = rebuilt["site_no"].astype("string").str.strip().astype(str)
+    rebuilt["DATE"] = pd.to_datetime(rebuilt["DATE"], errors="coerce")
+    if (
+        rebuilt["DATE"].isna().any()
+        or rebuilt.duplicated(["site_no", "DATE"]).any()
+    ):
+        raise ValueError("replayed raw NWIS panel has invalid or duplicate keys")
+    expected_sites = {
+        site for sites in sites_by_cohort.values() for site in sites
+    }
+    if set(rebuilt["site_no"]) != expected_sites:
+        raise ValueError("replayed raw NWIS panel differs from the frozen sites")
+
+    for cohort in ("temporal", "external"):
+        path = normalized_paths.get(cohort)
+        if not isinstance(path, Path):
+            raise ValueError(f"normalized {cohort} outcome path is absent")
+        try:
+            stored = pd.read_parquet(path)
+        except Exception as exc:
+            raise ValueError(f"cannot read normalized {cohort} outcomes") from exc
+        if list(stored.columns) != expected_columns:
+            raise ValueError(f"normalized {cohort} outcome schema changed")
+        stored = stored.copy()
+        stored["site_no"] = (
+            stored["site_no"].astype("string").str.strip().astype(str)
+        )
+        stored["DATE"] = pd.to_datetime(stored["DATE"], errors="coerce")
+        sites = set(sites_by_cohort[cohort])
+        if (
+            stored["DATE"].isna().any()
+            or stored.duplicated(["site_no", "DATE"]).any()
+            or set(stored["site_no"]) != sites
+        ):
+            raise ValueError(f"normalized {cohort} outcome keys changed")
+        expected = rebuilt[rebuilt["site_no"].isin(sites)].copy()
+        expected = expected.sort_values(["site_no", "DATE"]).reset_index(drop=True)
+        stored = stored.sort_values(["site_no", "DATE"]).reset_index(drop=True)
+        try:
+            pd.testing.assert_frame_equal(
+                stored,
+                expected,
+                check_dtype=False,
+                check_exact=False,
+                rtol=0.0,
+                atol=1e-12,
+            )
+        except AssertionError as exc:
+            raise ValueError(
+                f"normalized {cohort} outcomes cannot be rebuilt from raw NWIS"
+            ) from exc
+
+
 def _validate_release_work_order(
     root: Path,
     work_order_path: Path,
@@ -4074,6 +4322,9 @@ def _validate_release_work_order(
 ) -> tuple[dict[str, Any], dict[str, list[str]], list[dict[str, Any]]]:
     """Independently rebuild the one immutable request ledger input."""
     work_order = _load_json(work_order_path, label="acquisition work order")
+    _require_canonical_json_file(
+        work_order_path, work_order, label="acquisition work order"
+    )
     stable = dict(work_order)
     self_digest = stable.pop("work_order_self_sha256", None)
     fields = {
@@ -4222,7 +4473,7 @@ def _validate_transport_evidence(
     acquisition: Mapping[str, Any],
     intent: Mapping[str, Any],
     receipt: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> tuple[Path, list[dict[str, Any]]]:
     """Close the raw same-opening transport chain without trusted replay."""
     def exact_binding(path: Path) -> dict[str, str]:
         return {
@@ -4250,6 +4501,9 @@ def _validate_transport_evidence(
     if ledger_path != transport_root / "request_ledger_v1.json":
         raise ValueError("acquisition request-ledger path is noncanonical")
     ledger = _load_json(ledger_path, label="acquisition request ledger")
+    _require_canonical_json_file(
+        ledger_path, ledger, label="acquisition request ledger"
+    )
     ledger_stable = dict(ledger)
     ledger_self = ledger_stable.pop("request_ledger_self_sha256", None)
     ledger_fields = {
@@ -4261,7 +4515,8 @@ def _validate_transport_evidence(
     }
     if (
         set(ledger) != ledger_fields
-        or ledger_self != _sha256_json(ledger_stable)
+        or ledger_self
+        != hashlib.sha256(_canonical_json_bytes(ledger_stable)).hexdigest()
         or ledger.get("format") != ACQUISITION_REQUEST_LEDGER_FORMAT
         or ledger.get("status") != "FROZEN_BEFORE_FIRST_HTTPS_REQUEST"
         or ledger.get("opening_id") != authorization.get("opening_id")
@@ -4306,6 +4561,9 @@ def _validate_transport_evidence(
     if index_path != transport_root / "transport_attempt_index_v1.json":
         raise ValueError("transport-attempt index path is noncanonical")
     index = _load_json(index_path, label="transport-attempt index")
+    _require_canonical_json_file(
+        index_path, index, label="transport-attempt index"
+    )
     index_stable = dict(index)
     index_self = index_stable.pop("attempt_index_self_sha256", None)
     index_fields = {
@@ -4319,7 +4577,8 @@ def _validate_transport_evidence(
     attempts = index.get("attempts")
     if (
         set(index) != index_fields
-        or index_self != _sha256_json(index_stable)
+        or index_self
+        != hashlib.sha256(_canonical_json_bytes(index_stable)).hexdigest()
         or index.get("format") != ACQUISITION_ATTEMPT_INDEX_FORMAT
         or index.get("status") != "ALL_LEDGER_TRANSACTIONS_COMPLETE"
         or index.get("opening_id") != authorization.get("opening_id")
@@ -4344,8 +4603,6 @@ def _validate_transport_evidence(
         raise ValueError("transport-attempt directory is absent or unsafe")
     starts: dict[int, dict[str, Any]] = {}
     results: dict[int, dict[str, Any]] = {}
-    start_times: dict[int, datetime] = {}
-    result_times: dict[int, datetime] = {}
     expected_attempt_files: set[str] = set()
 
     def valid_partition(completed: object, missing: object) -> bool:
@@ -4385,6 +4642,9 @@ def _validate_transport_evidence(
         if start_path != expected_start:
             raise ValueError("transport-attempt start path is noncanonical")
         start = _load_json(start_path, label="transport-attempt start")
+        _require_canonical_json_file(
+            start_path, start, label="transport-attempt start"
+        )
         start_stable = dict(start)
         start_self = start_stable.pop("attempt_start_self_sha256", None)
         start_fields = {
@@ -4401,7 +4661,8 @@ def _validate_transport_evidence(
         missing_before = start.get("missing_at_start_request_sha256")
         if (
             set(start) != start_fields
-            or start_self != _sha256_json(start_stable)
+            or start_self
+            != hashlib.sha256(_canonical_json_bytes(start_stable)).hexdigest()
             or start.get("format") != ACQUISITION_ATTEMPT_START_FORMAT
             or start.get("status") != "TRANSPORT_ATTEMPT_STARTED"
             or start.get("opening_id") != authorization.get("opening_id")
@@ -4417,7 +4678,7 @@ def _validate_transport_evidence(
             or not valid_partition(completed_before, missing_before)
         ):
             raise ValueError("transport-attempt start exact contract changed")
-        start_times[number] = _require_utc_transport_timestamp(
+        _require_utc_transport_timestamp(
             start.get("started_at_utc"), label="transport-attempt start"
         )
         starts[number] = dict(start)
@@ -4436,6 +4697,9 @@ def _validate_transport_evidence(
         if result_path != expected_result:
             raise ValueError("transport-attempt result path is noncanonical")
         result = _load_json(result_path, label="transport-attempt result")
+        _require_canonical_json_file(
+            result_path, result, label="transport-attempt result"
+        )
         result_stable = dict(result)
         result_self = result_stable.pop("attempt_result_self_sha256", None)
         result_fields = {
@@ -4455,7 +4719,8 @@ def _validate_transport_evidence(
         )
         if (
             set(result) != result_fields
-            or result_self != _sha256_json(result_stable)
+            or result_self
+            != hashlib.sha256(_canonical_json_bytes(result_stable)).hexdigest()
             or result.get("format") != ACQUISITION_ATTEMPT_RESULT_FORMAT
             or result.get("status") != expected_status
             or row.get("status") != expected_status
@@ -4486,7 +4751,7 @@ def _validate_transport_evidence(
             or not set(missing_after) <= set(missing_before)
         ):
             raise ValueError("transport-attempt result exact contract changed")
-        result_times[number] = _require_utc_transport_timestamp(
+        _require_utc_transport_timestamp(
             result.get("completed_at_utc"), label="transport-attempt result"
         )
         results[number] = dict(result)
@@ -4507,24 +4772,6 @@ def _validate_transport_evidence(
             != previous["missing_request_sha256"]
         ):
             raise ValueError("transport attempt does not continue the prior partition")
-    intent_started = _require_utc_transport_timestamp(
-        intent.get("started_at_utc"), label="opening intent"
-    )
-    receipt_completed = _require_utc_transport_timestamp(
-        receipt.get("completed_at_utc"), label="opening receipt"
-    )
-    if intent_started > start_times[1]:
-        raise ValueError("transport attempt precedes the opening intent")
-    for number in range(1, len(attempts) + 1):
-        if start_times[number] > result_times[number]:
-            raise ValueError("transport attempt result predates its start")
-        if (
-            number < len(attempts)
-            and result_times[number] > start_times[number + 1]
-        ):
-            raise ValueError("transport attempt chronology overlaps or reverses")
-    if result_times[len(attempts)] > receipt_completed:
-        raise ValueError("opening receipt predates final transport completion")
     if (
         results[len(attempts)]["missing_request_sha256"] != []
         or set(results[len(attempts)]["completed_request_sha256"]) != request_ids
@@ -4545,6 +4792,9 @@ def _validate_transport_evidence(
     ):
         raise ValueError("raw NWIS snapshot-index path is noncanonical")
     snapshot = _load_json(snapshot_path, label="raw NWIS snapshot index")
+    _require_canonical_json_file(
+        snapshot_path, snapshot, label="raw NWIS snapshot index"
+    )
     records = snapshot.get("records")
     if (
         set(snapshot) != {"schema_version", "snapshot_count", "records"}
@@ -4574,7 +4824,7 @@ def _validate_transport_evidence(
     expected_by_request = {
         str(row["request_sha256"]): row for row in expected_requests
     }
-    timestamps: list[tuple[datetime, str]] = []
+    timestamps: list[str] = []
     provider_root = raw_root / CONFIRMATORY_NWIS_PROVIDER
     provider_entries = (
         set(path.name for path in provider_root.iterdir())
@@ -4642,9 +4892,12 @@ def _validate_transport_evidence(
         _add_path(root, categories, "raw_nwis", response_path)
         payload = response_path.read_bytes()
         metadata = _load_json(metadata_path, label="raw NWIS transaction metadata")
+        _require_canonical_json_file(
+            metadata_path, metadata, label="raw NWIS transaction metadata"
+        )
         attempt_number = metadata.get("attempt_number")
         timestamp_value = metadata.get("retrieved_at_utc")
-        timestamp = _require_utc_transport_timestamp(
+        _require_utc_transport_timestamp(
             timestamp_value, label="raw NWIS retrieval"
         )
         if (
@@ -4682,9 +4935,13 @@ def _validate_transport_evidence(
             != _nwis_series_registry_from_payload(payload)
         ):
             raise ValueError("raw NWIS transaction/attempt binding changed")
-        if not start_times[attempt_number] <= timestamp <= result_times[attempt_number]:
-            raise ValueError("raw NWIS retrieval falls outside its transport attempt")
-        timestamps.append((timestamp, str(timestamp_value)))
+        _validate_nwis_rdb_request_identity(
+            payload,
+            site_no=str(expected["site_no"]),
+            start=str(authorization["acquisition_plan"]["history_start"]),
+            end=str(authorization["acquisition_plan"]["target_end"]),
+        )
+        timestamps.append(str(timestamp_value))
 
     request_map_path = _add_binding(
         root,
@@ -4696,6 +4953,9 @@ def _validate_transport_evidence(
     if request_map_path != (root / state["acquisition_request_map"]).resolve():
         raise ValueError("opened request-map path is noncanonical")
     request_map = _load_json(request_map_path, label="opened request map")
+    _require_canonical_json_file(
+        request_map_path, request_map, label="opened request map"
+    )
     expected_request_rows = []
     for row in sorted(
         expected_requests, key=lambda item: (str(item["cohort"]), str(item["site_no"]))
@@ -4721,10 +4981,10 @@ def _validate_transport_evidence(
     }:
         raise ValueError("opened request map differs from raw transport evidence")
 
-    ordered_timestamps = sorted(timestamps, key=lambda item: item[0])
+    ordered_timestamps = sorted(timestamps)
     expected_span = {
-        "first": ordered_timestamps[0][1],
-        "last": ordered_timestamps[-1][1],
+        "first": ordered_timestamps[0],
+        "last": ordered_timestamps[-1],
     }
     final_start = starts[len(attempts)]
     expected_summary = {
@@ -4744,7 +5004,7 @@ def _validate_transport_evidence(
         or receipt.get("transport_recovery") != expected_summary
     ):
         raise ValueError("receipt/acquisition/index transport summaries differ")
-    return expected_summary
+    return snapshot_path, [dict(record) for record in records]
 
 
 def _gather_postopen_categories(
@@ -5039,6 +5299,7 @@ def _gather_postopen_categories(
     work_order_self = work_order_document["work_order_self_sha256"]
     intent_path = _resolve_release_path(root, state["intent"], label="opening intent")
     intent = _load_json(intent_path, label="opening intent")
+    _require_canonical_json_file(intent_path, intent, label="opening intent")
     _add_path(root, categories, "opening_intent", intent_path)
     intent_stable = dict(intent)
     intent_self = intent_stable.pop("intent_self_sha256", None)
@@ -5075,6 +5336,7 @@ def _gather_postopen_categories(
 
     receipt_path = _resolve_release_path(root, state["receipt"], label="opening receipt")
     receipt = _load_json(receipt_path, label="opening receipt")
+    _require_canonical_json_file(receipt_path, receipt, label="opening receipt")
     _add_path(root, categories, "receipt", receipt_path)
     receipt_stable = dict(receipt)
     receipt_self = receipt_stable.pop("receipt_self_sha256", None)
@@ -5217,6 +5479,9 @@ def _gather_postopen_categories(
         root, state["acquisition_manifest"], label="acquisition manifest"
     )
     acquisition = _load_json(acquisition_path, label="acquisition manifest")
+    _require_canonical_json_file(
+        acquisition_path, acquisition, label="acquisition manifest"
+    )
     _add_path(root, categories, "raw_nwis", acquisition_path)
     acquisition_fields = {
         "format", "opening_id", "authorization_sha256", "protocol_sha256",
@@ -5246,7 +5511,7 @@ def _gather_postopen_categories(
         or acquisition.get("producer_role") != "RAW_ONLY_NO_PREDICTIONS_OR_STATISTICS"
     ):
         raise ValueError("acquisition manifest exact production schema changed")
-    _validate_transport_evidence(
+    snapshot_path, transport_records = _validate_transport_evidence(
         root,
         categories,
         authorization,
@@ -5263,11 +5528,20 @@ def _gather_postopen_categories(
     normalized = acquisition.get("normalized_outcome_tables")
     if not isinstance(normalized, Mapping) or set(normalized) != {"temporal", "external"}:
         raise ValueError("acquisition manifest lacks both normalized outcome tables")
+    normalized_paths: dict[str, Path] = {}
     for cohort, binding in normalized.items():
-        _add_binding(
+        normalized_paths[cohort] = _add_binding(
             root, categories, "normalized_outcomes", binding,
             label=f"normalized {cohort} outcomes",
         )
+    _replay_normalized_nwis_outcomes(
+        root,
+        authorization,
+        snapshot_path=snapshot_path,
+        records=transport_records,
+        sites_by_cohort=sites_by_cohort,
+        normalized_paths=normalized_paths,
+    )
 
     receipt_artifacts = receipt.get("artifacts")
     if not isinstance(receipt_artifacts, Mapping) or set(receipt_artifacts) != REQUIRED_RECEIPT_ARTIFACTS:
