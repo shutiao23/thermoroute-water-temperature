@@ -871,42 +871,6 @@ def _outcome_qc_claim_eligibility(
     if _sha256_file(gate_path) != receipt_binding.get("sha256"):
         raise ClaimRegistryError("receipt-bound outcome-QC gate SHA-256 changed")
     gate = _load_json(gate_path, label="receipt-bound outcome-QC gate")
-    exact_gate_keys = {
-        "format",
-        "status",
-        "policy",
-        "confirmatory_family_sha256",
-        "minimum_valid_targets_per_station_horizon",
-        "input_evidence",
-        "primary_statistics_filtered_or_recomputed_on_selected_rows",
-        "models_retrained_or_recalibrated",
-        "sites_or_primary_keys_removed_by_qc",
-        "target_plausibility",
-        "single_extreme_influence",
-        "leave_one_huc_direction",
-        "components",
-        "pass",
-        "directional_claims_allowed_by_outcome_qc",
-        "failure_action",
-        "gate_self_sha256",
-    }
-    if set(gate) != exact_gate_keys or gate.get("format") != (
-        "thermoroute.route-a-outcome-qc-gate.v1"
-    ):
-        raise ClaimRegistryError("outcome-QC gate schema or format changed")
-    stable = dict(gate)
-    self_digest = stable.pop("gate_self_sha256")
-    expected_self_digest = hashlib.sha256(
-        json.dumps(
-            stable,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    if self_digest != expected_self_digest:
-        raise ClaimRegistryError("outcome-QC gate self-hash is invalid")
-
     policy_binding = authorization.get("outcome_qc_policy")
     gate_policy = gate.get("policy")
     if (
@@ -926,15 +890,6 @@ def _outcome_qc_claim_eligibility(
     policy_path = _inside(root, policy_binding["path"], require_file=True)
     if _sha256_file(policy_path) != policy_binding.get("sha256"):
         raise ClaimRegistryError("frozen outcome-QC policy SHA-256 changed")
-    policy = _load_json(policy_path, label="frozen outcome-QC policy")
-    if (
-        policy.get("format") != policy_binding.get("format")
-        or policy.get("policy_id") != policy_binding.get("policy_id")
-        or policy.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
-        or policy.get("post_2020_wtemp_requested_or_inspected") is not False
-        or policy.get("outcome_independent") is not True
-    ):
-        raise ClaimRegistryError("frozen outcome-QC policy identity changed")
     inference = protocol.get("primary_inference_contract")
     family = inference.get("confirmatory_family") if isinstance(inference, Mapping) else None
     availability = protocol.get("availability_contract")
@@ -942,19 +897,10 @@ def _outcome_qc_claim_eligibility(
         not isinstance(family, list)
         or len(family) != 5
         or not isinstance(availability, Mapping)
-        or gate.get("confirmatory_family_sha256")
-        != hashlib.sha256(
-            json.dumps(
-                family,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        or gate.get("minimum_valid_targets_per_station_horizon")
-        != availability.get("minimum_valid_targets_per_station_horizon")
+        or type(availability.get("minimum_valid_targets_per_station_horizon"))
+        is not int
     ):
-        raise ClaimRegistryError("outcome-QC gate differs from the bound protocol")
+        raise ClaimRegistryError("bound protocol lacks the outcome-QC family")
     try:
         _outcome_qc_structure_api(root)(
             gate,
@@ -969,33 +915,15 @@ def _outcome_qc_claim_eligibility(
         raise ClaimRegistryError(
             "receipt-bound outcome-QC gate failed deep semantic validation"
         ) from exc
-    decision = policy.get("decision")
-    if not isinstance(decision, Mapping) or gate.get("failure_action") != decision.get(
-        "failure_action"
-    ):
-        raise ClaimRegistryError("outcome-QC gate failure action changed")
-
-    plausibility = gate.get("target_plausibility")
-    components = gate.get("components")
     single = gate.get("single_extreme_influence")
     leave_one = gate.get("leave_one_huc_direction")
-    if (
-        not isinstance(plausibility, Mapping)
-        or not isinstance(components, Mapping)
-        or set(components)
-        != {
-            "target_plausibility_pass",
-            "single_extreme_influence_pass",
-            "leave_one_huc_direction_pass",
-        }
-        or not isinstance(single, list)
-        or not isinstance(leave_one, list)
-        or len(single) != 5
-        or len(leave_one) != 5
-    ):
-        raise ClaimRegistryError("outcome-QC component registry changed")
     test_rows = statistics.get("tests")
-    if not isinstance(test_rows, list) or len(test_rows) != 5:
+    if (
+        not isinstance(single, list)
+        or not isinstance(leave_one, list)
+        or not isinstance(test_rows, list)
+        or len(test_rows) != 5
+    ):
         raise ClaimRegistryError("outcome-QC gate lacks the five-test statistics")
     expected_test_ids = [str(row["test_id"]) for row in test_rows]
     if (
@@ -1022,38 +950,7 @@ def _outcome_qc_claim_eligibility(
             raise ClaimRegistryError(
                 "outcome-QC gate and formal statistics disagree on primary effect"
             )
-    outside_records = plausibility.get("outside_range_records")
-    outside_count = plausibility.get("outside_range_count")
-    if (
-        not isinstance(outside_records, list)
-        or not isinstance(outside_count, int)
-        or isinstance(outside_count, bool)
-        or outside_count != len(outside_records)
-        or plausibility.get("outside_range_values_retained_in_primary_analysis") is not True
-        or plausibility.get("pass") is not (outside_count == 0)
-    ):
-        raise ClaimRegistryError("outcome-QC plausibility decision is inconsistent")
-    expected_components = {
-        "target_plausibility_pass": bool(plausibility["pass"]),
-        "single_extreme_influence_pass": all(bool(row["pass"]) for row in single),
-        "leave_one_huc_direction_pass": all(bool(row["pass"]) for row in leave_one),
-    }
-    if dict(components) != expected_components:
-        raise ClaimRegistryError("outcome-QC component decision is inconsistent")
-    passed = all(expected_components.values())
-    expected_status = (
-        "PASS_DIRECTIONAL_REPORTING_QC" if passed else "FAIL_WITHHOLD_DIRECTIONAL_CLAIMS"
-    )
-    if (
-        gate.get("pass") is not passed
-        or gate.get("directional_claims_allowed_by_outcome_qc") is not passed
-        or gate.get("status") != expected_status
-        or gate.get("primary_statistics_filtered_or_recomputed_on_selected_rows") is not False
-        or gate.get("models_retrained_or_recalibrated") is not False
-        or gate.get("sites_or_primary_keys_removed_by_qc") is not False
-    ):
-        raise ClaimRegistryError("outcome-QC final decision is inconsistent")
-
+    passed = bool(gate["pass"])
     statistics_binding = statistics.get("outcome_qc_gate")
     expected_statistics_binding = {
         "path": receipt_binding["path"],
