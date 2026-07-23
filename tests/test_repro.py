@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -109,6 +110,142 @@ def test_native_library_identity_is_import_order_independent():
     assert forward == sorted(forward, key=canonical_json)
 
 
+def test_linux_cpu_identity_binds_model_flags_and_available_microcode():
+    cpuinfo = """\
+processor : 0
+vendor_id : GenuineIntel
+cpu family : 6
+model : 154
+model name : Example CPU 3.20GHz
+stepping : 3
+microcode : 0x42
+flags : sse2 avx avx2
+
+processor : 1
+vendor_id : GenuineIntel
+cpu family : 6
+model : 154
+model name :   Example CPU   3.20GHz
+stepping : 3
+microcode : 0x42
+flags : avx2 sse2 avx
+"""
+    identity = repro_module._linux_cpu_identity(
+        cpuinfo, sysfs_microcode="0x99\n"
+    )
+    assert identity == {
+        "vendor_ids": ["GenuineIntel"],
+        "models": [{
+            "model name": "Example CPU 3.20GHz",
+            "cpu family": "6",
+            "model": "154",
+            "stepping": "3",
+        }],
+        "isa_flag_sets": [["avx", "avx2", "sse2"]],
+        "microcode_versions": ["0x42"],
+    }
+    assert "processor" not in canonical_json(identity)
+
+
+def test_linux_cpu_identity_preserves_heterogeneous_cpu_classes():
+    cpuinfo = """\
+processor : 0
+CPU implementer : 0x41
+CPU architecture : 8
+CPU part : 0xd0c
+Features : fp asimd aes
+
+processor : 1
+CPU implementer : 0x41
+CPU architecture : 8
+CPU part : 0xd40
+Features : fp asimd aes sve
+"""
+    identity = repro_module._linux_cpu_identity(cpuinfo)
+    assert identity["vendor_ids"] == ["0x41"]
+    assert len(identity["models"]) == 2
+    assert {tuple(flags) for flags in identity["isa_flag_sets"]} == {
+        ("aes", "asimd", "fp"),
+        ("aes", "asimd", "fp", "sve"),
+    }
+    assert identity["microcode_versions"] is None
+
+
+def test_darwin_cpu_identity_binds_apple_model_and_supported_isa_flags():
+    identity = repro_module._darwin_cpu_identity("""\
+machdep.cpu.brand_string: Apple M3 Max
+hw.cpufamily: 12345
+hw.cpusubfamily: 7
+hw.optional.arm.FEAT_AES: 1
+hw.optional.arm.FEAT_SME: 0
+hw.logicalcpu: 16
+""")
+    assert identity == {
+        "vendor_ids": ["Apple"],
+        "models": [{
+            "machdep.cpu.brand_string": "Apple M3 Max",
+            "hw.cpufamily": "12345",
+            "hw.cpusubfamily": "7",
+        }],
+        "isa_flag_sets": [["hw.optional.arm.FEAT_AES"]],
+        "microcode_versions": None,
+    }
+    assert "logicalcpu" not in canonical_json(identity)
+
+
+def test_cpu_identity_fails_closed_when_required_facts_are_absent():
+    with pytest.raises(RuntimeError, match="ISA flags"):
+        repro_module._linux_cpu_identity(
+            "vendor_id: GenuineIntel\nmodel name: Example CPU\n"
+        )
+    with pytest.raises(RuntimeError, match="vendor"):
+        repro_module._darwin_cpu_identity(
+            "machdep.cpu.brand_string: Example CPU\nhw.optional.sse2: 1\n"
+        )
+
+
+def test_os_identity_binds_linux_kernel_libc_and_distribution(monkeypatch):
+    monkeypatch.setattr(repro_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(repro_module.platform, "release", lambda: "6.8.12")
+    monkeypatch.setattr(repro_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        repro_module.platform, "libc_ver", lambda: ("glibc", "2.39")
+    )
+    monkeypatch.setattr(
+        repro_module.platform,
+        "freedesktop_os_release",
+        lambda: {"ID": "example", "VERSION_ID": "24.04", "NAME": "ignored"},
+    )
+    identity = repro_module._stable_operating_system_identity()
+    assert identity["system"] == "Linux"
+    assert identity["kernel_release"] == "6.8.12"
+    assert identity["process_abi"]["machine"] == "x86_64"
+    assert identity["libc"] == {"implementation": "glibc", "version": "2.39"}
+    assert identity["distribution"] == {"id": "example", "version_id": "24.04"}
+
+
+def test_os_identity_binds_macos_product_and_kernel_versions(monkeypatch):
+    monkeypatch.setattr(repro_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(repro_module.platform, "release", lambda: "24.6.0")
+    monkeypatch.setattr(repro_module.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(
+        repro_module.platform, "mac_ver", lambda: ("15.6", ("", "", ""), "")
+    )
+    identity = repro_module._stable_operating_system_identity()
+    assert identity["system"] == "Darwin"
+    assert identity["kernel_release"] == "24.6.0"
+    assert identity["product_version"] == "15.6"
+    assert identity["process_abi"]["machine"] == "arm64"
+
+
+def test_os_identity_fails_closed_for_unknown_platform(monkeypatch):
+    monkeypatch.setattr(repro_module.platform, "system", lambda: "UnknownOS")
+    monkeypatch.setattr(repro_module.platform, "release", lambda: "1")
+    monkeypatch.setattr(repro_module.platform, "machine", lambda: "example")
+    with pytest.raises(RuntimeError, match="does not support OS"):
+        repro_module._stable_operating_system_identity()
+
+
 def test_isolated_python_uses_random_hash_secret_but_identity_hash_is_stable():
     code = (
         "import sys;"
@@ -180,6 +317,32 @@ def test_run_identity_changes_with_data_config_and_source(tmp_path):
     source_changed = resolve_run_identity(root=root, panel=panel, registry=registry,
                                           config={"delta": 1.0})
     assert source_changed.run_id != first.run_id
+
+
+def test_run_identity_automatically_tracks_host_runtime_hash(monkeypatch, tmp_path):
+    root, panel, registry = _fixture(tmp_path)
+    first_contract = {
+        "host_numerical_identity": {"cpu": {"vendor_ids": ["Vendor A"]}}
+    }
+    second_contract = {
+        "host_numerical_identity": {"cpu": {"vendor_ids": ["Vendor B"]}}
+    }
+    monkeypatch.setattr(
+        repro_module, "numerical_runtime_contract", lambda: first_contract
+    )
+    first = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 1}
+    )
+    monkeypatch.setattr(
+        repro_module, "numerical_runtime_contract", lambda: second_contract
+    )
+    second = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 1}
+    )
+    assert first.runtime_sha256 == repro_module.sha256_json(first_contract)
+    assert second.runtime_sha256 == repro_module.sha256_json(second_contract)
+    assert second.runtime_sha256 != first.runtime_sha256
+    assert second.run_id != first.run_id
 
 
 def test_eval_batch_size_is_a_scientific_run_identity_input(tmp_path):

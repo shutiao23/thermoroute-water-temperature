@@ -6,9 +6,12 @@ tree to be silently reused by another.  This module makes the experiment identit
 explicit and validates a sidecar before any cache hit is accepted.
 
 Only stable inputs enter ``run_id``.  The numerical runtime contract (interpreter,
-dependency and accelerator versions) is an input because reusing a cache produced
-by another numerical stack is not a reproducible cache hit.  Volatile facts such
-as timestamp, hostname and duration remain provenance only.
+dependency, accelerator, OS ABI, and CPU capability versions) is an input because
+reusing a cache produced by another numerical stack or host class is not a
+reproducible cache hit.  This supports same-declared-host-class replay; bitwise
+agreement across different hardware is not claimed.  Volatile or identifying
+facts such as timestamp, hostname, serial number, core count, frequency, and
+duration remain provenance only.
 """
 
 from __future__ import annotations
@@ -203,6 +206,243 @@ def canonical_json(value: Any) -> str:
 
 def sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _stable_text(value: Any) -> str | None:
+    """Normalise stable system metadata without retaining formatting noise."""
+    if value is None:
+        return None
+    normalised = " ".join(str(value).strip().split())
+    return normalised or None
+
+
+def _linux_cpu_identity(
+    cpuinfo_text: str, *, sysfs_microcode: str | None = None
+) -> dict[str, Any]:
+    """Canonicalise Linux CPU model/capability facts from ``/proc/cpuinfo``.
+
+    Logical-CPU indices, multiplicity, frequencies, cache sizes, and topology are
+    deliberately ignored.  Distinct model and ISA records are retained, so a
+    heterogeneous CPU cannot silently collapse to the first logical processor.
+    """
+    records: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in cpuinfo_text.splitlines():
+        if not line.strip():
+            if current:
+                records.append(current)
+                current = {}
+            continue
+        key, separator, value = line.partition(":")
+        if separator:
+            normalised = _stable_text(value)
+            if normalised is not None:
+                current[key.strip().lower()] = normalised
+    if current:
+        records.append(current)
+
+    vendors: set[str] = set()
+    model_records: dict[str, dict[str, str]] = {}
+    flag_sets: dict[str, list[str]] = {}
+    microcode_versions: set[str] = set()
+    model_keys = (
+        "model name",
+        "cpu family",
+        "model",
+        "stepping",
+        "cpu implementer",
+        "cpu architecture",
+        "cpu variant",
+        "cpu part",
+        "cpu revision",
+    )
+    for record in records:
+        vendor = record.get("vendor_id") or record.get("cpu implementer")
+        if vendor is not None:
+            vendors.add(vendor)
+        model = {key: record[key] for key in model_keys if key in record}
+        if any(key in model for key in ("model name", "model", "cpu part")):
+            model_records[canonical_json(model)] = model
+        flags = {
+            token.lower()
+            for key in ("flags", "features")
+            for token in record.get(key, "").split()
+            if token
+        }
+        if flags:
+            ordered_flags = sorted(flags)
+            flag_sets[canonical_json(ordered_flags)] = ordered_flags
+        microcode = _stable_text(record.get("microcode"))
+        if microcode is not None:
+            microcode_versions.add(microcode.lower())
+    fallback_microcode = _stable_text(sysfs_microcode)
+    if fallback_microcode is not None and not microcode_versions:
+        microcode_versions.add(fallback_microcode.lower())
+
+    if not vendors:
+        raise RuntimeError("formal runtime cannot identify the Linux CPU vendor")
+    if not model_records:
+        raise RuntimeError("formal runtime cannot identify the Linux CPU model")
+    if not flag_sets:
+        raise RuntimeError("formal runtime cannot identify Linux CPU ISA flags")
+    return {
+        "vendor_ids": sorted(vendors),
+        "models": [model_records[key] for key in sorted(model_records)],
+        "isa_flag_sets": [flag_sets[key] for key in sorted(flag_sets)],
+        "microcode_versions": (
+            sorted(microcode_versions) if microcode_versions else None
+        ),
+    }
+
+
+def _darwin_cpu_identity(sysctl_text: str) -> dict[str, Any]:
+    """Canonicalise macOS CPU model/capabilities from stable ``sysctl`` keys."""
+    values: dict[str, str] = {}
+    for line in sysctl_text.splitlines():
+        key, separator, value = line.partition(":")
+        if not separator:
+            key, separator, value = line.partition("=")
+        normalised = _stable_text(value) if separator else None
+        if normalised is not None:
+            values[key.strip()] = normalised
+
+    brand = values.get("machdep.cpu.brand_string")
+    vendor = values.get("machdep.cpu.vendor")
+    if vendor is None and brand is not None and brand.startswith("Apple "):
+        vendor = "Apple"
+    if vendor is None:
+        raise RuntimeError("formal runtime cannot identify the macOS CPU vendor")
+    if brand is None:
+        raise RuntimeError("formal runtime cannot identify the macOS CPU model")
+
+    model_keys = (
+        "machdep.cpu.brand_string",
+        "machdep.cpu.family",
+        "machdep.cpu.model",
+        "machdep.cpu.stepping",
+        "hw.cpufamily",
+        "hw.cpusubfamily",
+    )
+    model = {key: values[key] for key in model_keys if key in values}
+    isa_flags = {
+        token.lower()
+        for key in (
+            "machdep.cpu.features",
+            "machdep.cpu.leaf7_features",
+            "machdep.cpu.extfeatures",
+        )
+        for token in values.get(key, "").split()
+        if token
+    }
+    isa_flags.update(
+        key for key, value in values.items()
+        if key.startswith("hw.optional.") and value == "1"
+    )
+    if not isa_flags:
+        raise RuntimeError("formal runtime cannot identify macOS CPU ISA flags")
+    microcode = _stable_text(values.get("machdep.cpu.microcode_version"))
+    return {
+        "vendor_ids": [vendor],
+        "models": [model],
+        "isa_flag_sets": [sorted(isa_flags)],
+        "microcode_versions": [microcode] if microcode is not None else None,
+    }
+
+
+def _stable_operating_system_identity() -> dict[str, Any]:
+    """Return versioned OS/process ABI facts, excluding per-host identifiers."""
+    system = _stable_text(platform.system())
+    kernel_release = _stable_text(platform.release())
+    machine = _stable_text(platform.machine())
+    if system not in {"Darwin", "Linux"}:
+        raise RuntimeError(f"formal runtime does not support OS {system!r}")
+    if kernel_release is None or machine is None:
+        raise RuntimeError("formal runtime cannot identify the OS ABI")
+    identity: dict[str, Any] = {
+        "system": system,
+        "kernel_release": kernel_release,
+        "process_abi": {
+            "machine": machine,
+            "pointer_bits": int(struct.calcsize("P") * 8),
+            "byteorder": sys.byteorder,
+        },
+    }
+    if system == "Darwin":
+        product_version = _stable_text(platform.mac_ver()[0])
+        if product_version is None:
+            raise RuntimeError("formal runtime cannot identify the macOS version")
+        identity["product_version"] = product_version
+        identity["libc"] = None
+        identity["distribution"] = None
+        return identity
+
+    libc_name, libc_version = (_stable_text(value) for value in platform.libc_ver())
+    if libc_name is None or libc_version is None:
+        try:
+            libc_declaration = _stable_text(os.confstr("CS_GNU_LIBC_VERSION"))
+        except (AttributeError, OSError, ValueError):
+            libc_declaration = None
+        if libc_declaration is not None:
+            libc_name, _, libc_version = libc_declaration.partition(" ")
+            libc_name = _stable_text(libc_name)
+            libc_version = _stable_text(libc_version)
+    if libc_name is None or libc_version is None:
+        raise RuntimeError("formal runtime cannot identify the Linux libc ABI")
+    identity["libc"] = {"implementation": libc_name, "version": libc_version}
+    try:
+        release = platform.freedesktop_os_release()
+    except (AttributeError, OSError):
+        release = {}
+    distribution = {
+        key.lower(): value
+        for key in ("ID", "VERSION_ID")
+        if (value := _stable_text(release.get(key))) is not None
+    }
+    identity["distribution"] = distribution or None
+    return identity
+
+
+def _stable_host_numerical_identity() -> dict[str, Any]:
+    """Bind cache identity to a stable OS/CPU class, not a physical host."""
+    operating_system = _stable_operating_system_identity()
+    if operating_system["system"] == "Linux":
+        try:
+            cpuinfo = Path("/proc/cpuinfo").read_text(encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError("formal runtime cannot read /proc/cpuinfo") from exc
+        microcode_path = Path("/sys/devices/system/cpu/microcode/version")
+        try:
+            sysfs_microcode = (
+                microcode_path.read_text(encoding="utf-8")
+                if microcode_path.is_file()
+                else None
+            )
+        except OSError as exc:
+            raise RuntimeError("formal runtime cannot read Linux microcode") from exc
+        cpu = _linux_cpu_identity(
+            cpuinfo, sysfs_microcode=sysfs_microcode
+        )
+    else:
+        try:
+            result = subprocess.run(
+                ["sysctl", "-a"],
+                text=True,
+                capture_output=True,
+                check=False,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError as exc:
+            raise RuntimeError("formal runtime cannot execute macOS sysctl") from exc
+        if result.returncode or not result.stdout.strip():
+            raise RuntimeError("formal runtime cannot read macOS CPU sysctls")
+        cpu = _darwin_cpu_identity(result.stdout)
+    return {
+        "operating_system": operating_system,
+        "cpu": cpu,
+        "identity_scope": "stable-os-abi-and-cpu-class-not-physical-host",
+        "cross_hardware_bitwise_reproducibility": "not-guaranteed",
+    }
 
 
 def _canonical_native_library_identities(
@@ -552,11 +792,11 @@ def resolve_run_identity(*, root: str | Path, panel: str | Path,
 def numerical_runtime_contract() -> dict[str, Any]:
     """Return stable numerical-runtime facts that participate in cache identity.
 
-    This intentionally excludes hostname, timestamps, thread counts and other
-    launch-time knobs.  Those facts are attested separately by
-    :func:`environment_fingerprint`.  Exact package and accelerator versions do
-    enter the identity: a result produced by another BLAS/ML stack must be
-    recomputed instead of being accepted as the same cached run.
+    This intentionally excludes hostname, serial numbers, timestamps, CPU counts,
+    frequencies, and other per-host or launch-time facts.  The stable OS ABI, CPU
+    vendor/model/ISA flags, available microcode version, exact packages, and
+    accelerator versions do enter the identity.  This prevents cross-host-class
+    cache reuse; it does not claim bitwise reproducibility across hardware.
     """
     from importlib.metadata import PackageNotFoundError, version
 
@@ -574,6 +814,7 @@ def numerical_runtime_contract() -> dict[str, Any]:
         "python_version": platform.python_version(),
         "distributions": distributions,
         "formal_numerical_policy": formal_numerical_policy(),
+        "host_numerical_identity": _stable_host_numerical_identity(),
     }
     try:
         from threadpoolctl import threadpool_info
