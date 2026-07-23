@@ -342,7 +342,12 @@ def _assert_formal_invocation(root: Path, entrypoint_path: Path) -> None:
         raise ModelSuiteError("development replay executed through another entrypoint")
 
 
-def _load_suite(root: Path, suite_path: Path) -> dict[str, Any]:
+def _load_suite(
+    root: Path,
+    suite_path: Path,
+    *,
+    runtime_contract: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
         value = json.loads(suite_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as exc:
@@ -353,7 +358,12 @@ def _load_suite(root: Path, suite_path: Path) -> dict[str, Any]:
     # artifact loading, and every model execution.  A replay under another
     # numerical stack is not allowed to touch learned artifacts and merely fail
     # after producing predictions.
-    current_runtime_sha256 = sha256_json(numerical_runtime_contract())
+    runtime = (
+        numerical_runtime_contract()
+        if runtime_contract is None
+        else dict(runtime_contract)
+    )
+    current_runtime_sha256 = sha256_json(runtime)
     if value.get("numerical_runtime_sha256") != current_runtime_sha256:
         raise ModelSuiteError(
             "development replay runtime differs from frozen model suite"
@@ -523,14 +533,22 @@ def _prepare_external(
 
 
 def run_development_replay(
-    *, root: str | Path, suite_path: str | Path
+    *,
+    root: str | Path,
+    suite_path: str | Path,
+    runtime_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute the full learned-model replay and return a deterministic receipt."""
     root = Path(root).resolve()
     suite_path = Path(suite_path).resolve()
     if root not in suite_path.parents:
         raise ModelSuiteError("development replay suite escapes repository")
-    suite = _load_suite(root, suite_path)
+    runtime = (
+        numerical_runtime_contract()
+        if runtime_contract is None
+        else dict(runtime_contract)
+    )
+    suite = _load_suite(root, suite_path, runtime_contract=runtime)
     frozen_source_sha256 = str(
         suite["development_contract"]["source_sha256"]
     )
@@ -662,7 +680,6 @@ def run_development_replay(
                 "status": "PASS",
             })
 
-    runtime = numerical_runtime_contract()
     document: dict[str, Any] = {
         "format": DEVELOPMENT_REPLAY_FORMAT,
         "status": "PASS_FULL_DEVELOPMENT_REPLAY_NO_CONFIRMATION_DATA",
@@ -702,9 +719,20 @@ def run_guarded_development_replay(
         receipt_path=receipt_path,
         entrypoint_path=entrypoint_path,
     )
+    # On macOS the stable host-class fingerprint invokes the fixed absolute
+    # /usr/sbin/sysctl executable.  Compute that fingerprint before activating
+    # the replay I/O guard, whose contract correctly prohibits every child
+    # process during model/artifact replay.  Pass the exact same immutable
+    # value through both the suite gate and final receipt; never recompute it
+    # inside the guarded region.
+    runtime = numerical_runtime_contract()
     guard = DevelopmentReplayIOGuard(root)
     with guard:
-        document = run_development_replay(root=root, suite_path=suite_path)
+        document = run_development_replay(
+            root=root,
+            suite_path=suite_path,
+            runtime_contract=runtime,
+        )
     stable = {
         key: value for key, value in document.items()
         if key != "receipt_self_sha256"

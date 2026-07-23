@@ -38,6 +38,7 @@ from typing import Any, Iterable, Mapping, TextIO
 RUN_SCHEMA_VERSION = "thermoroute.run.v1"
 ARTIFACT_SCHEMA_VERSION = "thermoroute.artifact.v1"
 RUN_LOCK_SCHEMA_VERSION = "thermoroute.run-lock.v1"
+DARWIN_SYSCTL_PATH = "/usr/sbin/sysctl"
 
 FORMAL_THREAD_ENVIRONMENT = (
     "OMP_NUM_THREADS",
@@ -425,7 +426,7 @@ def _stable_host_numerical_identity() -> dict[str, Any]:
     else:
         try:
             result = subprocess.run(
-                ["sysctl", "-a"],
+                [DARWIN_SYSCTL_PATH, "-a"],
                 text=True,
                 capture_output=True,
                 check=False,

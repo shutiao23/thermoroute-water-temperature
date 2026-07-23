@@ -59,7 +59,7 @@ from .repro import (
     source_tree_hash,
     validate_artifact_sidecar,
 )
-from .registry import FORECAST_KEY
+from .registry import FORECAST_KEY, targets_match_at_model_precision
 from .weighting import STATION_EQUAL_WEIGHTING, STATION_SUMMARY_EQUAL_WEIGHTING
 
 
@@ -1176,10 +1176,16 @@ def verify_lightgbm_prediction_parity(
             if not paired["_merge"].eq("both").all():
                 raise ModelSuiteError(f"LightGBM parity keys differ for {member}/h{horizon}")
             for value in values:
-                difference = np.abs(
-                    paired[f"{value}_reference"].to_numpy(float)
-                    - paired[f"{value}_bundle"].to_numpy(float)
-                )
+                left = paired[f"{value}_reference"].to_numpy(float)
+                right = paired[f"{value}_bundle"].to_numpy(float)
+                if value == "y_true":
+                    if not targets_match_at_model_precision(left, right):
+                        raise ModelSuiteError(
+                            "LightGBM parity target labels differ at frozen "
+                            "model precision"
+                        )
+                    continue
+                difference = np.abs(left - right)
                 if np.any(~np.isfinite(difference)):
                     raise ModelSuiteError(f"LightGBM parity has non-finite {value}")
                 maximum = max(maximum, float(difference.max(initial=0.0)))

@@ -35,6 +35,7 @@ from thermoroute.development_replay import (  # noqa: E402
     _load_suite,
     _member_seeds,
     _validate_formal_pycache_prefix,
+    run_guarded_development_replay,
     validate_development_replay_receipt,
     write_replay_receipt,
 )
@@ -343,6 +344,56 @@ def test_development_replay_io_guard_blocks_repository_writes(tmp_path):
     with guard, pytest.raises(PermissionError, match="may not write"):
         writable.write_text("mutation", encoding="utf-8")
     assert not writable.exists()
+
+
+def test_guarded_replay_fingerprints_runtime_before_subprocess_ban(
+    tmp_path, monkeypatch,
+):
+    runtime = {"host_numerical_identity": {"cpu": "fixture"}}
+    events = []
+
+    def fingerprint():
+        events.append("runtime")
+        return runtime
+
+    def replay(*, root, suite_path, runtime_contract):
+        events.append("replay")
+        assert root == tmp_path.resolve()
+        assert suite_path == (tmp_path / "suite.json").resolve()
+        assert runtime_contract == runtime
+        with pytest.raises(PermissionError, match="child processes"):
+            subprocess.run(["/usr/bin/true"], check=False)
+        return {"status": "PASS", "receipt_self_sha256": "discarded"}
+
+    monkeypatch.setattr(
+        "thermoroute.development_replay._assert_formal_invocation",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "thermoroute.development_replay._execution_identity",
+        lambda **_kwargs: {"format": "fixture"},
+    )
+    monkeypatch.setattr(
+        "thermoroute.development_replay.numerical_runtime_contract",
+        fingerprint,
+    )
+    monkeypatch.setattr(
+        "thermoroute.development_replay.run_development_replay",
+        replay,
+    )
+
+    document = run_guarded_development_replay(
+        root=tmp_path,
+        suite_path=tmp_path / "suite.json",
+        receipt_path=tmp_path / "receipt.json",
+        entrypoint_path=tmp_path / "scripts" / "27_verify_development_replay.py",
+    )
+
+    assert events == ["runtime", "replay"]
+    assert document["status"] == "PASS"
+    assert document["execution_attestation"]["io_guard"][
+        "subprocess_allowed"
+    ] is False
 
 
 def test_formal_replay_rejects_missing_or_repository_local_pycache(tmp_path):

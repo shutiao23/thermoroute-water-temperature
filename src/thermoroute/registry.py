@@ -260,4 +260,10 @@ def restrict_tabular_to_window_registry(
         raise ValueError(
             f"tabular design covers {len(aligned)}/{len(registry)} registered "
             f"samples at horizon={horizon}")
+    # The sequence registry stores targets at the model's float32 precision.
+    # Once exact agreement at that precision has been audited above, use that
+    # one canonical representation for every downstream LightGBM fit, score,
+    # calibration, and replay comparison.  This prevents harmless float64
+    # parquet spellings of the same float32 label from splitting provenance.
+    aligned["y"] = window_truth.astype(np.float64)
     return aligned.drop(columns="__window_y").sort_values(key).reset_index(drop=True)

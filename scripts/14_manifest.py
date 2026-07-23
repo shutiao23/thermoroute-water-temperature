@@ -4,7 +4,9 @@
 The v1 manifest only hashed result files.  That could prove that a file had not
 changed, but not which source, resolved configuration, dependency lock, input
 panel, or Git revision produced it.  This v2 manifest records those identities
-and an explicit, acyclic parent graph for every scientific artifact.
+and an explicit, acyclic parent graph for its selected top-level artifacts.
+Content-bound stage receipts separately close internal member predictions,
+checkpoints, and bundles that are not duplicated in this inventory.
 
 Examples
 --------
@@ -70,8 +72,10 @@ SOURCE_PATTERNS = (
     "paper/claim_registry*.csv",
 )
 
-# Scientific inputs and derived evidence.  Logs and retired archives are not
-# evidence nodes: they are operational records, not current scientific truth.
+# Top-level scientific inputs and derived evidence.  Logs, retired archives,
+# and internal run members already closed by stage receipts are not duplicated
+# here: they are operational records or subordinate nodes, not independent
+# current scientific truths.
 ARTIFACT_PATTERNS = (
     "data/*.csv",
     "data_usgs/panel_usgs*.parquet",

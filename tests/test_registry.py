@@ -208,6 +208,7 @@ def test_tabular_window_truth_comparison_uses_float32_and_rejects_next_ulp(
     }])
     aligned = restrict_tabular_to_window_registry(tab, WD(), ("s1",), 1)
     assert len(aligned) == 1
+    assert aligned.loc[0, "y"] == float(np.float32(truth64))
 
     tab.loc[0, "y"] = np.nextafter(
         np.float32(truth64), np.float32(np.inf), dtype=np.float32

@@ -204,6 +204,35 @@ def test_cpu_identity_fails_closed_when_required_facts_are_absent():
         )
 
 
+def test_darwin_runtime_uses_absolute_sysctl_under_allowlisted_path(monkeypatch):
+    monkeypatch.setattr(
+        repro_module,
+        "_stable_operating_system_identity",
+        lambda: {"system": "Darwin", "product_version": "15.5"},
+    )
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append((command, kwargs))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=(
+                "machdep.cpu.brand_string: Apple M2 Pro\n"
+                "hw.cpufamily: 458787763\n"
+                "hw.optional.arm.FEAT_AES: 1\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(repro_module.subprocess, "run", fake_run)
+    identity = repro_module._stable_host_numerical_identity()
+
+    assert commands[0][0] == [repro_module.DARWIN_SYSCTL_PATH, "-a"]
+    assert Path(commands[0][0][0]).is_absolute()
+    assert identity["cpu"]["vendor_ids"] == ["Apple"]
+
+
 def test_os_identity_binds_linux_kernel_libc_and_distribution(monkeypatch):
     monkeypatch.setattr(repro_module.platform, "system", lambda: "Linux")
     monkeypatch.setattr(repro_module.platform, "release", lambda: "6.8.12")
@@ -281,7 +310,9 @@ def test_isolated_python_uses_random_hash_secret_but_identity_hash_is_stable():
     assert formal_numerical_policy()["python_hash_policy"].startswith(
         "canonical-sort-identity-collections"
     )
-    assert formal_numerical_policy()["python_hash_randomization_enabled"] is True
+    # The outer pytest process may intentionally be launched with
+    # PYTHONHASHSEED=0 (as run_all.sh does).  The four isolated children above,
+    # not the unrelated parent interpreter, are the contract under test.
 
 
 def _fixture(tmp_path: Path):

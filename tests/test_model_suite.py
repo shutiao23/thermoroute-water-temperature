@@ -77,7 +77,7 @@ def _lgb_metadata(columns):
     }
 
 
-def _lgb_audit_inputs(X, horizons=(1, 3, 7)):
+def _lgb_audit_inputs(X, horizons=(1, 3, 7), *, truth=0.0):
     issue_dates = pd.date_range("2019-01-01", periods=len(X), freq="D")
     return {
         horizon: (
@@ -86,7 +86,7 @@ def _lgb_audit_inputs(X, horizons=(1, 3, 7)):
                 "split": "test",
                 "issue_date": issue_dates,
                 "target_date": issue_dates + pd.to_timedelta(horizon, unit="D"),
-                "y": 0.0,
+                "y": truth,
             }),
             X,
         )
@@ -166,7 +166,7 @@ def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
         }
         for seed in range(5)
     }
-    evaluation_design = _lgb_audit_inputs(X)
+    evaluation_design = _lgb_audit_inputs(X, truth=32.1)
     manifest = save_lightgbm_bundle(
         tmp_path / "crossed-lgb",
         models=models,
@@ -197,7 +197,7 @@ def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
                     "split": row.split,
                     "issue_date": row.issue_date,
                     "target_date": row.target_date,
-                    "y_true": row.y,
+                    "y_true": float(np.float32(row.y)),
                     "y_pred": 0.5,
                     "q05": 1.0,
                     "q50": 1.0,
@@ -212,6 +212,19 @@ def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
         atol=1e-12,
     )
     assert difference == 0.0
+
+    different_rows = pd.DataFrame(expected_rows)
+    different_rows["y_true"] = np.nextafter(
+        np.float32(32.1), np.float32(np.inf), dtype=np.float32
+    )
+    with pytest.raises(ModelSuiteError, match="target labels differ"):
+        verify_lightgbm_prediction_parity(
+            manifest,
+            evaluation_design=evaluation_design,
+            expected=different_rows,
+            member_seeds={f"seed{seed}": seed for seed in range(5)},
+            atol=1e-12,
+        )
 
     document = json.loads(manifest.read_text(encoding="utf-8"))
     document["raw_quantile_crossing_audit"]["members"]["seed0"]["1"][

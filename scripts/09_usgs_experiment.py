@@ -1252,7 +1252,9 @@ def main():
 
     # LightGBM is an equally-sized five-member ensemble.  Every point,
     # quantile and event head is a native-text Booster with its own checksum.
-    lgb_offsets, lgb_calibrators = calibration_artifacts(lightgbm_predictions, thr)
+    lgb_offsets, lgb_calibrators = calibration_artifacts(
+        allp[allp.model.eq("LightGBM")], thr
+    )
     lgb_bundle = C.MODELS / f"lightgbm_usgs_bundle_{identity.run_id}"
     lgb_manifest = save_lightgbm_bundle(
         lgb_bundle,

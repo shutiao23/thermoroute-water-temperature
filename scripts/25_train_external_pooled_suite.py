@@ -121,7 +121,10 @@ from thermoroute.probability import (
     fit_frozen_seasonal_event_reference,
     fit_horizon_calibrators,
 )
-from thermoroute.registry import enforce_common_forecast_keys
+from thermoroute.registry import (
+    canonicalize_prediction_truth_inplace,
+    enforce_common_forecast_keys,
+)
 from thermoroute.repro import (
     assert_formal_numerical_policy,
     initialise_run_directory,
@@ -382,6 +385,7 @@ def main() -> None:
         pd.concat([tr_predictions, lstm_predictions, lgb_predictions], ignore_index=True),
         ("ThermoRoute", "LSTM", "LightGBM"), split="test",
     )
+    canonicalize_prediction_truth_inplace(predictions)
     prediction_path = C.PREDICTIONS / f"external_pooled_development_{identity.run_id}.parquet"
     R.write_predictions(predictions, prediction_path)
     seal_artifact(
@@ -434,7 +438,7 @@ def main() -> None:
 
     lgb_rows = predictions[predictions.model.eq("LightGBM")]
     lgb_offsets, lgb_calibrators = pooled_calibration(
-        lgb_predictions, pooled_threshold
+        lgb_rows, pooled_threshold
     )
     lgb_manifest = save_lightgbm_bundle(
         C.MODELS / f"external_lightgbm_bundle_{identity.run_id}",
