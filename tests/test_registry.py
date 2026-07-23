@@ -14,6 +14,7 @@ import pytest
 from thermoroute.registry import (
     FORECAST_KEY,
     STAGE9_PRIMARY_MODELS,
+    canonicalize_prediction_truth_inplace,
     enforce_common_forecast_keys,
     restrict_tabular_to_window_registry,
     targets_match_at_model_precision,
@@ -90,6 +91,32 @@ def test_canonical_hot_target_has_identical_float32_truth_semantics():
     aligned, audit = enforce_common_forecast_keys(frame, ("A", "B"))
     assert len(aligned) == 2
     assert audit.common_unique == 1
+
+
+def test_canonical_truth_serialization_is_exact_after_model_precision_audit():
+    truth64 = np.float64(32.1)
+    truth32_roundtrip = np.float64(np.float32(truth64))
+    assert truth64 != truth32_roundtrip
+    frame = pd.DataFrame([
+        _row("A", "2020-01-01", "2020-01-02", truth64),
+        _row("B", "2020-01-01", "2020-01-02", truth32_roundtrip),
+    ])
+
+    aligned, _ = enforce_common_forecast_keys(frame, ("A", "B"))
+    returned = canonicalize_prediction_truth_inplace(aligned)
+
+    assert returned is aligned
+    assert aligned["y_true"].dtype == np.dtype("float64")
+    assert aligned.loc[aligned["model"].eq("A"), "y_true"].iloc[0] == (
+        aligned.loc[aligned["model"].eq("B"), "y_true"].iloc[0]
+    )
+    assert aligned["y_true"].iloc[0] == truth32_roundtrip
+
+
+def test_canonical_truth_serialization_rejects_nonfinite_values():
+    frame = pd.DataFrame({"y_true": [1.0, np.nan]})
+    with pytest.raises(ValueError, match="non-finite y_true"):
+        canonicalize_prediction_truth_inplace(frame)
 
 
 def test_derived_parent_truth_uses_exact_float32_semantics():

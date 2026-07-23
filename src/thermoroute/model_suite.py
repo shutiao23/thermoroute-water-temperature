@@ -1637,7 +1637,7 @@ def _stage09_formal_configuration(run_manifest: Mapping[str, Any]) -> dict[str, 
         or resolved["station_sampling"] != "balanced"
         or resolved["selection_metric"] != "station_macro"
         or resolved["ablations"] is not True
-        or not isinstance(resolved["air2stream"], bool)
+        or resolved["air2stream"] is not False
         or resolved["device"] != "cpu"
         or resolved["training_device"] != "cpu"
         or resolved["execution_role"] != "route_a_formal_candidate"

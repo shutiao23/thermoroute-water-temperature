@@ -173,6 +173,7 @@ from thermoroute.repro import (
 from thermoroute.registry import (
     FORECAST_KEY,
     STAGE9_PRIMARY_MODELS,
+    canonicalize_prediction_truth_inplace,
     enforce_common_forecast_keys,
     restrict_tabular_to_window_registry,
 )
@@ -872,6 +873,11 @@ def main():
         training_device=resolved_device,
         exploratory=args.exploratory,
     )
+    if formal_candidate and args.air2stream:
+        ap.error(
+            "--air2stream is an exploratory, model-specific-eligibility "
+            "reference; a formal Route-A run must omit it"
+        )
     predictor_bridge = (
         development_predictor_bridge_binding(
             ROOT,
@@ -1166,6 +1172,14 @@ def main():
         seed0_ablation_diagnostic_frames(allp) if args.ablations else {}
     )
 
+    # The registry audit above first proves that every primary path refers to
+    # the same observation at the precision actually consumed by the models.
+    # Persist one canonical representation before any score/report is derived,
+    # so the final artifact retains byte-exact y_true equality without a
+    # tolerance-based verifier.  This is intentionally in-place: allp contains
+    # millions of rows in the formal run.
+    canonicalize_prediction_truth_inplace(allp)
+
     write_prediction_artifact(
         allp,
         output_predictions,
@@ -1392,7 +1406,8 @@ def main():
 
     L = [f"# USGS large-sample experiment ({len(stations)} stations, {args.seeds} seeds)\n",
          f"_Variables {', '.join(USGS_VARS)}. Observed targets only; identical samples "
-         f"across models. ThermoRoute = {args.seeds}-seed mean. The same-station "
+         f"across the five primary headline models. ThermoRoute = {args.seeds}-seed "
+         "mean. The same-station "
          "LightGBM is also a five-seed mean and receives stable site identity as a "
          "categorical feature; its small "
          "predeclared grid is selected by 2016–2017 station-macro RMSE only._\n",

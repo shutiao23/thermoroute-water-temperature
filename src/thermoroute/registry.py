@@ -46,6 +46,26 @@ def targets_match_at_model_precision(
         and np.array_equal(left_truth, right_truth)
     )
 
+
+def canonicalize_prediction_truth_inplace(frame: pd.DataFrame) -> pd.DataFrame:
+    """Persist finite prediction targets in the frozen model precision.
+
+    Sequence models consume ``float32`` targets while tabular paths can retain
+    the source parquet's ``float64`` representation.  After a caller has
+    audited label agreement with :func:`enforce_common_forecast_keys`, this
+    helper makes the serialized ``y_true`` bytes identical across model paths.
+    It deliberately mutates only the target column to avoid copying a
+    multi-million-row prediction frame.
+    """
+    if "y_true" not in frame.columns:
+        raise ValueError("prediction frame must contain y_true")
+    truth = _float32_truth(frame["y_true"])
+    if np.any(~np.isfinite(truth)):
+        raise ValueError("prediction frame contains a non-finite y_true")
+    frame["y_true"] = truth.astype(np.float64)
+    return frame
+
+
 # These registries are protocol constants, not sets inferred from whatever
 # optional models happened to finish.  Stage 9 freezes the five models that it
 # can score before the LSTM stage; Stage 16 adds the sixth primary model and

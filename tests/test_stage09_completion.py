@@ -257,7 +257,7 @@ def _fixture_report(frame: pd.DataFrame, *, air2stream: bool) -> str:
 def _stage09_fixture(
     root: Path,
     *,
-    air2stream: bool = True,
+    air2stream: bool = False,
 ) -> dict[str, Any]:
     source = root / "src" / "fixture.py"
     _write_bytes(source, b"VALUE = 1\n")
@@ -885,6 +885,7 @@ def test_stage09_receipt_binds_canonical_panel_bytes(tmp_path):
     ("context_length", C.CONTEXT_LENGTH + 1),
     ("seeds", len(C.USGS_SEEDS) - 1),
     ("selection_metric", "micro"),
+    ("air2stream", True),
     ("device", "mps"),
 ])
 def test_stage09_manifest_rejects_reidentified_noncanonical_config(

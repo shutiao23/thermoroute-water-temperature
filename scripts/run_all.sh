@@ -51,13 +51,13 @@ echo "================ TRACK B: USGS large-sample development analysis =========
 echo "(multi-hour on CPU: 5 ThermoRoute seeds + 4 region-transfer folds + 5 LSTM"
 echo " seeds + 4 LSTM transfer folds are the heavy stages; trained stages are"
 echo " checkpointed, so an interrupted run resumes.)"
-echo "[8/27] USGS experiment (baselines + air2stream + ThermoRoute × seeds + LGO + ablations)"
+echo "[8/27] USGS experiment (primary baselines + ThermoRoute × seeds + LGO + ablations)"
 echo "      using panel: ${USGS_PANEL}"
 # Stage 9 is an immutable parent.  Its command returns successfully only after
 # the report, three formal pointers and final content-bound completion receipt
 # are durable.  Stage 24 rejects a missing or stale receipt and binds the
 # accepted receipt into the frozen suite identity.
-python3 scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --air2stream --seeds 5 \
+python3 scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --seeds 5 \
     --device cpu \
     --out_predictions usgs_predictions_stage9_v2.parquet
 echo "[9/27] matched-budget neural controls + exact 31-member feature ladder"
