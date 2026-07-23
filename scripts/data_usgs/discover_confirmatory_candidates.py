@@ -158,7 +158,11 @@ def discover(args: argparse.Namespace) -> None:
         })
 
     candidates = merge_candidate_metadata(state_frames)
-    payload = candidates.to_csv(index=False, lineterminator="\n").encode("utf-8")
+    payload = candidates.to_csv(
+        index=False,
+        float_format="%.17g",
+        lineterminator="\n",
+    ).encode("utf-8")
     atomic_create(args.out, payload)
     index_path = store.write_index()
     provenance = {

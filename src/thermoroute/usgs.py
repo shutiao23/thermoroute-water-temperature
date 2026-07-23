@@ -484,7 +484,10 @@ def parse_daymet_daily(payload: bytes, *, start: str, end: str) -> pd.DataFrame:
     )
     if header is None:
         raise ValueError("Daymet response lacks a CSV header")
-    raw = pd.read_csv(io.StringIO("\n".join(lines[header:])))
+    raw = pd.read_csv(
+        io.StringIO("\n".join(lines[header:])),
+        float_precision="round_trip",
+    )
     required = {
         "year", "yday", "tmax (deg c)", "tmin (deg c)",
         "prcp (mm/day)", "srad (W/m^2)", "vp (Pa)",
@@ -650,7 +653,7 @@ def parse_gridmet_wind_daily(
     if first > last:
         raise ValueError("gridMET response interval is reversed")
     try:
-        raw = pd.read_csv(io.BytesIO(payload))
+        raw = pd.read_csv(io.BytesIO(payload), float_precision="round_trip")
     except (UnicodeDecodeError, pd.errors.ParserError) as exc:
         raise ValueError("gridMET response is not valid CSV") from exc
     time_columns = [column for column in raw if str(column).strip().lower() == "time"]

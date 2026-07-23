@@ -700,7 +700,9 @@ def test_failure_before_last_write_never_publishes_receipt(fixture) -> None:
 def test_semantically_forged_budget_fails_closed(fixture) -> None:
     # A self-consistent receipt cannot bless a semantically changed architecture
     # budget, even if its file and sidecar hashes are recomputed.
-    budget = pd.read_csv(fixture["budget"])
+    budget = pd.read_csv(
+        fixture["budget"], float_precision="round_trip"
+    )
     budget.loc[0, "trainable_parameters"] += 1
     budget.to_csv(fixture["budget"], index=False)
     metadata = json.loads(sidecar_path(fixture["budget"]).read_text(encoding="utf-8"))
@@ -811,7 +813,7 @@ def test_rehashed_combined_prediction_forgery_fails_full_column_equality(fixture
 def test_rehashed_metric_summary_forgery_is_recomputed_and_rejected(fixture) -> None:
     forged = fixture["document"]
     summary = fixture["root"] / forged["artifacts"]["metric_summary"]["path"]
-    table = pd.read_csv(summary)
+    table = pd.read_csv(summary, float_precision="round_trip")
     table.loc[0, "median_station_rmse_c"] += 0.1
     table.to_csv(summary, index=False)
     _reseal_existing_artifact(summary)

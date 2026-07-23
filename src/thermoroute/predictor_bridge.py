@@ -555,6 +555,7 @@ def validate_development_bridge_manifest_offline(
         registry_path,
         dtype={"site_no": "string", "legacy_site_id": "string"},
         keep_default_na=False,
+        float_precision="round_trip",
     )
     expected_frozen = frozen_bridge_slice(pd.read_parquet(panel_path), registry)
     frozen = assert_exact_predictor_table(

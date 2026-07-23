@@ -133,6 +133,7 @@ def load_coordinate_registry(
         usecols=["site_no", "lat", "lon"],
         dtype={"site_no": "string"},
         keep_default_na=False,
+        float_precision="round_trip",
     )
     frame["site_no"] = frame.site_no.astype("string").str.strip()
     frame["lat"] = pd.to_numeric(frame.lat, errors="coerce")

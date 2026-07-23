@@ -2276,18 +2276,32 @@ def _validate_stage09_score_frame(
             "Stage-9 score table values differ from the bound predictions"
         )
     try:
-        # CSV's decimal parser may choose the adjacent IEEE-754 value even when
-        # the canonical shortest decimal was written.  One ULP is the complete
-        # serialization allowance; this still rejects any scientific change.
+        # The dedicated round-trip reader preserves the producer's binary64
+        # values exactly, so even an adjacent-float substitution is evidence
+        # drift rather than a serialization allowance.
         np.testing.assert_array_max_ulp(
             actual_sorted[metric_columns].to_numpy(float),
             expected_sorted[metric_columns].to_numpy(float),
-            maxulp=1,
+            maxulp=0,
         )
     except AssertionError as exc:
         raise ModelSuiteError(
             "Stage-9 score table values differ from the bound predictions"
         ) from exc
+
+
+def _read_stage09_score_frame(path: str | Path) -> pd.DataFrame:
+    """Read shortest-decimal scores without the fast parser's multi-ULP drift."""
+    return pd.read_csv(
+        path,
+        dtype={"site": "string"},
+        float_precision="round_trip",
+    )
+
+
+def _read_stage09_lightgbm_selection_frame(path: str | Path) -> pd.DataFrame:
+    """Preserve the exact validation metrics bound into the booster manifest."""
+    return pd.read_csv(path, float_precision="round_trip")
 
 
 def _validate_stage09_lightgbm_selection_frame(
@@ -2430,8 +2444,10 @@ def _validate_stage09_report_outputs(
             "Stage-9 report lacks the mandatory seed0 ablation diagnostic contract"
         )
     try:
-        score_frame = pd.read_csv(scores, dtype={"site": "string"})
-        selection_frame = pd.read_csv(lightgbm_selection)
+        score_frame = _read_stage09_score_frame(scores)
+        selection_frame = _read_stage09_lightgbm_selection_frame(
+            lightgbm_selection
+        )
     except (
         OSError, UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError,
     ) as exc:
@@ -2776,7 +2792,9 @@ def validate_stage09_completion_receipt(
     if not isinstance(lightgbm_manifest, Mapping):
         raise ModelSuiteError("Stage-9 LightGBM manifest is malformed")
     try:
-        selection_frame = pd.read_csv(paths["lightgbm_selection"])
+        selection_frame = _read_stage09_lightgbm_selection_frame(
+            paths["lightgbm_selection"]
+        )
     except (
         OSError, UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError,
     ) as exc:

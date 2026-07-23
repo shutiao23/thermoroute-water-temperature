@@ -53,8 +53,11 @@ def load():
     panel = pd.read_parquet(C.DATA_PROCESSED / "panel.parquet")
     pred = pd.read_parquet(C.PREDICTIONS / "predictions.parquet") \
         if (C.PREDICTIONS / "predictions.parquet").exists() else None
-    scores = pd.read_csv(C.TABLES / "scores_all.csv") \
-        if (C.TABLES / "scores_all.csv").exists() else None
+    scores = (
+        pd.read_csv(C.TABLES / "scores_all.csv", float_precision="round_trip")
+        if (C.TABLES / "scores_all.csv").exists()
+        else None
+    )
     expl = np.load(C.TABLES / "explain.npz", allow_pickle=True) \
         if (C.TABLES / "explain.npz").exists() else None
     return panel, pred, scores, expl

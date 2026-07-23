@@ -303,8 +303,16 @@ def write_environmental_audit(
     if json_path.exists() or markdown_path.exists():
         raise EnvironmentalAuditError("refusing to replace environmental audit")
     panel = pd.read_parquet(panel_path)
-    registry = pd.read_csv(registry_path, dtype={"site_no": "string"})
-    rejected = pd.read_csv(rejected_path, dtype={"site": "string"})
+    registry = pd.read_csv(
+        registry_path,
+        dtype={"site_no": "string"},
+        float_precision="round_trip",
+    )
+    rejected = pd.read_csv(
+        rejected_path,
+        dtype={"site": "string"},
+        float_precision="round_trip",
+    )
     document = audit_development_environment(panel, registry, rejected)
     document["inputs"] = {
         "panel": {"path": panel_path.name, "sha256": sha256_file(panel_path)},

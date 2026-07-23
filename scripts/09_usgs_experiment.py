@@ -994,7 +994,11 @@ def main():
     )
     atomic_write_bytes(
         lightgbm_selection_path,
-        lightgbm_selection.to_csv(index=False).encode("utf-8"),
+        lightgbm_selection.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ).encode("utf-8"),
     )
     log("LightGBM joint done")
 
@@ -1404,7 +1408,14 @@ def main():
             rows.append({"horizon": h, "site": s, "rmse_persist": rp.get(s, np.nan),
                          "rmse_damped": rd.get(s, np.nan), "rmse_thermo": rt.get(s, np.nan)})
     sc = pd.DataFrame(rows)
-    atomic_write_bytes(score_path, sc.to_csv(index=False).encode("utf-8"))
+    atomic_write_bytes(
+        score_path,
+        sc.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ).encode("utf-8"),
+    )
 
     L = [f"# USGS large-sample experiment ({len(stations)} stations, {args.seeds} seeds)\n",
          f"_Variables {', '.join(USGS_VARS)}. Observed targets only; identical samples "

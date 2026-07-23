@@ -1895,7 +1895,11 @@ def _load_registry(
         if column in usecols
     }
     frame = pd.read_csv(
-        path, usecols=usecols, dtype=string_columns, keep_default_na=False
+        path,
+        usecols=usecols,
+        dtype=string_columns,
+        keep_default_na=False,
+        float_precision="round_trip",
     )
     frame = frame.copy()
     frame["site_no"] = frame["site_no"].astype("string").str.strip()
@@ -3198,7 +3202,11 @@ def _read_table(path: Path) -> pd.DataFrame:
     if path.suffix.lower() in {".parquet", ".pq"}:
         return pd.read_parquet(path)
     if path.suffix.lower() in {".csv", ".gz"}:
-        return pd.read_csv(path, dtype={"site_no": "string"})
+        return pd.read_csv(
+            path,
+            dtype={"site_no": "string"},
+            float_precision="round_trip",
+        )
     raise OpeningContractError(f"unsupported frozen input table: {path.name}")
 
 
@@ -3319,6 +3327,7 @@ def _verify_prelabel_meteorology_replay(
             usecols=["site_no", "lat", "lon"],
             dtype={"site_no": "string"},
             keep_default_na=False,
+            float_precision="round_trip",
         )
         coordinates["site_no"] = coordinates.site_no.astype("string").str.strip()
         coordinates["lat"] = pd.to_numeric(coordinates.lat, errors="coerce")

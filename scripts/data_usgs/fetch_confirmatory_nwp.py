@@ -111,6 +111,7 @@ def load_station_coordinates(paths: list[Path]) -> tuple[pd.DataFrame, list[dict
             path,
             usecols=["site_no", "lat", "lon"],
             dtype={"site_no": "string"},
+            float_precision="round_trip",
         )
         frame["site_no"] = frame["site_no"].astype("string").str.strip()
         frame["lat"] = pd.to_numeric(frame["lat"], errors="coerce")

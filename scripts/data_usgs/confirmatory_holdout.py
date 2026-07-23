@@ -131,6 +131,7 @@ def verify_candidate_evidence(
             "site_type": "string", "huc_cd": "string",
         },
         keep_default_na=False,
+        float_precision="round_trip",
     )
     if tuple(provided.columns) != CANDIDATE_COLUMNS:
         raise RuntimeError("candidate table has a non-frozen column schema")
@@ -138,7 +139,9 @@ def verify_candidate_evidence(
         provided[column] = pd.to_numeric(provided[column], errors="coerce")
     provided["huc_cd"] = provided["huc_cd"].fillna("")
     try:
-        pd.testing.assert_frame_equal(rebuilt, provided, check_dtype=False)
+        pd.testing.assert_frame_equal(
+            rebuilt, provided, check_dtype=False, rtol=0.0, atol=0.0
+        )
     except AssertionError as exc:
         raise RuntimeError("candidate table cannot be rebuilt from raw snapshots") from exc
     return provided
@@ -178,7 +181,11 @@ def freeze(args: argparse.Namespace) -> None:
         raise FileNotFoundError(
             "candidate discovery must have a raw snapshot index before selection")
 
-    registry_payload = registry.to_csv(index=False, lineterminator="\n").encode("utf-8")
+    registry_payload = registry.to_csv(
+        index=False,
+        float_format="%.17g",
+        lineterminator="\n",
+    ).encode("utf-8")
     atomic_write(args.out_registry, registry_payload)
     lock = {
         "schema_version": 1,

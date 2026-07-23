@@ -24,7 +24,9 @@ from thermoroute import config as C
 from thermoroute import significance as S
 
 PRED = pd.read_parquet(C.PREDICTIONS / "predictions.parquet")
-SCORES = pd.read_csv(C.TABLES / "scores_all.csv")
+SCORES = pd.read_csv(
+    C.TABLES / "scores_all.csv", float_precision="round_trip"
+)
 TEST = SCORES[SCORES.split == "test"].copy()
 OUT = []
 

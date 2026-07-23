@@ -94,6 +94,7 @@ def main() -> None:
     metadata = pd.read_csv(
         args.metadata, dtype={"site": "string", "site_id": "string"},
         keep_default_na=False,
+        float_precision="round_trip",
     )
     required_meta = {"site", "site_id", "station_nm", "lat", "lon", "state"}
     missing_meta = required_meta - set(metadata.columns)
@@ -121,7 +122,8 @@ def main() -> None:
     if args.huc_source is not None:
         huc = pd.read_csv(
             args.huc_source, dtype={"site": "string", "site_no": "string"},
-            keep_default_na=False)
+            keep_default_na=False, float_precision="round_trip",
+        )
         if "site_no" not in huc and "site" in huc:
             huc = huc.rename(columns={"site": "site_no"})
         if "site_no" not in huc.columns:

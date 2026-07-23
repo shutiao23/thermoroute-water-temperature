@@ -114,7 +114,9 @@ def _fixture_prediction_frame(*, air2stream: bool) -> pd.DataFrame:
     issue = pd.Timestamp("2020-06-01")
     sites = ("site-a", "site-b")
     errors = {
-        "Persistence": 1.00,
+        # These values exercise pandas decimals that the default fast parser
+        # does not recover bit-for-bit; the formal reader must round-trip them.
+        "Persistence": 0.9797254087524863,
         "DampedPersistence": 0.80,
         "Climatology": 1.20,
         MODEL_SUITE.STAGE9_LGO_MODEL: 0.75,
@@ -127,8 +129,8 @@ def _fixture_prediction_frame(*, air2stream: bool) -> pd.DataFrame:
     }
     rows: list[dict[str, Any]] = []
     for horizon in C.HORIZONS:
-        for site_index, site in enumerate(sites):
-            y_true = 10.0 + horizon + site_index
+        for site in sites:
+            y_true = 0.0
             common = {
                 "site_id": site,
                 "horizon": horizon,
@@ -189,7 +191,9 @@ def _fixture_selection_frame() -> pd.DataFrame:
                 "num_leaves": num_leaves,
                 "min_child_samples": min_child_samples,
                 "learning_rate": learning_rate,
-                "val_station_macro_rmse": 0.8 + candidate_id / 10,
+                "val_station_macro_rmse": (
+                    1.2891396501744685 + candidate_id / 10
+                ),
                 "best_iteration": 100 + candidate_id,
                 "selected": candidate_id == 0,
                 "selection_split": "2016-2017 validation",
@@ -784,9 +788,100 @@ def test_stage09_receipt_roundtrip_and_stage24_gate(tmp_path):
     assert receipt_binding == file_binding(tmp_path, fixture["receipt"])
 
 
+def test_stage09_score_reader_preserves_shortest_decimal_roundtrip(tmp_path):
+    tokens = (
+        "0.22633884081490238",
+        "0.20911275613220767",
+        "0.21833853837531267",
+        "0.24576947854503056",
+    )
+    scores = tmp_path / "scores.csv"
+    scores.write_text(
+        "horizon,site,rmse_persist,rmse_damped,rmse_thermo\n"
+        f"1,02334430,{tokens[0]},{tokens[1]},{tokens[3]}\n"
+        f"1,09380000,{tokens[0]},{tokens[2]},{tokens[3]}\n",
+        encoding="utf-8",
+    )
+
+    frame = MODEL_SUITE._read_stage09_score_frame(scores)
+    actual = frame[
+        ["rmse_persist", "rmse_damped", "rmse_thermo"]
+    ].to_numpy(float)
+    expected = np.array([
+        [float(tokens[0]), float(tokens[1]), float(tokens[3])],
+        [float(tokens[0]), float(tokens[2]), float(tokens[3])],
+    ])
+
+    np.testing.assert_array_max_ulp(actual, expected, maxulp=0)
+    assert frame["site"].tolist() == ["02334430", "09380000"]
+
+
+def test_stage09_selection_reader_preserves_bound_validation_metrics(tmp_path):
+    tokens = ("1.2891396527254995", "1.6761344986272013")
+    selection = tmp_path / "selection.csv"
+    selection.write_text(
+        "horizon,val_station_macro_rmse\n"
+        f"1,{tokens[0]}\n"
+        f"3,{tokens[1]}\n",
+        encoding="utf-8",
+    )
+
+    frame = MODEL_SUITE._read_stage09_lightgbm_selection_frame(selection)
+    actual = frame["val_station_macro_rmse"].to_numpy(float)
+    expected = np.array([float(token) for token in tokens])
+
+    np.testing.assert_array_max_ulp(actual, expected, maxulp=0)
+
+
+def test_stage09_receipt_rejects_adjacent_float_score_substitution(tmp_path):
+    fixture = _stage09_fixture(tmp_path)
+    scores = MODEL_SUITE._read_stage09_score_frame(fixture["scores"])
+    scores.loc[0, "rmse_persist"] = np.nextafter(
+        float(scores.loc[0, "rmse_persist"]), np.inf
+    )
+    fixture["scores"].write_text(
+        scores.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ),
+        encoding="utf-8",
+    )
+    document = _rebind_scores(tmp_path, fixture)
+
+    with pytest.raises(ModelSuiteError, match="bound predictions"):
+        validate_stage09_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+            document=document,
+        )
+
+
+def test_stage09_receipt_rejects_adjacent_float_selection_substitution(tmp_path):
+    fixture = _stage09_fixture(tmp_path)
+    selection = MODEL_SUITE._read_stage09_lightgbm_selection_frame(
+        fixture["selection"]
+    )
+    selection.loc[0, "val_station_macro_rmse"] = np.nextafter(
+        float(selection.loc[0, "val_station_macro_rmse"]), np.inf
+    )
+    document = _rebind_selection(tmp_path, fixture, selection)
+
+    with pytest.raises(ModelSuiteError, match="bound bundle manifest"):
+        validate_stage09_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+            document=document,
+        )
+
+
 def test_stage09_receipt_rejects_shuffled_lightgbm_grid_rows(tmp_path):
     fixture = _stage09_fixture(tmp_path)
-    selection = pd.read_csv(fixture["selection"])
+    selection = MODEL_SUITE._read_stage09_lightgbm_selection_frame(
+        fixture["selection"]
+    )
     selection.iloc[[0, 1]] = selection.iloc[[1, 0]].to_numpy()
     document = _rebind_selection(tmp_path, fixture, selection)
 
@@ -801,7 +896,9 @@ def test_stage09_receipt_rejects_shuffled_lightgbm_grid_rows(tmp_path):
 
 def test_stage09_receipt_rejects_changed_lightgbm_grid_parameters(tmp_path):
     fixture = _stage09_fixture(tmp_path)
-    selection = pd.read_csv(fixture["selection"])
+    selection = MODEL_SUITE._read_stage09_lightgbm_selection_frame(
+        fixture["selection"]
+    )
     selection.loc[selection["candidate_id"].eq(0), "num_leaves"] = 16
     document = _rebind_selection(tmp_path, fixture, selection)
 
@@ -816,7 +913,9 @@ def test_stage09_receipt_rejects_changed_lightgbm_grid_parameters(tmp_path):
 
 def test_stage09_receipt_rejects_non_argmin_lightgbm_selection(tmp_path):
     fixture = _stage09_fixture(tmp_path)
-    selection = pd.read_csv(fixture["selection"])
+    selection = MODEL_SUITE._read_stage09_lightgbm_selection_frame(
+        fixture["selection"]
+    )
     horizon = C.HORIZONS[0]
     current = selection["horizon"].eq(horizon)
     selection.loc[current, "selected"] = False
@@ -836,7 +935,9 @@ def test_stage09_receipt_rejects_non_argmin_lightgbm_selection(tmp_path):
 
 def test_stage09_receipt_cross_checks_selection_against_bound_bundle(tmp_path):
     fixture = _stage09_fixture(tmp_path)
-    selection = pd.read_csv(fixture["selection"])
+    selection = MODEL_SUITE._read_stage09_lightgbm_selection_frame(
+        fixture["selection"]
+    )
     selection.loc[0, "val_station_macro_rmse"] += 0.001
     document = _rebind_selection(tmp_path, fixture, selection)
 
@@ -851,7 +952,9 @@ def test_stage09_receipt_cross_checks_selection_against_bound_bundle(tmp_path):
 
 def test_stage09_receipt_rejects_negative_lightgbm_validation_rmse(tmp_path):
     fixture = _stage09_fixture(tmp_path)
-    selection = pd.read_csv(fixture["selection"])
+    selection = MODEL_SUITE._read_stage09_lightgbm_selection_frame(
+        fixture["selection"]
+    )
     selection.loc[0, "val_station_macro_rmse"] = -0.1
     document = _rebind_selection(tmp_path, fixture, selection)
 

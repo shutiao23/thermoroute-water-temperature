@@ -4164,7 +4164,10 @@ def _validate_preopening_completion_gates(
     ):
         raise ValueError("authorized Stage-09b metric summary registry changed")
     try:
-        budget_frame = pd.read_csv(resolved_artifacts["architecture_budget"])
+        budget_frame = pd.read_csv(
+            resolved_artifacts["architecture_budget"],
+            float_precision="round_trip",
+        )
         expected_report_bytes = _stage09b_expected_report(
             run_id=str(controls["run_id"]),
             audit=audit,

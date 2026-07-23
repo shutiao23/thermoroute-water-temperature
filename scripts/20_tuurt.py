@@ -92,8 +92,14 @@ def temporal_arm():
 
 def main():
     temporal = temporal_arm()
-    unseen = pd.read_csv(C.TABLES / "claim2_kfold_lgo.csv")
-    region = pd.read_csv(C.TABLES / "region_transfer.csv", index_col=0)
+    unseen = pd.read_csv(
+        C.TABLES / "claim2_kfold_lgo.csv", float_precision="round_trip"
+    )
+    region = pd.read_csv(
+        C.TABLES / "region_transfer.csv",
+        index_col=0,
+        float_precision="round_trip",
+    )
 
     L = ["# Temporal and gauged-site transfer diagnostics\n",
          "Skill = 1 − RMSE(ThermoRoute)/RMSE(reference), median across held-out "

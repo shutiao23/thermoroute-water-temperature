@@ -304,6 +304,7 @@ def replay_candidate_evidence(
             "site_type": "string", "huc_cd": "string",
         },
         keep_default_na=False,
+        float_precision="round_trip",
     )
     if tuple(provided.columns) != CANDIDATE_COLUMNS:
         raise EvidenceError("candidate table schema changed")

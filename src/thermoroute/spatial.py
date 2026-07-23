@@ -31,6 +31,7 @@ def load_station_registry(path: str | Path = DEFAULT_STATION_REGISTRY) -> pd.Dat
             "huc_metadata_status": "string",
         },
         keep_default_na=False,
+        float_precision="round_trip",
     )
     required = {
         "site_no", "legacy_site_id", "lat", "lon", "huc_cd", "huc2",

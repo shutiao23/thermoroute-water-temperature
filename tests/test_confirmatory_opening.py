@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import thermoroute.opening as opening_module  # noqa: E402
 import thermoroute.outcome_acquisition as outcome_acquisition  # noqa: E402
+from thermoroute.confirmatory import CANDIDATE_COLUMNS  # noqa: E402
 from thermoroute.opening import (  # noqa: E402
     CONTROL_INTERVENTIONS,
     OpeningAlreadyStarted,
@@ -61,6 +62,31 @@ from thermoroute.probability import (  # noqa: E402
 )
 from thermoroute.repro import RunIdentity, seal_artifact  # noqa: E402
 from thermoroute.train import LSTMForecaster  # noqa: E402
+
+
+def test_external_registry_reader_roundtrips_candidate_metrics(tmp_path):
+    token = "4.612783411653758e-10"
+    registry = tmp_path / "external.csv"
+    registry.write_text(
+        ",".join((*CANDIDATE_COLUMNS, "selection_rank_sha256")) + "\n"
+        f"01234567,Example River,40.125,-105.25,CO,ST,10190005,{token},"
+        f"{'a' * 64}\n",
+        encoding="utf-8",
+    )
+
+    frame = opening_module._load_registry(
+        registry,
+        expected_count=1,
+        label="external registry",
+        role="external",
+    )
+
+    np.testing.assert_array_max_ulp(
+        np.array([frame.loc[0, "drain_area_va"]], dtype=float),
+        np.array([float(token)], dtype=float),
+        maxulp=0,
+    )
+    assert frame.loc[0, "site_no"] == "01234567"
 
 
 def _opening_git_safety_repository(tmp_path: Path):

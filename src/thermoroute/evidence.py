@@ -100,6 +100,7 @@ class FrozenPanelSpec:
             self.registry_path,
             dtype={"site_no": "string", "legacy_site_id": "string"},
             keep_default_na=False,
+            float_precision="round_trip",
         )
         required = {"site_no", "legacy_site_id", "station_nm", "lat", "lon", "state"}
         missing = required - set(registry.columns)

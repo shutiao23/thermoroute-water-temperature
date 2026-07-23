@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import numpy as np
@@ -17,12 +18,16 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute.confirmatory import (  # noqa: E402
     CANDIDATE_COLUMNS,
+    CANDIDATE_PROVIDER,
+    CANDIDATE_USER_AGENT,
     ROUTE_A_STATE_UNIVERSE,
     build_usgs_candidate_url,
     merge_candidate_metadata,
     parse_usgs_candidate_metadata,
+    replay_candidate_evidence,
 )
 from thermoroute.evidence import EvidenceError  # noqa: E402
+import thermoroute.opening as opening_module  # noqa: E402
 from thermoroute.nwp import (  # noqa: E402
     ISSUE_SEMANTICS,
     NWP_COMMON_VALID_TIME_START,
@@ -139,10 +144,18 @@ def test_holdout_freezer_replays_raw_candidate_evidence(tmp_path):
         "confirmatory_holdout_evidence_test",
         "scripts/data_usgs/confirmatory_holdout.py",
     )
-    payload = _candidate_payload()
+    payload = _candidate_payload().replace(
+        b"\t42.5\n", b"\t4.6127834116537587e-10\n"
+    )
     candidates = parse_usgs_candidate_metadata(payload, state="CO")
     candidate_path = tmp_path / "candidates.csv"
-    candidate_path.write_text(candidates.to_csv(index=False, lineterminator="\n"))
+    candidate_path.write_text(
+        candidates.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        )
+    )
 
     response_path = tmp_path / "provider" / "request-one" / "response.bin"
     response_path.parent.mkdir(parents=True)
@@ -192,6 +205,287 @@ def test_holdout_freezer_replays_raw_candidate_evidence(tmp_path):
     candidate_path.write_text(candidate_path.read_text() + "\n")
     with pytest.raises(RuntimeError, match="checksum"):
         module.verify_candidate_evidence(candidate_path, provenance_path, index_path)
+
+
+def test_candidate_evidence_replay_roundtrips_pathological_decimal(
+    tmp_path, monkeypatch,
+):
+    payload = _candidate_payload().replace(
+        b"\t42.5\n", b"\t4.6127834116537587e-10\n"
+    )
+    candidates = parse_usgs_candidate_metadata(payload, state="CO")
+    candidate_path = tmp_path / "candidates.csv"
+    candidate_path.write_text(
+        candidates.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ),
+        encoding="utf-8",
+    )
+
+    request = {
+        "schema_version": 1,
+        "provider": CANDIDATE_PROVIDER,
+        "method": "GET",
+        "url": build_usgs_candidate_url("CO"),
+        "headers": {"User-Agent": CANDIDATE_USER_AGENT},
+    }
+    request_sha = sha256_bytes(canonical_json_bytes(request))
+    response_sha = sha256_bytes(payload)
+    retrieved_at = "2026-01-01T00:00:00+00:00"
+    snapshot_dir = tmp_path / request_sha
+    snapshot_dir.mkdir()
+    response_path = snapshot_dir / "response.bin"
+    metadata_path = snapshot_dir / "metadata.json"
+    response_path.write_bytes(payload)
+    metadata_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "request": request,
+        "request_sha256": request_sha,
+        "http_status": 200,
+        "byte_count": len(payload),
+        "response_sha256": response_sha,
+        "response_file": "response.bin",
+        "retrieved_at_utc": retrieved_at,
+    }))
+    index_path = tmp_path / "snapshot_index.json"
+    index_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "snapshot_count": 1,
+        "records": [{
+            "provider": CANDIDATE_PROVIDER,
+            "request_sha256": request_sha,
+            "response_sha256": response_sha,
+            "retrieved_at_utc": retrieved_at,
+            "byte_count": len(payload),
+            "request": request,
+            "metadata_path": metadata_path.relative_to(tmp_path).as_posix(),
+            "response_path": response_path.relative_to(tmp_path).as_posix(),
+        }],
+    }))
+    protocol_path = tmp_path / "protocol.json"
+    selection_seed = "route-a-confirmatory-v1-public-seed"
+    protocol_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "status": "PLANNED_NOT_ACQUIRED",
+        "protocol_id": "route-a-fixture",
+        "authoritative_protocol_commit": "b" * 40,
+        "pre_label_amendments": [],
+        "new_site_external_validation": {
+            "status": "PLANNED_NOT_ACQUIRED",
+            "planned_site_count": 1,
+            "selection_seed": selection_seed,
+        },
+        "metadata_candidate_contract": {"state_universe": ["CO"]},
+        "time_holdout": {"start": "2021-01-01", "end": "2023-12-31"},
+    }))
+    protocol_sha = sha256_file(protocol_path)
+    provenance_path = tmp_path / "candidates.provenance.json"
+    provenance_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "artifact_role": "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE",
+        "protocol_sha256": protocol_sha,
+        "state_universe": ["CO"],
+        "state_universe_rule": "fixture",
+        "candidate_rule": "fixture",
+        "candidate_count": 1,
+        "site_primary_key": "site_no",
+        "sort_order": ["site_no", "state"],
+        "columns": list(CANDIDATE_COLUMNS),
+        "outcome_endpoint_requested": False,
+        "outcome_values_requested": False,
+        "holdout_coverage_requested_or_computed": False,
+        "raw_snapshot_index": index_path.name,
+        "raw_snapshot_index_sha256": sha256_file(index_path),
+        "candidate_table_sha256": sha256_file(candidate_path),
+        "requests": [{
+            "state": "CO",
+            "candidate_count": 1,
+            "request_sha256": request_sha,
+            "response_sha256": response_sha,
+            "retrieved_at_utc": retrieved_at,
+            "byte_count": len(payload),
+        }],
+    }))
+
+    replayed = replay_candidate_evidence(
+        candidate_path,
+        provenance_path,
+        index_path,
+        protocol_sha256=protocol_sha,
+        state_universe=("CO",),
+    )
+
+    pd.testing.assert_frame_equal(
+        replayed, candidates, check_dtype=False, rtol=0.0, atol=0.0
+    )
+
+    tampered = candidates.copy()
+    tampered.loc[0, "drain_area_va"] = np.nextafter(
+        float(tampered.loc[0, "drain_area_va"]), np.inf
+    )
+    tampered_path = tmp_path / "candidates-adjacent.csv"
+    tampered_path.write_text(
+        tampered.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ),
+        encoding="utf-8",
+    )
+    tampered_provenance = json.loads(
+        provenance_path.read_text(encoding="utf-8")
+    )
+    tampered_provenance["candidate_table_sha256"] = sha256_file(tampered_path)
+    tampered_provenance_path = tmp_path / "candidates-adjacent.provenance.json"
+    tampered_provenance_path.write_bytes(
+        canonical_json_bytes(tampered_provenance)
+    )
+    with pytest.raises(EvidenceError, match="cannot be replayed"):
+        replay_candidate_evidence(
+            tampered_path,
+            tampered_provenance_path,
+            index_path,
+            protocol_sha256=protocol_sha,
+            state_universe=("CO",),
+        )
+
+    development_registry = tmp_path / "development.csv"
+    development = pd.DataFrame({
+        "site_no": [f"{70_000_000 + index:08d}" for index in range(120)],
+        "legacy_site_id": [f"n{index + 1:03d}" for index in range(120)],
+        "station_nm": [f"Development River {index + 1}" for index in range(120)],
+        "lat": [39.5 + index / 1000 for index in range(120)],
+        "lon": [-104.5 - index / 1000 for index in range(120)],
+        "state": ["CO"] * 120,
+        "huc_cd": ["10190005"] * 120,
+        "huc2": ["10"] * 120,
+        "huc_metadata_status": ["USGS_SNAPSHOT_SITE_NO_MATCH"] * 120,
+    })
+    development_registry.write_text(
+        development.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ),
+        encoding="utf-8",
+    )
+    source_metadata = tmp_path / "development_source.csv"
+    source_metadata.write_text("fixture\n", encoding="utf-8")
+    development_spec = tmp_path / "frozen_panel_v1.json"
+    development_spec.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "station_registry": {
+            "path": development_registry.name,
+            "sha256": sha256_file(development_registry),
+            "source_metadata_path": source_metadata.name,
+            "source_metadata_sha256": sha256_file(source_metadata),
+            "station_count": 120,
+        },
+    }))
+    out_registry = tmp_path / "external_registry.csv"
+    out_lock = tmp_path / "external_lock.json"
+    holdout = _load_script(
+        "confirmatory_holdout_freeze_roundtrip_test",
+        "scripts/data_usgs/confirmatory_holdout.py",
+    )
+    holdout.ROOT = tmp_path
+    rejected_registry = tmp_path / "rejected_external_registry.csv"
+    rejected_lock = tmp_path / "rejected_external_lock.json"
+    with pytest.raises(RuntimeError, match="cannot be rebuilt"):
+        holdout.freeze(SimpleNamespace(
+            protocol=protocol_path,
+            development_spec=development_spec,
+            candidates=tampered_path,
+            candidate_snapshot_index=index_path,
+            candidate_provenance=tampered_provenance_path,
+            out_registry=rejected_registry,
+            out_lock=rejected_lock,
+            n_sites=1,
+            selection_seed=selection_seed,
+        ))
+    assert not rejected_registry.exists()
+    assert not rejected_lock.exists()
+
+    holdout.freeze(SimpleNamespace(
+        protocol=protocol_path,
+        development_spec=development_spec,
+        candidates=candidate_path,
+        candidate_snapshot_index=index_path,
+        candidate_provenance=provenance_path,
+        out_registry=out_registry,
+        out_lock=out_lock,
+        n_sites=1,
+        selection_seed=selection_seed,
+    ))
+    frozen = pd.read_csv(
+        out_registry,
+        dtype={"site_no": "string"},
+        float_precision="round_trip",
+    )
+    np.testing.assert_array_max_ulp(
+        frozen["drain_area_va"].to_numpy(float),
+        candidates["drain_area_va"].to_numpy(float),
+        maxulp=0,
+    )
+    assert frozen["site_no"].tolist() == ["01234567"]
+
+    frozen_spec = SimpleNamespace(
+        registry_path=development_registry.resolve(),
+        verify=lambda: {"registry_sha256": sha256_file(development_registry)},
+    )
+    monkeypatch.setattr(
+        opening_module.FrozenPanelSpec,
+        "load",
+        classmethod(lambda _cls, _path: frozen_spec),
+    )
+    protocol = json.loads(protocol_path.read_text(encoding="utf-8"))
+    lock = json.loads(out_lock.read_text(encoding="utf-8"))
+    protocol_info = {
+        "document": protocol,
+        "protocol_sha256": protocol_sha,
+        "authoritative_commit": protocol["authoritative_protocol_commit"],
+        "amendments_sha256": lock["pre_label_amendments_sha256"],
+    }
+    registries = opening_module.validate_registry_lock(
+        root=tmp_path,
+        protocol_info=protocol_info,
+        development_registry=development_registry,
+        external_registry=out_registry,
+        external_lock=out_lock,
+    )
+    np.testing.assert_array_max_ulp(
+        registries["external"]["drain_area_va"].to_numpy(float),
+        candidates["drain_area_va"].to_numpy(float),
+        maxulp=0,
+    )
+
+    adjacent = frozen.copy()
+    adjacent.loc[0, "drain_area_va"] = np.nextafter(
+        float(adjacent.loc[0, "drain_area_va"]), np.inf
+    )
+    out_registry.write_text(
+        adjacent.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ),
+        encoding="utf-8",
+    )
+    lock["confirmatory_registry_sha256"] = sha256_file(out_registry)
+    out_lock.write_bytes(canonical_json_bytes(lock))
+    with pytest.raises(
+        opening_module.OpeningContractError,
+        match="deterministic seeded candidate selection",
+    ):
+        opening_module.validate_registry_lock(
+            root=tmp_path,
+            protocol_info=protocol_info,
+            development_registry=development_registry,
+            external_registry=out_registry,
+            external_lock=out_lock,
+        )
 
 
 def test_previous_runs_url_freezes_model_variable_leads_and_timezone():

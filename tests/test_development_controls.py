@@ -677,8 +677,8 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
     combined_frame = pd.read_parquet(combined)
     assert len(combined_frame) == 31 * 9
     assert len(combined_frame[["model", "seed"]].drop_duplicates()) == 31
-    assert len(pd.read_csv(budget_path)) == 9
-    assert len(pd.read_csv(summary_path)) == 31 * 3 * 3
+    assert len(pd.read_csv(budget_path, float_precision="round_trip")) == 9
+    assert len(pd.read_csv(summary_path, float_precision="round_trip")) == 31 * 3 * 3
     report = report_path.read_text(encoding="utf-8")
     assert "not a blind or confirmatory test" in report
     assert "historical_tuning_budget_equalized" in report

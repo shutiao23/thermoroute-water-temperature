@@ -160,7 +160,11 @@ def validate_standard_registry(standards: pd.DataFrame) -> None:
 
 
 def load_standard_registry(path: str | Path) -> pd.DataFrame:
-    standards = pd.read_csv(path, dtype={"site_no": str})
+    standards = pd.read_csv(
+        path,
+        dtype={"site_no": str},
+        float_precision="round_trip",
+    )
     validate_standard_registry(standards)
     standards["site_no"] = _normalise_site_numbers(
         standards["site_no"], source="ecological standard registry"

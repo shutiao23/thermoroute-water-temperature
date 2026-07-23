@@ -26,8 +26,10 @@ def main() -> None:
         raise FileNotFoundError(
             "run scripts/19_probabilistic.py before the Route-A synthesis"
         )
-    probability = pd.read_csv(probabilistic_path)
-    point = pd.read_csv(point_path)
+    probability = pd.read_csv(
+        probabilistic_path, float_precision="round_trip"
+    )
+    point = pd.read_csv(point_path, float_precision="round_trip")
     lines = [
         "# Route-A USGS verification synthesis\n",
         "The 2019--2020 period is a previously inspected development evaluation. "
