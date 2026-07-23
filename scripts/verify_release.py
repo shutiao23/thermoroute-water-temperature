@@ -399,6 +399,20 @@ def _sha256_json(value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _lineage_canonical_json_bytes(value: object) -> bytes:
+    """Match ``thermoroute.repro.canonical_json`` plus its file newline."""
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def _development_replay_confirmation_read_policy() -> dict[str, Any]:
     return {
         "format": DEVELOPMENT_REPLAY_CONFIRMATION_READ_POLICY_FORMAT,
@@ -417,7 +431,9 @@ def _development_replay_confirmation_read_policy() -> dict[str, Any]:
 def _validate_development_replay_document(
     replay: object,
     *,
+    receipt_bytes: bytes,
     suite: Mapping[str, Any],
+    model_metadata: Mapping[tuple[str, str], Mapping[str, Any]],
     suite_binding: Mapping[str, Any],
     replay_path: str,
     source_sha256: object,
@@ -436,6 +452,12 @@ def _validate_development_replay_document(
     }
     if not isinstance(replay, Mapping) or set(replay) != top_keys:
         raise ValueError("development replay receipt schema changed")
+    try:
+        canonical_receipt = _lineage_canonical_json_bytes(dict(replay))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("development replay receipt is not canonical JSON") from exc
+    if receipt_bytes != canonical_receipt:
+        raise ValueError("development replay receipt bytes are not canonical producer JSON")
     stable = dict(replay)
     self_sha256 = stable.pop("receipt_self_sha256")
     if (
@@ -618,21 +640,105 @@ def _validate_development_replay_document(
     ):
         raise ValueError("development replay read-path evidence is malformed")
 
+    cohorts = suite.get("cohorts")
+    if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
+        raise ValueError("development replay suite lacks exact temporal/external cohorts")
+    expected_rows: list[dict[str, Any]] = []
+    expected_metadata_keys: set[tuple[str, str]] = set()
+    for cohort in ("temporal", "external"):
+        cohort_document = cohorts.get(cohort)
+        entries = cohort_document.get("models") if isinstance(
+            cohort_document, Mapping
+        ) else None
+        if not isinstance(entries, list) or any(
+            not isinstance(entry, Mapping) for entry in entries
+        ):
+            raise ValueError(f"development replay suite {cohort} registry is malformed")
+        by_id = {str(entry.get("model_id")): entry for entry in entries}
+        if len(by_id) != len(entries) or set(by_id) != _required_model_ids(cohort):
+            raise ValueError(f"development replay suite {cohort} registry changed")
+        for model in DEVELOPMENT_REPLAY_LEARNED_MODELS[cohort]:
+            entry = by_id[model]
+            executor = entry.get("executor")
+            member_count = entry.get("member_count")
+            metadata_key = (cohort, model)
+            metadata = model_metadata.get(metadata_key)
+            expected_metadata_keys.add(metadata_key)
+            if (
+                executor not in {
+                    "lightgbm_bundle", "lstm_bundle", "thermoroute_bundle"
+                }
+                or type(member_count) is not int
+                or member_count < 1
+                or not isinstance(entry.get("artifact"), Mapping)
+                or not isinstance(metadata, Mapping)
+            ):
+                raise ValueError(
+                    f"development replay suite model is malformed: {cohort}/{model}"
+                )
+            if executor == "lightgbm_bundle":
+                if metadata.get("format") != "thermoroute.lightgbm-bundle.v2":
+                    raise ValueError("development replay LightGBM metadata changed")
+            elif (
+                metadata.get("weights_sha256")
+                != entry["artifact"].get("weights_sha256")
+            ):
+                raise ValueError("development replay Torch metadata changed")
+            prediction = metadata.get("development_prediction")
+            selection = prediction.get("selection") if isinstance(
+                prediction, Mapping
+            ) else None
+            rows_value = prediction.get("rows") if isinstance(
+                prediction, Mapping
+            ) else None
+            atol = prediction.get("atol") if isinstance(
+                prediction, Mapping
+            ) else None
+            frozen_difference = prediction.get("max_abs_difference") if isinstance(
+                prediction, Mapping
+            ) else None
+            metadata_members = metadata.get("member_count")
+            if (
+                not isinstance(prediction, Mapping)
+                or not isinstance(selection, Mapping)
+                or selection.get("model") != model
+                or type(rows_value) is not int
+                or rows_value < 1
+                or type(metadata_members) is not int
+                or metadata_members != member_count
+                or isinstance(atol, bool)
+                or not isinstance(atol, (int, float))
+                or not math.isfinite(float(atol))
+                or float(atol) < 0.0
+                or isinstance(frozen_difference, bool)
+                or not isinstance(frozen_difference, (int, float))
+                or not math.isfinite(float(frozen_difference))
+                or float(frozen_difference) < 0.0
+                or float(frozen_difference) > float(atol)
+            ):
+                raise ValueError(
+                    f"development replay prediction binding changed: {cohort}/{model}"
+                )
+            expected_rows.append({
+                "cohort": cohort,
+                "model": model,
+                "executor": executor,
+                "members": member_count,
+                "rows": rows_value,
+                "atol": float(atol),
+            })
+    if set(model_metadata) != expected_metadata_keys:
+        raise ValueError("development replay model metadata registry changed")
+
     rows = replay.get("models")
     expected_registry = [
-        (cohort, model)
-        for cohort in ("temporal", "external")
-        for model in DEVELOPMENT_REPLAY_LEARNED_MODELS[cohort]
+        (str(row["cohort"]), str(row["model"])) for row in expected_rows
     ]
     if not isinstance(rows, list) or len(rows) != len(expected_registry):
         raise ValueError("development replay model registry changed")
-    for row, (cohort, model) in zip(rows, expected_registry, strict=True):
-        expected_executor = (
-            "lightgbm_bundle" if model == "LightGBM"
-            else "lstm_bundle" if model == "LSTM"
-            else "thermoroute_bundle"
-        )
-        expected_members = 5 if model in {"LightGBM", "LSTM", "ThermoRoute"} else 1
+    for row, expected in zip(rows, expected_rows, strict=True):
+        cohort = str(expected["cohort"])
+        model = str(expected["model"])
         if (
             not isinstance(row, Mapping)
             or set(row) != {
@@ -641,11 +747,12 @@ def _validate_development_replay_document(
             }
             or row.get("cohort") != cohort
             or row.get("model") != model
-            or row.get("executor") != expected_executor
+            or row.get("executor") != expected["executor"]
             or type(row.get("members")) is not int
-            or row.get("members") != expected_members
+            or row.get("members") != expected["members"]
             or type(row.get("rows")) is not int
-            or row["rows"] < 1
+            or row["rows"] != expected["rows"]
+            or row.get("atol") != expected["atol"]
             or row.get("status") != "PASS"
         ):
             raise ValueError("development replay model row schema/registry changed")
@@ -4599,10 +4706,8 @@ def _replay_normalized_nwis_outcomes(
             pd.testing.assert_frame_equal(
                 stored,
                 expected,
-                check_dtype=False,
-                check_exact=False,
-                rtol=0.0,
-                atol=1e-12,
+                check_dtype=True,
+                check_exact=True,
             )
         except AssertionError as exc:
             raise ValueError(
@@ -5489,6 +5594,7 @@ def _gather_postopen_categories(
     cohorts = suite.get("cohorts")
     if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
         raise ValueError("model suite lacks temporal/external cohorts")
+    replay_model_metadata: dict[tuple[str, str], Mapping[str, Any]] = {}
     for cohort in ("temporal", "external"):
         item = cohorts[cohort]
         entries = item.get("models") if isinstance(item, Mapping) else None
@@ -5502,15 +5608,36 @@ def _gather_postopen_categories(
                 if "artifact" in entry:
                     raise ValueError(f"builtin {cohort}/{entry.get('model_id')} has an artifact")
                 continue
+            model_id = str(entry.get("model_id"))
+            executor = entry.get("executor")
             artifact = _add_binding(
                 root, categories, "model_bundles", entry.get("artifact"),
                 label=f"model bundle {cohort}/{entry.get('model_id')}",
             )
-            if artifact.is_file() and artifact.suffix == ".json":
+            if (
+                executor == "lightgbm_bundle"
+                and artifact.is_file()
+                and artifact.suffix == ".json"
+            ):
+                replay_model_metadata[(cohort, model_id)] = _load_json(
+                    artifact, label=f"model bundle metadata {cohort}/{model_id}"
+                )
                 _walk_json_dependencies(root, categories, "model_bundles", artifact)
-            elif artifact.is_dir():
+            elif (
+                executor in {"thermoroute_bundle", "lstm_bundle"}
+                and artifact.is_dir()
+            ):
+                metadata_path = artifact / "metadata.json"
+                replay_model_metadata[(cohort, model_id)] = _load_json(
+                    metadata_path,
+                    label=f"model bundle metadata {cohort}/{model_id}",
+                )
                 for child in sorted(artifact.rglob("*.json")):
                     _walk_json_dependencies(root, categories, "model_bundles", child)
+            else:
+                raise ValueError(
+                    f"model suite executor/artifact changed: {cohort}/{model_id}"
+                )
     _walk_json_dependencies(root, categories, "model_suite", suite_path)
     replay_path = _add_binding(
         root,
@@ -5535,7 +5662,9 @@ def _gather_postopen_categories(
     ) else None
     _validate_development_replay_document(
         replay,
+        receipt_bytes=replay_path.read_bytes(),
         suite=suite,
+        model_metadata=replay_model_metadata,
         suite_binding={"path": suite_relative, "sha256": sha256_file(suite_path)},
         replay_path=replay_relative,
         source_sha256=authorization.get("source", {}).get("source_tree_sha256"),
@@ -7507,10 +7636,22 @@ def _reconstruct_model_dependency_paths(
     if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
         raise ValueError("Git model suite lacks exact temporal/external cohorts")
     learned = 0
+    replay_model_metadata: dict[tuple[str, str], Mapping[str, Any]] = {}
     for cohort_name, cohort in cohorts.items():
         entries = cohort.get("models") if isinstance(cohort, Mapping) else None
         if not isinstance(entries, list) or not entries:
             raise ValueError(f"Git {cohort_name} model registry is empty")
+        model_ids = [
+            str(entry.get("model_id"))
+            for entry in entries
+            if isinstance(entry, Mapping)
+        ]
+        if (
+            len(model_ids) != len(entries)
+            or len(model_ids) != len(set(model_ids))
+            or set(model_ids) != _required_model_ids(cohort_name)
+        ):
+            raise ValueError(f"Git {cohort_name} model registry is incomplete")
         for entry in entries:
             if not isinstance(entry, Mapping):
                 raise ValueError("Git model-suite entry is malformed")
@@ -7523,6 +7664,7 @@ def _reconstruct_model_dependency_paths(
             if not isinstance(artifact, Mapping):
                 raise ValueError("Git learned model lacks an artifact binding")
             learned += 1
+            model_id = str(entry.get("model_id"))
             if executor == "lightgbm_bundle":
                 manifest_path = _git_declared_binding_path(
                     bare, commit, artifact, label="LightGBM manifest"
@@ -7531,6 +7673,7 @@ def _reconstruct_model_dependency_paths(
                 manifest = _git_json_document(
                     bare, commit, manifest_path, label="LightGBM manifest"
                 )
+                replay_model_metadata[(cohort_name, model_id)] = manifest
                 if manifest.get("format") != "thermoroute.lightgbm-bundle.v2":
                     raise ValueError("Git LightGBM manifest format changed")
                 if (
@@ -7593,6 +7736,7 @@ def _reconstruct_model_dependency_paths(
                 metadata = _git_json_document(
                     bare, commit, metadata_path, label="Torch metadata"
                 )
+                replay_model_metadata[(cohort_name, model_id)] = metadata
                 if metadata.get("weights_sha256") != artifact.get("weights_sha256"):
                     raise ValueError("Git Torch metadata binds another weights file")
                 if (
@@ -7613,6 +7757,9 @@ def _reconstruct_model_dependency_paths(
     if learned < 1:
         raise ValueError("Git model suite contains no learned artifact")
     replay = _git_json_document(bare, commit, replay_path, label="development replay")
+    replay_blob = _run_git(bare, "show", f"{commit}:{replay_path}")
+    if replay_blob.returncode:
+        raise ValueError("cannot replay development replay from Git")
     replay_suite = replay.get("suite")
     if (
         not isinstance(replay_suite, Mapping)
@@ -7639,7 +7786,9 @@ def _reconstruct_model_dependency_paths(
     assert isinstance(replay_entrypoint, Mapping)
     _validate_development_replay_document(
         replay,
+        receipt_bytes=replay_blob.stdout,
         suite=suite,
+        model_metadata=replay_model_metadata,
         suite_binding=replay_suite,
         replay_path=replay_path,
         source_sha256=suite_source_sha,

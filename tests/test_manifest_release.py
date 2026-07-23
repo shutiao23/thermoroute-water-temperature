@@ -187,6 +187,161 @@ def _binding(verifier, root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "sha256": verifier.sha256_file(path)}
 
 
+def _write_development_model_fixtures(
+    verifier, root: Path, *, runtime_sha256: str
+) -> tuple[dict[str, list[dict[str, object]]], set[str]]:
+    """Create a complete suite registry backed by producer-shaped metadata."""
+    model_entries: dict[str, list[dict[str, object]]] = {}
+    artifact_paths: set[str] = set()
+    builtins = {"Persistence", "DampedPersistence", "Climatology"}
+    for cohort in ("temporal", "external"):
+        entries: list[dict[str, object]] = []
+        for model in sorted(verifier._required_model_ids(cohort)):
+            if model in builtins:
+                entries.append({"model_id": model, "executor": "builtin"})
+                continue
+            members = 5 if model in {"LightGBM", "LSTM", "ThermoRoute"} else 1
+            executor = (
+                "lightgbm_bundle" if model == "LightGBM"
+                else "lstm_bundle" if model == "LSTM"
+                else "thermoroute_bundle"
+            )
+            slug = model.replace("-", "_").lower()
+            prediction = f"outputs/development/{cohort}_{slug}.parquet"
+            prediction_sidecar = prediction + ".meta.json"
+            _write_bytes(root, prediction, f"{cohort}/{model} predictions\n".encode())
+            _write_canonical_json(verifier, root, prediction_sidecar, {})
+            artifact_paths.update({prediction, prediction_sidecar})
+            development_prediction = {
+                "artifact": {
+                    **_binding(verifier, root, prediction),
+                    "sidecar": _binding(verifier, root, prediction_sidecar),
+                },
+                "rows": 12,
+                "selection": {"model": model, "seeds": list(range(members))},
+                "forecast_key_columns": [
+                    "site_id", "horizon", "issue_date", "target_date"
+                ],
+                "prediction_columns": ["y_pred"],
+                "forecast_key_registry_sha256": "a" * 64,
+                "prediction_sha256": "b" * 64,
+                "max_abs_difference": 0.0,
+                "atol": 1e-12,
+            }
+            if executor == "lightgbm_bundle":
+                bundle = f"outputs/models/{cohort}/{slug}/manifest.json"
+                member_names = [f"seed{seed}" for seed in range(members)]
+                model_bindings: dict[str, object] = {}
+                audit_members: dict[str, object] = {}
+                for member in member_names:
+                    heads: dict[str, object] = {}
+                    for head in ("point", "q05", "q50", "q95", "event"):
+                        relative = (
+                            f"outputs/models/{cohort}/{slug}/{member}_h1_{head}.txt"
+                        )
+                        _write_bytes(root, relative, f"{member}/{head}\n".encode())
+                        heads[head] = {
+                            "path": PurePosixPath(relative).name,
+                            "sha256": verifier.sha256_file(root / relative),
+                        }
+                        artifact_paths.add(relative)
+                    model_bindings[member] = {"1": heads}
+                    audit_members[member] = {
+                        "1": {
+                            "rows": 12,
+                            "forecast_key_sha256": "c" * 64,
+                            "raw_prediction_sha256": "d" * 64,
+                            "q05_above_q50_count": 0,
+                            "q50_above_q95_count": 0,
+                            "any_crossing_count": 0,
+                            "any_crossing_rate": 0.0,
+                            "maximum_crossing_gap_c": 0.0,
+                        }
+                    }
+                crossing = {
+                    "format": "thermoroute.raw-quantile-crossing-audit.v1",
+                    "scope": "development_export_rows_before_repair",
+                    "key_columns": [
+                        "site_id", "horizon", "split", "issue_date", "target_date"
+                    ],
+                    "repair_method": "median_preserving_endpoint_clip_v1",
+                    "members": audit_members,
+                }
+                crossing["audit_sha256"] = verifier._sha256_json(crossing)
+                manifest = {
+                    "format": "thermoroute.lightgbm-bundle.v2",
+                    "training_device": "cpu",
+                    "runtime_sha256": runtime_sha256,
+                    "heads": ["point", "q05", "q50", "q95", "event"],
+                    "members": member_names,
+                    "member_count": members,
+                    "horizons": [1],
+                    "quantile_repair": {
+                        "method": "median_preserving_endpoint_clip_v1",
+                        "version": 1,
+                        "nominal_head_levels": {
+                            "q05": 0.05, "q50": 0.50, "q95": 0.95,
+                        },
+                        "q05_operation": "minimum(raw_q05,raw_q50)",
+                        "q50_operation": "raw_q50_unchanged",
+                        "q95_operation": "maximum(raw_q95,raw_q50)",
+                        "nominal_median_preserved_exactly": True,
+                    },
+                    "raw_quantile_crossing_audit": crossing,
+                    "models": model_bindings,
+                    "development_prediction": development_prediction,
+                }
+                _write_canonical_json(verifier, root, bundle, manifest)
+                artifact_paths.add(bundle)
+                artifact = _binding(verifier, root, bundle)
+            else:
+                directory = f"outputs/models/{cohort}/{slug}"
+                weights = f"{directory}/weights.pt"
+                metadata_path = f"{directory}/metadata.json"
+                _write_bytes(root, weights, f"{cohort}/{model} weights\n".encode())
+                metadata = {
+                    "training_device": "cpu",
+                    "runtime_sha256": runtime_sha256,
+                    "member_count": members,
+                    "weights_sha256": verifier.sha256_file(root / weights),
+                    "development_prediction": development_prediction,
+                }
+                _write_canonical_json(verifier, root, metadata_path, metadata)
+                artifact_paths.update({weights, metadata_path})
+                artifact = {
+                    "path": directory,
+                    "metadata_sha256": verifier.sha256_file(root / metadata_path),
+                    "weights_sha256": verifier.sha256_file(root / weights),
+                }
+            entries.append({
+                "model_id": model,
+                "executor": executor,
+                "member_count": members,
+                "artifact": artifact,
+            })
+        model_entries[cohort] = entries
+    return model_entries, artifact_paths
+
+
+def _development_model_metadata(
+    root: Path, suite: dict[str, object]
+) -> dict[tuple[str, str], dict[str, object]]:
+    metadata: dict[tuple[str, str], dict[str, object]] = {}
+    for cohort in ("temporal", "external"):
+        for entry in suite["cohorts"][cohort]["models"]:
+            if entry["executor"] == "builtin":
+                continue
+            artifact = entry["artifact"]
+            relative = str(artifact["path"])
+            path = root / relative
+            if entry["executor"] != "lightgbm_bundle":
+                path = path / "metadata.json"
+            metadata[(cohort, str(entry["model_id"]))] = json.loads(
+                path.read_text(encoding="utf-8")
+            )
+    return metadata
+
+
 def _development_replay_fixture(
     verifier,
     root: Path,
@@ -199,22 +354,23 @@ def _development_replay_fixture(
     suite_path = "data_usgs/confirmatory_model_suite_v1.json"
     receipt_path = verifier.DEVELOPMENT_REPLAY_RECEIPT
     entrypoint = verifier.DEVELOPMENT_REPLAY_ENTRYPOINT
+    metadata = _development_model_metadata(root, suite)
     rows = []
     for cohort in ("temporal", "external"):
+        entries = {
+            str(entry["model_id"]): entry
+            for entry in suite["cohorts"][cohort]["models"]
+        }
         for model in verifier.DEVELOPMENT_REPLAY_LEARNED_MODELS[cohort]:
+            entry = entries[model]
+            prediction = metadata[(cohort, model)]["development_prediction"]
             rows.append({
                 "cohort": cohort,
                 "model": model,
-                "executor": (
-                    "lightgbm_bundle" if model == "LightGBM"
-                    else "lstm_bundle" if model == "LSTM"
-                    else "thermoroute_bundle"
-                ),
-                "members": (
-                    5 if model in {"LightGBM", "LSTM", "ThermoRoute"} else 1
-                ),
-                "rows": 12,
-                "atol": 1e-12,
+                "executor": entry["executor"],
+                "members": entry["member_count"],
+                "rows": prediction["rows"],
+                "atol": prediction["atol"],
                 "max_abs_difference": 0.0,
                 "status": "PASS",
             })
@@ -370,6 +526,8 @@ def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
         "execution_command", "interpreter", "model_missing", "model_duplicate",
         "model_reordered", "wrong_executor", "wrong_members", "failed_status",
         "difference_over_tolerance", "entrypoint_binding", "suite_binding",
+        "suite_missing_cohorts", "inflated_atol", "reduced_rows",
+        "nested_receipt",
     ),
 )
 def test_release_verifier_rejects_forged_development_replay_receipt(
@@ -385,15 +543,22 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
     )
     source_sha256 = "a" * 64
     runtime_sha256 = "c" * 64
+    model_entries, _ = _write_development_model_fixtures(
+        verifier, tmp_path, runtime_sha256=runtime_sha256
+    )
     suite = {
         "numerical_runtime_sha256": runtime_sha256,
         "development_contract": {"source_sha256": source_sha256},
+        "cohorts": {
+            cohort: {"models": entries}
+            for cohort, entries in model_entries.items()
+        },
     }
     suite_path = "data_usgs/confirmatory_model_suite_v1.json"
     _write_bytes(
         tmp_path,
         suite_path,
-        json.dumps(suite, sort_keys=True).encode() + b"\n",
+        verifier._lineage_canonical_json_bytes(suite),
     )
     replay = _development_replay_fixture(
         verifier,
@@ -402,6 +567,7 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
         source_sha256=source_sha256,
         runtime_sha256=runtime_sha256,
     )
+    model_metadata = _development_model_metadata(tmp_path, suite)
     execution = replay["execution_attestation"]
     io_guard = execution["io_guard"]
     models = replay["models"]
@@ -459,13 +625,83 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
         execution["entrypoint"]["sha256"] = "0" * 64
     elif attack == "suite_binding":
         replay["suite"]["sha256"] = "0" * 64
+    elif attack == "suite_missing_cohorts":
+        suite.pop("cohorts")
+    elif attack == "inflated_atol":
+        models[0]["atol"] = 1.0
+        models[0]["max_abs_difference"] = 0.5
+    elif attack == "reduced_rows":
+        models[0]["rows"] -= 1
+    elif attack == "nested_receipt":
+        execution["security_boundary"] = "forged but self-consistent"
     replay.pop("receipt_self_sha256", None)
     replay["receipt_self_sha256"] = verifier._sha256_json(replay)
 
     with pytest.raises(ValueError, match="development replay"):
         verifier._validate_development_replay_document(
             replay,
+            receipt_bytes=verifier._lineage_canonical_json_bytes(replay),
             suite=suite,
+            model_metadata=model_metadata,
+            suite_binding=_binding(verifier, tmp_path, suite_path),
+            replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
+            source_sha256=source_sha256,
+            runtime_sha256=runtime_sha256,
+            entrypoint_binding=_binding(
+                verifier, tmp_path, verifier.DEVELOPMENT_REPLAY_ENTRYPOINT
+            ),
+            expected_python_identity={
+                "invoked_path": "/fixture/python",
+                "realpath": "/fixture/python-real",
+                "sha256": "d" * 64,
+            },
+        )
+
+
+def test_development_replay_filesystem_requires_canonical_producer_json(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_replay_filesystem_canonical_test"
+    )
+    _write_bytes(
+        tmp_path,
+        verifier.DEVELOPMENT_REPLAY_ENTRYPOINT,
+        b"#!/usr/bin/env python3\n",
+    )
+    source_sha256 = "a" * 64
+    runtime_sha256 = "c" * 64
+    model_entries, _ = _write_development_model_fixtures(
+        verifier, tmp_path, runtime_sha256=runtime_sha256
+    )
+    suite = {
+        "numerical_runtime_sha256": runtime_sha256,
+        "development_contract": {"source_sha256": source_sha256},
+        "cohorts": {
+            cohort: {"models": entries}
+            for cohort, entries in model_entries.items()
+        },
+    }
+    suite_path = "data_usgs/confirmatory_model_suite_v1.json"
+    _write_bytes(
+        tmp_path, suite_path, verifier._lineage_canonical_json_bytes(suite)
+    )
+    replay = _development_replay_fixture(
+        verifier,
+        tmp_path,
+        suite=suite,
+        source_sha256=source_sha256,
+        runtime_sha256=runtime_sha256,
+    )
+    receipt_path = _write_bytes(
+        tmp_path,
+        verifier.DEVELOPMENT_REPLAY_RECEIPT,
+        json.dumps(replay, indent=2).encode("utf-8") + b"\n",
+    )
+    with pytest.raises(ValueError, match="canonical producer JSON"):
+        verifier._validate_development_replay_document(
+            replay,
+            receipt_bytes=receipt_path.read_bytes(),
+            suite=suite,
+            model_metadata=_development_model_metadata(tmp_path, suite),
             suite_binding=_binding(verifier, tmp_path, suite_path),
             replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
             source_sha256=source_sha256,
@@ -775,28 +1011,15 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     }
     _write_bytes(root, amendment_seal_path, json.dumps(amendment_seal).encode())
 
-    model_entries: dict[str, list[dict[str, object]]] = {}
-    builtins = {"Persistence", "DampedPersistence", "Climatology"}
-    for cohort in ("temporal", "external"):
-        entries = []
-        for model in sorted(verifier._required_model_ids(cohort)):
-            if model in builtins:
-                entries.append({"model_id": model, "executor": "builtin"})
-                continue
-            relative = f"outputs/models/{cohort}/{model}.bundle"
-            _write_bytes(root, relative, f"{cohort}/{model}\n".encode())
-            entries.append({
-                "model_id": model,
-                "executor": "frozen_fixture_bundle",
-                "artifact": _binding(verifier, root, relative),
-            })
-        model_entries[cohort] = entries
+    runtime_sha256 = "c" * 64
+    model_entries, _model_artifact_paths = _write_development_model_fixtures(
+        verifier, root, runtime_sha256=runtime_sha256
+    )
     _write_bytes(
         root,
         verifier.DEVELOPMENT_REPLAY_ENTRYPOINT,
         b"#!/usr/bin/env python3\n# frozen replay fixture\n",
     )
-    runtime_sha256 = "c" * 64
     model_control_paths = sorted(verifier._working_model_control_paths(root))
     source_inventory = {
         relative: verifier.sha256_file(root / relative)
@@ -1451,7 +1674,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     )
     development_replay_path = root / verifier.DEVELOPMENT_REPLAY_RECEIPT
     development_replay_path.parent.mkdir(parents=True, exist_ok=True)
-    development_replay_path.write_text(json.dumps(development_replay), encoding="utf-8")
+    development_replay_path.write_bytes(
+        verifier._lineage_canonical_json_bytes(development_replay)
+    )
 
     cohort_tables = {}
     for cohort in ("temporal", "external"):
@@ -2469,7 +2694,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "registries": "data_usgs/external.csv",
         "candidate_evidence": "data_usgs/candidates.csv",
         "model_suite": "data_usgs/confirmatory_model_suite_v1.json",
-        "model_bundles": "outputs/models/temporal/LSTM.bundle",
+        "model_bundles": "outputs/models/temporal/lstm/weights.pt",
         "prelabel_chronology": verifier.CHRONOLOGY_PATH,
         "prelabel_inputs": "data_usgs/prelabel/temporal.parquet",
         "raw_meteorology": "data_usgs/raw_snapshots/met-0/response.bin",
@@ -3137,7 +3362,10 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
         artifact.unlink()
         with pytest.raises(
             ValueError,
-            match="absent|closure|missing|lacks|cannot read|identity|transport",
+            match=(
+                "absent|closure|missing|lacks|cannot read|identity|transport|"
+                "checksum mismatch"
+            ),
         ):
             verifier.verify_release_profile(stage, run_trusted_replay=False)
         artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -3465,6 +3693,7 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
         "rdb-duplicate",
         "raw-normalized",
         "normalized",
+        "normalized-tiny",
     ):
         attacked = tmp_path / f"transport-{attack}"
         shutil.copytree(source, attacked)
@@ -3612,10 +3841,13 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
             request_map_path.write_bytes(
                 verifier._canonical_json_bytes(request_map)
             )
-        elif attack == "normalized":
+        elif attack in {"normalized", "normalized-tiny"}:
             normalized_path = attacked / state["temporal_outcomes"]
             normalized = pd.read_parquet(normalized_path)
-            normalized.loc[0, "WTEMP"] = float(normalized.loc[0, "WTEMP"]) + 1.0
+            increment = 1.0 if attack == "normalized" else 5e-13
+            normalized.loc[0, "WTEMP"] = (
+                float(normalized.loc[0, "WTEMP"]) + increment
+            )
             normalized.to_parquet(normalized_path, index=False)
         elif attack == "json-whitespace":
             ledger_path.write_text(
@@ -3638,7 +3870,7 @@ def test_fast_release_rejects_forged_transport_chain_attacks(tmp_path):
             "retrieval-time-format", "series", "oversize", "hash",
             "json-whitespace", "json-duplicate-key", "rdb-agency",
             "rdb-site", "rdb-date", "rdb-duplicate", "raw-normalized",
-            "normalized",
+            "normalized", "normalized-tiny",
         }:
             ledger.pop("request_ledger_self_sha256", None)
             ledger["request_ledger_self_sha256"] = hashlib.sha256(
@@ -4703,84 +4935,11 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     }
     for relative in development_paths.values():
         _write_bytes(source, relative, b"{}\n" if relative.endswith(".json") else b"dev\n")
-    prediction_path = "outputs/development/predictions.parquet"
-    prediction_sidecar = prediction_path + ".meta.json"
-    _write_bytes(source, prediction_path, b"predictions\n")
-    _write_bytes(source, prediction_sidecar, b"{}\n")
-    lgb_model_paths = {
-        head: f"outputs/models/lgb/member_h1_{head}.txt"
-        for head in ("point", "q05", "q50", "q95", "event")
-    }
-    for head, relative in lgb_model_paths.items():
-        _write_bytes(source, relative, f"{head} tree\n".encode())
-    lgb_manifest_path = "outputs/models/lgb/manifest.json"
     runtime_sha256 = "e" * 64
-    raw_crossing_member = {
-        "1": {
-            "rows": 3,
-            "forecast_key_sha256": "a" * 64,
-            "raw_prediction_sha256": "b" * 64,
-            "q05_above_q50_count": 0,
-            "q50_above_q95_count": 0,
-            "any_crossing_count": 0,
-            "any_crossing_rate": 0.0,
-            "maximum_crossing_gap_c": 0.0,
-        }
-    }
-    raw_crossing_audit = {
-        "format": "thermoroute.raw-quantile-crossing-audit.v1",
-        "scope": "development_export_rows_before_repair",
-        "key_columns": [
-            "site_id", "horizon", "split", "issue_date", "target_date"
-        ],
-        "repair_method": "median_preserving_endpoint_clip_v1",
-        "members": {"seed0": raw_crossing_member},
-    }
-    raw_crossing_audit["audit_sha256"] = verifier._sha256_json(
-        raw_crossing_audit
-    )
-    write_json(
-        lgb_manifest_path,
-        {
-            "format": "thermoroute.lightgbm-bundle.v2",
-            "training_device": "cpu",
-            "runtime_sha256": runtime_sha256,
-            "heads": ["point", "q05", "q50", "q95", "event"],
-            "members": ["seed0"],
-            "member_count": 1,
-            "horizons": [1],
-            "quantile_repair": {
-                "method": "median_preserving_endpoint_clip_v1",
-                "version": 1,
-                "nominal_head_levels": {
-                    "q05": 0.05,
-                    "q50": 0.50,
-                    "q95": 0.95,
-                },
-                "q05_operation": "minimum(raw_q05,raw_q50)",
-                "q50_operation": "raw_q50_unchanged",
-                "q95_operation": "maximum(raw_q95,raw_q50)",
-                "nominal_median_preserved_exactly": True,
-            },
-            "raw_quantile_crossing_audit": raw_crossing_audit,
-            "models": {
-                "seed0": {
-                    "1": {
-                        head: {
-                            "path": PurePosixPath(relative).name,
-                            "sha256": verifier.sha256_file(source / relative),
-                        }
-                        for head, relative in lgb_model_paths.items()
-                    }
-                }
-            },
-            "development_prediction": {
-                "artifact": {
-                    **_binding(verifier, source, prediction_path),
-                    "sidecar": _binding(verifier, source, prediction_sidecar),
-                }
-            },
-        },
+    model_entries, development_model_artifact_paths = (
+        _write_development_model_fixtures(
+            verifier, source, runtime_sha256=runtime_sha256
+        )
     )
     inference_amendment_path = "protocols/route_a_inference_amendment_v1.json"
     inference_amendment_seal_path = (
@@ -5141,37 +5300,29 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             ),
         },
         "cohorts": {
-            "temporal": {
-                "models": [{"model_id": "Persistence", "executor": "builtin"}]
-            },
-            "external": {
-                "models": [{
-                    "model_id": "LightGBM",
-                    "executor": "lightgbm_bundle",
-                    "artifact": _binding(verifier, source, lgb_manifest_path),
-                }]
-            },
+            cohort: {"models": entries}
+            for cohort, entries in model_entries.items()
         },
     }
     write_json(model_suite_path, suite)
-    write_json(
+    _write_bytes(
+        source,
         development_replay_path,
-        _development_replay_fixture(
-            verifier,
-            source,
-            suite=suite,
-            source_sha256=frozen_source_sha,
-            runtime_sha256=runtime_sha256,
+        verifier._lineage_canonical_json_bytes(
+            _development_replay_fixture(
+                verifier,
+                source,
+                suite=suite,
+                source_sha256=frozen_source_sha,
+                runtime_sha256=runtime_sha256,
+            )
         ),
     )
     model_artifact_paths = {
         model_suite_path,
         development_replay_path,
         *development_paths.values(),
-        prediction_path,
-        prediction_sidecar,
-        lgb_manifest_path,
-        *lgb_model_paths.values(),
+        *development_model_artifact_paths,
         bridge_path,
         *bridge_normalized.values(),
         bridge_report,
@@ -5583,6 +5734,21 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         relocated, marker, verifier.POSTOPEN_PROFILE
     )
 
+    # Exercise the other two mandatory checks in the same unpatched test:
+    # Stage 27 and exact raw-NWIS-to-Parquet reconstruction.
+    combined_source = tmp_path / "combined-postopen-source"
+    combined_source.mkdir()
+    combined_authorization_path, _ = _write_postopen_fixture(
+        verifier, combined_source
+    )
+    combined_categories, _, _ = verifier._gather_postopen_categories(
+        combined_source, combined_authorization_path
+    )
+    assert combined_categories["model_suite"]
+    assert combined_categories["model_bundles"]
+    assert combined_categories["raw_nwis"]
+    assert combined_categories["normalized_outcomes"]
+
     # Recomputing mutable archive JSON hashes after replacing executable code
     # must not defeat the immutable compute-commit blob comparison.
     attacked = tmp_path / "attacked-release"
@@ -5701,7 +5867,11 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     ] = False
     forged_replay.pop("receipt_self_sha256")
     forged_replay["receipt_self_sha256"] = verifier._sha256_json(forged_replay)
-    write_json(development_replay_path, forged_replay)
+    _write_bytes(
+        source,
+        development_replay_path,
+        verifier._lineage_canonical_json_bytes(forged_replay),
+    )
     subprocess.run(
         ["git", "add", development_replay_path], cwd=source, check=True
     )
@@ -5732,6 +5902,51 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         verifier._reconstruct_model_dependency_paths(
             forged_bare,
             forged_commit,
+            suite_path=model_suite_path,
+            replay_path=development_replay_path,
+            expected_python_identity=authorization["runtime"]["python_executable"],
+        )
+
+    # A semantically identical receipt blob must still use the producer's exact
+    # compact, sorted, newline-terminated JSON representation.
+    forged_replay["execution_attestation"]["fresh_pycache_policy"][
+        "required"
+    ] = True
+    forged_replay.pop("receipt_self_sha256")
+    forged_replay["receipt_self_sha256"] = verifier._sha256_json(forged_replay)
+    (source / development_replay_path).write_text(
+        json.dumps(forged_replay, indent=2) + "\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "add", development_replay_path], cwd=source, check=True
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "--amend", "--no-edit"],
+        cwd=source,
+        env=environment,
+        check=True,
+    )
+    noncanonical_commit = git_text("rev-parse", "HEAD")
+    noncanonical_bundle = tmp_path / "noncanonical-development-replay.bundle"
+    subprocess.run(
+        ["git", "bundle", "create", str(noncanonical_bundle), "HEAD"],
+        cwd=source,
+        check=True,
+    )
+    noncanonical_bare = tmp_path / "noncanonical-audit.git"
+    subprocess.run(["git", "init", "--bare", "-q", noncanonical_bare], check=True)
+    subprocess.run(
+        [
+            "git", "fetch", "-q", str(noncanonical_bundle),
+            "HEAD:refs/heads/noncanonical",
+        ],
+        cwd=noncanonical_bare,
+        check=True,
+    )
+    with pytest.raises(ValueError, match="canonical producer JSON"):
+        verifier._reconstruct_model_dependency_paths(
+            noncanonical_bare,
+            noncanonical_commit,
             suite_path=model_suite_path,
             replay_path=development_replay_path,
             expected_python_identity=authorization["runtime"]["python_executable"],
