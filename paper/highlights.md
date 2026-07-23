@@ -18,7 +18,7 @@
 - Audits observable-key temporal coverage with eight fixed descriptive sensitivities.
 - The opening design will archive raw target requests, identifiers, qualifiers, and conflicts.
 - Requires a model-freeze commit before candidate metadata and later covariates.
-- Generates formal statements only from a fully verified one-time receipt.
+- Generates the five comparison statements only from a fully verified one-time receipt.
 
 ## Current status
 
@@ -28,7 +28,7 @@ The 2018–2020 predictor-product bridge has passed. The outstanding work is to 
 the canonical development chain, freeze and replay all model bundles, acquire the
 remaining outcome-free metadata and historical covariates in the required order,
 pass authorization, execute the fixed opening, receipt-bind the coverage audit, and
-regenerate the manuscript and release evidence.
+generate the canonical Markdown result layer and release evidence.
 
 ## Scope
 

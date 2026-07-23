@@ -436,8 +436,8 @@ Required work still outstanding at this manuscript state is:
 5. run the full preflight suite, including the implemented same-opening transport
    continuation, before creating the unique authorization;
 6. execute the fixed opening, physically replay and receipt-bind the temporal-
-   coverage audit, render all five receipt-derived statements, regenerate artifacts,
-   and verify the clean-room release.
+   coverage audit, generate the five receipt-derived statements in the sole
+   canonical Markdown result layer, and verify the clean-room release.
 
 Until those steps finish, all legacy numeric outputs are considered stale and no
 current empirical performance conclusion is available.

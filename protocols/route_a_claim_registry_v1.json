@@ -22,10 +22,10 @@
   ],
   "preopen_document_sha256": {
     "README.md": "0ad32416d7917734d1307ba2ea0b46b0f822b8004440365746a6d0561ee9170d",
-    "paper/ThermoRoute_paper.md": "de964fd9f8f38a7e429a2f75339c1ce6bab0db470392fdbd53c254dd1922e710",
-    "paper/highlights.md": "d0311568c6ace38246da64e9e8982546a347376cca809c3e8452747ecd1880a1",
+    "paper/ThermoRoute_paper.md": "585474f1e00909029eec14e31d9f08198281a33e79e99804e8830043b53689b6",
+    "paper/highlights.md": "e2b6a7acf42bdd2a1db591661b744b4c1286d7f403e8a75cdfd5b0dafe0b4b62",
     "paper/cover_letter.md": "f02210a890850c8e62187bd03106cce7969ab2d30e72b207440048819d9714fa",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "dd3fab7feffcbf4fe9b0db0b7927244b8f7110df1237eb66028b7bb3228e110f"
+    "paper/agu_submission/ThermoRoute_WRR.tex": "2acc6c2cb44fb4379b47c5dfd13d6e0f40a3c5af2d841679de8a27db1f437511"
   },
   "postopen_document_transform": {
     "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
