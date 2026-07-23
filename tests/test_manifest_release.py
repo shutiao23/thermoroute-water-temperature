@@ -206,10 +206,18 @@ def _write_development_model_fixtures(
                 else "lstm_bundle" if model == "LSTM"
                 else "thermoroute_bundle"
             )
+            replay_atol = verifier.DEVELOPMENT_REPLAY_MODEL_CONTRACTS[cohort][
+                model
+            ][2]
             slug = model.replace("-", "_").lower()
             prediction = f"outputs/development/{cohort}_{slug}.parquet"
             prediction_sidecar = prediction + ".meta.json"
-            _write_bytes(root, prediction, f"{cohort}/{model} predictions\n".encode())
+            prediction_path = root / prediction
+            prediction_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame({
+                "model": [model] * 12,
+                "seed": [index % members for index in range(12)],
+            }).to_parquet(prediction_path, index=False)
             _write_canonical_json(verifier, root, prediction_sidecar, {})
             artifact_paths.update({prediction, prediction_sidecar})
             development_prediction = {
@@ -222,11 +230,13 @@ def _write_development_model_fixtures(
                 "forecast_key_columns": [
                     "site_id", "horizon", "issue_date", "target_date"
                 ],
-                "prediction_columns": ["y_pred"],
+                "prediction_columns": list(
+                    verifier.DEVELOPMENT_REPLAY_PREDICTION_COLUMNS
+                ),
                 "forecast_key_registry_sha256": "a" * 64,
                 "prediction_sha256": "b" * 64,
                 "max_abs_difference": 0.0,
-                "atol": 1e-12,
+                "atol": replay_atol,
             }
             if executor == "lightgbm_bundle":
                 bundle = f"outputs/models/{cohort}/{slug}/manifest.json"
@@ -527,6 +537,7 @@ def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
         "model_reordered", "wrong_executor", "wrong_members", "failed_status",
         "difference_over_tolerance", "entrypoint_binding", "suite_binding",
         "suite_missing_cohorts", "inflated_atol", "reduced_rows",
+        "coordinated_inflated_atol", "coordinated_reduced_rows",
         "nested_receipt",
     ),
 )
@@ -632,6 +643,20 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
         models[0]["max_abs_difference"] = 0.5
     elif attack == "reduced_rows":
         models[0]["rows"] -= 1
+    elif attack == "coordinated_inflated_atol":
+        prediction = model_metadata[("temporal", "LightGBM")][
+            "development_prediction"
+        ]
+        prediction["atol"] = 1_000_000.0
+        prediction["max_abs_difference"] = 999_999.0
+        models[0]["atol"] = 1_000_000.0
+        models[0]["max_abs_difference"] = 999_999.0
+    elif attack == "coordinated_reduced_rows":
+        prediction = model_metadata[("temporal", "LightGBM")][
+            "development_prediction"
+        ]
+        prediction["rows"] -= 1
+        models[0]["rows"] -= 1
     elif attack == "nested_receipt":
         execution["security_boundary"] = "forged but self-consistent"
     replay.pop("receipt_self_sha256", None)
@@ -643,6 +668,9 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
             receipt_bytes=verifier._lineage_canonical_json_bytes(replay),
             suite=suite,
             model_metadata=model_metadata,
+            prediction_payloads=verifier._filesystem_development_prediction_payloads(
+                tmp_path, model_metadata
+            ),
             suite_binding=_binding(verifier, tmp_path, suite_path),
             replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
             source_sha256=source_sha256,
@@ -656,6 +684,22 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
                 "sha256": "d" * 64,
             },
         )
+
+
+def test_release_verifier_replay_contract_matches_producer_constants():
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_replay_contract_mirror_test"
+    )
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from thermoroute.model_suite import DEVELOPMENT_REPLAY_MODEL_CONTRACTS
+    finally:
+        sys.path.pop(0)
+
+    assert (
+        verifier.DEVELOPMENT_REPLAY_MODEL_CONTRACTS
+        == DEVELOPMENT_REPLAY_MODEL_CONTRACTS
+    )
 
 
 def test_development_replay_filesystem_requires_canonical_producer_json(tmp_path):
@@ -701,7 +745,12 @@ def test_development_replay_filesystem_requires_canonical_producer_json(tmp_path
             replay,
             receipt_bytes=receipt_path.read_bytes(),
             suite=suite,
-            model_metadata=_development_model_metadata(tmp_path, suite),
+            model_metadata=(
+                model_metadata := _development_model_metadata(tmp_path, suite)
+            ),
+            prediction_payloads=verifier._filesystem_development_prediction_payloads(
+                tmp_path, model_metadata
+            ),
             suite_binding=_binding(verifier, tmp_path, suite_path),
             replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
             source_sha256=source_sha256,

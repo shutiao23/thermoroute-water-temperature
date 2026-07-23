@@ -161,6 +161,22 @@ STAGE9_PREDICTION_MODELS = (
 TEMPORAL_MODELS = PRIMARY_MODELS + MANDATORY_ABLATIONS
 EXTERNAL_MODELS = PRIMARY_MODELS
 BUILTIN_MODELS = frozenset({"Persistence", "DampedPersistence", "Climatology"})
+DEVELOPMENT_REPLAY_MODEL_CONTRACTS = {
+    "temporal": {
+        "LightGBM": ("lightgbm_bundle", 5, 1e-12),
+        "LSTM": ("lstm_bundle", 5, 1e-5),
+        "ThermoRoute": ("thermoroute_bundle", 5, 1e-5),
+        **{
+            model: ("thermoroute_bundle", 1, 1e-5)
+            for model in MANDATORY_ABLATIONS
+        },
+    },
+    "external": {
+        "LightGBM": ("lightgbm_bundle", 5, 1e-12),
+        "LSTM": ("lstm_bundle", 5, 1e-5),
+        "ThermoRoute": ("thermoroute_bundle", 5, 1e-5),
+    },
+}
 
 
 class ModelSuiteError(RuntimeError):

@@ -63,14 +63,40 @@ DEVELOPMENT_REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS = (
     "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1",
     "outputs/confirmatory",
 )
-DEVELOPMENT_REPLAY_LEARNED_MODELS = {
-    "temporal": (
-        "LightGBM", "LSTM", "ThermoRoute", "DampedPriorOnly",
-        "TR-noDynamicPrior", "TR-fixedKappa", "TR-noRouter", "TR-noMoE",
-        "TR-noTCN", "TR-unbounded",
-    ),
-    "external": ("LightGBM", "LSTM", "ThermoRoute"),
+DEVELOPMENT_REPLAY_MODEL_CONTRACTS = {
+    # Exact mirror of thermoroute.model_suite.DEVELOPMENT_REPLAY_MODEL_CONTRACTS.
+    # This standalone verifier must not import code from a hostile release
+    # before its Git identity has been established.
+    "temporal": {
+        "LightGBM": ("lightgbm_bundle", 5, 1e-12),
+        "LSTM": ("lstm_bundle", 5, 1e-5),
+        "ThermoRoute": ("thermoroute_bundle", 5, 1e-5),
+        "DampedPriorOnly": ("thermoroute_bundle", 1, 1e-5),
+        "TR-noDynamicPrior": ("thermoroute_bundle", 1, 1e-5),
+        "TR-fixedKappa": ("thermoroute_bundle", 1, 1e-5),
+        "TR-noRouter": ("thermoroute_bundle", 1, 1e-5),
+        "TR-noMoE": ("thermoroute_bundle", 1, 1e-5),
+        "TR-noTCN": ("thermoroute_bundle", 1, 1e-5),
+        "TR-unbounded": ("thermoroute_bundle", 1, 1e-5),
+    },
+    "external": {
+        "LightGBM": ("lightgbm_bundle", 5, 1e-12),
+        "LSTM": ("lstm_bundle", 5, 1e-5),
+        "ThermoRoute": ("thermoroute_bundle", 5, 1e-5),
+    },
 }
+DEVELOPMENT_REPLAY_LEARNED_MODELS = {
+    cohort: tuple(contracts)
+    for cohort, contracts in DEVELOPMENT_REPLAY_MODEL_CONTRACTS.items()
+}
+DEVELOPMENT_REPLAY_FORECAST_KEY_COLUMNS = (
+    "site_id", "horizon", "issue_date", "target_date",
+)
+DEVELOPMENT_REPLAY_PREDICTION_COLUMNS = (
+    "model", "scope", "feature_set", "seed", "site_id", "horizon", "split",
+    "issue_date", "target_date", "y_true", "y_pred", "q05", "q50", "q95",
+    "p_exceed",
+)
 POSTOPEN_CLAIM_DOCUMENT = "paper/ThermoRoute_paper.md"
 PREOPEN_PROFILE = "PREOPEN_NOT_COMPLETE"
 POSTOPEN_PROFILE = "ROUTE_A_OPENED_COMPLETE"
@@ -428,12 +454,88 @@ def _development_replay_confirmation_read_policy() -> dict[str, Any]:
     }
 
 
+def _selected_development_prediction_rows(
+    payload: bytes,
+    *,
+    model: str,
+    seeds: tuple[int, ...],
+    label: str,
+) -> int:
+    """Count the producer-selected rows directly from frozen Parquet bytes."""
+    try:
+        import pandas as pd
+
+        frame = pd.read_parquet(io.BytesIO(payload), columns=["model", "seed"])
+        selected = frame[
+            frame["model"].astype(str).eq(model)
+            & frame["seed"].astype(int).isin(seeds)
+        ]
+    except Exception as exc:
+        raise ValueError(
+            f"development replay prediction artifact cannot be read: {label}"
+        ) from exc
+    if selected.empty:
+        raise ValueError(
+            f"development replay prediction selection is empty: {label}"
+        )
+    return int(len(selected))
+
+
+def _filesystem_development_prediction_payloads(
+    root: Path,
+    model_metadata: Mapping[tuple[str, str], Mapping[str, Any]],
+) -> dict[tuple[str, str], bytes]:
+    payloads: dict[tuple[str, str], bytes] = {}
+    for key, metadata in model_metadata.items():
+        prediction = metadata.get("development_prediction")
+        artifact = prediction.get("artifact") if isinstance(
+            prediction, Mapping
+        ) else None
+        if not isinstance(artifact, Mapping):
+            raise ValueError("development replay prediction binding is malformed")
+        path = _resolve_release_path(
+            root,
+            artifact.get("path"),
+            label=f"development prediction {key[0]}/{key[1]}",
+        )
+        payload = path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != artifact.get("sha256"):
+            raise ValueError("development replay prediction checksum changed")
+        payloads[key] = payload
+    return payloads
+
+
+def _git_development_prediction_payloads(
+    bare: Path,
+    commit: str,
+    model_metadata: Mapping[tuple[str, str], Mapping[str, Any]],
+) -> dict[tuple[str, str], bytes]:
+    payloads: dict[tuple[str, str], bytes] = {}
+    for key, metadata in model_metadata.items():
+        prediction = metadata.get("development_prediction")
+        artifact = prediction.get("artifact") if isinstance(
+            prediction, Mapping
+        ) else None
+        relative = _git_declared_binding_path(
+            bare,
+            commit,
+            artifact,
+            label=f"development prediction {key[0]}/{key[1]}",
+        )
+        blob = _run_git(bare, "show", f"{commit}:{relative}")
+        if blob.returncode:
+            raise ValueError("cannot replay development prediction from Git")
+        payloads[key] = blob.stdout
+    return payloads
+
+
 def _validate_development_replay_document(
     replay: object,
     *,
     receipt_bytes: bytes,
     suite: Mapping[str, Any],
     model_metadata: Mapping[tuple[str, str], Mapping[str, Any]],
+    prediction_payloads: Mapping[tuple[str, str], bytes],
     suite_binding: Mapping[str, Any],
     replay_path: str,
     source_sha256: object,
@@ -661,15 +763,15 @@ def _validate_development_replay_document(
             entry = by_id[model]
             executor = entry.get("executor")
             member_count = entry.get("member_count")
+            expected_executor, expected_members, expected_atol = (
+                DEVELOPMENT_REPLAY_MODEL_CONTRACTS[cohort][model]
+            )
             metadata_key = (cohort, model)
             metadata = model_metadata.get(metadata_key)
             expected_metadata_keys.add(metadata_key)
             if (
-                executor not in {
-                    "lightgbm_bundle", "lstm_bundle", "thermoroute_bundle"
-                }
-                or type(member_count) is not int
-                or member_count < 1
+                executor != expected_executor
+                or member_count != expected_members
                 or not isinstance(entry.get("artifact"), Mapping)
                 or not isinstance(metadata, Mapping)
             ):
@@ -688,6 +790,9 @@ def _validate_development_replay_document(
             selection = prediction.get("selection") if isinstance(
                 prediction, Mapping
             ) else None
+            artifact = prediction.get("artifact") if isinstance(
+                prediction, Mapping
+            ) else None
             rows_value = prediction.get("rows") if isinstance(
                 prediction, Mapping
             ) else None
@@ -698,18 +803,53 @@ def _validate_development_replay_document(
                 prediction, Mapping
             ) else None
             metadata_members = metadata.get("member_count")
+            expected_selection = {
+                "model": model,
+                "seeds": list(range(expected_members)),
+            }
+            payload = prediction_payloads.get(metadata_key)
+            independently_counted_rows = (
+                _selected_development_prediction_rows(
+                    payload,
+                    model=model,
+                    seeds=tuple(expected_selection["seeds"]),
+                    label=f"{cohort}/{model}",
+                )
+                if isinstance(payload, bytes)
+                else None
+            )
             if (
                 not isinstance(prediction, Mapping)
+                or set(prediction) != {
+                    "artifact", "rows", "selection", "forecast_key_columns",
+                    "prediction_columns", "forecast_key_registry_sha256",
+                    "prediction_sha256", "max_abs_difference", "atol",
+                }
                 or not isinstance(selection, Mapping)
-                or selection.get("model") != model
+                or dict(selection) != expected_selection
+                or not isinstance(artifact, Mapping)
+                or set(artifact) != {"path", "sha256", "sidecar"}
+                or not isinstance(artifact.get("sidecar"), Mapping)
+                or set(artifact["sidecar"]) != {"path", "sha256"}
+                or prediction.get("forecast_key_columns")
+                != list(DEVELOPMENT_REPLAY_FORECAST_KEY_COLUMNS)
+                or prediction.get("prediction_columns")
+                != list(DEVELOPMENT_REPLAY_PREDICTION_COLUMNS)
+                or any(
+                    not re.fullmatch(r"[0-9a-f]{64}", str(prediction.get(key, "")))
+                    for key in (
+                        "forecast_key_registry_sha256", "prediction_sha256"
+                    )
+                )
                 or type(rows_value) is not int
                 or rows_value < 1
+                or rows_value != independently_counted_rows
                 or type(metadata_members) is not int
-                or metadata_members != member_count
+                or metadata_members != expected_members
                 or isinstance(atol, bool)
                 or not isinstance(atol, (int, float))
                 or not math.isfinite(float(atol))
-                or float(atol) < 0.0
+                or float(atol) != expected_atol
                 or isinstance(frozen_difference, bool)
                 or not isinstance(frozen_difference, (int, float))
                 or not math.isfinite(float(frozen_difference))
@@ -723,11 +863,14 @@ def _validate_development_replay_document(
                 "cohort": cohort,
                 "model": model,
                 "executor": executor,
-                "members": member_count,
+                "members": expected_members,
                 "rows": rows_value,
-                "atol": float(atol),
+                "atol": expected_atol,
             })
-    if set(model_metadata) != expected_metadata_keys:
+    if (
+        set(model_metadata) != expected_metadata_keys
+        or set(prediction_payloads) != expected_metadata_keys
+    ):
         raise ValueError("development replay model metadata registry changed")
 
     rows = replay.get("models")
@@ -5665,6 +5808,9 @@ def _gather_postopen_categories(
         receipt_bytes=replay_path.read_bytes(),
         suite=suite,
         model_metadata=replay_model_metadata,
+        prediction_payloads=_filesystem_development_prediction_payloads(
+            root, replay_model_metadata
+        ),
         suite_binding={"path": suite_relative, "sha256": sha256_file(suite_path)},
         replay_path=replay_relative,
         source_sha256=authorization.get("source", {}).get("source_tree_sha256"),
@@ -7789,6 +7935,9 @@ def _reconstruct_model_dependency_paths(
         receipt_bytes=replay_blob.stdout,
         suite=suite,
         model_metadata=replay_model_metadata,
+        prediction_payloads=_git_development_prediction_payloads(
+            bare, commit, replay_model_metadata
+        ),
         suite_binding=replay_suite,
         replay_path=replay_path,
         source_sha256=suite_source_sha,

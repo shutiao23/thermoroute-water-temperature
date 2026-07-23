@@ -28,6 +28,7 @@ from .checkpoint import load_inference_bundle
 from .frozen_inference import sequence_factory_from_metadata
 from .model_suite import (
     BUILTIN_MODELS,
+    DEVELOPMENT_REPLAY_MODEL_CONTRACTS,
     ModelSuiteError,
     fit_pooled_imputer,
     load_lightgbm_bundle,
@@ -67,12 +68,8 @@ REPLAY_FORBIDDEN_CONFIRMATION_NAMESPACE_STEMS = (
 REPLAY_ALLOWED_CONFIRMATION_READ_PATHS = (
     "data_usgs/confirmatory_model_suite_v1.json",
 )
-LEARNED_TEMPORAL = (
-    "LightGBM", "LSTM", "ThermoRoute", "DampedPriorOnly",
-    "TR-noDynamicPrior", "TR-fixedKappa", "TR-noRouter", "TR-noMoE",
-    "TR-noTCN", "TR-unbounded",
-)
-LEARNED_EXTERNAL = ("LightGBM", "LSTM", "ThermoRoute")
+LEARNED_TEMPORAL = tuple(DEVELOPMENT_REPLAY_MODEL_CONTRACTS["temporal"])
+LEARNED_EXTERNAL = tuple(DEVELOPMENT_REPLAY_MODEL_CONTRACTS["external"])
 
 
 def _confirmation_read_policy_attestation() -> dict[str, Any]:
@@ -577,6 +574,16 @@ def run_development_replay(
         for model_id in expected_models:
             entry = by_id[model_id]
             executor = str(entry["executor"])
+            expected_executor, expected_members, expected_atol = (
+                DEVELOPMENT_REPLAY_MODEL_CONTRACTS[cohort][model_id]
+            )
+            if (
+                executor != expected_executor
+                or entry.get("member_count") != expected_members
+            ):
+                raise ModelSuiteError(
+                    f"{cohort}/{model_id} replay execution contract changed"
+                )
             artifact = entry["artifact"]
             if executor == "lightgbm_bundle":
                 manifest_path = _inside(root, artifact["path"])
@@ -635,6 +642,14 @@ def run_development_replay(
                     member_seeds=member_seeds,
                     atol=float(binding["atol"]),
                     splits=split_order,
+                )
+            if (
+                binding.get("selection")
+                != {"model": model_id, "seeds": list(range(expected_members))}
+                or binding.get("atol") != expected_atol
+            ):
+                raise ModelSuiteError(
+                    f"{cohort}/{model_id} replay prediction contract changed"
                 )
             results.append({
                 "cohort": cohort,
