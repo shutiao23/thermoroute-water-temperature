@@ -289,8 +289,9 @@ def _write_report(summary: pd.DataFrame, path: Path, *, member_count: int,
         "frozen train-standardised space (after the declared log or signed-log transform); noisy issue "
         "WTEMP is propagated into the damped anchor rather than leaving inconsistent "
         "side inputs. TEMP shifts are additive train-SD offsets, while FLOW shifts "
-        "are multipliers in original signed physical flow units (legitimate "
-        "reverse-flow observations remain negative).",
+        "are multipliers in original signed physical flow units (observed negative "
+        "values remain negative, while their physical or measurement semantics "
+        "remain unresolved).",
         "",
         "Primary aggregation is the median paired station RMSE difference. Confidence "
         "intervals below resample complete HUC2 groups; the companion CSV also reports "

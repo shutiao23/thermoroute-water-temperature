@@ -25,6 +25,15 @@ procedure; historical tuning budgets were not equalized. The Stage 09 controls a
 single-seed functionality/intervention diagnostics rather than evidence of causal
 mechanisms, component necessity, or cross-seed stability.
 
+An outcome-free inference-scope amendment makes all directional wording conditional
+on a claim-blocking gate requiring at least 30 reportable clusters. The frozen
+cohort contains at most 15 HUC2 groups, so this requirement cannot pass regardless
+of the target-period outcomes. The five comparisons will still be reported, but
+only as fixed-cohort descriptive effects; their HUC2 bootstrap intervals, exact
+sign-flip p-values, and Holm values are assumption-conditional sensitivities and
+cannot support superiority, non-inferiority, equivalence, parity, or a U.S.-river
+superpopulation claim.
+
 The outcome-free 2018–2020 predictor-product bridge has passed. At present, the
 canonical development rerun, model-suite freeze, later covariate freeze, one-time
 authorization, and target-period scoring have not finished. We have therefore

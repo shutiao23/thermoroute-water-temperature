@@ -32,7 +32,11 @@ a later one-time retrospective interval, six primary model classes, five formal
 station-balanced comparisons, exact whole-HUC2 sign-flip p-values, whole-HUC2
 cluster-bootstrap intervals, and Holm multiplicity control. The protocol also
 freezes model/input chronology, raw outcome-quality evidence, and deterministic
-claim rendering. The current repository has not yet completed the canonical model
+claim rendering. A later outcome-free amendment makes inferential wording conditional
+on a gate requiring at least 30 reportable clusters. The frozen cohort has at most
+15 HUC2 groups, so that component cannot pass independent of the later outcomes;
+the five rows can support only fixed-cohort descriptive effects, with p-values and
+intervals retained as assumption-conditional sensitivities. The current repository has not yet completed the canonical model
 rerun, model-suite freeze, predictor-evidence freeze, authorization, or opening.
 Accordingly, no empirical performance conclusion is made here. The contribution at
 this stage is a testable architecture and a fail-closed evaluation system whose
@@ -289,7 +293,7 @@ targets are valid for both models. The primary effect is the unweighted median o
 station-level candidate-minus-reference RMSE. Daily rows therefore do not directly
 determine the between-station weight.
 
-### 4.2 Formal five-test family
+### 4.2 Frozen five-comparison family and inference overlay
 
 The frozen family contains:
 
@@ -303,11 +307,13 @@ Each raw one-sided p-value is obtained by enumerating every whole-HUC2 sign
 configuration for the frozen reportable cohort. A 10,000-draw whole-HUC2 cluster
 bootstrap provides the interval for the median station effect. Holm adjustment is
 applied to exactly these five p-values
-([Holm, 1979](https://www.jstor.org/stable/4615733)). A favorable formal statement is allowed
-only when the row is estimable, the Holm p-value is at most 0.05, and the interval
-upper bound is strictly below the frozen margin. Disagreement between the p-value
-and interval rules is reported conservatively. The 1-day LightGBM comparison is
-descriptive only.
+([Holm, 1979](https://www.jstor.org/stable/4615733)). The original family-level
+decision rule required an estimable row, a Holm p-value at most 0.05, and an
+interval upper bound strictly below the frozen margin. A later, outcome-free
+inference amendment overlays and supersedes claim eligibility under that rule.
+It requires at least 30 reportable clusters, an effective-cluster fraction of at
+least 0.75, a largest-cluster share below 0.25, and passing falsification evidence.
+Missing, unknown, or failed components fail closed.
 
 The H2 claim is scoped only to the frozen LightGBM procedure: four predeclared
 candidate settings are compared on 2016–2017 and the selected setting is then fit
@@ -321,9 +327,14 @@ Exact enumeration removes Monte Carlo error but does not make this assumption
 distribution-free. Before reportability attrition, the 15 HUC2 groups contain
 2–26 stations, the largest contains 21.7% of stations, and the inverse-Herfindahl
 effective cluster count is 9.54. The percentile cluster-bootstrap interval is
-therefore interpreted cautiously. Effective-cluster, largest-share, and
-leave-one-HUC diagnostics carry `NO_STRONG_INFERENCE` when their predeclared
-small/unequal-cluster warnings fire; they do not change the sealed five-test rule.
+therefore not treated as unconditional cohort uncertainty. Because the cohort has
+at most 15 HUC2 groups, it necessarily fails the amendment's minimum-30-cluster
+component before any target outcome is viewed. Every comparison must still be
+reported exactly once, but the only eligible verdict is
+`DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`: the fixed-cohort effect is descriptive,
+and the bootstrap interval, sign-flip p-value, and Holm value are
+assumption-conditional sensitivities only. No result can support superiority,
+non-inferiority, equivalence, parity, or a U.S.-river superpopulation claim.
 
 ### 4.3 Secondary analyses
 
@@ -405,7 +416,7 @@ owner or same-UID adversary.
 ## 6. Current progress
 
 Completed repository work includes the canonical panel/registry seal, the final
-pre-label protocol, deterministic model serialization contracts, development replay
+pre-label protocol and outcome-free inference-scope amendment, deterministic model serialization contracts, development replay
 code, exact clustered inference, probability/event contracts, outcome-quality
 provenance, the committed `PASS_EXACT_PRODUCT_BRIDGE` evidence, the predeclared
 temporal-coverage audit and its receipt-binding implementation, a dual-profile
@@ -420,7 +431,8 @@ Required work still outstanding at this manuscript state is:
    learned-model bundle;
 3. commit the model-suite registry before obtaining external metadata and target-period
    predictor artifacts;
-4. freeze those outcome-free inputs and validate the Git chronology receipt;
+4. freeze those outcome-free inputs, materialize the claim-blocking inference gate,
+   and validate the Git chronology receipt;
 5. run the full preflight suite, including the implemented same-opening transport
    continuation, before creating the unique authorization;
 6. execute the fixed opening, physically replay and receipt-bind the temporal-
@@ -520,10 +532,12 @@ assigned and must be completed before submission.
 At the time of this byte-frozen pre-opening snapshot, ThermoRoute is a specified
 research system rather than a completed empirical finding. The repository has
 fail-closed controls for leakage,
-cohort identity, model replay, clustered inference, raw provenance, statement
+cohort identity, model replay, assumption-conditional clustered sensitivity, raw provenance, statement
 generation, and release closure. Its scientific value will depend on a complete
 canonical rerun and the one-time evidence chain. The implementation must not enter
 confirmatory opening until every listed data, bridge, replay, chronology,
 authorization, and release gate passes. If a generated receipt-derived result
 layer appears below, it supersedes only this pre-opening readiness status; the old
-headline numbers still do not represent the current repository.
+headline numbers still do not represent the current repository. Irrespective of
+the numerical outcome, Route A remains a fixed availability-enriched cohort
+description because the frozen minimum-cluster inference gate cannot pass.

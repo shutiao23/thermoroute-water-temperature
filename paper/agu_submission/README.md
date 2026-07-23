@@ -29,6 +29,10 @@ and must be reconciled with in-text citations before submission.
    competing interests, repository URL, DOI, and redistribution/license language.
 2. Complete the frozen computation and one-time evidence chain; regenerate the
    canonical Markdown only through the verified receipt and claim renderer.
-3. Rebuild this TeX, run `--check`, compile it, and visually inspect every page.
+3. After the completed evidence release is frozen, derive any result-bearing TeX
+   and PDF in a separate publication branch or export. Do not rewrite the completed
+   evidence branch, whose only canonical post-opening prose change is the
+   receipt-generated Markdown result layer. Run `--check`, compile, and visually
+   inspect every derived submission page.
 4. Reconcile every in-text reference with the final bibliography and current AGU
    submission requirements.

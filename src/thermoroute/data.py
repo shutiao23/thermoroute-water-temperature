@@ -33,10 +33,11 @@ POOLED_STATION_BALANCED_IMPUTER_METHOD = (
 def stabilising_transform(variable: str, values: np.ndarray) -> np.ndarray:
     """Apply the declared heavy-tail transform without erasing reverse flow.
 
-    A small number of tidal/backwater gages report legitimate negative daily
-    discharge.  Plain ``log1p(max(x, 0))`` silently collapsed every such value to
-    zero.  FLOW therefore uses a signed log transform; non-negative PRCP keeps
-    the conventional log1p transform.
+    A small number of gages contain negative daily-discharge observations whose
+    tidal, backwater, or measurement semantics have not been resolved.  Plain
+    ``log1p(max(x, 0))`` silently collapsed every such value to zero.  FLOW
+    therefore preserves the signed observations with a signed log transform;
+    non-negative PRCP keeps the conventional log1p transform.
     """
     array = np.asarray(values, dtype=float)
     if variable == "FLOW":

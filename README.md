@@ -37,6 +37,13 @@ The repository is in a **pre-opening reconstruction state**.
   one-time opening and receipt binding.
 - No current Route-A model suite, opening authorization, completed receipt, or
   verified formal result exists yet.
+- The outcome-free inference-scope amendment makes inferential wording conditional
+  on a claim-blocking gate. That gate requires at least 30 reportable clusters;
+  the frozen cohort contains at most 15 HUC2 groups. Its cluster-count component
+  therefore cannot pass, independent of the target-period outcomes. Route A will
+  report fixed-cohort descriptive effects, while HUC2 p-values, intervals, and Holm
+  values remain assumption-conditional sensitivities rather than evidence of
+  superiority or non-inferiority.
 
 This status is deliberately fail-closed: `scripts/26_validate_claims.py` rejects
 prohibited or malformed claims in the registered manuscript documents, and the
@@ -82,17 +89,22 @@ water-temperature history through the issue date; it is permanently exploratory.
 The 2019–2020 period also informed station inclusion through minimum WTEMP/FLOW
 coverage thresholds and is not blind, untouched, or independently confirmatory.
 
-The formal family contains exactly five station-balanced comparisons. Every
+The frozen calculation family contains exactly five station-balanced comparisons. Every
 reportable station needs at least 100 common valid target keys for the relevant
 horizon and model pair. The effect is the median across station-level RMSE
 differences. Primary p-values use exact whole-HUC2 sign-flip enumeration, confidence
 intervals use a whole-HUC2 cluster bootstrap, and Holm adjustment covers exactly
-the five frozen tests. A favorable statement requires both the adjusted p-value
-and the predeclared confidence-bound rule; non-significance is never interpreted
-as equality. The 15 HUC2 groups are small and unequal (inverse-Herfindahl effective
-count 9.54 before attrition), so exact enumeration removes Monte Carlo error but
-does not remove the joint sign-symmetry assumption or make cluster-bootstrap
-coverage reliable in small samples.
+the five frozen tests. The original family-level rule required both an adjusted
+p-value and a confidence-bound condition. A later outcome-free amendment adds a
+claim-blocking inference gate that takes precedence over that rule. It requires at
+least 30 clusters, an effective-cluster fraction of at least 0.75, a largest-cluster
+share below 0.25, and passing falsification diagnostics. The frozen cohort has only
+15 HUC2 groups (inverse-Herfindahl effective count 9.54 before attrition), so the
+gate necessarily fails its cluster-count requirement. All five effects will still
+be rendered, but only as fixed-cohort descriptions; exact sign-flip p-values,
+cluster-bootstrap intervals, and Holm values are assumption-conditional
+sensitivities. Directional, equivalence, parity, and U.S.-river superpopulation
+interpretations are prohibited.
 
 The two H2 rows concern only the frozen LightGBM procedure: selection from four
 predeclared candidate settings on 2016–2017, followed by the frozen five-seed fit.
@@ -215,7 +227,8 @@ The intended order is strict:
    predictor artifacts are absent.
 5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET
    inputs without requesting outcome values; commit those exact bytes.
-6. Replay Git ancestry and blob hashes, then create one immutable authorization.
+6. Replay Git ancestry and blob hashes, freeze the outcome-free claim-blocking
+   inference gate, then create one immutable authorization.
 7. Execute the fixed raw-only acquisition child and trusted scorer. Before the
    acquisition manifest exists, network transport may resume only within the same
    opening ID and one exact frozen request ledger, only for requests without a

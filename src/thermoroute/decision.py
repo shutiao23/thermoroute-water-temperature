@@ -1,8 +1,8 @@
-"""Forecast value via the cost–loss decision model (Relative Economic Value).
+"""Hypothetical cost–loss sensitivity (Relative Economic Value).
 
 A decision-maker can take a protective action against a high-temperature
 exceedance event at cost C; an unprotected event costs L. With cost–loss ratio
-α = C/L, the optimal action given a *calibrated* probability p is to act iff
+α = C/L, the textbook action rule for a reliable probability p is to act iff
 p > α. Relative Economic Value (Richardson 2000; Wilks) measures the fraction of
 the perfect-forecast value a forecast captures, relative to a climatological
 default:
@@ -15,9 +15,11 @@ computed from an out-of-evaluation, seasonally varying probability supplied for
 every row.  It is therefore not the simpler constant-base-rate expression
 ``min(α, s)``.
 
-This turns the calibrated exceedance probabilities into a management-relevant
-metric and is exactly why calibration matters: the rule p>α is only optimal when
-p is reliable.
+In this repository the costs, losses, actions, and ecological consequences are
+not observed or stakeholder-elicited, and probability reliability is evaluated
+only descriptively.  The calculation is therefore a hypothetical sensitivity
+curve, not evidence of management value, operational benefit, or an optimal
+decision rule.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ def rev_curve(events: np.ndarray, score: np.ndarray, alphas: np.ndarray,
     """Relative Economic Value over a grid of cost–loss ratios.
 
     ``events``  binary outcome (1 = exceedance occurred).
-    ``score``   calibrated probability (probabilistic=True) or a fixed binary
+    ``score``   probability score (probabilistic=True) or a fixed binary
                 warning (probabilistic=False, e.g. persistence > threshold).
     """
     events = np.asarray(events, dtype=int)

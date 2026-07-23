@@ -46,7 +46,7 @@ REQUIRED_STATUS_TEXT = (
 
 KEYPOINTS = (
     "A frozen protocol separates development, model freeze, predictor evidence, and one-time outcome opening",
-    "Primary comparisons use identical station/date/horizon keys and whole-HUC2 clustered inference",
+    "Primary comparisons use identical keys; HUC2 statistics remain assumption-conditional sensitivities",
     "This pre-opening draft reports methods and limitations; current empirical results are intentionally absent",
 )
 

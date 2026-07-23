@@ -12,7 +12,8 @@
 - The frozen protocol specifies six primary model types and seven one-factor controls.
 - Stage 09 controls are single-seed functionality diagnostics, not causal ablations.
 - Uses station-balanced RMSE effects on identical model-pair target keys.
-- Enumerates whole-HUC2 signs and adjusts exactly five formal p-values with Holm.
+- Computes exact whole-HUC2 sign-flip and Holm sensitivities for five frozen comparisons.
+- A minimum-30-cluster gate cannot pass with 15 HUC2 groups, so Route A is descriptive only.
 - Restricts H2 to the frozen four-candidate, five-seed LightGBM procedure.
 - Audits observable-key temporal coverage with eight fixed descriptive sensitivities.
 - The opening design will archive raw target requests, identifiers, qualifiers, and conflicts.
@@ -37,3 +38,6 @@ The external-site analysis uses local observation history and remains explorator
 Coverage sensitivities condition on observed issue/target WTEMP and do not establish
 missing-at-random, all-calendar, year-stability, or season-stability claims. The
 current Git seal is repository-internal and has no independent timestamp or custodian.
+The five comparison rows describe the fixed availability-enriched cohort; clustered
+p-values and intervals are assumption-conditional sensitivities and cannot establish
+superiority, non-inferiority, equivalence, parity, or national generalization.
