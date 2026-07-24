@@ -66,6 +66,14 @@ def _v2_fixture(tmp_path: Path) -> tuple[object, Path, dict, dict]:
     protocol_path.write_bytes(PRODUCTION_PROTOCOL.read_bytes())
     protocol = json.loads(protocol_path.read_text(encoding="utf-8"))
     registry = json.loads(PRODUCTION_REGISTRY.read_text(encoding="utf-8"))
+    # This helper exercises both sides of the seal transition explicitly. Keep
+    # its initial state independent of whether the production ledger in the
+    # checked-out repository has already completed that one-way transition.
+    registry["inference_amendment_binding"]["seal"] = {
+        "path": "protocols/route_a_inference_amendment_seal_v2.json",
+        "sha256": None,
+        "status": "PENDING_SEPARATE_POST_AMENDMENT_COMMIT_SEAL",
+    }
     amendment_path = tmp_path / registry["inference_amendment_binding"]["path"]
     amendment_path.parent.mkdir(parents=True, exist_ok=True)
     amendment_path.write_bytes(PRODUCTION_INFERENCE_AMENDMENT.read_bytes())
