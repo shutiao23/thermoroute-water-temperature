@@ -41,7 +41,11 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from . import features as F
-from .checkpoint import instantiate_inference_ensemble, load_inference_bundle
+from .checkpoint import (
+    instantiate_inference_ensemble,
+    load_inference_bundle,
+    neural_output_head_schema,
+)
 from .chronology import (
     CHRONOLOGY_FORMAT,
     CHRONOLOGY_STATUS,
@@ -115,7 +119,20 @@ from .probability import (
     predict_frozen_seasonal_event_reference,
     validate_frozen_seasonal_event_reference,
 )
-from .quantiles import QuantileIdentityError, repair_lightgbm_quantiles
+from .probability_metric_erratum import (
+    ERRATUM_FORMAT as PROBABILITY_METRIC_ERRATUM_FORMAT,
+    ERRATUM_ID as PROBABILITY_METRIC_ERRATUM_ID,
+    ERRATUM_RELATIVE as PROBABILITY_METRIC_ERRATUM_RELATIVE,
+    ERRATUM_SEAL_RELATIVE as PROBABILITY_METRIC_ERRATUM_SEAL_RELATIVE,
+    ProbabilityMetricErratumError,
+    validate_probability_metric_erratum,
+    validate_probability_metric_erratum_seal,
+)
+from .quantiles import (
+    QuantileIdentityError,
+    lightgbm_quantile_repair_contract,
+    repair_lightgbm_quantiles,
+)
 from .provenance import canonical_json_bytes, sha256_file
 from .registry import targets_match_at_model_precision
 from .repro import (
@@ -164,8 +181,56 @@ APPROVED_TARGET_SENSITIVITY_FORMAT = (
 )
 SPATIAL_SENSITIVITY_FORMAT = "thermoroute.route-a-spatial-sensitivity.v1"
 PROBABILISTIC_EVALUATION_FORMAT = (
-    "thermoroute.route-a-probabilistic-evaluation.v1"
+    "thermoroute.route-a-probabilistic-evaluation.v2"
 )
+PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE = "bundle_frozen_2018_cqr_endpoints"
+PROBABILISTIC_PINBALL_QUANTILE_SOURCE = (
+    "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_before_cqr"
+)
+PROBABILISTIC_EVENT_PROBABILITY_SOURCE = (
+    "bundle_frozen_2018_platt_calibrated_p_exceed"
+)
+PROBABILISTIC_EVENT_OUTCOME_SOURCE = (
+    "confirmation_y_true_above_bundle_frozen_development_train_q90"
+)
+PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH = (
+    "trusted/probabilistic_evaluation_v2.json"
+)
+PROBABILISTIC_SOURCE_FIELDS = (
+    "interval_endpoint_source",
+    "pinball_quantile_source",
+    "event_probability_source",
+    "event_outcome_source",
+)
+_TRANSIENT_NOMINAL_QUANTILE_COLUMNS = (
+    "_nominal_q05",
+    "_nominal_q50",
+    "_nominal_q95",
+)
+_PROBABILISTIC_NOMINAL_QUANTILE_HANDLING = {
+    "source": PROBABILISTIC_PINBALL_QUANTILE_SOURCE,
+    "storage": (
+        "transient_in_memory_only_not_written_to_public_prediction_products"
+    ),
+    "member_aggregation": "equal_weight_member_mean_before_cqr",
+    "cqr_forward_parity": (
+        "bitwise_float64_nominal_q05_minus_offset_and_nominal_q95_plus_offset_"
+        "equal_stored_endpoints"
+    ),
+    "q50_forward_parity": "bitwise_nominal_q50_equal_stored_q50",
+    "endpoint_inversion_used": False,
+    "public_prediction_schema_changed": False,
+}
+_PROBABILISTIC_BUNDLE_SCORING_PIPELINES = {
+    "LightGBM": (
+        "bundle_declared_median_preserving_endpoint_clip_per_member_then_"
+        "equal_weight_member_mean_then_frozen_cqr"
+    ),
+    "deep_LSTM_and_deterministic_controls": (
+        "quantiles_ordered_by_construction_per_member_then_equal_weight_member_"
+        "mean_then_frozen_cqr"
+    ),
+}
 ACQUISITION_WORK_ORDER_FORMAT = "thermoroute.route-a-acquisition-work-order.v1"
 ACQUISITION_REQUEST_MAP_FORMAT = "thermoroute.route-a-opened-request-map.v1"
 ACQUISITION_REQUEST_LEDGER_FORMAT = (
@@ -181,6 +246,33 @@ ACQUISITION_ATTEMPT_INDEX_FORMAT = (
     "thermoroute.route-a-acquisition-attempt-index.v1"
 )
 POSTOPEN_CLAIM_DOCUMENT = "paper/ThermoRoute_paper.md"
+
+AUTHORIZATION_TOP_LEVEL_FIELDS = frozenset({
+    "format",
+    "status",
+    "protocol",
+    "registries",
+    "model_suite",
+    "development_replay",
+    "prelabel_chronology",
+    "inference_amendment",
+    "probability_metric_erratum",
+    "inference_gate",
+    "outcome_qc_policy",
+    "temporal_coverage_policy",
+    "actual_inputs",
+    "actual_feature_order",
+    "required_models",
+    "statistics_contract_sha256",
+    "runtime",
+    "fixed_code",
+    "source",
+    "acquisition_plan",
+    "state_paths",
+    "opening_id",
+    "created_at_utc",
+    "authorization_self_sha256",
+})
 
 _FIXED_ENTRYPOINTS = {
     "orchestrator": "scripts/route_a_opening_orchestrator.py",
@@ -230,6 +322,19 @@ class OpeningContractError(RuntimeError):
 
 class OpeningAlreadyStarted(OpeningContractError):
     """The one permitted opening has already begun, completed or crashed."""
+
+
+def _validate_authorization_top_level_schema(
+    authorization: Mapping[str, Any],
+) -> None:
+    actual = set(authorization)
+    if actual != set(AUTHORIZATION_TOP_LEVEL_FIELDS):
+        missing = sorted(AUTHORIZATION_TOP_LEVEL_FIELDS - actual)
+        extra = sorted(actual - AUTHORIZATION_TOP_LEVEL_FIELDS)
+        raise OpeningContractError(
+            "opening authorization top-level schema changed: "
+            f"missing={missing}, extra={extra}"
+        )
 
 
 @contextmanager
@@ -904,6 +1009,7 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         )
     module_names = {
         "thermoroute.opening": "src/thermoroute/opening.py",
+        "thermoroute.chronology": "src/thermoroute/chronology.py",
         "thermoroute.model_suite": "src/thermoroute/model_suite.py",
         "thermoroute.frozen_inference": "src/thermoroute/frozen_inference.py",
         "thermoroute.datasets": "src/thermoroute/datasets.py",
@@ -911,6 +1017,9 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         "thermoroute.usgs": "src/thermoroute/usgs.py",
         "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
         "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
+        "thermoroute.probability_metric_erratum": (
+            "src/thermoroute/probability_metric_erratum.py"
+        ),
         "thermoroute.quantiles": "src/thermoroute/quantiles.py",
         "thermoroute.coverage_audit": "src/thermoroute/coverage_audit.py",
         "thermoroute.coverage_bridge": "src/thermoroute/coverage_bridge.py",
@@ -1036,6 +1145,7 @@ def _canonical_state_paths(
     prelabel_chronology_sha256: str,
     inference_gate_sha256: str,
     inference_amendment_seal_sha256: str,
+    probability_metric_erratum_seal_sha256: str,
     outcome_qc_policy_sha256: str,
     temporal_coverage_policy_sha256: str,
 ) -> dict[str, str]:
@@ -1047,6 +1157,9 @@ def _canonical_state_paths(
         "prelabel_chronology_sha256": prelabel_chronology_sha256,
         "inference_gate_sha256": inference_gate_sha256,
         "inference_amendment_seal_sha256": inference_amendment_seal_sha256,
+        "probability_metric_erratum_seal_sha256": (
+            probability_metric_erratum_seal_sha256
+        ),
         "outcome_qc_policy_sha256": outcome_qc_policy_sha256,
         "temporal_coverage_policy_sha256": temporal_coverage_policy_sha256,
     })[:24]
@@ -1089,7 +1202,7 @@ def _canonical_state_paths(
             base / "trusted" / "spatial_sensitivity_v1.json"
         ).as_posix(),
         "probabilistic_evaluation": (
-            base / "trusted" / "probabilistic_evaluation_v1.json"
+            base / "trusted" / "probabilistic_evaluation_v2.json"
         ).as_posix(),
         "temporal_predictions": (
             base / "trusted" / "temporal_predictions_v1.parquet"
@@ -2640,6 +2753,119 @@ def _is_sha256(value: object) -> bool:
     return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
 
 
+def _normalized_probability_metric_erratum_binding(
+    binding: object,
+) -> dict[str, Any]:
+    """Return the exact authorization binding used by the v2 metric artifact."""
+    required = {
+        "path",
+        "sha256",
+        "format",
+        "erratum_id",
+        "seal",
+        "erratum_document_commit",
+    }
+    if not isinstance(binding, Mapping) or set(binding) != required:
+        raise OpeningContractError(
+            "probabilistic evaluation lacks exact probability-erratum binding"
+        )
+    seal = binding.get("seal")
+    if not isinstance(seal, Mapping) or set(seal) != {"path", "sha256"}:
+        raise OpeningContractError(
+            "probabilistic evaluation lacks exact probability-erratum seal binding"
+        )
+    commit = binding.get("erratum_document_commit")
+    if (
+        binding.get("path") != PROBABILITY_METRIC_ERRATUM_RELATIVE
+        or binding.get("format") != PROBABILITY_METRIC_ERRATUM_FORMAT
+        or binding.get("erratum_id") != PROBABILITY_METRIC_ERRATUM_ID
+        or seal.get("path") != PROBABILITY_METRIC_ERRATUM_SEAL_RELATIVE
+        or not _is_sha256(binding.get("sha256"))
+        or not _is_sha256(seal.get("sha256"))
+        or not isinstance(commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+    ):
+        raise OpeningContractError(
+            "probabilistic evaluation probability-erratum binding changed"
+        )
+    return {
+        "path": str(binding["path"]),
+        "sha256": str(binding["sha256"]),
+        "format": str(binding["format"]),
+        "erratum_id": str(binding["erratum_id"]),
+        "seal": {
+            "path": str(seal["path"]),
+            "sha256": str(seal["sha256"]),
+        },
+        "erratum_document_commit": commit,
+    }
+
+
+def _validate_probability_metric_execution_contract(
+    erratum: Mapping[str, Any],
+    *,
+    probabilistic_state_path: str | Path,
+) -> None:
+    """Cross-check governance prose against the code path it authorizes."""
+    corrected = erratum.get("corrected_metric_contract")
+    implementation = erratum.get("implementation_requirements")
+    expected_implementation = {
+        "opening_implementation": "src/thermoroute/opening.py",
+        "development_reference": "scripts/19_probabilistic.py",
+        "targeted_opening_tests": "tests/test_confirmatory_opening.py",
+        "trusted_artifact_format": PROBABILISTIC_EVALUATION_FORMAT,
+        "trusted_artifact_path": PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+        "transient_nominal_quantiles_required_for_v2_replay": True,
+        "bitwise_forward_cqr_parity_required": True,
+        "source_fields_required_in_artifact": list(PROBABILISTIC_SOURCE_FIELDS),
+    }
+    if (
+        not isinstance(corrected, Mapping)
+        or corrected.get("interval_coverage_and_width_source")
+        != PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE
+        or corrected.get("pinball_quantile_source")
+        != PROBABILISTIC_PINBALL_QUANTILE_SOURCE
+        or corrected.get("event_probability_source")
+        != PROBABILISTIC_EVENT_PROBABILITY_SOURCE
+        or corrected.get("event_outcome_source")
+        != PROBABILISTIC_EVENT_OUTCOME_SOURCE
+        or corrected.get("all_event_probability_metrics_use_post_Platt_probability")
+        is not True
+        or corrected.get("nominal_quantile_handling")
+        != _PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        or corrected.get("bundle_scoring_pipeline_contracts")
+        != _PROBABILISTIC_BUNDLE_SCORING_PIPELINES
+        or implementation != expected_implementation
+    ):
+        raise OpeningContractError(
+            "probability-metric erratum differs from executable v2 semantics"
+        )
+    state_parts = Path(probabilistic_state_path).parts
+    if state_parts[-2:] != ("trusted", "probabilistic_evaluation_v2.json"):
+        raise OpeningContractError(
+            "probability-metric erratum does not authorize the effective state path"
+        )
+
+
+def _probabilistic_quantile_pipeline_contracts() -> dict[str, dict[str, Any]]:
+    lightgbm = lightgbm_quantile_repair_contract()
+    neural = neural_output_head_schema()
+    return {
+        "LightGBM": {
+            "pipeline": _PROBABILISTIC_BUNDLE_SCORING_PIPELINES["LightGBM"],
+            "member_quantile_contract": lightgbm,
+            "member_quantile_contract_sha256": sha256_json(lightgbm),
+        },
+        "deep_LSTM_and_deterministic_controls": {
+            "pipeline": _PROBABILISTIC_BUNDLE_SCORING_PIPELINES[
+                "deep_LSTM_and_deterministic_controls"
+            ],
+            "member_quantile_contract": neural,
+            "member_quantile_contract_sha256": sha256_json(neural),
+        },
+    }
+
+
 def _validate_development_contract(
     suite: Mapping[str, Any],
     *,
@@ -3833,6 +4059,10 @@ def freeze_opening_authorization(
     inference_gate: str | Path = DEFAULT_INFERENCE_GATE,
     inference_amendment: str | Path = INFERENCE_AMENDMENT_RELATIVE,
     inference_amendment_seal: str | Path = INFERENCE_AMENDMENT_SEAL_RELATIVE,
+    probability_metric_erratum: str | Path = PROBABILITY_METRIC_ERRATUM_RELATIVE,
+    probability_metric_erratum_seal: str | Path = (
+        PROBABILITY_METRIC_ERRATUM_SEAL_RELATIVE
+    ),
     outcome_qc_policy: str | Path = OUTCOME_QC_POLICY_RELATIVE,
     temporal_coverage_policy: str | Path = TEMPORAL_COVERAGE_POLICY_RELATIVE,
 ) -> dict[str, Any]:
@@ -3862,6 +4092,18 @@ def freeze_opening_authorization(
     if not inference_amendment_seal_path.is_absolute():
         inference_amendment_seal_path = root / inference_amendment_seal_path
     inference_amendment_seal_path = inference_amendment_seal_path.resolve()
+    probability_metric_erratum_path = Path(probability_metric_erratum)
+    if not probability_metric_erratum_path.is_absolute():
+        probability_metric_erratum_path = root / probability_metric_erratum_path
+    probability_metric_erratum_path = probability_metric_erratum_path.resolve()
+    probability_metric_erratum_seal_path = Path(probability_metric_erratum_seal)
+    if not probability_metric_erratum_seal_path.is_absolute():
+        probability_metric_erratum_seal_path = (
+            root / probability_metric_erratum_seal_path
+        )
+    probability_metric_erratum_seal_path = (
+        probability_metric_erratum_seal_path.resolve()
+    )
     outcome_qc_policy_path = Path(outcome_qc_policy)
     if not outcome_qc_policy_path.is_absolute():
         outcome_qc_policy_path = root / outcome_qc_policy_path
@@ -3883,6 +4125,15 @@ def freeze_opening_authorization(
             root=root,
             amendment_path=inference_amendment_path,
         )
+        probability_erratum = validate_probability_metric_erratum(
+            probability_metric_erratum_path,
+            root=root,
+        )
+        probability_erratum_seal = validate_probability_metric_erratum_seal(
+            probability_metric_erratum_seal_path,
+            root=root,
+            erratum_path=probability_metric_erratum_path,
+        )
         inference_gate_document = validate_inference_gate_document(
             inference_gate_path,
             root=root,
@@ -3898,9 +4149,14 @@ def freeze_opening_authorization(
         temporal_coverage_policy_document = validate_temporal_coverage_policy(
             temporal_coverage_policy_path
         )
-    except (InferenceGateError, OutcomeQCGateError, CoverageAuditError) as exc:
+    except (
+        InferenceGateError,
+        OutcomeQCGateError,
+        CoverageAuditError,
+        ProbabilityMetricErratumError,
+    ) as exc:
         raise OpeningContractError(
-            "prelabel inference/QC gate or amendment is absent or stale"
+            "prelabel inference/QC governance or probability erratum is absent or stale"
         ) from exc
     registries = validate_registry_lock(
         root=root,
@@ -4003,10 +4259,17 @@ def freeze_opening_authorization(
         inference_amendment_seal_sha256=sha256_file(
             inference_amendment_seal_path
         ),
+        probability_metric_erratum_seal_sha256=sha256_file(
+            probability_metric_erratum_seal_path
+        ),
         outcome_qc_policy_sha256=sha256_file(outcome_qc_policy_path),
         temporal_coverage_policy_sha256=sha256_file(
             temporal_coverage_policy_path
         ),
+    )
+    _validate_probability_metric_execution_contract(
+        probability_erratum,
+        probabilistic_state_path=state_paths["probabilistic_evaluation"],
     )
     stable = {
         "format": AUTHORIZATION_FORMAT,
@@ -4056,6 +4319,15 @@ def freeze_opening_authorization(
             "amendment_id": amendment["amendment_id"],
             "seal": _binding(root, inference_amendment_seal_path),
             "final_prelabel_commit": amendment_seal["final_prelabel_commit"],
+        },
+        "probability_metric_erratum": {
+            **_binding(root, probability_metric_erratum_path),
+            "format": probability_erratum["format"],
+            "erratum_id": probability_erratum["erratum_id"],
+            "seal": _binding(root, probability_metric_erratum_seal_path),
+            "erratum_document_commit": probability_erratum_seal[
+                "erratum_document_commit"
+            ],
         },
         "inference_gate": {
             **_binding(root, inference_gate_path),
@@ -4121,6 +4393,7 @@ def freeze_opening_authorization(
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     document["authorization_self_sha256"] = sha256_json(document)
+    _validate_authorization_top_level_schema(document)
     _assert_prepublication_source_snapshot(
         root,
         initial_git_state=state,
@@ -4167,6 +4440,7 @@ def validate_authorization(
         raise OpeningContractError("unsupported opening-authorization format")
     if authorization.get("status") != "AUTHORIZED_LABELS_STILL_SEALED":
         raise OpeningContractError("authorization is not in the sealed-label state")
+    _validate_authorization_top_level_schema(authorization)
     self_hashed = dict(authorization)
     self_digest = self_hashed.pop("authorization_self_sha256", None)
     if not _is_sha256(self_digest) or sha256_json(self_hashed) != self_digest:
@@ -4242,6 +4516,65 @@ def validate_authorization(
     }
     if dict(amendment_binding) != expected_amendment_binding:
         raise OpeningContractError("authorized inference amendment binding changed")
+    probability_erratum_binding = authorization.get(
+        "probability_metric_erratum"
+    )
+    if not isinstance(probability_erratum_binding, Mapping) or set(
+        probability_erratum_binding
+    ) != {
+        "path",
+        "sha256",
+        "format",
+        "erratum_id",
+        "seal",
+        "erratum_document_commit",
+    }:
+        raise OpeningContractError(
+            "authorization lacks exact probability-metric-erratum binding"
+        )
+    probability_erratum_path = _verify_file_binding(
+        root,
+        probability_erratum_binding,
+        label="probability metric erratum",
+    )
+    probability_erratum_seal_binding = probability_erratum_binding.get("seal")
+    if not isinstance(probability_erratum_seal_binding, Mapping):
+        raise OpeningContractError(
+            "authorization lacks probability-metric-erratum seal"
+        )
+    probability_erratum_seal_path = _verify_file_binding(
+        root,
+        probability_erratum_seal_binding,
+        label="probability metric erratum seal",
+    )
+    try:
+        probability_erratum = validate_probability_metric_erratum(
+            probability_erratum_path,
+            root=root,
+        )
+        probability_erratum_seal = validate_probability_metric_erratum_seal(
+            probability_erratum_seal_path,
+            root=root,
+            erratum_path=probability_erratum_path,
+            allow_gitless_archive=allow_gitless_archive,
+        )
+    except ProbabilityMetricErratumError as exc:
+        raise OpeningContractError(
+            "authorized probability metric erratum is stale"
+        ) from exc
+    expected_probability_erratum_binding = {
+        **_binding(root, probability_erratum_path),
+        "format": probability_erratum["format"],
+        "erratum_id": probability_erratum["erratum_id"],
+        "seal": _binding(root, probability_erratum_seal_path),
+        "erratum_document_commit": probability_erratum_seal[
+            "erratum_document_commit"
+        ],
+    }
+    if dict(probability_erratum_binding) != expected_probability_erratum_binding:
+        raise OpeningContractError(
+            "authorized probability metric erratum binding changed"
+        )
     outcome_qc_policy_binding = authorization.get("outcome_qc_policy")
     if not isinstance(outcome_qc_policy_binding, Mapping) or set(
         outcome_qc_policy_binding
@@ -4544,6 +4877,9 @@ def validate_authorization(
         inference_amendment_seal_sha256=str(
             amendment_seal_binding.get("sha256", "")
         ),
+        probability_metric_erratum_seal_sha256=str(
+            probability_erratum_seal_binding.get("sha256", "")
+        ),
         outcome_qc_policy_sha256=str(
             outcome_qc_policy_binding.get("sha256", "")
         ),
@@ -4553,6 +4889,10 @@ def validate_authorization(
     )
     if not isinstance(state_paths, Mapping) or dict(state_paths) != expected_state_paths:
         raise OpeningContractError("authorization lacks opening state paths")
+    _validate_probability_metric_execution_contract(
+        probability_erratum,
+        probabilistic_state_path=expected_state_paths["probabilistic_evaluation"],
+    )
     resolved_state_paths = _secure_canonical_state_paths(
         root,
         expected_state_paths,
@@ -4575,6 +4915,8 @@ def validate_authorization(
         "prelabel_chronology": chronology,
         "inference_amendment": amendment,
         "inference_amendment_seal": amendment_seal,
+        "probability_metric_erratum": probability_erratum,
+        "probability_metric_erratum_seal": probability_erratum_seal,
         "inference_gate": gate,
         "outcome_qc_policy": outcome_qc_policy_document,
         "temporal_coverage_policy": temporal_coverage_policy_document,
@@ -5946,9 +6288,20 @@ def _trusted_frame(
     q50: np.ndarray | None = None,
     q95: np.ndarray | None = None,
     p_exceed: np.ndarray | None = None,
+    nominal_q05: np.ndarray | None = None,
+    nominal_q50: np.ndarray | None = None,
+    nominal_q95: np.ndarray | None = None,
 ) -> pd.DataFrame:
     count, horizon_count = wd.y.shape
     expected_shape = (count, horizon_count)
+    nominal_inputs = (nominal_q05, nominal_q50, nominal_q95)
+    if any(value is not None for value in nominal_inputs) and not all(
+        value is not None for value in nominal_inputs
+    ):
+        raise OpeningContractError(
+            f"{cohort}/{model_id} produced an incomplete transient nominal head set"
+        )
+    has_nominal_heads = all(value is not None for value in nominal_inputs)
     values = {
         "y_pred": np.asarray(y_pred, dtype=float),
         "q05": (np.full(expected_shape, np.nan) if q05 is None
@@ -5959,6 +6312,18 @@ def _trusted_frame(
                 else np.asarray(q95, dtype=float)),
         "p_exceed": (np.full(expected_shape, np.nan) if p_exceed is None
                      else np.asarray(p_exceed, dtype=float)),
+        "_nominal_q05": (
+            np.full(expected_shape, np.nan)
+            if nominal_q05 is None else np.asarray(nominal_q05, dtype=float)
+        ),
+        "_nominal_q50": (
+            np.full(expected_shape, np.nan)
+            if nominal_q50 is None else np.asarray(nominal_q50, dtype=float)
+        ),
+        "_nominal_q95": (
+            np.full(expected_shape, np.nan)
+            if nominal_q95 is None else np.asarray(nominal_q95, dtype=float)
+        ),
     }
     if any(array.shape != expected_shape for array in values.values()):
         raise OpeningContractError(f"{cohort}/{model_id} produced a wrong output shape")
@@ -5970,10 +6335,24 @@ def _trusted_frame(
     )
     if target_valid.shape != expected_shape:
         raise OpeningContractError(f"{cohort}/{model_id} target mask has a wrong shape")
+    if has_nominal_heads:
+        nominal = tuple(
+            values[column][target_valid]
+            for column in _TRANSIENT_NOMINAL_QUANTILE_COLUMNS
+        )
+        if not (
+            all(np.isfinite(value).all() for value in nominal)
+            and (nominal[0] <= nominal[1]).all()
+            and (nominal[1] <= nominal[2]).all()
+            and (nominal[0] < nominal[2]).all()
+        ):
+            raise OpeningContractError(
+                f"{cohort}/{model_id} transient nominal heads are invalid"
+            )
     frames = []
     for column, horizon in enumerate(wd.horizons):
         selected = target_valid[:, column]
-        frames.append(R.make_pred_frame(
+        frame = R.make_pred_frame(
             model=model_id,
             scope=_TRUSTED_SCOPE[cohort],
             feature_set=_TRUSTED_FEATURE_SET,
@@ -5989,7 +6368,10 @@ def _trusted_frame(
             q50=values["q50"][selected, column],
             q95=values["q95"][selected, column],
             p_exceed=values["p_exceed"][selected, column],
-        ))
+        )
+        for transient in _TRANSIENT_NOMINAL_QUANTILE_COLUMNS:
+            frame[transient] = values[transient][selected, column]
+        frames.append(frame)
     output = pd.concat(frames, ignore_index=True)
     try:
         R.validate_predictions(output)
@@ -5997,6 +6379,19 @@ def _trusted_frame(
         raise OpeningContractError(
             f"trusted {cohort}/{model_id} output is invalid"
         ) from exc
+    return output
+
+
+def _public_prediction_product(frame: pd.DataFrame) -> pd.DataFrame:
+    """Strip scorer-only nominal heads from the immutable public product."""
+    missing = set(R.PRED_COLS) - set(frame)
+    if missing:
+        raise OpeningContractError(
+            f"public prediction product lacks columns: {sorted(missing)}"
+        )
+    output = frame.loc[:, R.PRED_COLS].copy()
+    if list(output.columns) != R.PRED_COLS:
+        raise OpeningContractError("public prediction schema changed")
     return output
 
 
@@ -6253,6 +6648,9 @@ def _score_sequence_bundle(
         q50=q50,
         q95=q95,
         p_exceed=probability,
+        nominal_q05=averaged["q05"],
+        nominal_q50=averaged["q50"],
+        nominal_q95=averaged["q95"],
     )
 
 
@@ -6441,6 +6839,9 @@ def _score_lightgbm_bundle(
         q50=q50,
         q95=q95,
         p_exceed=probability,
+        nominal_q05=quantiles["q05"],
+        nominal_q50=quantiles["q50"],
+        nominal_q95=quantiles["q95"],
     )
 
 
@@ -7595,12 +7996,126 @@ def _spatial_cluster_diagnostics(comparison: Mapping[str, Any]) -> dict[str, Any
     }
 
 
+def _validate_direct_nominal_quantiles_and_cqr_parity(
+    *,
+    metadata: Mapping[str, Any],
+    site_ids: np.ndarray,
+    horizon: int,
+    cqr_q05: np.ndarray,
+    cqr_q50: np.ndarray,
+    cqr_q95: np.ndarray,
+    nominal_q05: np.ndarray,
+    nominal_q50: np.ndarray,
+    nominal_q95: np.ndarray,
+    external: bool,
+    label: str,
+) -> dict[str, Any]:
+    """Prove direct heads produced the stored CQR endpoints without inversion."""
+
+    sites = np.asarray(site_ids, dtype=object)
+    lower = np.asarray(cqr_q05, dtype=float)
+    median = np.asarray(cqr_q50, dtype=float)
+    upper = np.asarray(cqr_q95, dtype=float)
+    nominal_lower = np.asarray(nominal_q05, dtype=float)
+    nominal_median = np.asarray(nominal_q50, dtype=float)
+    nominal_upper = np.asarray(nominal_q95, dtype=float)
+    expected_shape = (len(sites),)
+    if (
+        sites.ndim != 1
+        or any(
+            value.shape != expected_shape
+            for value in (
+                lower,
+                median,
+                upper,
+                nominal_lower,
+                nominal_median,
+                nominal_upper,
+            )
+        )
+        or not all(
+            np.isfinite(value).all()
+            for value in (
+                lower,
+                median,
+                upper,
+                nominal_lower,
+                nominal_median,
+                nominal_upper,
+            )
+        )
+        or not ((lower <= median).all() and (median <= upper).all())
+        or not (lower < upper).all()
+        or not (
+            (nominal_lower <= nominal_median).all()
+            and (nominal_median <= nominal_upper).all()
+        )
+        or not (nominal_lower < nominal_upper).all()
+    ):
+        raise OpeningContractError(
+            f"{label} direct nominal heads or calibrated CQR endpoints are invalid"
+        )
+    offsets = metadata.get("conformal_offsets")
+    if not isinstance(offsets, Mapping):
+        raise OpeningContractError(f"{label} lacks frozen CQR offsets")
+    try:
+        validate_cqr_offset_bundle(
+            offsets,
+            metadata.get("conformal_policy"),
+            metadata.get("conformal_offset_audit"),
+        )
+    except CQRContractError as exc:
+        raise OpeningContractError(
+            f"{label} CQR offset registry cannot support nominal pinball replay"
+        ) from exc
+    group = "__pooled__" if external else None
+    keys = [
+        f"{group if group is not None else str(site)}|{int(horizon)}"
+        for site in sites
+    ]
+    missing = sorted(set(keys) - set(offsets))
+    if missing:
+        raise OpeningContractError(
+            f"{label} CQR registry lacks forward-parity keys: {missing[:5]}"
+        )
+    delta = np.asarray([float(offsets[key]) for key in keys], dtype=float)
+    if not np.isfinite(delta).all() or (delta < 0.0).any():
+        raise OpeningContractError(
+            f"{label} direct nominal parity received an unsafe CQR offset"
+        )
+
+    def bitwise_float64_equal(left: np.ndarray, right: np.ndarray) -> bool:
+        left_bits = np.ascontiguousarray(left, dtype=np.float64).view(np.uint64)
+        right_bits = np.ascontiguousarray(right, dtype=np.float64).view(np.uint64)
+        return bool(np.array_equal(left_bits, right_bits))
+
+    if not (
+        bitwise_float64_equal(nominal_lower - delta, lower)
+        and bitwise_float64_equal(nominal_median, median)
+        and bitwise_float64_equal(nominal_upper + delta, upper)
+    ):
+        raise OpeningContractError(
+            f"{label} direct nominal heads fail bitwise forward CQR parity"
+        )
+    return {
+        "deployed_cqr_offset_min_c": float(delta.min()),
+        "deployed_cqr_offset_max_c": float(delta.max()),
+        "cqr_offset_scope": (
+            "pooled_external" if external else "station_horizon_temporal"
+        ),
+        "direct_nominal_forward_cqr_parity_bitwise": True,
+        "direct_nominal_q50_parity_bitwise": True,
+        "endpoint_inversion_used": False,
+    }
+
+
 def _probabilistic_evaluation(
     *,
     trusted_predictions: Mapping[str, pd.DataFrame],
     suite: Mapping[str, Any],
     availability: pd.DataFrame,
     protocol: Mapping[str, Any],
+    probability_metric_erratum_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Evaluate only frozen probabilistic heads and frozen event references.
 
@@ -7614,12 +8129,42 @@ def _probabilistic_evaluation(
     )
     if not isinstance(contract, Mapping):
         raise OpeningContractError("protocol lacks probabilistic/event contract")
+    base_contract_sha256 = sha256_json(contract)
+    erratum_binding = _normalized_probability_metric_erratum_binding(
+        probability_metric_erratum_binding
+    )
+    source_fields = {
+        "interval_endpoint_source": PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE,
+        "pinball_quantile_source": PROBABILISTIC_PINBALL_QUANTILE_SOURCE,
+        "event_probability_source": PROBABILISTIC_EVENT_PROBABILITY_SOURCE,
+        "event_outcome_source": PROBABILISTIC_EVENT_OUTCOME_SOURCE,
+    }
+    pipeline_contracts = _probabilistic_quantile_pipeline_contracts()
+    effective_contract = {
+        "base_probabilistic_event_contract_sha256": base_contract_sha256,
+        "probability_metric_erratum": erratum_binding,
+        "effective_output_artifact": PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+        "metric_source_fields": source_fields,
+        "nominal_quantile_handling": dict(
+            _PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        ),
+        "bundle_scoring_pipeline_contracts": {
+            key: value["pipeline"] for key, value in pipeline_contracts.items()
+        },
+    }
     minimum_targets = int(
         protocol["availability_contract"]
         ["minimum_valid_targets_per_station_horizon"]
     )
     if minimum_targets != 100:
         raise OpeningContractError("probability reportability threshold changed")
+    expected_availability_columns = {
+        "cohort", "site_no", "horizon", "n_valid_targets", "reportable"
+    }
+    if set(availability) != expected_availability_columns:
+        raise OpeningContractError(
+            "probability evaluation received a changed availability schema"
+        )
     availability_values = availability.copy()
     availability_values["site_no"] = availability_values.site_no.astype(str)
     availability_values["cohort"] = availability_values.cohort.astype(str)
@@ -7629,6 +8174,15 @@ def _probabilistic_evaluation(
     availability_values["n_valid_targets"] = pd.to_numeric(
         availability_values.n_valid_targets, errors="raise"
     ).astype(int)
+    if (
+        availability_values.duplicated(
+            ["cohort", "site_no", "horizon"], keep=False
+        ).any()
+        or availability_values.n_valid_targets.lt(0).any()
+    ):
+        raise OpeningContractError(
+            "probability evaluation received duplicated or negative availability counts"
+        )
     reportable_flags = availability_values.reportable.astype(str).str.lower().map(
         {"true": True, "false": False, "1": True, "0": False}
     )
@@ -7730,6 +8284,15 @@ def _probabilistic_evaluation(
     )
     for cohort in ("temporal", "external"):
         frame = trusted_predictions[cohort]
+        missing_prediction_columns = (
+            set(R.PRED_COLS)
+            | set(_TRANSIENT_NOMINAL_QUANTILE_COLUMNS)
+        ) - set(frame)
+        if missing_prediction_columns:
+            raise OpeningContractError(
+                "probability evaluation lacks internal scorer columns: "
+                f"{sorted(missing_prediction_columns)}"
+            )
         expected_models = tuple(str(value) for value in required_by_cohort[cohort])
         if set(frame.model.astype(str)) != set(expected_models):
             raise OpeningContractError(
@@ -7758,6 +8321,23 @@ def _probabilistic_evaluation(
             )
         expected_sites = set(frame.site_id.astype(str))
         external = cohort == "external"
+        cohort_availability = availability_values[
+            availability_values.cohort.eq(cohort)
+        ]
+        expected_availability_keys = {
+            (site, horizon)
+            for site in expected_sites
+            for horizon in (1, 3, 7)
+        }
+        actual_availability_keys = set(zip(
+            cohort_availability.site_no.astype(str),
+            cohort_availability.horizon.astype(int),
+            strict=True,
+        ))
+        if actual_availability_keys != expected_availability_keys:
+            raise OpeningContractError(
+                f"probability evaluation {cohort} availability keys changed"
+            )
         try:
             validate_frozen_seasonal_event_reference(
                 reference,
@@ -7818,6 +8398,50 @@ def _probabilistic_evaluation(
                 if all_selected.empty:
                     raise OpeningContractError(
                         f"probability evaluation lacks {cohort}/{model}/h{horizon}"
+                    )
+                declared_counts = {
+                    str(row.site_no): int(row.n_valid_targets)
+                    for row in cohort_availability[
+                        cohort_availability.horizon.eq(horizon)
+                    ].itertuples(index=False)
+                    if int(row.n_valid_targets) > 0
+                }
+                if model not in BUILTIN_MODELS:
+                    actual_counts = {
+                        str(site): int(count)
+                        for site, count in all_selected.site_id.astype(
+                            str
+                        ).value_counts().items()
+                    }
+                    if actual_counts != declared_counts:
+                        raise OpeningContractError(
+                            "learned probability row counts differ exactly from "
+                            f"availability for {cohort}/{model}/h{horizon}"
+                        )
+                    all_values = all_selected[[
+                        "q05",
+                        "q50",
+                        "q95",
+                        "p_exceed",
+                        *_TRANSIENT_NOMINAL_QUANTILE_COLUMNS,
+                    ]].to_numpy(float)
+                    if not np.isfinite(all_values).all():
+                        raise OpeningContractError(
+                            f"learned {cohort}/{model}/h{horizon} "
+                            "probability heads are incomplete"
+                        )
+                    _validate_direct_nominal_quantiles_and_cqr_parity(
+                        metadata=metadata[model],
+                        site_ids=all_selected.site_id.astype(str).to_numpy(),
+                        horizon=horizon,
+                        cqr_q05=all_values[:, 0],
+                        cqr_q50=all_values[:, 1],
+                        cqr_q95=all_values[:, 2],
+                        nominal_q05=all_values[:, 4],
+                        nominal_q50=all_values[:, 5],
+                        nominal_q95=all_values[:, 6],
+                        external=external,
+                        label=f"learned {cohort}/{model}/h{horizon}",
                     )
                 reportable_sites = set(availability_values.loc[
                     availability_values.cohort.eq(cohort)
@@ -7883,7 +8507,13 @@ def _probabilistic_evaluation(
                     "threshold_scope": threshold_scope,
                 }
                 if model in BUILTIN_MODELS:
-                    optional = all_selected[["q05", "q50", "q95", "p_exceed"]]
+                    optional = all_selected[[
+                        "q05",
+                        "q50",
+                        "q95",
+                        "p_exceed",
+                        *_TRANSIENT_NOMINAL_QUANTILE_COLUMNS,
+                    ]]
                     if optional.notna().any().any():
                         raise OpeningContractError(
                             f"builtin {cohort}/{model} unexpectedly has probability heads"
@@ -7918,24 +8548,61 @@ def _probabilistic_evaluation(
                     })
                     continue
                 values = selected[
-                    ["y_true", "q05", "q50", "q95", "p_exceed"]
+                    [
+                        "y_true",
+                        "q05",
+                        "q50",
+                        "q95",
+                        "p_exceed",
+                        *_TRANSIENT_NOMINAL_QUANTILE_COLUMNS,
+                    ]
                 ].to_numpy(float)
                 if not np.isfinite(values).all():
                     raise OpeningContractError(
                         f"learned {cohort}/{model}/h{horizon} probability heads are incomplete"
                     )
-                y, q05, q50, q95, probability = values.T
-                if not ((q05 <= q50).all() and (q50 <= q95).all()):
+                (
+                    y,
+                    cqr_q05,
+                    q50,
+                    cqr_q95,
+                    probability,
+                    nominal_q05,
+                    nominal_q50,
+                    nominal_q95,
+                ) = values.T
+                if not (
+                    (cqr_q05 <= q50).all() and (q50 <= cqr_q95).all()
+                ):
                     raise OpeningContractError(
                         f"learned {cohort}/{model}/h{horizon} quantiles cross"
                     )
                 sites = selected.site_id.astype(str).to_numpy()
+                parity_audit = _validate_direct_nominal_quantiles_and_cqr_parity(
+                    metadata=metadata[model],
+                    site_ids=sites,
+                    horizon=horizon,
+                    cqr_q05=cqr_q05,
+                    cqr_q50=q50,
+                    cqr_q95=cqr_q95,
+                    nominal_q05=nominal_q05,
+                    nominal_q50=nominal_q50,
+                    nominal_q95=nominal_q95,
+                    external=external,
+                    label=f"learned {cohort}/{model}/h{horizon}",
+                )
                 if external:
                     threshold = np.full(len(selected), thresholds["__pooled__"])
                 else:
                     threshold = np.asarray(
                         [thresholds[site] for site in sites], dtype=float
                     )
+                pipeline_key = (
+                    "LightGBM"
+                    if model == "LightGBM"
+                    else "deep_LSTM_and_deterministic_controls"
+                )
+                pipeline = pipeline_contracts[pipeline_key]
                 event = (y > threshold).astype(int)
                 reference_probability = predict_frozen_seasonal_event_reference(
                     reference,
@@ -7953,13 +8620,16 @@ def _probabilistic_evaluation(
                 p_clip = np.clip(probability, 1e-6, 1.0 - 1e-6)
                 pinball_losses = {
                     "pinball_q05_c": np.maximum(
-                        0.05 * (y - q05), -0.95 * (y - q05)
+                        0.05 * (y - nominal_q05),
+                        -0.95 * (y - nominal_q05),
                     ),
                     "pinball_q50_c": np.maximum(
-                        0.50 * (y - q50), -0.50 * (y - q50)
+                        0.50 * (y - nominal_q50),
+                        -0.50 * (y - nominal_q50),
                     ),
                     "pinball_q95_c": np.maximum(
-                        0.95 * (y - q95), -0.05 * (y - q95)
+                        0.95 * (y - nominal_q95),
+                        -0.05 * (y - nominal_q95),
                     ),
                 }
                 pinballs = {
@@ -8031,11 +8701,31 @@ def _probabilistic_evaluation(
                     "event_count": int(event.sum()),
                     "non_event_count": int(len(event) - event.sum()),
                     "coverage_90": weighted_mean(
-                        ((y >= q05) & (y <= q95)).astype(float), weights
+                        ((y >= cqr_q05) & (y <= cqr_q95)).astype(float),
+                        weights,
                     ),
                     "mean_interval_width_c": weighted_mean(
-                        q95 - q05, weights
+                        cqr_q95 - cqr_q05, weights
                     ),
+                    "interval_endpoint_source": (
+                        PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE
+                    ),
+                    "pinball_quantile_source": (
+                        PROBABILISTIC_PINBALL_QUANTILE_SOURCE
+                    ),
+                    "event_probability_source": (
+                        PROBABILISTIC_EVENT_PROBABILITY_SOURCE
+                    ),
+                    "event_outcome_source": PROBABILISTIC_EVENT_OUTCOME_SOURCE,
+                    "quantile_pipeline_class": pipeline_key,
+                    "quantile_pipeline": pipeline["pipeline"],
+                    "member_quantile_contract": pipeline[
+                        "member_quantile_contract"
+                    ],
+                    "member_quantile_contract_sha256": pipeline[
+                        "member_quantile_contract_sha256"
+                    ],
+                    **parity_audit,
                     **pinballs,
                     "equal_weight_three_quantile_pinball_mean_c": (
                         three_quantile_mean
@@ -8060,20 +8750,45 @@ def _probabilistic_evaluation(
     return {
         "format": PROBABILISTIC_EVALUATION_FORMAT,
         "role": contract["role"],
-        "contract_sha256": sha256_json(contract),
+        "contract_sha256": base_contract_sha256,
+        "base_probabilistic_event_contract_sha256": base_contract_sha256,
+        "probability_metric_erratum": erratum_binding,
+        "effective_output_artifact": PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+        "effective_contract": effective_contract,
+        "effective_contract_sha256": sha256_json(effective_contract),
         "probabilistic_heads": ["q05", "q50", "q95", "p_exceed"],
         "aggregation": contract["aggregation"],
         "minimum_valid_targets_per_station_horizon": minimum_targets,
         "metric_weighting": (
             "station-balanced: each retained station total weight is 1/n_sites"
         ),
+        "event_count_definition": (
+            "unweighted raw counts of retained forecast rows by observed event class"
+        ),
+        "event_rate_and_probability_metric_weighting": (
+            "station-balanced using the same per-row weights as all reported "
+            "probability metrics"
+        ),
         "central_interval_nominal_coverage": 0.90,
+        "metric_sources": {
+            "coverage_90_and_mean_interval_width_c": (
+                PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE
+            ),
+            "pinball_q05_q50_q95": PROBABILISTIC_PINBALL_QUANTILE_SOURCE,
+            "event_probability": PROBABILISTIC_EVENT_PROBABILITY_SOURCE,
+            "event_outcome": PROBABILISTIC_EVENT_OUTCOME_SOURCE,
+        },
+        "nominal_quantile_handling": dict(
+            _PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        ),
+        "bundle_scoring_pipeline_contracts": pipeline_contracts,
         "interval_coverage_claim": (
             "station-balanced empirical marginal coverage only; no "
             "conditional-coverage or exchangeability guarantee"
         ),
         "three_quantile_score_definition": (
-            "unscaled equal-weight arithmetic mean of q05/q50/q95 pinball loss"
+            "unscaled equal-weight arithmetic mean of nominal pre-CQR "
+            "q05/q50/q95 pinball loss"
         ),
         "three_quantile_score_is_crps": False,
         "event_probability_calibration_period": "2018_only_before_confirmation",
@@ -8298,15 +9013,19 @@ def _render_confirmatory_report(
             "Every metric retains only station–horizon cells with at least 100 "
             "common targets and gives every retained station equal total weight. "
             "Coverage is empirical marginal 90% interval coverage under that "
-            "station-balanced weighting. The three-quantile number is the unscaled "
-            "equal-weight mean of q05/q50/q95 pinball losses; it is not CRPS. "
+            "station-balanced weighting. Coverage and width use the frozen CQR "
+            "endpoints; the three-quantile number uses the direct transient nominal "
+            "pre-CQR heads retained before calibration and is the unscaled "
+            "equal-weight mean of q05/q50/q95 pinball losses, not CRPS. Event and "
+            "non-event counts are raw retained-row counts; event rates and all "
+            "probability metrics are station-balanced. "
             "Point-only built-ins remain NOT_AVAILABLE rather than receiving "
             "invented uncertainty heads."
         ),
         "",
         (
             "| Cohort | Model | h | Status | n | 90% coverage | Width (°C) | "
-            "Mean 3Q pinball (°C) |"
+            "Nominal mean 3Q pinball (°C) |"
         ),
         "|---|---|---:|---|---:|---:|---:|---:|",
     ])
@@ -8689,6 +9408,9 @@ def produce_trusted_opening_products(
         suite=preflight["suite"],
         availability=availability,
         protocol=protocol_info["document"],
+        probability_metric_erratum_binding=preflight["authorization"][
+            "probability_metric_erratum"
+        ],
     )
     canonical_state = preflight["state_paths"]
     state = dict(output_state_paths)
@@ -8763,8 +9485,14 @@ def produce_trusted_opening_products(
         state["availability_registry"],
         availability.to_csv(index=False, lineterminator="\n").encode("utf-8"),
     )
-    _exclusive_create_parquet(state["temporal_predictions"], trusted["temporal"])
-    _exclusive_create_parquet(state["external_predictions"], trusted["external"])
+    _exclusive_create_parquet(
+        state["temporal_predictions"],
+        _public_prediction_product(trusted["temporal"]),
+    )
+    _exclusive_create_parquet(
+        state["external_predictions"],
+        _public_prediction_product(trusted["external"]),
+    )
     exclusive_create_json(state["statistics"], statistics)
     try:
         temporal_coverage_audit = replay_temporal_coverage_from_physical_files(
@@ -9099,6 +9827,9 @@ def validate_opening_products(
             keep_default_na=False,
         ),
         protocol=protocol_info["document"],
+        probability_metric_erratum_binding=preflight["authorization"][
+            "probability_metric_erratum"
+        ],
     )
     actual_probabilistic_evaluation = _load_json(
         products.probabilistic_evaluation,
@@ -9987,6 +10718,7 @@ def _read_completed_receipt(
 ) -> dict[str, Any]:
     authorization_path = Path(authorization_path).resolve()
     authorization = _load_json(authorization_path, label="opening authorization")
+    _validate_authorization_top_level_schema(authorization)
     self_hashed = dict(authorization)
     self_digest = self_hashed.pop("authorization_self_sha256", None)
     if not _is_sha256(self_digest) or sha256_json(self_hashed) != self_digest:

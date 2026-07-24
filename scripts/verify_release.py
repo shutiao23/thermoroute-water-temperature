@@ -163,6 +163,32 @@ HASHED_LOCK_ROLE = (
     "UNLESS_AN_OPENING_AUTHORIZATION_EXPLICITLY_BINDS_THIS_FILE"
 )
 AUTHORIZATION_FORMAT = "thermoroute.route-a-opening-authorization.v1"
+AUTHORIZATION_TOP_LEVEL_FIELDS = frozenset({
+    "format",
+    "status",
+    "protocol",
+    "registries",
+    "model_suite",
+    "development_replay",
+    "prelabel_chronology",
+    "inference_amendment",
+    "probability_metric_erratum",
+    "inference_gate",
+    "outcome_qc_policy",
+    "temporal_coverage_policy",
+    "actual_inputs",
+    "actual_feature_order",
+    "required_models",
+    "statistics_contract_sha256",
+    "runtime",
+    "fixed_code",
+    "source",
+    "acquisition_plan",
+    "state_paths",
+    "opening_id",
+    "created_at_utc",
+    "authorization_self_sha256",
+})
 INTENT_FORMAT = "thermoroute.route-a-opening-intent.v1"
 RECEIPT_FORMAT = "thermoroute.route-a-opening-receipt.v1"
 STATISTICS_FORMAT = "thermoroute.route-a-confirmatory-statistics.v1"
@@ -188,6 +214,123 @@ PROTOCOL_SEAL_PATH = "protocols/route_a_protocol_seal_v1.json"
 INFERENCE_AMENDMENT_PATH = "protocols/route_a_inference_amendment_v2.json"
 INFERENCE_AMENDMENT_SEAL_PATH = (
     "protocols/route_a_inference_amendment_seal_v2.json"
+)
+PROBABILITY_METRIC_ERRATUM_PATH = (
+    "protocols/route_a_probability_metric_erratum_v1.json"
+)
+PROBABILITY_METRIC_ERRATUM_SEAL_PATH = (
+    "protocols/route_a_probability_metric_erratum_seal_v1.json"
+)
+LEGACY_THREE_SITE_NOTICE_PATH = (
+    "protocols/legacy_three_site_semantics_notice_v1.md"
+)
+PROBABILITY_METRIC_ERRATUM_FORMAT = (
+    "thermoroute.route-a-probability-metric-erratum.v1"
+)
+PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT = (
+    "thermoroute.route-a-probability-metric-erratum-seal.v1"
+)
+PROBABILITY_METRIC_ERRATUM_ID = (
+    "route-a-prelabel-probability-metric-semantics-016"
+)
+PROBABILISTIC_EVALUATION_FORMAT = (
+    "thermoroute.route-a-probabilistic-evaluation.v2"
+)
+PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH = (
+    "trusted/probabilistic_evaluation_v2.json"
+)
+PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE = "bundle_frozen_2018_cqr_endpoints"
+PROBABILISTIC_PINBALL_QUANTILE_SOURCE = (
+    "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_before_cqr"
+)
+PROBABILISTIC_EVENT_PROBABILITY_SOURCE = (
+    "bundle_frozen_2018_platt_calibrated_p_exceed"
+)
+PROBABILISTIC_EVENT_OUTCOME_SOURCE = (
+    "confirmation_y_true_above_bundle_frozen_development_train_q90"
+)
+PROBABILISTIC_SOURCE_FIELDS = {
+    "interval_endpoint_source": PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE,
+    "pinball_quantile_source": PROBABILISTIC_PINBALL_QUANTILE_SOURCE,
+    "event_probability_source": PROBABILISTIC_EVENT_PROBABILITY_SOURCE,
+    "event_outcome_source": PROBABILISTIC_EVENT_OUTCOME_SOURCE,
+}
+PROBABILISTIC_NOMINAL_QUANTILE_HANDLING = {
+    "source": PROBABILISTIC_PINBALL_QUANTILE_SOURCE,
+    "storage": "transient_in_memory_only_not_written_to_public_prediction_products",
+    "member_aggregation": "equal_weight_member_mean_before_cqr",
+    "cqr_forward_parity": (
+        "bitwise_float64_nominal_q05_minus_offset_and_nominal_q95_plus_offset_"
+        "equal_stored_endpoints"
+    ),
+    "q50_forward_parity": "bitwise_nominal_q50_equal_stored_q50",
+    "endpoint_inversion_used": False,
+    "public_prediction_schema_changed": False,
+}
+PROBABILISTIC_PIPELINES = {
+    "LightGBM": (
+        "bundle_declared_median_preserving_endpoint_clip_per_member_then_"
+        "equal_weight_member_mean_then_frozen_cqr"
+    ),
+    "deep_LSTM_and_deterministic_controls": (
+        "quantiles_ordered_by_construction_per_member_then_equal_weight_member_"
+        "mean_then_frozen_cqr"
+    ),
+}
+PROBABILISTIC_TOP_LEVEL_FIELDS = frozenset({
+    "format", "role", "contract_sha256",
+    "base_probabilistic_event_contract_sha256",
+    "probability_metric_erratum", "effective_output_artifact",
+    "effective_contract", "effective_contract_sha256", "probabilistic_heads",
+    "aggregation", "minimum_valid_targets_per_station_horizon",
+    "metric_weighting", "event_count_definition",
+    "event_rate_and_probability_metric_weighting",
+    "central_interval_nominal_coverage", "metric_sources",
+    "nominal_quantile_handling", "bundle_scoring_pipeline_contracts",
+    "interval_coverage_claim", "three_quantile_score_definition",
+    "three_quantile_score_is_crps", "event_probability_calibration_period",
+    "evaluation_calibration_regression",
+    "event_probability_clip_for_log_and_calibration_diagnostics",
+    "reliability_bins",
+    "single_class_auroc_auprc_and_calibration_parameters",
+    "brier_skill_reference", "confirmation_event_rate_used_as_brier_reference",
+    "rev_status", "inference_computed", "cohort_contracts", "rows",
+})
+PROBABILISTIC_ROW_BASE_FIELDS = frozenset({
+    "cohort", "model", "horizon",
+    "n_forecasts_before_reportability_filter", "n_forecasts",
+    "n_sites_before_reportability_filter", "n_sites",
+    "minimum_targets_per_retained_site", "station_balanced_weight_sum",
+    "minimum_site_total_weight", "maximum_site_total_weight", "threshold_scope",
+})
+PROBABILISTIC_METRIC_FIELDS = frozenset({
+    "coverage_90", "mean_interval_width_c", "pinball_q05_c", "pinball_q50_c",
+    "pinball_q95_c", "equal_weight_three_quantile_pinball_mean_c",
+    "brier_score", "frozen_reference_brier_score",
+    "brier_skill_frozen_seasonal", "log_loss", "auroc", "auprc",
+    "ece_10_equal_width", "calibration_intercept", "calibration_slope",
+    "event_rate",
+})
+PROBABILISTIC_GENERIC_ROW_FIELDS = frozenset({
+    *PROBABILISTIC_ROW_BASE_FIELDS,
+    "status", "reason", "event_count", "non_event_count",
+    *PROBABILISTIC_METRIC_FIELDS,
+    "undefined_metric_reasons", "reliability_bins",
+})
+PROBABILISTIC_AVAILABLE_ROW_FIELDS = frozenset({
+    *PROBABILISTIC_GENERIC_ROW_FIELDS,
+    *PROBABILISTIC_SOURCE_FIELDS,
+    "quantile_pipeline_class", "quantile_pipeline", "member_quantile_contract",
+    "member_quantile_contract_sha256", "deployed_cqr_offset_min_c",
+    "deployed_cqr_offset_max_c", "cqr_offset_scope",
+    "direct_nominal_forward_cqr_parity_bitwise",
+    "direct_nominal_q50_parity_bitwise", "endpoint_inversion_used",
+})
+PROBABILISTIC_BUILTIN_MODELS = frozenset({
+    "Persistence", "DampedPersistence", "Climatology",
+})
+PROBABILITY_METRIC_ERRATUM_NORMALIZED_SHA256 = (
+    "05aa846517688ee4338c24ddbb941804a7cf4f2ae37dcdf64d5b2924c885bbe5"
 )
 CHRONOLOGY_FORMAT = "thermoroute.route-a-prelabel-chronology.v1"
 CHRONOLOGY_STATUS = "PASS_REPOSITORY_INTERNAL_PRELABEL_ORDER"
@@ -355,6 +498,9 @@ REQUIRED_MEMBERS = {
     PROTOCOL_SEAL_PATH,
     INFERENCE_AMENDMENT_PATH,
     INFERENCE_AMENDMENT_SEAL_PATH,
+    PROBABILITY_METRIC_ERRATUM_PATH,
+    PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+    LEGACY_THREE_SITE_NOTICE_PATH,
     "protocols/route_a_claim_registry_v1.json",
     "data/b1.csv",
     "data/s2.csv",
@@ -2601,6 +2747,63 @@ def _load_canonical_outcome_qc_module(root: Path) -> Any:
     return module
 
 
+def _load_canonical_probability_metric_erratum_module(root: Path) -> Any:
+    """Load the archive's fixed-path, outcome-free metric-erratum validator."""
+    source_dir = (root / "src" / "thermoroute").resolve()
+    source = source_dir / "probability_metric_erratum.py"
+    if not source.is_file() or source.is_symlink():
+        raise ValueError("canonical probability-metric erratum verifier is absent")
+    fingerprint = hashlib.sha256(
+        str(root).encode("utf-8") + b"\0" + source.read_bytes()
+    ).hexdigest()[:20]
+    package_name = f"_thermoroute_probability_erratum_{fingerprint}"
+    module_name = f"{package_name}.probability_metric_erratum"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        if Path(getattr(existing, "__file__", "")).resolve() != source:
+            raise ValueError(
+                "cached probability-metric erratum verifier is noncanonical"
+            )
+        return existing
+
+    package = types.ModuleType(package_name)
+    package.__package__ = package_name
+    package.__path__ = [str(source_dir)]
+    sys.modules[package_name] = package
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise ValueError(
+            "cannot construct canonical probability-metric erratum import"
+        )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        sys.modules.pop(module_name, None)
+        sys.modules.pop(package_name, None)
+        raise ValueError(
+            "cannot load canonical probability-metric erratum verifier"
+        ) from exc
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    if Path(getattr(module, "__file__", "")).resolve() != source:
+        raise ValueError(
+            "imported probability-metric erratum verifier is noncanonical"
+        )
+    for name in (
+        "validate_probability_metric_erratum",
+        "validate_probability_metric_erratum_seal",
+    ):
+        if not callable(getattr(module, name, None)):
+            raise ValueError(
+                "canonical probability-metric erratum verifier API is incomplete"
+            )
+    return module
+
+
 def _load_canonical_coverage_bridge_module(root: Path) -> Any:
     """Load the Git-verified archive bridge under an isolated package name.
 
@@ -2963,9 +3166,12 @@ def _validate_prelabel_chronology_structure(
     required_gate_paths = {
         "src/thermoroute/chronology.py",
         "src/thermoroute/outcome_qc.py",
+        "src/thermoroute/probability_metric_erratum.py",
         "scripts/28_freeze_prelabel_chronology.py",
         "tests/test_chronology.py",
         "protocols/route_a_outcome_qc_policy_v1.json",
+        "protocols/route_a_probability_metric_erratum_v1.json",
+        "protocols/route_a_probability_metric_erratum_seal_v1.json",
     }
     observed_by_field: dict[str, set[str]] = {}
     bindings_by_path: dict[str, Mapping[str, Any]] = {}
@@ -3126,6 +3332,13 @@ def _validate_authorization_structure(
     root: Path, authorization_path: Path
 ) -> tuple[dict[str, Any], dict[str, str]]:
     authorization = _load_json(authorization_path, label="Route-A authorization")
+    if set(authorization) != AUTHORIZATION_TOP_LEVEL_FIELDS:
+        missing = sorted(AUTHORIZATION_TOP_LEVEL_FIELDS - set(authorization))
+        extra = sorted(set(authorization) - AUTHORIZATION_TOP_LEVEL_FIELDS)
+        raise ValueError(
+            "opening authorization top-level schema changed: "
+            f"missing={missing}, extra={extra}"
+        )
     if (
         authorization.get("format") != AUTHORIZATION_FORMAT
         or authorization.get("status") != "AUTHORIZED_LABELS_STILL_SEALED"
@@ -3136,8 +3349,23 @@ def _validate_authorization_structure(
     if not isinstance(claimed, str) or claimed != _sha256_json(self_hashed):
         raise ValueError("opening authorization self hash is inconsistent")
     opening_id = authorization.get("opening_id")
-    if not isinstance(opening_id, str) or len(opening_id) != 24:
+    if (
+        not isinstance(opening_id, str)
+        or re.fullmatch(r"[0-9a-f]{24}", opening_id) is None
+    ):
         raise ValueError("opening authorization lacks a stable opening_id")
+    stable = dict(authorization)
+    stable.pop("opening_id")
+    stable.pop("created_at_utc")
+    stable.pop("authorization_self_sha256")
+    if opening_id != _sha256_json(stable)[:24]:
+        raise ValueError("opening authorization identity is inconsistent")
+    try:
+        created_at = datetime.fromisoformat(str(authorization["created_at_utc"]))
+    except ValueError as exc:
+        raise ValueError("opening authorization creation time is malformed") from exc
+    if created_at.tzinfo is None or created_at.utcoffset() is None:
+        raise ValueError("opening authorization creation time is not timezone-aware")
     source = authorization.get("source")
     if (
         not isinstance(source, Mapping)
@@ -3179,7 +3407,7 @@ def _validate_authorization_structure(
         "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
         "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
-        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v1.json",
+        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v2.json",
         "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
         "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
         "statistics": f"{base}/trusted/statistics_v1.json",
@@ -3239,6 +3467,46 @@ def _validate_authorization_structure(
         )
     ):
         raise ValueError("authorization lacks the canonical inference amendment seal")
+    probability_erratum = authorization.get("probability_metric_erratum")
+    erratum_seal = (
+        probability_erratum.get("seal")
+        if isinstance(probability_erratum, Mapping)
+        else None
+    )
+    if (
+        not isinstance(probability_erratum, Mapping)
+        or set(probability_erratum)
+        != {
+            "path",
+            "sha256",
+            "format",
+            "erratum_id",
+            "seal",
+            "erratum_document_commit",
+        }
+        or probability_erratum.get("path") != PROBABILITY_METRIC_ERRATUM_PATH
+        or probability_erratum.get("format")
+        != PROBABILITY_METRIC_ERRATUM_FORMAT
+        or probability_erratum.get("erratum_id")
+        != PROBABILITY_METRIC_ERRATUM_ID
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(probability_erratum.get("sha256", ""))
+        )
+        is None
+        or not isinstance(erratum_seal, Mapping)
+        or set(erratum_seal) != {"path", "sha256"}
+        or erratum_seal.get("path") != PROBABILITY_METRIC_ERRATUM_SEAL_PATH
+        or re.fullmatch(r"[0-9a-f]{64}", str(erratum_seal.get("sha256", "")))
+        is None
+        or re.fullmatch(
+            r"[0-9a-f]{40}",
+            str(probability_erratum.get("erratum_document_commit", "")),
+        )
+        is None
+    ):
+        raise ValueError(
+            "authorization lacks the canonical probability metric erratum seal"
+        )
     inference_gate = authorization.get("inference_gate")
     if (
         not isinstance(inference_gate, Mapping)
@@ -3417,6 +3685,69 @@ def _required_model_ids(cohort: str) -> set[str]:
         "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
         "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded",
     }
+
+
+def _validate_authorized_suite_model_order(
+    protocol: Mapping[str, Any],
+    cohorts: Mapping[str, Any],
+    required_models: object,
+) -> dict[str, tuple[str, ...]]:
+    """Bind authorization exactly to protocol order and suite entry order."""
+    primary_contract = protocol.get("primary_inference_contract")
+    primary_model_order = (
+        primary_contract.get("primary_models")
+        if isinstance(primary_contract, Mapping)
+        else None
+    )
+    control_model_order = (
+        primary_contract.get("mandatory_exploratory_architecture_controls")
+        if isinstance(primary_contract, Mapping)
+        else None
+    )
+    if (
+        not isinstance(primary_model_order, list)
+        or not isinstance(control_model_order, list)
+        or len(primary_model_order) != len(set(primary_model_order))
+        or len(control_model_order) != len(set(control_model_order))
+        or set(primary_model_order) != _required_model_ids("external")
+        or set(primary_model_order) & set(control_model_order)
+        or set((*primary_model_order, *control_model_order))
+        != _required_model_ids("temporal")
+    ):
+        raise ValueError("authorized protocol model order/registry changed")
+    expected = {
+        "temporal": tuple(str(value) for value in (
+            *primary_model_order, *control_model_order
+        )),
+        "external": tuple(str(value) for value in primary_model_order),
+    }
+    if set(cohorts) != {"temporal", "external"}:
+        raise ValueError("model suite lacks temporal/external cohorts")
+    for cohort in ("temporal", "external"):
+        item = cohorts[cohort]
+        entries = item.get("models") if isinstance(item, Mapping) else None
+        if not isinstance(entries, list) or any(
+            not isinstance(entry, Mapping) for entry in entries
+        ):
+            raise ValueError(f"model suite {cohort} registry is malformed")
+        ids = tuple(str(entry.get("model_id")) for entry in entries)
+        if ids != expected[cohort]:
+            raise ValueError(
+                f"model suite {cohort} model ID/order registry changed"
+            )
+    if (
+        not isinstance(required_models, Mapping)
+        or set(required_models) != {"temporal", "external"}
+        or required_models
+        != {
+            cohort: list(expected[cohort])
+            for cohort in ("temporal", "external")
+        }
+    ):
+        raise ValueError(
+            "authorization required-model registry differs from protocol/suite order"
+        )
+    return expected
 
 
 def _stage09b_release_members() -> tuple[tuple[str, int], ...]:
@@ -5975,6 +6306,66 @@ def _validate_inference_closure(
             "sha256": sha256_file(path),
         }
 
+    erratum_path = _resolve_release_path(
+        root,
+        PROBABILITY_METRIC_ERRATUM_PATH,
+        label="probability metric erratum",
+    )
+    erratum_seal_path = _resolve_release_path(
+        root,
+        PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        label="probability metric erratum seal",
+    )
+    _add_path(root, categories, "inference_gates", erratum_path)
+    _add_path(root, categories, "inference_gates", erratum_seal_path)
+    erratum_module = _load_canonical_probability_metric_erratum_module(root)
+    try:
+        erratum = erratum_module.validate_probability_metric_erratum(
+            erratum_path, root=root
+        )
+        erratum_seal = (
+            erratum_module.validate_probability_metric_erratum_seal(
+                erratum_seal_path,
+                root=root,
+                erratum_path=erratum_path,
+                allow_gitless_archive=True,
+            )
+        )
+    except Exception as exc:
+        raise ValueError(
+            "probability metric erratum or its seal changed"
+        ) from exc
+    if (
+        erratum.get("format") != PROBABILITY_METRIC_ERRATUM_FORMAT
+        or erratum.get("erratum_id") != PROBABILITY_METRIC_ERRATUM_ID
+        or erratum.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or erratum_seal.get("format")
+        != PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT
+        or erratum_seal.get("status")
+        != "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+        or erratum_seal.get("erratum_id") != erratum.get("erratum_id")
+    ):
+        raise ValueError("probability metric erratum identity changed")
+    authorized_erratum = authorization.get("probability_metric_erratum")
+    if (
+        not isinstance(authorized_erratum, Mapping)
+        or {
+            key: authorized_erratum.get(key)
+            for key in ("path", "sha256", "format", "erratum_id")
+        }
+        != {
+            **exact_binding(erratum_path),
+            "format": erratum["format"],
+            "erratum_id": erratum["erratum_id"],
+        }
+        or authorized_erratum.get("seal") != exact_binding(erratum_seal_path)
+        or authorized_erratum.get("erratum_document_commit")
+        != erratum_seal.get("erratum_document_commit")
+    ):
+        raise ValueError(
+            "authorization binds another probability metric erratum state"
+        )
+
     family = protocol_document.get("primary_inference_contract", {}).get(
         "confirmatory_family"
     )
@@ -7179,6 +7570,1157 @@ def _validate_transport_evidence(
     return snapshot_path, [dict(record) for record in records]
 
 
+def _load_independent_trusted_probability_predictions(
+    path: Path,
+    *,
+    cohort: str,
+    required_models: tuple[str, ...],
+) -> Any:
+    """Validate the public trusted prediction product without archive code."""
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    expected_columns = list(DEVELOPMENT_REPLAY_PREDICTION_COLUMNS)
+    schema = pq.ParquetFile(path).schema_arrow
+    if schema.names != expected_columns:
+        raise ValueError(
+            f"probabilistic {cohort} prediction schema columns/order changed"
+        )
+    text_columns = {"model", "scope", "feature_set", "site_id", "split"}
+    integer_columns = {"seed", "horizon"}
+    date_columns = {"issue_date", "target_date"}
+    float_columns = {"y_true", "y_pred", "q05", "q50", "q95", "p_exceed"}
+    for field in schema:
+        if field.name in text_columns and not pa.types.is_string(field.type):
+            raise ValueError(
+                f"probabilistic {cohort} prediction {field.name} type changed"
+            )
+        if field.name in integer_columns and not pa.types.is_integer(field.type):
+            raise ValueError(
+                f"probabilistic {cohort} prediction {field.name} type changed"
+            )
+        if field.name in date_columns and not (
+            pa.types.is_timestamp(field.type)
+            and field.type.unit == "ns"
+            and field.type.tz is None
+        ):
+            raise ValueError(
+                f"probabilistic {cohort} prediction {field.name} type changed"
+            )
+        if field.name in float_columns and not pa.types.is_floating(field.type):
+            raise ValueError(
+                f"probabilistic {cohort} prediction {field.name} type changed"
+            )
+
+    frame = pd.read_parquet(path)
+    if list(frame.columns) != expected_columns or frame.empty:
+        raise ValueError(f"probabilistic {cohort} prediction product is malformed")
+    for column in text_columns:
+        if frame[column].isna().any() or any(
+            not isinstance(value, str) or not value.strip()
+            for value in frame[column]
+        ):
+            raise ValueError(
+                f"probabilistic {cohort} prediction {column} is malformed"
+            )
+        frame[column] = frame[column].astype(str)
+    for column in integer_columns:
+        values = pd.to_numeric(frame[column], errors="raise")
+        if not np.equal(values.to_numpy(float), np.floor(values.to_numpy(float))).all():
+            raise ValueError(
+                f"probabilistic {cohort} prediction {column} is not integral"
+            )
+        frame[column] = values.astype("int64")
+    for column in date_columns:
+        frame[column] = pd.to_datetime(frame[column], errors="raise")
+        if frame[column].isna().any() or not frame[column].equals(
+            frame[column].dt.normalize()
+        ):
+            raise ValueError(
+                f"probabilistic {cohort} prediction dates are noncanonical"
+            )
+    for column in float_columns:
+        frame[column] = pd.to_numeric(frame[column], errors="raise").astype(
+            "float64"
+        )
+
+    expected_scope = {
+        "temporal": "route_a_temporal_confirmation",
+        "external": "route_a_external_history_dependent_new_gage",
+    }[cohort]
+    expected_feature_set = "WTEMP+FLOW+TEMP+PRCP+RHMEAN+DH+WDSP"
+    if (
+        set(frame["model"]) != set(required_models)
+        or set(frame["scope"]) != {expected_scope}
+        or set(frame["feature_set"]) != {expected_feature_set}
+        or set(frame["seed"]) != {-1}
+        or set(frame["split"]) != {"confirm"}
+        or set(frame["horizon"]) != {1, 3, 7}
+    ):
+        raise ValueError(
+            f"probabilistic {cohort} prediction model/static registry changed"
+        )
+    if not np.isfinite(frame[["y_true", "y_pred"]].to_numpy(float)).all():
+        raise ValueError(
+            f"probabilistic {cohort} prediction point values are non-finite"
+        )
+    if not (
+        frame["issue_date"]
+        + pd.to_timedelta(frame["horizon"], unit="D")
+    ).equals(frame["target_date"]):
+        raise ValueError(
+            f"probabilistic {cohort} prediction target-date arithmetic changed"
+        )
+    if any(
+        not site.isdigit() or not 8 <= len(site) <= 15
+        for site in set(frame["site_id"])
+    ):
+        raise ValueError(
+            f"probabilistic {cohort} prediction lacks stable station identifiers"
+        )
+
+    forecast_key = list(DEVELOPMENT_REPLAY_FORECAST_KEY_COLUMNS)
+    identity = ["model", *forecast_key]
+    if frame.duplicated(identity).any():
+        raise ValueError(
+            f"probabilistic {cohort} prediction has duplicate model/forecast keys"
+        )
+    reference: Any | None = None
+    for model in required_models:
+        selected = frame.loc[
+            frame["model"].eq(model), [*forecast_key, "y_true"]
+        ].sort_values(forecast_key, kind="mergesort").reset_index(drop=True)
+        if selected.empty:
+            raise ValueError(
+                f"probabilistic {cohort} prediction omits model {model}"
+            )
+        if reference is None:
+            reference = selected
+        elif not (
+            selected[forecast_key].equals(reference[forecast_key])
+            and np.array_equal(
+                selected["y_true"].to_numpy(dtype="float64"),
+                reference["y_true"].to_numpy(dtype="float64"),
+            )
+        ):
+            raise ValueError(
+                f"probabilistic {cohort} prediction models do not share exact keys/truth"
+            )
+        probability = frame.loc[
+            frame["model"].eq(model), ["q05", "q50", "q95", "p_exceed"]
+        ]
+        if model in PROBABILISTIC_BUILTIN_MODELS:
+            if probability.notna().any().any():
+                raise ValueError(
+                    f"probabilistic {cohort} builtin {model} has invented heads"
+                )
+        else:
+            values = probability.to_numpy(float)
+            if not (
+                np.isfinite(values).all()
+                and (values[:, 0] <= values[:, 1]).all()
+                and (values[:, 1] <= values[:, 2]).all()
+                and (values[:, 0] < values[:, 2]).all()
+                and ((0.0 <= values[:, 3]) & (values[:, 3] <= 1.0)).all()
+            ):
+                raise ValueError(
+                    f"probabilistic {cohort} learned {model} heads are invalid"
+                )
+    return frame
+
+
+def _station_balanced_probability_weights(frame: Any) -> Any:
+    import numpy as np
+
+    counts = frame["site_id"].astype(str).value_counts().sort_index()
+    if counts.empty or counts.le(0).any():
+        raise ValueError("probabilistic station-balanced population is empty")
+    raw = frame["site_id"].astype(str).map(
+        {site: 1.0 / int(count) for site, count in counts.items()}
+    ).to_numpy(dtype="float64")
+    weights = raw / raw.sum()
+    if not (
+        np.isfinite(weights).all()
+        and (weights > 0.0).all()
+        and np.isclose(weights.sum(), 1.0, rtol=0.0, atol=1e-12)
+    ):
+        raise ValueError("probabilistic station-balanced weights are invalid")
+    return weights
+
+
+def _assert_probability_metric_close(
+    actual: object, expected: float, *, label: str
+) -> None:
+    try:
+        value = float(actual)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} is absent or nonnumeric") from exc
+    if not math.isfinite(value) or not math.isclose(
+        value, expected, rel_tol=1e-12, abs_tol=1e-12
+    ):
+        raise ValueError(
+            f"{label} differs from independent stored-parquet recomputation"
+        )
+
+
+def _independent_frozen_event_reference_probabilities(
+    reference: Mapping[str, Any],
+    *,
+    cohort: str,
+    expected_sites: set[str],
+    sites: Any,
+    target_dates: Any,
+) -> Any:
+    """Validate and apply the suite-frozen seasonal event reference."""
+    import numpy as np
+    import pandas as pd
+
+    common_fields = {
+        "format", "mode", "threshold_scope", "fit_interval", "smoothing",
+        "global_probability", "fit_observation_count",
+    }
+    mode = reference.get("mode")
+    external = cohort == "external"
+    expected_fields = (
+        common_fields | {"month_probability"}
+        if external
+        else common_fields | {
+            "station_probability", "station_month_probability"
+        }
+    )
+    expected_mode = "pooled_month" if external else "station_month"
+    expected_scope = (
+        "pooled_development_train_q90"
+        if external else "station_development_train_q90"
+    )
+    interval = reference.get("fit_interval")
+    if (
+        set(reference) != expected_fields
+        or reference.get("format")
+        != "thermoroute.frozen-seasonal-event-reference.v1"
+        or mode != expected_mode
+        or reference.get("threshold_scope") != expected_scope
+        or interval != ["2006-01-01", "2018-12-31"]
+        or type(reference.get("fit_observation_count")) is not int
+        or int(reference["fit_observation_count"]) < 1
+    ):
+        raise ValueError(
+            f"probabilistic {cohort} frozen event reference schema changed"
+        )
+    try:
+        smoothing = float(reference["smoothing"])
+        global_probability = float(reference["global_probability"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"probabilistic {cohort} frozen event reference is nonnumeric"
+        ) from exc
+    if (
+        not math.isfinite(smoothing)
+        or smoothing <= 0.0
+        or not math.isfinite(global_probability)
+        or not 0.0 < global_probability < 1.0
+    ):
+        raise ValueError(
+            f"probabilistic {cohort} frozen event reference is invalid"
+        )
+
+    def probability_map(
+        value: object, expected: set[str], *, label: str
+    ) -> dict[str, float]:
+        if not isinstance(value, Mapping) or set(map(str, value)) != expected:
+            raise ValueError(
+                f"probabilistic {cohort} frozen {label} registry changed"
+            )
+        try:
+            output = {str(key): float(item) for key, item in value.items()}
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"probabilistic {cohort} frozen {label} is nonnumeric"
+            ) from exc
+        values = np.asarray(list(output.values()), dtype="float64")
+        if not (
+            np.isfinite(values).all()
+            and ((0.0 < values) & (values < 1.0)).all()
+        ):
+            raise ValueError(
+                f"probabilistic {cohort} frozen {label} is outside (0,1)"
+            )
+        return output
+
+    months = {str(month) for month in range(1, 13)}
+    site_values = np.asarray(sites).astype(str)
+    dates = pd.to_datetime(target_dates, errors="raise")
+    if len(site_values) != len(dates) or set(site_values) - expected_sites:
+        raise ValueError(
+            f"probabilistic {cohort} frozen event reference keys changed"
+        )
+    if external:
+        monthly = probability_map(
+            reference.get("month_probability"), months, label="month probability"
+        )
+        output = np.asarray(
+            [monthly[str(int(month))] for month in dates.month],
+            dtype="float64",
+        )
+    else:
+        station_probability = probability_map(
+            reference.get("station_probability"),
+            expected_sites,
+            label="station probability",
+        )
+        station_month = probability_map(
+            reference.get("station_month_probability"),
+            {
+                f"{site}|{month}"
+                for site in expected_sites
+                for month in range(1, 13)
+            },
+            label="station-month probability",
+        )
+        if any(site not in station_probability for site in site_values):
+            raise ValueError(
+                "probabilistic temporal frozen event reference omits a station"
+            )
+        output = np.asarray([
+            station_month[f"{site}|{int(month)}"]
+            for site, month in zip(site_values, dates.month, strict=True)
+        ], dtype="float64")
+    return np.clip(output, 1e-6, 1.0 - 1e-6)
+
+
+def _independent_probability_reliability_bins(
+    event: Any, probability: Any, weights: Any, sites: Any
+) -> tuple[list[dict[str, Any]], float]:
+    import numpy as np
+
+    probability = np.clip(
+        np.asarray(probability, dtype="float64"), 1e-6, 1.0 - 1e-6
+    )
+    event = np.asarray(event, dtype="float64")
+    weights = np.asarray(weights, dtype="float64")
+    sites = np.asarray(sites).astype(str)
+    edges = np.linspace(0.0, 1.0, 11)
+    assignments = np.clip(np.digitize(probability, edges[1:-1]), 0, 9)
+    rows: list[dict[str, Any]] = []
+    ece = 0.0
+    for index in range(10):
+        selected = assignments == index
+        count = int(selected.sum())
+        bin_weight = float(weights[selected].sum())
+        mean_probability = (
+            None
+            if not count
+            else float(np.average(
+                probability[selected], weights=weights[selected]
+            ))
+        )
+        event_rate = (
+            None
+            if not count
+            else float(np.average(event[selected], weights=weights[selected]))
+        )
+        if mean_probability is not None and event_rate is not None:
+            ece += bin_weight * abs(event_rate - mean_probability)
+        rows.append({
+            "bin_index": index + 1,
+            "lower_bound": float(edges[index]),
+            "upper_bound": float(edges[index + 1]),
+            "upper_bound_inclusive": index == 9,
+            "n": count,
+            "n_sites": int(np.unique(sites[selected]).size),
+            "station_balanced_weight": bin_weight,
+            "mean_probability": mean_probability,
+            "event_rate": event_rate,
+        })
+    return rows, float(ece)
+
+
+def _validate_probability_reliability_bins(
+    actual: object,
+    expected: list[dict[str, Any]],
+    *,
+    label: str,
+) -> None:
+    if not isinstance(actual, list) or len(actual) != len(expected):
+        raise ValueError(f"{label} reliability-bin registry changed")
+    integer_fields = {"bin_index", "n", "n_sites"}
+    boolean_fields = {"upper_bound_inclusive"}
+    numeric_fields = {
+        "lower_bound", "upper_bound", "station_balanced_weight",
+        "mean_probability", "event_rate",
+    }
+    expected_fields = integer_fields | boolean_fields | numeric_fields
+    for index, (observed, target) in enumerate(
+        zip(actual, expected, strict=True), start=1
+    ):
+        if not isinstance(observed, Mapping) or set(observed) != expected_fields:
+            raise ValueError(f"{label} reliability bin {index} schema changed")
+        if any(
+            type(observed.get(name)) is not int
+            or observed.get(name) != target[name]
+            for name in integer_fields
+        ):
+            raise ValueError(f"{label} reliability bin {index} counts changed")
+        if any(
+            type(observed.get(name)) is not bool
+            or observed.get(name) is not target[name]
+            for name in boolean_fields
+        ):
+            raise ValueError(f"{label} reliability bin {index} boundary changed")
+        for name in numeric_fields:
+            expected_value = target[name]
+            actual_value = observed.get(name)
+            if expected_value is None:
+                if actual_value is not None:
+                    raise ValueError(
+                        f"{label} reliability bin {index} {name} changed"
+                    )
+            else:
+                if type(actual_value) is not float:
+                    raise ValueError(
+                        f"{label} reliability bin {index} {name} type changed"
+                    )
+                _assert_probability_metric_close(
+                    actual_value,
+                    float(expected_value),
+                    label=f"{label} reliability bin {index} {name}",
+                )
+
+
+def _independent_probability_classification_diagnostics(
+    event: Any, probability: Any, weights: Any
+) -> dict[str, Any]:
+    import numpy as np
+    from sklearn.exceptions import ConvergenceWarning  # type: ignore[import-untyped]
+    from sklearn.linear_model import LogisticRegression  # type: ignore[import-untyped]
+    from sklearn.metrics import (  # type: ignore[import-untyped]
+        average_precision_score,
+        roc_auc_score,
+    )
+    import warnings
+
+    event = np.asarray(event, dtype="int64")
+    probability = np.asarray(probability, dtype="float64")
+    weights = np.asarray(weights, dtype="float64")
+    if np.unique(event).size < 2:
+        reason = "SINGLE_CLASS_RETAINED_OUTCOMES"
+        return {
+            "auroc": None,
+            "auprc": None,
+            "calibration_intercept": None,
+            "calibration_slope": None,
+            "undefined_metric_reasons": {
+                name: reason for name in (
+                    "auroc", "auprc", "calibration_intercept",
+                    "calibration_slope",
+                )
+            },
+        }
+    auroc = float(roc_auc_score(
+        event, probability, sample_weight=weights
+    ))
+    auprc = float(average_precision_score(
+        event, probability, sample_weight=weights
+    ))
+    undefined: dict[str, str] = {}
+    intercept: float | None
+    slope: float | None
+    try:
+        clipped = np.clip(probability, 1e-6, 1.0 - 1e-6)
+        logit_probability = np.log(clipped / (1.0 - clipped))
+        calibration = LogisticRegression(
+            C=1e6, solver="lbfgs", max_iter=2000
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConvergenceWarning)
+            calibration.fit(
+                logit_probability.reshape(-1, 1),
+                event,
+                sample_weight=weights,
+            )
+        if any(
+            issubclass(item.category, ConvergenceWarning) for item in caught
+        ):
+            raise ValueError("weighted calibration regression did not converge")
+        intercept = float(calibration.intercept_[0])
+        slope = float(calibration.coef_[0, 0])
+        if not np.isfinite([intercept, slope]).all():
+            raise ValueError("weighted calibration regression is non-finite")
+    except (RuntimeError, ValueError):
+        intercept = slope = None
+        undefined = {
+            "calibration_intercept": (
+                "WEIGHTED_CALIBRATION_REGRESSION_NOT_ESTIMABLE"
+            ),
+            "calibration_slope": (
+                "WEIGHTED_CALIBRATION_REGRESSION_NOT_ESTIMABLE"
+            ),
+        }
+    return {
+        "auroc": auroc,
+        "auprc": auprc,
+        "calibration_intercept": intercept,
+        "calibration_slope": slope,
+        "undefined_metric_reasons": undefined,
+    }
+
+
+def _validate_probabilistic_evaluation_v2(
+    *,
+    artifact_path: Path,
+    availability_path: Path,
+    prediction_paths: Mapping[str, Path],
+    model_metadata: Mapping[tuple[str, str], Mapping[str, Any]],
+    required_models: Mapping[str, Any],
+    protocol: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Independently replay the v2 schema and nominal pre-CQR pinball scores."""
+    import numpy as np
+    import pandas as pd
+
+    artifact = _load_json(
+        artifact_path, label="probabilistic and event evaluation v2"
+    )
+    if set(artifact) != PROBABILISTIC_TOP_LEVEL_FIELDS:
+        raise ValueError("probabilistic v2 top-level schema changed")
+    primary = protocol.get("primary_inference_contract")
+    contract = (
+        primary.get("probabilistic_event_contract")
+        if isinstance(primary, Mapping)
+        else None
+    )
+    if not isinstance(contract, Mapping):
+        raise ValueError("probabilistic v2 base contract is absent")
+    availability_contract = protocol.get("availability_contract")
+    minimum_targets = (
+        availability_contract.get(
+            "minimum_valid_targets_per_station_horizon"
+        )
+        if isinstance(availability_contract, Mapping)
+        else None
+    )
+    if minimum_targets != 100:
+        raise ValueError("probabilistic v2 reportability threshold changed")
+    base_sha256 = _sha256_json(contract)
+    erratum_binding = authorization.get("probability_metric_erratum")
+    if not isinstance(erratum_binding, Mapping):
+        raise ValueError("probabilistic v2 authorization lacks erratum binding")
+
+    pipelines = artifact.get("bundle_scoring_pipeline_contracts")
+    if not isinstance(pipelines, Mapping) or set(pipelines) != set(
+        PROBABILISTIC_PIPELINES
+    ):
+        raise ValueError("probabilistic v2 bundle pipeline registry changed")
+    for pipeline_class, pipeline_text in PROBABILISTIC_PIPELINES.items():
+        value = pipelines[pipeline_class]
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != {
+                "pipeline",
+                "member_quantile_contract",
+                "member_quantile_contract_sha256",
+            }
+            or value.get("pipeline") != pipeline_text
+            or value.get("member_quantile_contract_sha256")
+            != _sha256_json(value.get("member_quantile_contract"))
+        ):
+            raise ValueError(
+                "probabilistic v2 bundle pipeline provenance changed"
+            )
+    effective_contract = {
+        "base_probabilistic_event_contract_sha256": base_sha256,
+        "probability_metric_erratum": dict(erratum_binding),
+        "effective_output_artifact": PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+        "metric_source_fields": dict(PROBABILISTIC_SOURCE_FIELDS),
+        "nominal_quantile_handling": dict(
+            PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        ),
+        "bundle_scoring_pipeline_contracts": dict(PROBABILISTIC_PIPELINES),
+    }
+    expected_metric_sources = {
+        "coverage_90_and_mean_interval_width_c": (
+            PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE
+        ),
+        "pinball_q05_q50_q95": PROBABILISTIC_PINBALL_QUANTILE_SOURCE,
+        "event_probability": PROBABILISTIC_EVENT_PROBABILITY_SOURCE,
+        "event_outcome": PROBABILISTIC_EVENT_OUTCOME_SOURCE,
+    }
+    if (
+        artifact.get("format") != PROBABILISTIC_EVALUATION_FORMAT
+        or artifact.get("role") != contract.get("role")
+        or artifact.get("contract_sha256") != base_sha256
+        or artifact.get("base_probabilistic_event_contract_sha256")
+        != base_sha256
+        or artifact.get("probability_metric_erratum") != dict(erratum_binding)
+        or artifact.get("effective_output_artifact")
+        != PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH
+        or artifact.get("effective_contract") != effective_contract
+        or artifact.get("effective_contract_sha256")
+        != _sha256_json(effective_contract)
+        or artifact.get("probabilistic_heads")
+        != ["q05", "q50", "q95", "p_exceed"]
+        or artifact.get("aggregation") != contract.get("aggregation")
+        or artifact.get("minimum_valid_targets_per_station_horizon")
+        != minimum_targets
+        or artifact.get("metric_weighting")
+        != "station-balanced: each retained station total weight is 1/n_sites"
+        or artifact.get("event_count_definition")
+        != "unweighted raw counts of retained forecast rows by observed event class"
+        or artifact.get("event_rate_and_probability_metric_weighting")
+        != (
+            "station-balanced using the same per-row weights as all reported "
+            "probability metrics"
+        )
+        or artifact.get("central_interval_nominal_coverage") != 0.90
+        or artifact.get("metric_sources") != expected_metric_sources
+        or artifact.get("nominal_quantile_handling")
+        != PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        or artifact.get("interval_coverage_claim")
+        != (
+            "station-balanced empirical marginal coverage only; no "
+            "conditional-coverage or exchangeability guarantee"
+        )
+        or artifact.get("three_quantile_score_definition")
+        != (
+            "unscaled equal-weight arithmetic mean of nominal pre-CQR "
+            "q05/q50/q95 pinball loss"
+        )
+        or artifact.get("three_quantile_score_is_crps") is not False
+        or artifact.get("event_probability_calibration_period")
+        != "2018_only_before_confirmation"
+        or artifact.get("evaluation_calibration_regression")
+        != (
+            "weighted logistic regression of event on clipped forecast logit; "
+            "sklearn lbfgs, C=1e6, max_iter=2000"
+        )
+        or artifact.get(
+            "event_probability_clip_for_log_and_calibration_diagnostics"
+        ) != [1e-6, 1 - 1e-6]
+        or artifact.get("reliability_bins")
+        != "10_equal_width_bins_on_[0,1]"
+        or artifact.get(
+            "single_class_auroc_auprc_and_calibration_parameters"
+        ) != "NA"
+        or artifact.get("brier_skill_reference")
+        != "bundle-frozen seasonal development train/calibration climatology"
+        or artifact.get("confirmation_event_rate_used_as_brier_reference")
+        is not False
+        or artifact.get("inference_computed") is not False
+        or artifact.get("rev_status")
+        != "REV_NOT_EVALUATED_NO_PREDECLARED_COST_LOSS_RATIOS"
+    ):
+        raise ValueError("probabilistic v2 source/effective contract changed")
+
+    expected_required: dict[str, tuple[str, ...]] = {}
+    frames: dict[str, Any] = {}
+    for cohort in ("temporal", "external"):
+        values = required_models.get(cohort) if isinstance(
+            required_models, Mapping
+        ) else None
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"probabilistic v2 lacks {cohort} required models")
+        expected_required[cohort] = tuple(str(value) for value in values)
+        frames[cohort] = _load_independent_trusted_probability_predictions(
+            prediction_paths[cohort],
+            cohort=cohort,
+            required_models=expected_required[cohort],
+        )
+
+    availability = pd.read_csv(
+        availability_path,
+        dtype={"cohort": "string", "site_no": "string"},
+        keep_default_na=False,
+    )
+    expected_availability_columns = {
+        "cohort", "site_no", "horizon", "n_valid_targets", "reportable"
+    }
+    if (
+        set(availability) != expected_availability_columns
+        or availability.empty
+        or availability.duplicated(
+            ["cohort", "site_no", "horizon"], keep=False
+        ).any()
+    ):
+        raise ValueError("probabilistic v2 availability schema/identity changed")
+    availability["cohort"] = availability["cohort"].astype(str)
+    availability["site_no"] = availability["site_no"].astype(str)
+    availability["horizon"] = pd.to_numeric(
+        availability["horizon"], errors="raise"
+    ).astype("int64")
+    availability["n_valid_targets"] = pd.to_numeric(
+        availability["n_valid_targets"], errors="raise"
+    ).astype("int64")
+    reportable = availability["reportable"].astype(str).str.lower().map(
+        {"true": True, "false": False, "1": True, "0": False}
+    )
+    if (
+        set(availability["cohort"]) != {"temporal", "external"}
+        or set(availability["horizon"]) != {1, 3, 7}
+        or availability["n_valid_targets"].lt(0).any()
+        or reportable.isna().any()
+        or not np.array_equal(
+            reportable.to_numpy(bool),
+            availability["n_valid_targets"].ge(100).to_numpy(),
+        )
+    ):
+        raise ValueError("probabilistic v2 availability semantics changed")
+    availability["reportable_bool"] = reportable.to_numpy(bool)
+
+    expected_cohort_contracts: dict[str, dict[str, Any]] = {}
+    cohort_thresholds: dict[str, dict[str, float]] = {}
+    cohort_event_references: dict[str, Mapping[str, Any]] = {}
+    for cohort in ("temporal", "external"):
+        expected_sites = set(frames[cohort]["site_id"].astype(str))
+        actual_availability_keys = set(zip(
+            availability.loc[
+                availability["cohort"].eq(cohort), "site_no"
+            ].astype(str),
+            availability.loc[
+                availability["cohort"].eq(cohort), "horizon"
+            ].astype(int),
+            strict=True,
+        ))
+        expected_availability_keys = {
+            (site, horizon)
+            for site in expected_sites
+            for horizon in (1, 3, 7)
+        }
+        if actual_availability_keys != expected_availability_keys:
+            raise ValueError(
+                f"probabilistic {cohort} availability site/horizon registry changed"
+            )
+        learned_models = [
+            model for model in expected_required[cohort]
+            if model not in PROBABILISTIC_BUILTIN_MODELS
+        ]
+        if not learned_models:
+            raise ValueError(f"probabilistic {cohort} lacks a learned model")
+        primary_model = (
+            "ThermoRoute" if "ThermoRoute" in learned_models else learned_models[0]
+        )
+        primary_metadata = model_metadata.get((cohort, primary_model))
+        thresholds_raw = (
+            primary_metadata.get("event_thresholds")
+            if isinstance(primary_metadata, Mapping)
+            else None
+        )
+        reference = (
+            primary_metadata.get("event_reference_climatology")
+            if isinstance(primary_metadata, Mapping)
+            else None
+        )
+        if not isinstance(thresholds_raw, Mapping) or not isinstance(
+            reference, Mapping
+        ):
+            raise ValueError(
+                f"probabilistic {cohort} lacks frozen event provenance"
+            )
+        try:
+            thresholds = {
+                str(site): float(value) for site, value in thresholds_raw.items()
+            }
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"probabilistic {cohort} event threshold registry is malformed"
+            ) from exc
+        if not thresholds or not np.isfinite(
+            np.asarray(list(thresholds.values()), dtype="float64")
+        ).all():
+            raise ValueError(
+                f"probabilistic {cohort} event threshold registry is invalid"
+            )
+        expected_threshold_keys = (
+            {"__pooled__"} if cohort == "external" else expected_sites
+        )
+        if set(thresholds) != expected_threshold_keys:
+            raise ValueError(
+                f"probabilistic {cohort} event threshold scope changed"
+            )
+        for model in learned_models:
+            metadata = model_metadata.get((cohort, model))
+            if (
+                not isinstance(metadata, Mapping)
+                or metadata.get("event_thresholds") != thresholds_raw
+                or metadata.get("event_reference_climatology") != reference
+            ):
+                raise ValueError(
+                    f"probabilistic {cohort}/{model} event provenance changed"
+                )
+        _independent_frozen_event_reference_probabilities(
+            reference,
+            cohort=cohort,
+            expected_sites=expected_sites,
+            sites=frames[cohort]["site_id"].astype(str).to_numpy(),
+            target_dates=frames[cohort]["target_date"].to_numpy(),
+        )
+        external = cohort == "external"
+        expected_cohort_contracts[cohort] = {
+            "threshold_scope": (
+                "pooled_development_train_q90"
+                if external else "station_specific_development_train_q90"
+            ),
+            "threshold_registry_sha256": _sha256_json(thresholds),
+            "event_reference_format": reference["format"],
+            "event_reference_mode": reference["mode"],
+            "event_reference_sha256": _sha256_json(reference),
+            "event_reference_fit_interval": list(reference["fit_interval"]),
+            "event_reference_fit_observation_count": int(
+                reference["fit_observation_count"]
+            ),
+            "interpretation": (
+                "exploratory pooled statistical tail threshold; non-ecological "
+                "and not a waterbody-specific standard"
+                if external
+                else "site-local statistical tail diagnostic; not biological, "
+                "regulatory, or cross-station comparable"
+            ),
+        }
+        cohort_thresholds[cohort] = thresholds
+        cohort_event_references[cohort] = reference
+    if artifact.get("cohort_contracts") != expected_cohort_contracts:
+        raise ValueError("probabilistic v2 cohort provenance contract changed")
+
+    rows = artifact.get("rows")
+    if not isinstance(rows, list) or any(
+        not isinstance(row, Mapping) for row in rows
+    ):
+        raise ValueError("probabilistic v2 row registry is malformed")
+    expected_identities = {
+        (cohort, model, horizon)
+        for cohort in ("temporal", "external")
+        for model in expected_required[cohort]
+        for horizon in (1, 3, 7)
+    }
+    by_identity = {
+        (
+            str(row.get("cohort", "")),
+            str(row.get("model", "")),
+            row.get("horizon"),
+        ): row
+        for row in rows
+    }
+    if len(by_identity) != len(rows) or set(by_identity) != expected_identities:
+        raise ValueError("probabilistic v2 row/model/horizon registry changed")
+
+    for cohort, model, horizon in sorted(expected_identities):
+        row = by_identity[(cohort, model, horizon)]
+        frame = frames[cohort]
+        all_selected = frame.loc[
+            frame["model"].eq(model) & frame["horizon"].eq(horizon)
+        ].copy()
+        cohort_availability = availability.loc[
+            availability["cohort"].eq(cohort)
+            & availability["horizon"].eq(horizon)
+        ]
+        declared_counts = {
+            str(item.site_no): int(item.n_valid_targets)
+            for item in cohort_availability.itertuples(index=False)
+            if int(item.n_valid_targets) > 0
+        }
+        observed_counts = {
+            str(site): int(count)
+            for site, count in all_selected["site_id"].astype(
+                str
+            ).value_counts().items()
+        }
+        if observed_counts != declared_counts:
+            raise ValueError(
+                f"probabilistic {cohort}/{model}/h{horizon} counts differ from availability"
+            )
+        reportable_sites = set(
+            cohort_availability.loc[
+                cohort_availability["reportable_bool"], "site_no"
+            ].astype(str)
+        )
+        selected = all_selected.loc[
+            all_selected["site_id"].astype(str).isin(reportable_sites)
+        ].copy()
+        site_counts = selected["site_id"].astype(str).value_counts().sort_index()
+        n_sites = len(site_counts)
+        minimum_site_weight = None if not n_sites else 1.0 / n_sites
+        expected_base = {
+            "cohort": cohort,
+            "model": model,
+            "horizon": horizon,
+            "n_forecasts_before_reportability_filter": len(all_selected),
+            "n_forecasts": len(selected),
+            "n_sites_before_reportability_filter": int(
+                all_selected["site_id"].astype(str).nunique()
+            ),
+            "n_sites": n_sites,
+            "minimum_targets_per_retained_site": minimum_targets,
+            "station_balanced_weight_sum": 0.0 if not n_sites else 1.0,
+            "minimum_site_total_weight": minimum_site_weight,
+            "maximum_site_total_weight": minimum_site_weight,
+            "threshold_scope": (
+                "station_specific_development_train_q90"
+                if cohort == "temporal"
+                else "pooled_development_train_q90"
+            ),
+        }
+        for key, expected in expected_base.items():
+            actual = row.get(key)
+            if isinstance(expected, float):
+                _assert_probability_metric_close(
+                    actual, expected, label=f"probabilistic row {key}"
+                )
+            elif actual != expected:
+                raise ValueError(
+                    f"probabilistic row identity/count changed: {key}"
+                )
+
+        if model in PROBABILISTIC_BUILTIN_MODELS:
+            unavailable_reason = (
+                "POINT_ONLY_BUILTIN_HAS_NO_FROZEN_PROBABILISTIC_HEAD"
+            )
+            if (
+                set(row) != PROBABILISTIC_GENERIC_ROW_FIELDS
+                or row.get("status") != "NOT_AVAILABLE"
+                or row.get("reason") != unavailable_reason
+                or row.get("event_count") is not None
+                or row.get("non_event_count") is not None
+                or any(row.get(name) is not None for name in PROBABILISTIC_METRIC_FIELDS)
+                or row.get("undefined_metric_reasons")
+                != {name: unavailable_reason for name in PROBABILISTIC_METRIC_FIELDS}
+                or row.get("reliability_bins") != []
+            ):
+                raise ValueError("probabilistic builtin row schema/semantics changed")
+            continue
+        if not n_sites:
+            unavailable_reason = "NO_STATION_HAS_100_COMMON_TARGETS"
+            if (
+                set(row) != PROBABILISTIC_GENERIC_ROW_FIELDS
+                or row.get("status") != "NOT_ESTIMABLE"
+                or row.get("reason") != unavailable_reason
+                or row.get("event_count") is not None
+                or row.get("non_event_count") is not None
+                or any(row.get(name) is not None for name in PROBABILISTIC_METRIC_FIELDS)
+                or row.get("undefined_metric_reasons")
+                != {name: unavailable_reason for name in PROBABILISTIC_METRIC_FIELDS}
+                or row.get("reliability_bins") != []
+            ):
+                raise ValueError(
+                    "probabilistic non-estimable learned row schema changed"
+                )
+            continue
+        if set(row) != PROBABILISTIC_AVAILABLE_ROW_FIELDS:
+            raise ValueError("probabilistic AVAILABLE row schema changed")
+        if (
+            row.get("status") != "AVAILABLE"
+            or row.get("reason") is not None
+            or any(row.get(key) != value for key, value in PROBABILISTIC_SOURCE_FIELDS.items())
+            or row.get("direct_nominal_forward_cqr_parity_bitwise") is not True
+            or row.get("direct_nominal_q50_parity_bitwise") is not True
+            or row.get("endpoint_inversion_used") is not False
+        ):
+            raise ValueError("probabilistic AVAILABLE source/parity fields changed")
+        pipeline_class = (
+            "LightGBM"
+            if model == "LightGBM"
+            else "deep_LSTM_and_deterministic_controls"
+        )
+        pipeline = pipelines[pipeline_class]
+        if (
+            row.get("quantile_pipeline_class") != pipeline_class
+            or row.get("quantile_pipeline") != pipeline["pipeline"]
+            or row.get("member_quantile_contract")
+            != pipeline["member_quantile_contract"]
+            or row.get("member_quantile_contract_sha256")
+            != pipeline["member_quantile_contract_sha256"]
+        ):
+            raise ValueError("probabilistic AVAILABLE pipeline binding changed")
+        metadata = model_metadata.get((cohort, model))
+        offsets = metadata.get("conformal_offsets") if isinstance(
+            metadata, Mapping
+        ) else None
+        if not isinstance(offsets, Mapping):
+            raise ValueError(
+                f"probabilistic {cohort}/{model} lacks frozen suite offsets"
+            )
+        sites = selected["site_id"].astype(str).to_numpy()
+        offset_keys = (
+            [f"__pooled__|{horizon}"] * len(selected)
+            if cohort == "external"
+            else [f"{site}|{horizon}" for site in sites]
+        )
+        if any(key not in offsets for key in offset_keys):
+            raise ValueError(
+                f"probabilistic {cohort}/{model}/h{horizon} offset key is absent"
+            )
+        delta = np.asarray(
+            [float(offsets[key]) for key in offset_keys], dtype="float64"
+        )
+        if not np.isfinite(delta).all() or (delta < 0.0).any():
+            raise ValueError("probabilistic frozen CQR offset is unsafe")
+        values = selected[["y_true", "q05", "q50", "q95"]].to_numpy(
+            dtype="float64"
+        )
+        truth, cqr_q05, nominal_q50, cqr_q95 = values.T
+        reconstructed_q05 = cqr_q05 + delta
+        reconstructed_q95 = cqr_q95 - delta
+        scale = np.maximum.reduce([
+            np.ones(len(selected), dtype="float64"),
+            np.abs(reconstructed_q05),
+            np.abs(nominal_q50),
+            np.abs(reconstructed_q95),
+            np.abs(delta),
+        ])
+        tolerance = 8.0 * np.finfo(np.float64).eps * scale
+        if (
+            (reconstructed_q05 - nominal_q50 > tolerance).any()
+            or (nominal_q50 - reconstructed_q95 > tolerance).any()
+        ):
+            raise ValueError(
+                "probabilistic stored CQR endpoints cannot reconstruct nominal heads"
+            )
+        nominal_q05 = np.minimum(reconstructed_q05, nominal_q50)
+        nominal_q95 = np.maximum(reconstructed_q95, nominal_q50)
+        if not (
+            np.isfinite(
+                np.column_stack((nominal_q05, nominal_q50, nominal_q95))
+            ).all()
+            and (nominal_q05 <= nominal_q50).all()
+            and (nominal_q50 <= nominal_q95).all()
+            and (nominal_q05 < nominal_q95).all()
+        ):
+            raise ValueError("probabilistic reconstructed nominal heads are invalid")
+        weights = _station_balanced_probability_weights(selected)
+        threshold_registry = cohort_thresholds[cohort]
+        row_thresholds = np.asarray(
+            [
+                threshold_registry[
+                    "__pooled__" if cohort == "external" else str(site)
+                ]
+                for site in sites
+            ],
+            dtype="float64",
+        )
+        event = (truth > row_thresholds).astype("int64")
+        probability = selected["p_exceed"].to_numpy(dtype="float64")
+        p_clip = np.clip(probability, 1e-6, 1.0 - 1e-6)
+        expected_event_count = int(event.sum())
+        if (
+            row.get("event_count") != expected_event_count
+            or row.get("non_event_count") != len(event) - expected_event_count
+        ):
+            raise ValueError(
+                "probabilistic AVAILABLE event/schema fields changed"
+            )
+        reference_probability = (
+            _independent_frozen_event_reference_probabilities(
+                cohort_event_references[cohort],
+                cohort=cohort,
+                expected_sites=set(frames[cohort]["site_id"].astype(str)),
+                sites=sites,
+                target_dates=selected["target_date"].to_numpy(),
+            )
+        )
+        reference_brier = float(
+            np.sum((reference_probability - event) ** 2 * weights)
+        )
+        if not reference_brier > 0.0:
+            raise ValueError(
+                "probabilistic frozen seasonal reference has zero Brier score"
+            )
+        expected_bins, expected_ece = (
+            _independent_probability_reliability_bins(
+                event, probability, weights, sites
+            )
+        )
+        _validate_probability_reliability_bins(
+            row.get("reliability_bins"),
+            expected_bins,
+            label=f"{cohort}/{model}/h{horizon}",
+        )
+        diagnostics = _independent_probability_classification_diagnostics(
+            event, probability, weights
+        )
+        if row.get("undefined_metric_reasons") != diagnostics[
+            "undefined_metric_reasons"
+        ]:
+            raise ValueError(
+                "probabilistic AVAILABLE undefined-metric reasons changed"
+            )
+        for name, expected in {
+            "coverage_90": float(
+                np.sum(((truth >= cqr_q05) & (truth <= cqr_q95)) * weights)
+            ),
+            "mean_interval_width_c": float(
+                np.sum((cqr_q95 - cqr_q05) * weights)
+            ),
+            "brier_score": float(np.sum((probability - event) ** 2 * weights)),
+            "frozen_reference_brier_score": reference_brier,
+            "brier_skill_frozen_seasonal": float(
+                1.0
+                - np.sum((probability - event) ** 2 * weights)
+                / reference_brier
+            ),
+            "log_loss": float(np.sum(
+                -(event * np.log(p_clip) + (1 - event) * np.log(1 - p_clip))
+                * weights
+            )),
+            "ece_10_equal_width": expected_ece,
+            "event_rate": float(np.sum(event * weights)),
+        }.items():
+            _assert_probability_metric_close(
+                row.get(name), expected, label=f"{cohort}/{model}/h{horizon} {name}"
+            )
+        for name in (
+            "auroc", "auprc", "calibration_intercept", "calibration_slope"
+        ):
+            expected = diagnostics[name]
+            if expected is None:
+                if row.get(name) is not None:
+                    raise ValueError(
+                        f"{cohort}/{model}/h{horizon} {name} should be undefined"
+                    )
+            else:
+                _assert_probability_metric_close(
+                    row.get(name),
+                    float(expected),
+                    label=f"{cohort}/{model}/h{horizon} {name}",
+                )
+        losses = (
+            np.maximum(0.05 * (truth - nominal_q05), -0.95 * (truth - nominal_q05)),
+            np.maximum(0.50 * (truth - nominal_q50), -0.50 * (truth - nominal_q50)),
+            np.maximum(0.95 * (truth - nominal_q95), -0.05 * (truth - nominal_q95)),
+        )
+        pinballs = [float(np.sum(loss * weights)) for loss in losses]
+        for name, expected in zip(
+            ("pinball_q05_c", "pinball_q50_c", "pinball_q95_c"),
+            pinballs,
+            strict=True,
+        ):
+            _assert_probability_metric_close(
+                row.get(name), expected, label=f"{cohort}/{model}/h{horizon} {name}"
+            )
+        _assert_probability_metric_close(
+            row.get("equal_weight_three_quantile_pinball_mean_c"),
+            float(np.mean(pinballs)),
+            label=(
+                f"{cohort}/{model}/h{horizon} equal-weight three-quantile pinball"
+            ),
+        )
+        _assert_probability_metric_close(
+            row.get("deployed_cqr_offset_min_c"),
+            float(delta.min()),
+            label=f"{cohort}/{model}/h{horizon} minimum CQR offset",
+        )
+        _assert_probability_metric_close(
+            row.get("deployed_cqr_offset_max_c"),
+            float(delta.max()),
+            label=f"{cohort}/{model}/h{horizon} maximum CQR offset",
+        )
+        if row.get("cqr_offset_scope") != (
+            "pooled_external" if cohort == "external" else "station_horizon_temporal"
+        ):
+            raise ValueError("probabilistic AVAILABLE CQR offset scope changed")
+    return artifact
+
+
 def _gather_postopen_categories(
     root: Path, authorization_path: Path
 ) -> tuple[dict[str, set[Path]], dict[str, Any], dict[str, str]]:
@@ -7363,6 +8905,10 @@ def _gather_postopen_categories(
     cohorts = suite.get("cohorts")
     if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
         raise ValueError("model suite lacks temporal/external cohorts")
+    required_models = authorization.get("required_models")
+    expected_suite_model_order = _validate_authorized_suite_model_order(
+        protocol_document, cohorts, required_models
+    )
     replay_model_metadata: dict[tuple[str, str], Mapping[str, Any]] = {}
     for cohort in ("temporal", "external"):
         item = cohorts[cohort]
@@ -7370,7 +8916,7 @@ def _gather_postopen_categories(
         if not isinstance(entries, list) or any(not isinstance(entry, Mapping) for entry in entries):
             raise ValueError(f"model suite {cohort} registry is malformed")
         ids = [str(entry.get("model_id")) for entry in entries]
-        if len(ids) != len(set(ids)) or set(ids) != _required_model_ids(cohort):
+        if tuple(ids) != expected_suite_model_order[cohort]:
             raise ValueError(f"model suite {cohort} is incomplete")
         for entry in entries:
             if entry.get("executor") == "builtin":
@@ -7648,9 +9194,7 @@ def _gather_postopen_categories(
         != authorization["runtime"].get("runtime_sha256")
     ):
         raise ValueError("receipt completion environment differs from authorization")
-    required_models = authorization.get("required_models")
-    if not isinstance(required_models, Mapping) or set(required_models) != {"temporal", "external"}:
-        raise ValueError("authorization lacks the required-model registry")
+    assert isinstance(required_models, Mapping)
     expected_reported_models = {
         cohort: sorted(str(value) for value in values)
         for cohort, values in required_models.items()
@@ -7856,6 +9400,18 @@ def _gather_postopen_categories(
     for key, relative in expected_paths.items():
         if _relative(root, resolved_receipt_artifacts[key], label=key) != relative:
             raise ValueError(f"receipt {key} leaves its canonical state path")
+    _validate_probabilistic_evaluation_v2(
+        artifact_path=resolved_receipt_artifacts["probabilistic_evaluation"],
+        availability_path=resolved_receipt_artifacts["availability_registry"],
+        prediction_paths={
+            "temporal": resolved_receipt_artifacts["temporal_predictions"],
+            "external": resolved_receipt_artifacts["external_predictions"],
+        },
+        model_metadata=replay_model_metadata,
+        required_models=required_models,
+        protocol=protocol_document,
+        authorization=authorization,
+    )
     statistics = _load_json(resolved_receipt_artifacts["statistics"], label="statistics")
     tests = statistics.get("tests")
     if (
@@ -10551,6 +12107,216 @@ def _load_release_sealed_amendment(
     return amendment_path, amendment, seal_path, seal
 
 
+def _load_release_probability_metric_erratum(
+    root: Path,
+) -> tuple[Path, Mapping[str, Any], Path, Mapping[str, Any]]:
+    """Load the mandatory fixed-path metric erratum for Git-bundle replay."""
+    erratum_path = _resolve_release_path(
+        root,
+        PROBABILITY_METRIC_ERRATUM_PATH,
+        label="release probability metric erratum",
+    )
+    seal_path = _resolve_release_path(
+        root,
+        PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        label="release probability metric erratum seal",
+    )
+    erratum = _load_json(erratum_path, label="release probability metric erratum")
+    seal = _load_json(seal_path, label="release probability metric erratum seal")
+
+    def exact_binding(relative: str) -> dict[str, str]:
+        path = _resolve_release_path(
+            root, relative, label="probability erratum governance input"
+        )
+        return {"path": relative, "sha256": sha256_file(path)}
+
+    attestation = {
+        "post_2020_wtemp_requested_or_inspected": False,
+        "confirmation_outcomes_requested_or_inspected": False,
+        "outcome_endpoint_called": False,
+        "outcome_independent": True,
+        "network_used": False,
+    }
+    governance = erratum.get("governance_inputs")
+    expected_governance = {
+        "base_protocol": exact_binding(
+            "protocols/route_a_confirmatory_v1.json"
+        ),
+        "base_protocol_seal": exact_binding(PROTOCOL_SEAL_PATH),
+        "inference_amendment": exact_binding(INFERENCE_AMENDMENT_PATH),
+        "inference_amendment_seal": exact_binding(
+            INFERENCE_AMENDMENT_SEAL_PATH
+        ),
+    }
+    protocol_document = _load_json(
+        root / "protocols/route_a_confirmatory_v1.json",
+        label="probability erratum base protocol",
+    )
+    primary = protocol_document.get("primary_inference_contract")
+    family = (
+        primary.get("confirmatory_family")
+        if isinstance(primary, Mapping)
+        else None
+    )
+    probability_contract = (
+        primary.get("probabilistic_event_contract")
+        if isinstance(primary, Mapping)
+        else None
+    )
+    scientific = erratum.get("scientific_scope")
+    corrected = erratum.get("corrected_metric_contract")
+    unchanged = erratum.get("unchanged_contract")
+    if (
+        set(erratum)
+        != {
+            "format",
+            "status",
+            "erratum_id",
+            "recorded_date",
+            "prelabel_attestation",
+            "governance_inputs",
+            "scientific_scope",
+            "defect",
+            "corrected_metric_contract",
+            "unchanged_contract",
+            "implementation_requirements",
+            "lineage_contract",
+        }
+        or erratum.get("format") != PROBABILITY_METRIC_ERRATUM_FORMAT
+        or erratum.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or erratum.get("erratum_id") != PROBABILITY_METRIC_ERRATUM_ID
+        or erratum.get("recorded_date") != "2026-07-24"
+        or erratum.get("prelabel_attestation") != attestation
+        or governance != expected_governance
+        or not isinstance(scientific, Mapping)
+        or not isinstance(family, list)
+        or len(family) != 5
+        or not isinstance(probability_contract, Mapping)
+        or scientific.get("confirmatory_family_count") != 5
+        or scientific.get("confirmatory_family_sha256")
+        != _sha256_json(family)
+        or scientific.get("probabilistic_event_contract_sha256")
+        != _sha256_json(probability_contract)
+        or scientific.get("formal_comparisons_changed") is not False
+        or scientific.get("formal_margins_changed") is not False
+        or scientific.get("formal_decisions_changed") is not False
+        or scientific.get("inference_allowed") is not False
+        or not isinstance(corrected, Mapping)
+        or corrected.get("interval_coverage_and_width_source")
+        != PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE
+        or corrected.get("pinball_quantile_source")
+        != PROBABILISTIC_PINBALL_QUANTILE_SOURCE
+        or corrected.get("nominal_quantile_handling")
+        != PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        or corrected.get("bundle_scoring_pipeline_contracts")
+        != PROBABILISTIC_PIPELINES
+        or corrected.get("event_probability_source")
+        != PROBABILISTIC_EVENT_PROBABILITY_SOURCE
+        or corrected.get("event_outcome_source")
+        != PROBABILISTIC_EVENT_OUTCOME_SOURCE
+        or corrected.get("all_event_probability_metrics_use_post_Platt_probability")
+        is not True
+        or not isinstance(unchanged, Mapping)
+        or unchanged.get("model_definition_changed") is not False
+        or unchanged.get("fit_data_changed") is not False
+        or unchanged.get("frozen_hyperparameters_changed") is not False
+        or unchanged.get("hyperparameter_retuning_allowed") is not False
+        or unchanged.get(
+            "old_pre_erratum_model_artifacts_eligible_for_final_freeze"
+        )
+        is not False
+        or unchanged.get("full_retraining_and_replay_under_new_source_required")
+        is not True
+        or erratum.get("implementation_requirements")
+        != {
+            "opening_implementation": "src/thermoroute/opening.py",
+            "development_reference": "scripts/19_probabilistic.py",
+            "targeted_opening_tests": "tests/test_confirmatory_opening.py",
+            "trusted_artifact_format": PROBABILISTIC_EVALUATION_FORMAT,
+            "trusted_artifact_path": PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+            "transient_nominal_quantiles_required_for_v2_replay": True,
+            "bitwise_forward_cqr_parity_required": True,
+            "source_fields_required_in_artifact": [
+                "interval_endpoint_source",
+                "pinball_quantile_source",
+                "event_probability_source",
+                "event_outcome_source",
+            ],
+        }
+        or erratum.get("lineage_contract")
+        != {
+            "separate_erratum_seal_required": True,
+            "seal_path": PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+            "erratum_document_commit_must_precede_seal_commit": True,
+            "both_paths_immutable_after_sealing": True,
+        }
+    ):
+        raise ValueError(
+            "release probability metric erratum complete contract changed"
+        )
+    normalized_erratum = json.loads(json.dumps(erratum))
+    for binding in normalized_erratum["governance_inputs"].values():
+        binding["sha256"] = "0" * 64
+    normalized_erratum["scientific_scope"][
+        "confirmatory_family_sha256"
+    ] = "0" * 64
+    normalized_erratum["scientific_scope"][
+        "probabilistic_event_contract_sha256"
+    ] = "0" * 64
+    if (
+        _sha256_json(normalized_erratum)
+        != PROBABILITY_METRIC_ERRATUM_NORMALIZED_SHA256
+    ):
+        raise ValueError(
+            "release probability metric erratum complete contract changed"
+        )
+
+    expected_history = {
+        "governance_seal_commits_must_be_ancestors": True,
+        "erratum_blob_must_match_document_commit": True,
+        "erratum_document_created_exactly_once": True,
+        "document_commit_must_precede_seal_commit": True,
+        "seal_created_exactly_once": True,
+        "erratum_and_seal_immutable_to_release_tip": True,
+    }
+    expected_seal_governance = {
+        "base_protocol_seal": expected_governance["base_protocol_seal"],
+        "inference_amendment_seal": expected_governance[
+            "inference_amendment_seal"
+        ],
+    }
+    if (
+        set(seal)
+        != {
+            "format",
+            "status",
+            "erratum_id",
+            "erratum",
+            "governance_seals",
+            "erratum_document_commit",
+            "history_contract",
+            "prelabel_attestation",
+        }
+        or seal.get("format") != PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT
+        or seal.get("status") != "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+        or seal.get("erratum_id") != erratum.get("erratum_id")
+        or seal.get("erratum")
+        != {
+            "path": PROBABILITY_METRIC_ERRATUM_PATH,
+            "sha256": sha256_file(erratum_path),
+        }
+        or seal.get("governance_seals") != expected_seal_governance
+        or re.fullmatch(
+            r"[0-9a-f]{40}", str(seal.get("erratum_document_commit", ""))
+        )
+        is None
+        or seal.get("history_contract") != expected_history
+        or seal.get("prelabel_attestation") != attestation
+    ):
+        raise ValueError("release probability metric erratum seal semantics changed")
+    return erratum_path, erratum, seal_path, seal
+
+
 def _verify_manuscript_blobs_from_bundle(
     *, root: Path, bare: Path, manuscript_commit: str
 ) -> None:
@@ -10676,6 +12442,151 @@ def _verify_amendment_seal_history_from_bundle(
             raise ValueError(f"v2 {label} changed after freezing: {touched[:3]}")
 
 
+def _verify_probability_metric_erratum_history_from_bundle(
+    *, root: Path, bare: Path, compute_commit: str
+) -> None:
+    """Prove document-before-seal lineage and immutability from the Git bundle."""
+    erratum_path, erratum, seal_path, seal = (
+        _load_release_probability_metric_erratum(root)
+    )
+    erratum_relative = erratum_path.relative_to(root).as_posix()
+    seal_relative = seal_path.relative_to(root).as_posix()
+    document_commit = str(seal["erratum_document_commit"])
+    document_births = _git_path_creation_commits(
+        bare, compute_commit, erratum_relative
+    )
+    if document_births != [document_commit]:
+        raise ValueError(
+            "probability metric erratum document was not created exactly once "
+            "at its declared commit"
+        )
+    if _git_path_exists(bare, document_commit, seal_relative):
+        raise ValueError(
+            "probability metric erratum and seal were committed together"
+        )
+    erratum_blob = _run_git(
+        bare, "show", f"{document_commit}:{erratum_relative}"
+    )
+    if erratum_blob.returncode or erratum_blob.stdout != erratum_path.read_bytes():
+        raise ValueError(
+            "probability metric erratum differs from its document commit"
+        )
+    births = _git_path_creation_commits(bare, compute_commit, seal_relative)
+    if len(births) != 1:
+        raise ValueError(
+            "probability metric erratum seal was not created exactly once"
+        )
+    seal_commit = births[0]
+    if seal_commit == document_commit:
+        raise ValueError(
+            "probability metric erratum seal lacks a separate later commit"
+        )
+    for ancestor, descendant, label in (
+        (document_commit, seal_commit, "erratum-document-to-seal"),
+        (seal_commit, compute_commit, "erratum-seal-to-compute"),
+    ):
+        relation = _run_git(
+            bare, "merge-base", "--is-ancestor", ancestor, descendant
+        )
+        if relation.returncode:
+            raise ValueError(
+                f"probability metric erratum Git chronology failed: {label}"
+            )
+    governance = erratum.get("governance_inputs")
+    if not isinstance(governance, Mapping):
+        raise ValueError("probability metric erratum lacks governance inputs")
+    for key, relative in (
+        ("base_protocol_seal", PROTOCOL_SEAL_PATH),
+        ("inference_amendment_seal", INFERENCE_AMENDMENT_SEAL_PATH),
+    ):
+        binding = governance.get(key)
+        if not isinstance(binding, Mapping) or binding.get("path") != relative:
+            raise ValueError(
+                "probability metric erratum governance binding changed"
+            )
+        blob = _run_git(bare, "show", f"{document_commit}:{relative}")
+        if (
+            blob.returncode
+            or hashlib.sha256(blob.stdout).hexdigest() != binding.get("sha256")
+            or blob.stdout != (root / relative).read_bytes()
+        ):
+            raise ValueError(
+                "probability metric erratum governance was not frozen first"
+            )
+    protocol_seal = _load_json(
+        root / PROTOCOL_SEAL_PATH, label="probability erratum base protocol seal"
+    )
+    amendment_seal = _load_json(
+        root / INFERENCE_AMENDMENT_SEAL_PATH,
+        label="probability erratum inference amendment seal",
+    )
+    final_protocol = protocol_seal.get("final_prelabel_protocol")
+    base_commit = (
+        str(final_protocol.get("commit", ""))
+        if isinstance(final_protocol, Mapping)
+        else ""
+    )
+    amendment_commit = str(amendment_seal.get("final_prelabel_commit", ""))
+    for ancestor, label in (
+        (base_commit, "base-protocol-to-erratum"),
+        (amendment_commit, "inference-amendment-to-erratum"),
+    ):
+        if (
+            re.fullmatch(r"[0-9a-f]{40}", ancestor) is None
+            or _run_git(
+                bare,
+                "merge-base",
+                "--is-ancestor",
+                ancestor,
+                document_commit,
+            ).returncode
+        ):
+            raise ValueError(
+                f"probability metric erratum Git chronology failed: {label}"
+            )
+    amendment_seal_births = _git_path_creation_commits(
+        bare, document_commit, INFERENCE_AMENDMENT_SEAL_PATH
+    )
+    if (
+        len(amendment_seal_births) != 1
+        or amendment_seal_births[0] == document_commit
+    ):
+        raise ValueError(
+            "inference amendment seal lacks one strictly pre-erratum Git creation"
+        )
+    if _run_git(
+        bare,
+        "merge-base",
+        "--is-ancestor",
+        amendment_seal_births[0],
+        document_commit,
+    ).returncode:
+        raise ValueError(
+            "inference amendment seal does not precede the probability erratum"
+        )
+    seal_blob = _run_git(bare, "show", f"{seal_commit}:{seal_relative}")
+    if seal_blob.returncode or seal_blob.stdout != seal_path.read_bytes():
+        raise ValueError(
+            "probability metric erratum seal differs from its creation commit"
+        )
+    for start, relative, label in (
+        (document_commit, erratum_relative, "erratum document"),
+        (seal_commit, seal_relative, "erratum seal"),
+    ):
+        touched = [
+            commit
+            for commit in _git_commits_between(bare, start, compute_commit)
+            if any(
+                path == relative
+                for _status, path in _git_commit_name_status(bare, commit)
+            )
+        ]
+        if touched:
+            raise ValueError(
+                f"probability metric {label} changed after freezing: {touched[:3]}"
+            )
+
+
 def _verify_git_history_evidence(
     root: Path, marker: Mapping[str, Any], profile: str
 ) -> None:
@@ -10760,6 +12671,9 @@ def _verify_git_history_evidence(
             root=root, bare=bare, manuscript_commit=commits[1]
         )
         _verify_amendment_seal_history_from_bundle(
+            root=root, bare=bare, compute_commit=commits[0]
+        )
+        _verify_probability_metric_erratum_history_from_bundle(
             root=root, bare=bare, compute_commit=commits[0]
         )
         if profile == POSTOPEN_PROFILE:

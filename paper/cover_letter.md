@@ -22,6 +22,10 @@ deployed offset is clipped below at zero so calibration cannot shrink the nomina
 interval or change q50. The evaluation design emphasizes
 common target keys, station-balanced effects, clustered spatial inference, frozen
 model/input chronology, raw qualifier provenance, and receipt-derived statements.
+An outcome-free pre-opening audit also froze an erratum requiring nominal pre-CQR
+heads for pinball, CQR endpoints for coverage/width, and post-Platt probabilities
+for event metrics; all earlier formal artifacts were withdrawn before target-label
+access.
 Models use 2006–2015 for fitting, 2016–2017 for selection, and 2018 only for CQR
 and Platt calibration; the seasonal event-reference fit spans 2006–2018.
 The H2 comparison is limited to the frozen four-candidate, five-seed LightGBM
@@ -47,7 +51,8 @@ or non-estimable outcomes, only after the fixed evidence chain passes.
 
 The intended contribution is twofold: a constrained hindcasting architecture and
 an auditable evaluation/release workflow. The manuscript will explicitly delimit
-the availability-enriched sample, retrospective finalized covariates, coarse HUC2
+the availability-enriched sample, retrospectively acquired latest-provider
+covariates rather than as-issued vintages, coarse HUC2
 dependence groups, daily-mean target, point-scale meteorology, missing development
 request provenance, numerical comparison margin, calibration-row-weighted Platt
 fitting versus station-balanced target metrics, observable-outcome conditioning,

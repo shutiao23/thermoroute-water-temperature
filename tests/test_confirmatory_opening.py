@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import os
 from pathlib import Path
@@ -29,10 +30,12 @@ from thermoroute.opening import (  # noqa: E402
     _assert_worker_predictions_equal_trusted,
     _build_outcome_quality_audit,
     _frozen_calibration,
+    _public_prediction_product,
     _probabilistic_evaluation,
     _score_sequence_bundle,
     _spatial_cluster_diagnostics,
     _validate_development_prediction_parity,
+    _validate_direct_nominal_quantiles_and_cqr_parity,
     _validate_hashed_requirements_lock,
     _verify_opened_nwis_index,
     _verify_snapshot_index,
@@ -82,6 +85,87 @@ def _add_cqr_contract(metadata: dict) -> dict:
     metadata["conformal_policy"] = cqr_policy_contract()
     metadata["conformal_offset_audit"] = audit
     return metadata
+
+
+def _probability_metric_erratum_binding() -> dict:
+    return {
+        "path": "protocols/route_a_probability_metric_erratum_v1.json",
+        "sha256": "a" * 64,
+        "format": "thermoroute.route-a-probability-metric-erratum.v1",
+        "erratum_id": "route-a-prelabel-probability-metric-semantics-016",
+        "seal": {
+            "path": (
+                "protocols/route_a_probability_metric_erratum_seal_v1.json"
+            ),
+            "sha256": "b" * 64,
+        },
+        "erratum_document_commit": "c" * 40,
+    }
+
+
+def _probability_metric_execution_contract() -> dict:
+    nominal_handling = {
+        "source": (
+            "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_"
+            "before_cqr"
+        ),
+        "storage": (
+            "transient_in_memory_only_not_written_to_public_prediction_products"
+        ),
+        "member_aggregation": "equal_weight_member_mean_before_cqr",
+        "cqr_forward_parity": (
+            "bitwise_float64_nominal_q05_minus_offset_and_nominal_q95_plus_"
+            "offset_equal_stored_endpoints"
+        ),
+        "q50_forward_parity": "bitwise_nominal_q50_equal_stored_q50",
+        "endpoint_inversion_used": False,
+        "public_prediction_schema_changed": False,
+    }
+    return {
+        "corrected_metric_contract": {
+            "interval_coverage_and_width_source": (
+                "bundle_frozen_2018_cqr_endpoints"
+            ),
+            "pinball_quantile_source": nominal_handling["source"],
+            "event_probability_source": (
+                "bundle_frozen_2018_platt_calibrated_p_exceed"
+            ),
+            "event_outcome_source": (
+                "confirmation_y_true_above_bundle_frozen_development_train_q90"
+            ),
+            "all_event_probability_metrics_use_post_Platt_probability": True,
+            "nominal_quantile_handling": nominal_handling,
+            "bundle_scoring_pipeline_contracts": {
+                "LightGBM": (
+                    "bundle_declared_median_preserving_endpoint_clip_per_member_"
+                    "then_equal_weight_member_mean_then_frozen_cqr"
+                ),
+                "deep_LSTM_and_deterministic_controls": (
+                    "quantiles_ordered_by_construction_per_member_then_equal_"
+                    "weight_member_mean_then_frozen_cqr"
+                ),
+            },
+        },
+        "implementation_requirements": {
+            "opening_implementation": "src/thermoroute/opening.py",
+            "development_reference": "scripts/19_probabilistic.py",
+            "targeted_opening_tests": "tests/test_confirmatory_opening.py",
+            "trusted_artifact_format": (
+                "thermoroute.route-a-probabilistic-evaluation.v2"
+            ),
+            "trusted_artifact_path": (
+                "trusted/probabilistic_evaluation_v2.json"
+            ),
+            "transient_nominal_quantiles_required_for_v2_replay": True,
+            "bitwise_forward_cqr_parity_required": True,
+            "source_fields_required_in_artifact": [
+                "interval_endpoint_source",
+                "pinball_quantile_source",
+                "event_probability_source",
+                "event_outcome_source",
+            ],
+        },
+    }
 
 
 def test_external_registry_reader_roundtrips_candidate_metrics(tmp_path):
@@ -1983,6 +2067,47 @@ def test_status_forbids_raw_resume_after_any_derived_or_trusted_publication(
     if forbidden_key in acquisition_contract.TRUSTED_STATE_KEYS:
         expected.add("trusted_directory")
     assert set(result["forbidden_existing_outputs"]) == expected
+def test_probability_metric_erratum_seal_hash_binds_opening_namespace(tmp_path):
+    frozen_inputs = {
+        "protocol_sha256": "1" * 64,
+        "source_tree_sha256": "2" * 64,
+        "model_suite_sha256": "3" * 64,
+        "prelabel_inputs_sha256": "4" * 64,
+        "prelabel_chronology_sha256": "5" * 64,
+        "inference_gate_sha256": "6" * 64,
+        "inference_amendment_seal_sha256": "7" * 64,
+        "outcome_qc_policy_sha256": "8" * 64,
+        "temporal_coverage_policy_sha256": "9" * 64,
+    }
+    first = opening_module._canonical_state_paths(
+        tmp_path,
+        **frozen_inputs,
+        probability_metric_erratum_seal_sha256="a" * 64,
+    )
+    second = opening_module._canonical_state_paths(
+        tmp_path,
+        **frozen_inputs,
+        probability_metric_erratum_seal_sha256="b" * 64,
+    )
+
+    assert first["namespace"] != second["namespace"]
+    assert first["run_directory"] != second["run_directory"]
+
+
+def test_fixed_code_identity_binds_chronology_and_probability_erratum_modules():
+    identity = opening_module._fixed_code_identity(ROOT)
+
+    assert "thermoroute.chronology" in identity["modules"]
+    assert "thermoroute.probability_metric_erratum" in identity["modules"]
+    assert all(
+        len(identity["modules"][name]["sha256"]) == 64
+        for name in (
+            "thermoroute.chronology",
+            "thermoroute.probability_metric_erratum",
+        )
+    )
+
+
 def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     tmp_path, monkeypatch,
 ):
@@ -2003,6 +2128,8 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         "inference_amendment.json", "inference_amendment_seal.json",
         "outcome_qc_policy.json",
         "protocols/route_a_temporal_coverage_policy_v1.json",
+        "protocols/route_a_probability_metric_erratum_v1.json",
+        "protocols/route_a_probability_metric_erratum_seal_v1.json",
     )
     paths = {name: tmp_path / name for name in relative_paths}
     for name, path in paths.items():
@@ -2103,6 +2230,14 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         },
     }
     amendment_seal_document = {"final_prelabel_commit": "4" * 40}
+    probability_erratum_document = {
+        "format": "thermoroute.route-a-probability-metric-erratum.v1",
+        "erratum_id": "route-a-prelabel-probability-metric-semantics-016",
+        **_probability_metric_execution_contract(),
+    }
+    probability_erratum_seal_document = {
+        "erratum_document_commit": "5" * 40,
+    }
     gate_document = {
         "format": "thermoroute.route-a-inference-gate.v1",
         "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
@@ -2119,6 +2254,16 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         opening_module,
         "validate_inference_amendment_seal",
         lambda *_args, **_kwargs: amendment_seal_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_probability_metric_erratum",
+        lambda *_args, **_kwargs: probability_erratum_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_probability_metric_erratum_seal",
+        lambda *_args, **_kwargs: probability_erratum_seal_document,
     )
     monkeypatch.setattr(
         opening_module,
@@ -2213,6 +2358,30 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     assert dry_run["prelabel_chronology"] == chronology_document
     assert dry_run["inference_gate"] == gate_document
     assert dry_run["outcome_qc_policy"] == outcome_qc_policy_document
+    assert dry_run["probability_metric_erratum"] == probability_erratum_document
+    assert (
+        dry_run["probability_metric_erratum_seal"]
+        == probability_erratum_seal_document
+    )
+    assert frozen["probability_metric_erratum"] == {
+        "path": "protocols/route_a_probability_metric_erratum_v1.json",
+        "sha256": sha256_file(
+            paths["protocols/route_a_probability_metric_erratum_v1.json"]
+        ),
+        "format": probability_erratum_document["format"],
+        "erratum_id": probability_erratum_document["erratum_id"],
+        "seal": {
+            "path": (
+                "protocols/route_a_probability_metric_erratum_seal_v1.json"
+            ),
+            "sha256": sha256_file(
+                paths[
+                    "protocols/route_a_probability_metric_erratum_seal_v1.json"
+                ]
+            ),
+        },
+        "erratum_document_commit": "5" * 40,
+    }
     assert not Path(dry_run["intent_path"]).exists()
 
     authorization_original = authorization.read_bytes()
@@ -2224,10 +2393,62 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         missing_gate
     )
     authorization.write_text(json.dumps(missing_gate), encoding="utf-8")
-    with pytest.raises(OpeningContractError, match="lacks inference-gate binding"):
+    with pytest.raises(OpeningContractError, match="top-level schema changed"):
         validate_authorization(authorization, root=tmp_path)
     authorization.write_bytes(authorization_original)
     authorization.chmod(0o444)
+
+    authorization.chmod(0o644)
+    unknown_top_level = json.loads(authorization_original)
+    unknown_top_level["attacker_controlled_extension"] = {"accepted": True}
+    unknown_top_level.pop("authorization_self_sha256")
+    stable_unknown = dict(unknown_top_level)
+    stable_unknown.pop("opening_id")
+    stable_unknown.pop("created_at_utc")
+    unknown_top_level["opening_id"] = opening_module.sha256_json(
+        stable_unknown
+    )[:24]
+    unknown_top_level["authorization_self_sha256"] = opening_module.sha256_json(
+        unknown_top_level
+    )
+    authorization.write_text(json.dumps(unknown_top_level), encoding="utf-8")
+    with pytest.raises(OpeningContractError, match="top-level schema changed"):
+        validate_authorization(authorization, root=tmp_path)
+    authorization.write_bytes(authorization_original)
+    authorization.chmod(0o444)
+
+    authorization.chmod(0o644)
+    incomplete_erratum = json.loads(authorization_original)
+    incomplete_erratum["probability_metric_erratum"].pop(
+        "erratum_document_commit"
+    )
+    incomplete_erratum.pop("authorization_self_sha256")
+    incomplete_erratum["authorization_self_sha256"] = opening_module.sha256_json(
+        incomplete_erratum
+    )
+    authorization.write_text(json.dumps(incomplete_erratum), encoding="utf-8")
+    with pytest.raises(
+        OpeningContractError,
+        match="lacks exact probability-metric-erratum binding",
+    ):
+        validate_authorization(authorization, root=tmp_path)
+    authorization.write_bytes(authorization_original)
+    authorization.chmod(0o444)
+
+    original_pinball_source = probability_erratum_document[
+        "corrected_metric_contract"
+    ]["pinball_quantile_source"]
+    probability_erratum_document["corrected_metric_contract"][
+        "pinball_quantile_source"
+    ] = "attacker_selected_endpoint_inversion"
+    with pytest.raises(
+        OpeningContractError,
+        match="differs from executable v2 semantics",
+    ):
+        validate_authorization(authorization, root=tmp_path)
+    probability_erratum_document["corrected_metric_contract"][
+        "pinball_quantile_source"
+    ] = original_pinball_source
 
     chronology_original = chronology_path.read_bytes()
     chronology_path.write_text("tampered chronology\n", encoding="utf-8")
@@ -2362,7 +2583,11 @@ def test_protocol_is_authoritative_for_temporal_and_external_model_suites():
     assert "TR-noRouter" in temporal and "TR-noRouter" not in external
 
 
-def _probability_evaluation_fixture(*, single_class: bool = False):
+def _probability_evaluation_fixture(
+    *,
+    single_class: bool = False,
+    counts: tuple[int, int] = (100, 200),
+):
     protocol = json.loads(
         (ROOT / "protocols" / "route_a_confirmatory_v1.json").read_text()
     )
@@ -2383,21 +2608,32 @@ def _probability_evaluation_fixture(*, single_class: bool = False):
     external_reference = fit_frozen_seasonal_event_reference(
         reference_panel, 0.5, pooled=True
     )
-    required = ("Persistence", "ThermoRoute")
+    required = ("Persistence", "ThermoRoute", "LightGBM")
+    temporal_metadata = _add_cqr_contract({
+        "event_thresholds": thresholds,
+        "event_reference_climatology": temporal_reference,
+        "conformal_offsets": {
+            f"{site}|{horizon}": 0.25
+            for site in sites for horizon in (1, 3, 7)
+        },
+    })
+    external_metadata = _add_cqr_contract({
+        "event_thresholds": {"__pooled__": 0.5},
+        "event_reference_climatology": external_reference,
+        "conformal_offsets": {
+            f"__pooled__|{horizon}": 0.25 for horizon in (1, 3, 7)
+        },
+    })
     suite = {
         "required_models": {"temporal": required, "external": required},
         "metadata": {
             "temporal": {
-                "ThermoRoute": {
-                    "event_thresholds": thresholds,
-                    "event_reference_climatology": temporal_reference,
-                }
+                "ThermoRoute": temporal_metadata,
+                "LightGBM": copy.deepcopy(temporal_metadata),
             },
             "external": {
-                "ThermoRoute": {
-                    "event_thresholds": {"__pooled__": 0.5},
-                    "event_reference_climatology": external_reference,
-                }
+                "ThermoRoute": external_metadata,
+                "LightGBM": copy.deepcopy(external_metadata),
             },
         },
     }
@@ -2406,12 +2642,25 @@ def _probability_evaluation_fixture(*, single_class: bool = False):
     for cohort in ("temporal", "external"):
         cohort_rows = []
         for horizon in (1, 3, 7):
-            for site_index, (site, count) in enumerate(zip(sites, (100, 200))):
+            for site_index, (site, count) in enumerate(zip(sites, counts)):
                 issue_dates = pd.date_range("2021-01-01", periods=count)
                 y_true = 1.0 if single_class or site_index == 1 else 0.0
                 for model in required:
-                    learned = model == "ThermoRoute"
+                    learned = model in {"ThermoRoute", "LightGBM"}
                     for issue_date in issue_dates:
+                        nominal_q05 = (
+                            (0.25 if single_class else -0.75)
+                            if learned and site_index == 0 else
+                            1.75 if learned else np.nan
+                        )
+                        nominal_q50 = (
+                            1.0 if learned and site_index == 0 else
+                            2.0 if learned else np.nan
+                        )
+                        nominal_q95 = (
+                            1.75 if learned and site_index == 0 else
+                            2.25 if learned else np.nan
+                        )
                         cohort_rows.append({
                             "model": model,
                             "scope": f"route_a_{cohort}_confirmation",
@@ -2425,29 +2674,26 @@ def _probability_evaluation_fixture(*, single_class: bool = False):
                             "y_true": y_true,
                             "y_pred": y_true,
                             "q05": (
-                                (0.0 if single_class else -1.0)
-                                if learned and site_index == 0 else
-                                1.5 if learned else np.nan
+                                nominal_q05 - 0.25 if learned else np.nan
                             ),
-                            "q50": (
-                                1.0 if learned and site_index == 0 else
-                                2.0 if learned else np.nan
-                            ),
+                            "q50": nominal_q50,
                             "q95": (
-                                2.0 if learned and site_index == 0 else
-                                2.5 if learned else np.nan
+                                nominal_q95 + 0.25 if learned else np.nan
                             ),
                             "p_exceed": (
                                 (0.2 if site_index == 0 else 0.8)
                                 if learned else np.nan
                             ),
+                            "_nominal_q05": nominal_q05,
+                            "_nominal_q50": nominal_q50,
+                            "_nominal_q95": nominal_q95,
                         })
                 availability_rows.append({
                     "cohort": cohort,
                     "site_no": site,
                     "horizon": horizon,
                     "n_valid_targets": count,
-                    "reportable": True,
+                    "reportable": count >= 100,
                 })
         predictions[cohort] = pd.DataFrame(cohort_rows)
     return predictions, suite, pd.DataFrame(availability_rows), protocol
@@ -2460,6 +2706,42 @@ def test_probability_metrics_are_station_balanced_not_row_pooled():
         suite=suite,
         availability=availability,
         protocol=protocol,
+        probability_metric_erratum_binding=_probability_metric_erratum_binding(),
+    )
+    assert result["format"] == (
+        "thermoroute.route-a-probabilistic-evaluation.v2"
+    )
+    assert result["metric_sources"] == {
+        "coverage_90_and_mean_interval_width_c": (
+            "bundle_frozen_2018_cqr_endpoints"
+        ),
+        "pinball_q05_q50_q95": (
+            "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_"
+            "before_cqr"
+        ),
+        "event_probability": "bundle_frozen_2018_platt_calibrated_p_exceed",
+        "event_outcome": (
+            "confirmation_y_true_above_bundle_frozen_development_train_q90"
+        ),
+    }
+    assert result["event_count_definition"].startswith("unweighted raw counts")
+    assert result["event_rate_and_probability_metric_weighting"].startswith(
+        "station-balanced"
+    )
+    base_contract = protocol["primary_inference_contract"][
+        "probabilistic_event_contract"
+    ]
+    assert result["base_probabilistic_event_contract_sha256"] == (
+        opening_module.sha256_json(base_contract)
+    )
+    assert result["probability_metric_erratum"] == (
+        _probability_metric_erratum_binding()
+    )
+    assert result["effective_output_artifact"] == (
+        "trusted/probabilistic_evaluation_v2.json"
+    )
+    assert result["effective_contract_sha256"] == opening_module.sha256_json(
+        result["effective_contract"]
     )
     row = next(
         item for item in result["rows"]
@@ -2469,6 +2751,33 @@ def test_probability_metrics_are_station_balanced_not_row_pooled():
     )
     assert row["coverage_90"] == pytest.approx(0.5)
     assert row["coverage_90"] != pytest.approx(100 / 300)
+    assert row["mean_interval_width_c"] == pytest.approx(2.0)
+    assert row["pinball_q05_c"] == pytest.approx(0.375)
+    assert row["pinball_q50_c"] == pytest.approx(0.5)
+    assert row["pinball_q95_c"] == pytest.approx(0.075)
+    assert row["equal_weight_three_quantile_pinball_mean_c"] == pytest.approx(
+        0.95 / 3.0
+    )
+    assert row["interval_endpoint_source"] == (
+        "bundle_frozen_2018_cqr_endpoints"
+    )
+    assert row["pinball_quantile_source"] == (
+        "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_"
+        "before_cqr"
+    )
+    assert row["deployed_cqr_offset_min_c"] == pytest.approx(0.25)
+    assert row["deployed_cqr_offset_max_c"] == pytest.approx(0.25)
+    assert row["direct_nominal_forward_cqr_parity_bitwise"] is True
+    assert row["direct_nominal_q50_parity_bitwise"] is True
+    assert row["endpoint_inversion_used"] is False
+    assert row["quantile_pipeline_class"] == (
+        "deep_LSTM_and_deterministic_controls"
+    )
+    assert row["member_quantile_contract_sha256"] == opening_module.sha256_json(
+        neural_output_head_schema()
+    )
+    assert row["event_count"] == 200
+    assert row["non_event_count"] == 100
     assert row["event_rate"] == pytest.approx(0.5)
     assert row["event_rate"] != pytest.approx(200 / 300)
     assert row["n_forecasts"] == 300 and row["n_sites"] == 2
@@ -2484,24 +2793,190 @@ def test_probability_metrics_are_station_balanced_not_row_pooled():
         and item["horizon"] == 1
     )
     assert builtin["status"] == "NOT_AVAILABLE"
+    lightgbm = next(
+        item for item in result["rows"]
+        if item["cohort"] == "external"
+        and item["model"] == "LightGBM"
+        and item["horizon"] == 3
+    )
+    assert lightgbm["quantile_pipeline_class"] == "LightGBM"
+    assert lightgbm["quantile_pipeline"].startswith(
+        "bundle_declared_median_preserving_endpoint_clip_per_member"
+    )
+    assert lightgbm["member_quantile_contract_sha256"] == (
+        opening_module.sha256_json(lightgbm["member_quantile_contract"])
+    )
     assert result["rev_status"] == (
         "REV_NOT_EVALUATED_NO_PREDECLARED_COST_LOSS_RATIOS"
     )
 
 
 def test_probability_evaluation_reports_zero_reportable_cells_explicitly():
-    predictions, suite, availability, protocol = _probability_evaluation_fixture()
-    availability["n_valid_targets"] = 99
-    availability["reportable"] = False
+    predictions, suite, availability, protocol = _probability_evaluation_fixture(
+        counts=(99, 99)
+    )
     result = _probabilistic_evaluation(
         trusted_predictions=predictions,
         suite=suite,
         availability=availability,
         protocol=protocol,
+        probability_metric_erratum_binding=_probability_metric_erratum_binding(),
     )
     learned = [row for row in result["rows"] if row["model"] == "ThermoRoute"]
     assert learned and all(row["status"] == "NOT_ESTIMABLE" for row in learned)
     assert all(row["reason"] == "NO_STATION_HAS_100_COMMON_TARGETS" for row in learned)
+
+
+def test_probability_evaluation_requires_exact_learned_availability_counts():
+    predictions, suite, availability, protocol = _probability_evaluation_fixture()
+    attacked = availability.copy()
+    selected = (
+        attacked.cohort.eq("temporal")
+        & attacked.site_no.eq("01000001")
+        & attacked.horizon.eq(1)
+    )
+    attacked.loc[selected, "n_valid_targets"] = 101
+
+    with pytest.raises(
+        OpeningContractError,
+        match="row counts differ exactly from availability",
+    ):
+        _probabilistic_evaluation(
+            trusted_predictions=predictions,
+            suite=suite,
+            availability=attacked,
+            protocol=protocol,
+            probability_metric_erratum_binding=(
+                _probability_metric_erratum_binding()
+            ),
+        )
+
+
+def test_probability_evaluation_rejects_erratum_binding_tampering():
+    predictions, suite, availability, protocol = _probability_evaluation_fixture()
+    attacks = []
+    wrong_path = _probability_metric_erratum_binding()
+    wrong_path["path"] = "protocols/attacker_erratum.json"
+    attacks.append(wrong_path)
+    wrong_seal = _probability_metric_erratum_binding()
+    wrong_seal["seal"]["sha256"] = "not-a-sha256"
+    attacks.append(wrong_seal)
+    unknown_key = _probability_metric_erratum_binding()
+    unknown_key["extension"] = True
+    attacks.append(unknown_key)
+
+    for attacked in attacks:
+        with pytest.raises(OpeningContractError, match="erratum binding"):
+            _probabilistic_evaluation(
+                trusted_predictions=predictions,
+                suite=suite,
+                availability=availability,
+                protocol=protocol,
+                probability_metric_erratum_binding=attacked,
+            )
+
+
+def test_probability_evaluation_requires_transient_direct_nominal_heads():
+    predictions, suite, availability, protocol = _probability_evaluation_fixture()
+    attacked = copy.deepcopy(predictions)
+    attacked["external"] = attacked["external"].drop(columns=["_nominal_q05"])
+
+    with pytest.raises(OpeningContractError, match="internal scorer columns"):
+        _probabilistic_evaluation(
+            trusted_predictions=attacked,
+            suite=suite,
+            availability=availability,
+            protocol=protocol,
+            probability_metric_erratum_binding=(
+                _probability_metric_erratum_binding()
+            ),
+        )
+
+
+def test_probability_direct_pinball_fails_closed_on_missing_offset_key():
+    predictions, suite, availability, protocol = _probability_evaluation_fixture()
+    attacked = copy.deepcopy(suite)
+    metadata = attacked["metadata"]["temporal"]["ThermoRoute"]
+    metadata["conformal_offsets"].pop("01000001|1")
+    _add_cqr_contract(metadata)
+
+    with pytest.raises(
+        OpeningContractError, match="lacks forward-parity keys"
+    ):
+        _probabilistic_evaluation(
+            trusted_predictions=predictions,
+            suite=attacked,
+            availability=availability,
+            protocol=protocol,
+            probability_metric_erratum_binding=(
+                _probability_metric_erratum_binding()
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("external", "offset_key", "site"),
+    (
+        (False, "01073319|1", "01073319"),
+        (True, "__pooled__|1", "02000001"),
+    ),
+)
+def test_direct_nominal_forward_parity_never_inverts_cqr_endpoints(
+    external, offset_key, site,
+):
+    delta = 0.1065616271160803
+    q50 = -0.006498198829766273
+    metadata = _add_cqr_contract({
+        "conformal_offsets": {offset_key: delta},
+    })
+    cqr_q05 = np.asarray([q50]) - delta
+    cqr_q95 = np.asarray([1.0]) + delta
+    assert (cqr_q05 + delta)[0] > q50
+
+    audit = _validate_direct_nominal_quantiles_and_cqr_parity(
+        metadata=metadata,
+        site_ids=np.asarray([site], dtype=object),
+        horizon=1,
+        cqr_q05=cqr_q05,
+        cqr_q50=np.asarray([q50]),
+        cqr_q95=cqr_q95,
+        nominal_q05=np.asarray([q50]),
+        nominal_q50=np.asarray([q50]),
+        nominal_q95=np.asarray([1.0]),
+        external=external,
+        label="direct-head fixture",
+    )
+
+    assert audit["direct_nominal_forward_cqr_parity_bitwise"] is True
+    assert audit["endpoint_inversion_used"] is False
+    assert audit["cqr_offset_scope"] == (
+        "pooled_external" if external else "station_horizon_temporal"
+    )
+
+
+def test_probability_direct_pinball_rejects_cqr_endpoint_tamper():
+    predictions, suite, availability, protocol = _probability_evaluation_fixture()
+    attacked = copy.deepcopy(predictions)
+    frame = attacked["temporal"]
+    selected = (
+        frame.model.eq("ThermoRoute")
+        & frame.site_id.eq("01000001")
+        & frame.horizon.eq(1)
+    )
+    frame.loc[selected, "q05"] = 0.9
+
+    with pytest.raises(
+        OpeningContractError, match="fail bitwise forward CQR parity"
+    ):
+        _probabilistic_evaluation(
+            trusted_predictions=attacked,
+            suite=suite,
+            availability=availability,
+            protocol=protocol,
+            probability_metric_erratum_binding=(
+                _probability_metric_erratum_binding()
+            ),
+        )
 
 
 def test_probability_single_class_metrics_are_null_with_per_metric_reasons():
@@ -2513,6 +2988,7 @@ def test_probability_single_class_metrics_are_null_with_per_metric_reasons():
         suite=suite,
         availability=availability,
         protocol=protocol,
+        probability_metric_erratum_binding=_probability_metric_erratum_binding(),
     )
     row = next(
         item for item in result["rows"]
@@ -2899,6 +3375,29 @@ def test_trusted_sequence_scorer_loads_all_members_and_emits_one_ensemble_row(tm
     assert len(scored) == 2 * 3
     assert scored.seed.eq(-1).all()
     assert scored.q05.notna().all() and scored.p_exceed.between(0, 1).all()
+    assert list(scored.columns) == [
+        *opening_module.R.PRED_COLS,
+        "_nominal_q05",
+        "_nominal_q50",
+        "_nominal_q95",
+    ]
+    assert np.array_equal(
+        scored["_nominal_q05"].to_numpy(float) - 0.1,
+        scored.q05.to_numpy(float),
+    )
+    assert np.array_equal(
+        scored["_nominal_q50"].to_numpy(float),
+        scored.q50.to_numpy(float),
+    )
+    assert np.array_equal(
+        scored["_nominal_q95"].to_numpy(float) + 0.1,
+        scored.q95.to_numpy(float),
+    )
+    public = _public_prediction_product(scored)
+    assert list(public.columns) == opening_module.R.PRED_COLS
+    assert not set(public).intersection({
+        "_nominal_q05", "_nominal_q50", "_nominal_q95"
+    })
 
 
 def test_producer_development_binding_replays_through_opening_validator(tmp_path):

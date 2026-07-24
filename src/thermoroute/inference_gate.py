@@ -22,6 +22,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 from typing import Any, Mapping, Sequence
 
@@ -82,6 +83,38 @@ NULL_SIMULATION_SCENARIOS: tuple[str, ...] = (
     "median_zero_skewed_lognormal_gaussian_copula",
     "cluster_level_skewed_shock",
     "cross_huc_shared_factor_dependence",
+)
+
+_FORBIDDEN_AMBIENT_GIT_VARIABLES = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_DIR",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+        "GIT_EXEC_PATH",
+        "GIT_EXTERNAL_DIFF",
+        "GIT_GLOB_PATHSPECS",
+        "GIT_GRAFT_FILE",
+        "GIT_ICASE_PATHSPECS",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_NAMESPACE",
+        "GIT_NOGLOB_PATHSPECS",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_QUARANTINE_PATH",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_WORK_TREE",
+    }
 )
 
 
@@ -146,13 +179,45 @@ def _sha256_file(path: Path) -> str:
 
 
 def _inside(root: Path, relative: str, *, require_file: bool = True) -> Path:
-    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+    if (
+        not isinstance(relative, str)
+        or not relative
+        or Path(relative).is_absolute()
+        or "\\" in relative
+        or Path(relative).as_posix() != relative
+        or any(part in {".", ".."} for part in Path(relative).parts)
+    ):
         raise InferenceGateError("inference-gate path must be a relative allowlisted path")
-    path = (root / relative).resolve()
-    if root != path and root not in path.parents:
-        raise InferenceGateError("inference-gate path escapes repository root")
-    if require_file and not path.is_file():
-        raise InferenceGateError(f"required inference-gate input is absent: {relative}")
+    root = root.resolve()
+    path = root / relative
+    current = root
+    parts = Path(relative).parts
+    for index, part in enumerate(parts):
+        current = current / part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            if require_file or index < len(parts) - 1:
+                raise InferenceGateError(
+                    f"required inference-gate input is absent: {relative}"
+                )
+            return path
+        except OSError as exc:
+            raise InferenceGateError(
+                f"cannot audit inference-gate path: {relative}"
+            ) from exc
+        if stat.S_ISLNK(mode):
+            raise InferenceGateError(
+                f"inference-gate path contains a symlink: {relative}"
+            )
+        if index < len(parts) - 1 and not stat.S_ISDIR(mode):
+            raise InferenceGateError(
+                f"inference-gate path crosses a non-directory: {relative}"
+            )
+        if index == len(parts) - 1 and require_file and not stat.S_ISREG(mode):
+            raise InferenceGateError(
+                f"required inference-gate input is not a regular file: {relative}"
+            )
     return path
 
 
@@ -160,15 +225,13 @@ def _require_allowlisted(path: str | Path, *, root: Path, expected: str) -> Path
     resolved = Path(path)
     if not resolved.is_absolute():
         resolved = root / resolved
-    resolved = resolved.resolve()
-    allowed = (root / expected).resolve()
+    resolved = Path(os.path.abspath(os.fspath(resolved)))
+    allowed = Path(os.path.abspath(os.fspath(root / expected)))
     if resolved != allowed:
         raise InferenceGateError(
             f"inference-gate input is not allowlisted: expected {expected}"
         )
-    if not resolved.is_file():
-        raise InferenceGateError(f"required inference-gate input is absent: {expected}")
-    return resolved
+    return _inside(root, expected)
 
 
 def _load_json(path: Path, *, label: str) -> Mapping[str, Any]:
@@ -682,11 +745,187 @@ def validate_inference_amendment(
     return dict(amendment)
 
 
-def _git(root: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        ["git", *arguments], cwd=root, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, check=False,
+def _safe_git_environment() -> dict[str, str]:
+    """Return a deterministic Git environment that cannot redirect history."""
+    forbidden = sorted(
+        name
+        for name, value in os.environ.items()
+        if name in _FORBIDDEN_AMBIENT_GIT_VARIABLES
+        or name.startswith("GIT_CONFIG_KEY_")
+        or name.startswith("GIT_CONFIG_VALUE_")
+        or (name == "GIT_NO_REPLACE_OBJECTS" and value != "1")
     )
+    if forbidden:
+        raise InferenceGateError(
+            "ambient Git repository/configuration override is prohibited: "
+            f"{forbidden}"
+        )
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("GIT_")
+    }
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_PAGER": "cat",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
+    return environment
+
+
+def _git(root: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
+    """Run one history query through the sole hardened Git adapter."""
+    try:
+        return subprocess.run(
+            [
+                "git",
+                "--no-replace-objects",
+                "-c",
+                "core.useReplaceRefs=false",
+                "-C",
+                str(root),
+                *arguments,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_safe_git_environment(),
+            check=False,
+        )
+    except OSError as exc:  # pragma: no cover - Git is a formal dependency
+        raise InferenceGateError(
+            "Git is required for inference-amendment lineage"
+        ) from exc
+
+
+def _decode_git_path(
+    result: subprocess.CompletedProcess[bytes],
+    *,
+    label: str,
+) -> Path:
+    if result.returncode:
+        raise InferenceGateError(f"cannot resolve {label}")
+    try:
+        raw = result.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise InferenceGateError(f"{label} is malformed") from exc
+    path = Path(raw)
+    if not raw or not path.is_absolute():
+        raise InferenceGateError(f"{label} is not an absolute path")
+    return path
+
+
+def _assert_no_symlink_components(path: Path, *, label: str) -> None:
+    """Reject every existing symlink component without dereferencing it."""
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current = current / part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise InferenceGateError(f"cannot audit {label} path") from exc
+        if stat.S_ISLNK(mode):
+            raise InferenceGateError(f"{label} path contains a symlink component")
+
+
+def _require_git_root(root: str | Path) -> Path:
+    """Require one complete, unredirected Git worktree rooted exactly here."""
+    root_path = Path(os.path.abspath(os.fspath(root)))
+    if not root_path.is_dir():
+        raise InferenceGateError("inference-amendment Git root is absent")
+    _assert_no_symlink_components(
+        root_path, label="inference-amendment Git root"
+    )
+
+    marker = root_path / ".git"
+    try:
+        marker_mode = marker.lstat().st_mode
+    except FileNotFoundError:
+        marker_mode = 0
+    except OSError as exc:
+        raise InferenceGateError(
+            "cannot audit the local inference-amendment .git marker"
+        ) from exc
+    if (
+        marker_mode == 0
+        or stat.S_ISLNK(marker_mode)
+        or not (stat.S_ISDIR(marker_mode) or stat.S_ISREG(marker_mode))
+    ):
+        raise InferenceGateError(
+            "inference-amendment lineage requires a local safe .git marker"
+        )
+
+    top = _decode_git_path(
+        _git(root_path, "rev-parse", "--show-toplevel"),
+        label="inference-amendment Git top-level",
+    )
+    if Path(os.path.abspath(os.fspath(top))) != root_path:
+        raise InferenceGateError(
+            "inference-amendment root must be the exact Git top-level"
+        )
+
+    for option, label in (
+        ("--git-dir", "inference-amendment Git directory"),
+        ("--git-common-dir", "inference-amendment Git common directory"),
+    ):
+        location = _decode_git_path(
+            _git(root_path, "rev-parse", "--path-format=absolute", option),
+            label=label,
+        )
+        _assert_no_symlink_components(location, label=label)
+        if not location.is_dir():
+            raise InferenceGateError(f"{label} is absent")
+
+    shallow = _git(root_path, "rev-parse", "--is-shallow-repository")
+    if shallow.returncode or shallow.stdout.strip() != b"false":
+        raise InferenceGateError(
+            "inference-amendment lineage prohibits a shallow repository"
+        )
+    replacements = _git(
+        root_path,
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/replace/",
+    )
+    if replacements.returncode or replacements.stdout.strip():
+        raise InferenceGateError(
+            "inference-amendment lineage prohibits Git replacement refs"
+        )
+    for label, relative in (
+        ("legacy grafts", "info/grafts"),
+        ("object alternates", "objects/info/alternates"),
+    ):
+        location = _decode_git_path(
+            _git(
+                root_path,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                relative,
+            ),
+            label=f"inference-amendment Git {label}",
+        )
+        _assert_no_symlink_components(
+            location, label=f"inference-amendment Git {label}"
+        )
+        if os.path.lexists(location):
+            raise InferenceGateError(
+                f"inference-amendment lineage prohibits Git {label}"
+            )
+    return root_path
+
+
+def _has_local_git(root: str | Path) -> bool:
+    """Do not mistake an ancestor repository for archive-local lineage."""
+    root_path = Path(os.path.abspath(os.fspath(root)))
+    return os.path.lexists(root_path / ".git")
 
 
 def _git_path_exists(root: Path, commit: str, relative: str) -> bool:
@@ -762,6 +1001,7 @@ def _validate_inference_amendment_seal_git_lineage(
     expected_sha256: str,
 ) -> str:
     """Prove one post-amendment seal birth and immutable descendant history."""
+    root = _require_git_root(root)
     if _git_path_exists(root, final_prelabel_commit, AMENDMENT_SEAL_RELATIVE):
         raise InferenceGateError(
             "inference amendment seal existed at its amendment commit"
@@ -807,16 +1047,14 @@ def build_inference_amendment_seal_document(
     protocol_seal_path: str | Path = BASE_PROTOCOL_SEAL_RELATIVE,
 ) -> dict[str, Any]:
     """Build the second-stage lineage seal after the amendment is committed."""
-    root_path = Path(root).resolve()
+    root_path = _require_git_root(root)
     amendment = validate_inference_amendment(
         amendment_path, root=root_path, protocol_seal_path=protocol_seal_path
     )
-    amendment_file = (root_path / AMENDMENT_RELATIVE).resolve()
-    base_seal_file = (root_path / BASE_PROTOCOL_SEAL_RELATIVE).resolve()
+    amendment_file = _inside(root_path, AMENDMENT_RELATIVE)
+    base_seal_file = _inside(root_path, BASE_PROTOCOL_SEAL_RELATIVE)
     if not re.fullmatch(r"[0-9a-f]{40}", final_prelabel_commit):
         raise InferenceGateError("amendment seal requires a full Git commit")
-    if not (root_path / ".git").exists():
-        raise InferenceGateError("amendment seal creation requires live Git history")
     exists = _git(root_path, "cat-file", "-e", f"{final_prelabel_commit}^{{commit}}")
     if exists.returncode:
         raise InferenceGateError("amendment commit is absent")
@@ -866,7 +1104,13 @@ def validate_inference_amendment_seal(
     allow_gitless_archive: bool = False,
 ) -> dict[str, Any]:
     """Validate separate amendment lineage; never accept a missing commit."""
-    root_path = Path(root).resolve()
+    candidate_root = Path(os.path.abspath(os.fspath(root)))
+    has_local_git = _has_local_git(candidate_root)
+    root_path = (
+        _require_git_root(candidate_root)
+        if has_local_git
+        else candidate_root.resolve()
+    )
     seal_file = _require_allowlisted(
         seal_path, root=root_path, expected=AMENDMENT_SEAL_RELATIVE
     )
@@ -889,8 +1133,8 @@ def validate_inference_amendment_seal(
         root_path, seal.get("base_protocol_seal"), label="base protocol seal"
     )
     if (
-        amendment_file != (root_path / AMENDMENT_RELATIVE).resolve()
-        or base_seal_file != (root_path / BASE_PROTOCOL_SEAL_RELATIVE).resolve()
+        amendment_file != _inside(root_path, AMENDMENT_RELATIVE)
+        or base_seal_file != _inside(root_path, BASE_PROTOCOL_SEAL_RELATIVE)
     ):
         raise InferenceGateError("inference amendment seal names noncanonical files")
     commit = str(seal.get("final_prelabel_commit", ""))
@@ -909,7 +1153,7 @@ def validate_inference_amendment_seal(
         "outcome_independent": True,
     }:
         raise InferenceGateError("inference amendment seal contract changed")
-    if (root_path / ".git").exists():
+    if has_local_git:
         if _git(root_path, "cat-file", "-e", f"{commit}^{{commit}}").returncode:
             raise InferenceGateError("inference amendment seal commit is absent")
         blob = _git(root_path, "show", f"{commit}:{AMENDMENT_RELATIVE}")

@@ -242,9 +242,12 @@ def _seed_model_commit(
     for path in (
         "src/thermoroute/chronology.py",
         "src/thermoroute/outcome_qc.py",
+        "src/thermoroute/probability_metric_erratum.py",
         "scripts/28_freeze_prelabel_chronology.py",
         "tests/test_chronology.py",
         "protocols/route_a_outcome_qc_policy_v1.json",
+        "protocols/route_a_probability_metric_erratum_v1.json",
+        "protocols/route_a_probability_metric_erratum_seal_v1.json",
     ):
         _write(root, path, f"# frozen gate fixture: {path}\n")
 

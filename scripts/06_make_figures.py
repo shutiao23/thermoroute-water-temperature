@@ -84,10 +84,16 @@ def fig_study_area(panel):
         gridspec_kw={"width_ratios": [1.25, 1]},
     )
     fig.subplots_adjust(wspace=0.38)
-    axL.set_title("a  Legacy monitoring-site identifiers")
-    axL.axis("off"); axL.set_xlim(0, 10); axL.set_ylim(0, 10)
-    pos = {"b1": (1.6, 5.0), "s2": (5.0, 5.0), "p3": (8.4, 5.0)}
-    for st, (x, y) in pos.items():
+    display_sites = tuple(sorted(C.STATIONS))
+    axL.set_title("a  Legacy monitoring-site identifiers (unordered)")
+    axL.axis("off")
+    axL.set_xlim(0, 10)
+    axL.set_ylim(0, 10)
+    # Deliberately non-collinear and lexicographically ordered. These are
+    # neutral identifier cards, not geographic positions or a network diagram.
+    pos = {"b1": (2.0, 6.4), "p3": (5.0, 3.8), "s2": (8.0, 6.4)}
+    for st in display_sites:
+        x, y = pos[st]
         box = FancyBboxPatch(
             (x - 1.15, y - 0.85),
             2.3,
@@ -108,9 +114,9 @@ def fig_study_area(panel):
         )
     axL.text(
         5.0,
-        2.35,
-        "Display order only.\n"
-        "No reservoir, hydraulic-connectivity, or travel-time claim.",
+        1.25,
+        "Unordered identifiers; positions have no geographic or hydrologic meaning.\n"
+        "No reservoir, connectivity, regulation, or travel-time claim.",
         ha="center",
         va="center",
         fontsize=7.5,
@@ -119,11 +125,12 @@ def fig_study_area(panel):
     )
 
     axR.set_title("b  Per-station WTEMP distribution")
-    data = [panel[panel.site_id == st].WTEMP.values for st in C.STATIONS]
+    data = [panel[panel.site_id == st].WTEMP.values for st in display_sites]
     bp = axR.boxplot(data, vert=True, patch_artist=True, widths=0.6,
-                     tick_labels=list(C.STATIONS), showfliers=False)
-    for patch, st in zip(bp["boxes"], C.STATIONS):
-        patch.set_facecolor(STCOLOR[st]); patch.set_alpha(0.75)
+                     tick_labels=list(display_sites), showfliers=False)
+    for patch, st in zip(bp["boxes"], display_sites):
+        patch.set_facecolor(STCOLOR[st])
+        patch.set_alpha(0.75)
     for med in bp["medians"]:
         med.set_color("white")
     axR.set_ylabel("water temperature (°C)")

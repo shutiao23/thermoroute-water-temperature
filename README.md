@@ -56,9 +56,10 @@ unregistered generators require their own guards and tests.
 
 Daily stream temperature is highly persistent. A useful model therefore has to
 beat strong, simple references on exactly the same station/date/horizon keys while
-using finalized values dated on or before each historical issue date. This is a
-date-indexed retrospective information rule, not proof that the same product
-vintages were operationally available at that time. The benchmark also has to
+using the latest provider values as served at acquisition, with dates no later
+than each historical issue date. This is a date-indexed retrospective information
+rule, not proof that the same product vintages were operationally available at
+that time. The benchmark also has to
 report missingness, sensor qualifiers, geographic dependence, uncertainty, and
 model-selection history without silently changing the cohort after outcomes are
 seen.
@@ -67,6 +68,12 @@ ThermoRoute is designed to test whether a constrained learned correction can add
 value over persistence, damped persistence, climatology, LightGBM, and a global
 LSTM. The repository treats that as an empirical question; the architecture name
 is not evidence of hydraulic transport or an identified physical mechanism.
+
+The exact correction of earlier three-site language, including the affected
+historical commits, is recorded in the
+[legacy three-site semantics notice](protocols/legacy_three_site_semantics_notice_v1.md).
+The identifiers `b1`, `s2`, and `p3` are ordinary monitoring stations; no
+topology, regulation status, or travel time is established for them.
 
 ## Frozen evaluation design
 
@@ -141,6 +148,13 @@ field is compatibility-only and contributes zero. LightGBM's independently fit
 heads are never sorted: the bundle records raw development crossings by member
 and horizon, clips q05/q95 to the nominal raw q50 when necessary, and leaves q50
 exactly unchanged.
+An outcome-free pre-opening code audit found that the formal evaluator had applied
+pinball loss to the CQR-adjusted endpoints while the development evaluator used the
+nominal heads. Those pre-erratum formal artifacts were withdrawn before any
+post-2020 outcome was requested. The frozen correction uses nominal pre-CQR
+q05/q50/q95 for pinball, deployed CQR endpoints for coverage and width, and the
+post-Platt probability for event metrics; the exact metric-source contract is in
+`protocols/route_a_probability_metric_erratum_v1.json`.
 Exceedance events use a frozen seasonal statistical reference fitted on
 2006–2018 without target-period labels; horizon-specific Platt calibration uses
 2018 only. Probability,

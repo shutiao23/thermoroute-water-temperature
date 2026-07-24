@@ -155,8 +155,8 @@ development; it is exploratory and not independently confirmatory.
 The target interval is fixed in the protocol. Historical Daymet and gridMET
 covariates must be retrieved and archived before outcome access. Meteorology is
 represented at each station coordinate, not aggregated over upstream catchments.
-The primary information set uses values dated on or before each historical issue
-date in retrospectively retrieved, finalized products and consumes no
+The primary information set uses the latest provider values as served at
+acquisition, with dates no later than each historical issue date, and consumes no
 horizon-specific future weather forecast. This is a date-indexed retrospective
 hindcast; it does not establish that the same predictor vintages were available
 operationally at that time.
@@ -252,6 +252,13 @@ claim empirical marginal coverage only. Quantile crossing,
 station-balanced achieved coverage, interval width, three-quantile pinball mean,
 Brier score, log loss, discrimination, reliability, and calibration slope/intercept
 are descriptive outputs.
+The three-quantile pinball mean uses the nominal member-averaged q05/q50/q95 heads
+before CQR, empirical coverage and width use the deployed CQR interval, and event
+metrics use the probability after the frozen 2018 Platt calibrator. A pre-opening
+adversarial code audit found that an earlier formal evaluator had instead applied
+pinball loss to the CQR endpoints. Those artifacts were withdrawn before any
+post-2020 outcome request; the outcome-free correction is recorded in the sealed
+probability-metric erratum.
 
 ## 4. Evaluation design
 
@@ -525,7 +532,8 @@ Additional limitations are the availability-enriched station sample; missing
 original provider bytes for the development panel; point-scale meteorology rather
 than upstream forcings; unbalanced and coarse HUC2 clusters; daily-mean outcomes;
 outcome-observability conditioning; a numerical margin without stakeholder-derived
-importance; retrospective finalized covariates; absence of latency, memory, energy,
+importance; retrospectively acquired latest-provider covariates rather than
+as-issued vintages; absence of latency, memory, energy,
 and multi-hardware benchmarks; owner-controlled local evidence chronology; the
 unreplayable original 1,465-candidate discovery execution; and the absence of an
 official Air2stream calibration run.

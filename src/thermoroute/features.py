@@ -61,10 +61,12 @@ class HarmonicClimatology:
             pooled: bool = False) -> "HarmonicClimatology":
         """Fit train-only seasonal coefficients.
 
-        For zero-shot spatial transfer, pass the in-fold ``fit_stations`` and
-        ``pooled=True``.  The same pooled coefficient vector is then used for
-        both training and held-out stations, preventing held-out WTEMP history
-        from entering through a nominally "deterministic" climatology.
+        For a held-station pooled-climatology fit, pass the in-fold
+        ``fit_stations`` and ``pooled=True``.  The same pooled coefficient
+        vector is then used for both training and held-out stations, preventing
+        held-out WTEMP history from entering through this climatology component.
+        This component-level safeguard does not make the wider forecast
+        ungauged or zero-shot; those labels depend on every model input.
         """
         fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
         allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()

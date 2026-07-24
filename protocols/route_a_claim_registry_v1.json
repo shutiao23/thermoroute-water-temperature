@@ -22,6 +22,7 @@
     "paper/highlights.md",
     "paper/cover_letter.md",
     "paper/agu_submission/ThermoRoute_WRR.tex",
+    "protocols/legacy_three_site_semantics_notice_v1.md",
     "outputs/confirmatory/route_a_*/trusted/report_v1.md"
   ],
   "required_documents": [
@@ -29,14 +30,16 @@
     "paper/ThermoRoute_paper.md",
     "paper/highlights.md",
     "paper/cover_letter.md",
-    "paper/agu_submission/ThermoRoute_WRR.tex"
+    "paper/agu_submission/ThermoRoute_WRR.tex",
+    "protocols/legacy_three_site_semantics_notice_v1.md"
   ],
   "preopen_document_sha256": {
-    "README.md": "d7890b1e26ee6b73fcc6522af32c242f618dd07b7036d1fc2343c08fab6811bc",
-    "paper/ThermoRoute_paper.md": "3cbec9f23d507f21f266fcdd8710a2eb10d7ecf837a134c2f15f446e35ef3920",
-    "paper/highlights.md": "d26098d4f6122b6c3d4b270b3b4b9cd52ea453b5eea77d9eb5efc42cf085be0f",
-    "paper/cover_letter.md": "d45b5e45d03303ab9d45e87e481e0c917762400c63a81b86c014b0d476824d17",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "4097883f804b2e6d3e91e19c0c7b8f0618960e9762b2e39dd1f5b8ae1e94c33c"
+    "README.md": "837e10125e41225d50043391321e1b7986e701dbc76c13d094e26ae7607d661c",
+    "paper/ThermoRoute_paper.md": "9cbf1a6a8d7888c1858d5f38acce93805bd041be68130f10ca5259cdcec36f85",
+    "paper/highlights.md": "a2bae78002e63e088ce61eb752f597b883e45af9f96d65429b1367fda924a342",
+    "paper/cover_letter.md": "bfb79bc6cdab31f5a4d0ec275839c859dd14aee9cfc8ba7c8b34f3d88e0cf820",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "14374277356308f50355d2a3aef21553401715f29536e0383007796238871ec7",
+    "protocols/legacy_three_site_semantics_notice_v1.md": "f6e815453b98968b9e391b6b46ceaeab62e892b0d3b5228d4017df6da93c3f25"
   },
   "postopen_document_transform": {
     "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",

@@ -30,7 +30,7 @@ def _publication_state(root: Path) -> dict[str, Path]:
         "outcome_qc_gate": "outcome_qc_gate_v1.json",
         "approved_target_sensitivity": "approved_target_sensitivity_v1.json",
         "spatial_sensitivity": "spatial_sensitivity_v1.json",
-        "probabilistic_evaluation": "probabilistic_evaluation_v1.json",
+        "probabilistic_evaluation": "probabilistic_evaluation_v2.json",
         "temporal_predictions": "temporal_predictions_v1.parquet",
         "external_predictions": "external_predictions_v1.parquet",
         "statistics": "statistics_v1.json",
@@ -801,11 +801,21 @@ def test_completed_receipt_reader_rejects_extra_trusted_file_before_replay(
         )
         for key, value in state.items()
     }
+    # Keep this fixture schema-complete so the reader reaches the publication
+    # boundary under test.  Unrelated authorization values are deliberately
+    # inert because the exact trusted directory is validated before receipt or
+    # acquisition replay.
     document = {
+        key: None
+        for key in opening.AUTHORIZATION_TOP_LEVEL_FIELDS
+        if key != "authorization_self_sha256"
+    }
+    document.update({
         "format": opening.AUTHORIZATION_FORMAT,
         "source": {"authorization_path": "authorization.json"},
         "state_paths": relative_state,
-    }
+        "opening_id": "fixture-opening-id",
+    })
     document["authorization_self_sha256"] = opening.sha256_json(document)
     authorization = tmp_path / "authorization.json"
     authorization.write_bytes(canonical_json_bytes(document))

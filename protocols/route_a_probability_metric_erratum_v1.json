@@ -1,0 +1,154 @@
+{
+  "format": "thermoroute.route-a-probability-metric-erratum.v1",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "erratum_id": "route-a-prelabel-probability-metric-semantics-016",
+  "recorded_date": "2026-07-24",
+  "prelabel_attestation": {
+    "post_2020_wtemp_requested_or_inspected": false,
+    "confirmation_outcomes_requested_or_inspected": false,
+    "outcome_endpoint_called": false,
+    "outcome_independent": true,
+    "network_used": false
+  },
+  "governance_inputs": {
+    "base_protocol": {
+      "path": "protocols/route_a_confirmatory_v1.json",
+      "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+    },
+    "base_protocol_seal": {
+      "path": "protocols/route_a_protocol_seal_v1.json",
+      "sha256": "df700fe2fac170d0466cbcaa0fae25efb4748ab82b44d49272c1e85ff5e060cd"
+    },
+    "inference_amendment": {
+      "path": "protocols/route_a_inference_amendment_v2.json",
+      "sha256": "c936dac301e7f90b05e40bfcb40f86e3a2cd88e692e422fc21fa51fee785bcf8"
+    },
+    "inference_amendment_seal": {
+      "path": "protocols/route_a_inference_amendment_seal_v2.json",
+      "sha256": "4b4e216f51f6d350912604a96aaa170887cbca7e952a1d097f03e54a7b99969d"
+    }
+  },
+  "scientific_scope": {
+    "role": "DESCRIPTIVE_NOT_IN_CONFIRMATORY_FIVE_TEST_FAMILY",
+    "confirmatory_family_count": 5,
+    "confirmatory_family_sha256": "473b2ddae17b353b3499413ecd266e684e9b411412bba5463435e8400aedb799",
+    "formal_comparisons_changed": false,
+    "formal_margins_changed": false,
+    "formal_decisions_changed": false,
+    "probabilistic_event_contract_sha256": "7d7540732aac8dc15dc9844296322b1c75537caf467bbaae18839aa37762b098",
+    "inference_allowed": false
+  },
+  "defect": {
+    "affected_metric": "equal_weight_three_quantile_pinball_mean_not_CRPS",
+    "stored_q05_q95_semantics": "post_2018_CQR_interval_endpoints",
+    "invalid_use": "scoring_stored_post_CQR_q05_and_q95_as_nominal_0.05_and_0.95_quantiles",
+    "development_stage_19_semantics": "nominal_pre_CQR_ensemble_q05_q50_q95",
+    "correction": "directly_score_the_bundle_generated_transient_nominal_pre_CQR_heads_for_pinball_while_retaining_post_CQR_endpoints_for_interval_metrics",
+    "interval_metrics_affected": false,
+    "event_metrics_affected": false
+  },
+  "corrected_metric_contract": {
+    "interval_coverage_and_width_source": "bundle_frozen_2018_cqr_endpoints",
+    "pinball_quantile_source": "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_before_cqr",
+    "nominal_quantile_handling": {
+      "source": "direct_nominal_pre_cqr_ensemble_q05_q50_q95_retained_in_memory_before_cqr",
+      "storage": "transient_in_memory_only_not_written_to_public_prediction_products",
+      "member_aggregation": "equal_weight_member_mean_before_cqr",
+      "cqr_forward_parity": "bitwise_float64_nominal_q05_minus_offset_and_nominal_q95_plus_offset_equal_stored_endpoints",
+      "q50_forward_parity": "bitwise_nominal_q50_equal_stored_q50",
+      "endpoint_inversion_used": false,
+      "public_prediction_schema_changed": false
+    },
+    "bundle_scoring_pipeline_contracts": {
+      "LightGBM": "bundle_declared_median_preserving_endpoint_clip_per_member_then_equal_weight_member_mean_then_frozen_cqr",
+      "deep_LSTM_and_deterministic_controls": "quantiles_ordered_by_construction_per_member_then_equal_weight_member_mean_then_frozen_cqr"
+    },
+    "pinball_aggregation": {
+      "quantiles": [
+        0.05,
+        0.5,
+        0.95
+      ],
+      "per_quantile": "station_balanced_weighted_mean_pinball_loss",
+      "across_quantiles": "unscaled_arithmetic_mean_of_three_scores",
+      "called_CRPS": false
+    },
+    "event_probability_source": "bundle_frozen_2018_platt_calibrated_p_exceed",
+    "event_outcome_source": "confirmation_y_true_above_bundle_frozen_development_train_q90",
+    "event_probability_metrics": [
+      "Brier_score",
+      "Brier_skill_vs_frozen_seasonal_reference",
+      "log_loss_clipped_1e-6",
+      "AUROC",
+      "AUPRC",
+      "ECE_10_equal_width_bins",
+      "evaluation_calibration_intercept",
+      "evaluation_calibration_slope"
+    ],
+    "all_event_probability_metrics_use_post_Platt_probability": true,
+    "station_weighting": "each_reportable_station_equal_weight_within_model_horizon",
+    "event_counts": "raw_unweighted_counts_and_station_balanced_rates",
+    "deterministic_builtin_status": "NOT_AVAILABLE_NO_PROBABILISTIC_HEAD",
+    "inference_prohibited": [
+      "p_value",
+      "confidence_interval",
+      "Holm_adjustment",
+      "pass_fail_decision",
+      "conditional_coverage_claim"
+    ]
+  },
+  "unchanged_contract": {
+    "model_definition_changed": false,
+    "fit_data_changed": false,
+    "frozen_hyperparameters_changed": false,
+    "hyperparameter_retuning_allowed": false,
+    "old_pre_erratum_model_artifacts_eligible_for_final_freeze": false,
+    "full_retraining_and_replay_under_new_source_required": true,
+    "retraining_role": "mechanical_reproduction_under_the_unchanged_frozen_contract_not_retuning",
+    "confirmation_data_may_change_or_reestimate_CQR": false,
+    "confirmation_data_may_change_or_reestimate_Platt": false,
+    "confirmation_data_may_change_or_reestimate_event_threshold": false,
+    "mechanical_recomputation_contract": {
+      "required": true,
+      "components": [
+        "model_fits",
+        "CQR",
+        "Platt",
+        "event_threshold"
+      ],
+      "fit_inputs": "identical_frozen_development_only_fit_inputs",
+      "algorithm": "identical_frozen_algorithm",
+      "parameters": "identical_frozen_fitting_parameters",
+      "purpose": "deterministic_mechanical_reproduction_only",
+      "confirmation_data_used_for_fit": false,
+      "retuning_or_adaptation_allowed": false
+    },
+    "five_formal_tests_changed": false,
+    "formal_test_margins_changed": false,
+    "formal_decisions_changed": false,
+    "forecast_key_registry_changed": false,
+    "minimum_targets_per_station_horizon": 100,
+    "station_balancing_changed": false
+  },
+  "implementation_requirements": {
+    "opening_implementation": "src/thermoroute/opening.py",
+    "development_reference": "scripts/19_probabilistic.py",
+    "targeted_opening_tests": "tests/test_confirmatory_opening.py",
+    "trusted_artifact_format": "thermoroute.route-a-probabilistic-evaluation.v2",
+    "trusted_artifact_path": "trusted/probabilistic_evaluation_v2.json",
+    "transient_nominal_quantiles_required_for_v2_replay": true,
+    "bitwise_forward_cqr_parity_required": true,
+    "source_fields_required_in_artifact": [
+      "interval_endpoint_source",
+      "pinball_quantile_source",
+      "event_probability_source",
+      "event_outcome_source"
+    ]
+  },
+  "lineage_contract": {
+    "separate_erratum_seal_required": true,
+    "seal_path": "protocols/route_a_probability_metric_erratum_seal_v1.json",
+    "erratum_document_commit_must_precede_seal_commit": true,
+    "both_paths_immutable_after_sealing": true
+  }
+}

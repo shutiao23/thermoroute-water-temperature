@@ -21,6 +21,7 @@ from thermoroute.inference_gate import (
     exclusive_create_json,
     _validate_inference_amendment_seal_git_lineage,
     validate_inference_amendment,
+    validate_inference_amendment_seal,
     validate_inference_gate_document,
 )
 from thermoroute.outcome_qc import POLICY_RELATIVE as OUTCOME_QC_POLICY_RELATIVE
@@ -83,6 +84,20 @@ def _write_seal(root: Path, payload: bytes) -> None:
     path = root / AMENDMENT_SEAL_RELATIVE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
+
+
+def _complete_seal_lineage_repository(
+    tmp_path: Path,
+) -> tuple[Path, str, bytes, str]:
+    root = _seal_lineage_repository(tmp_path)
+    amendment = root / AMENDMENT_RELATIVE
+    amendment.parent.mkdir(parents=True, exist_ok=True)
+    amendment.write_text("{}\n", encoding="utf-8")
+    final_prelabel_commit = _git_commit(root, "amendment")
+    payload = b'{"seal":"canonical"}\n'
+    _write_seal(root, payload)
+    creation = _git_commit(root, "seal")
+    return root, final_prelabel_commit, payload, creation
 
 
 def test_production_registry_geometry_is_exact_and_row_order_invariant() -> None:
@@ -241,6 +256,47 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
     assert amendment["lineage_contract"]["base_v1_files_remain_immutable"] is True
 
 
+@pytest.mark.parametrize("symlink_component", ("amendment", "directory"))
+def test_amendment_rejects_symlinked_governance_inputs(
+    tmp_path: Path,
+    symlink_component: str,
+) -> None:
+    _copy_gate_inputs(tmp_path)
+    if symlink_component == "amendment":
+        canonical = tmp_path / AMENDMENT_RELATIVE
+        actual = canonical.with_name("actual_amendment.json")
+        canonical.rename(actual)
+        canonical.symlink_to(actual.name)
+    else:
+        canonical_directory = tmp_path / "protocols"
+        actual_directory = tmp_path / "actual_protocols"
+        canonical_directory.rename(actual_directory)
+        canonical_directory.symlink_to(
+            actual_directory.name,
+            target_is_directory=True,
+        )
+
+    with pytest.raises(InferenceGateError, match="symlink"):
+        validate_inference_amendment(
+            tmp_path / AMENDMENT_RELATIVE,
+            root=tmp_path,
+        )
+
+
+def test_amendment_seal_gitless_release_mode_keeps_existing_semantics(
+    tmp_path: Path,
+) -> None:
+    _copy_gate_inputs(tmp_path)
+    seal = tmp_path / AMENDMENT_SEAL_RELATIVE
+    seal.write_bytes((ROOT / AMENDMENT_SEAL_RELATIVE).read_bytes())
+
+    assert validate_inference_amendment_seal(
+        seal,
+        root=tmp_path,
+        allow_gitless_archive=True,
+    ) == json.loads(seal.read_text(encoding="utf-8"))
+
+
 def test_amendment_seal_lineage_accepts_one_strict_immutable_birth(
     tmp_path: Path,
 ) -> None:
@@ -259,6 +315,159 @@ def test_amendment_seal_lineage_accepts_one_strict_immutable_birth(
         tip="HEAD",
         expected_sha256=hashlib.sha256(payload).hexdigest(),
     ) == creation
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    (
+        ("GIT_DIR", "/attacker/redirected.git"),
+        ("GIT_INDEX_FILE", "/attacker/redirected.index"),
+        ("GIT_CONFIG_COUNT", "0"),
+        ("GIT_CONFIG_KEY_0", "include.path"),
+        ("GIT_CONFIG_VALUE_0", "/attacker/config"),
+        ("GIT_NO_REPLACE_OBJECTS", "0"),
+    ),
+)
+def test_amendment_seal_lineage_rejects_ambient_git_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+    value: str,
+) -> None:
+    root, final_prelabel_commit, payload, _creation = (
+        _complete_seal_lineage_repository(tmp_path)
+    )
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(InferenceGateError, match="ambient Git"):
+        _validate_inference_amendment_seal_git_lineage(
+            root=root,
+            final_prelabel_commit=final_prelabel_commit,
+            tip="HEAD",
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
+
+
+def test_amendment_seal_lineage_rejects_git_replace_refs(
+    tmp_path: Path,
+) -> None:
+    root, final_prelabel_commit, payload, creation = (
+        _complete_seal_lineage_repository(tmp_path)
+    )
+    subprocess.run(
+        ["git", "replace", creation, final_prelabel_commit],
+        cwd=root,
+        check=True,
+    )
+
+    with pytest.raises(InferenceGateError, match="replacement refs"):
+        _validate_inference_amendment_seal_git_lineage(
+            root=root,
+            final_prelabel_commit=final_prelabel_commit,
+            tip="HEAD",
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative", "error"),
+    (
+        ("info/grafts", "legacy grafts"),
+        ("objects/info/alternates", "object alternates"),
+    ),
+)
+def test_amendment_seal_lineage_rejects_grafts_and_alternates(
+    tmp_path: Path,
+    relative: str,
+    error: str,
+) -> None:
+    root, final_prelabel_commit, payload, creation = (
+        _complete_seal_lineage_repository(tmp_path)
+    )
+    attack = root / ".git" / relative
+    attack.parent.mkdir(parents=True, exist_ok=True)
+    attack.write_text(
+        f"{creation} {final_prelabel_commit}\n" if relative == "info/grafts" else "",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InferenceGateError, match=error):
+        _validate_inference_amendment_seal_git_lineage(
+            root=root,
+            final_prelabel_commit=final_prelabel_commit,
+            tip="HEAD",
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
+
+
+def test_amendment_seal_lineage_rejects_shallow_repository(
+    tmp_path: Path,
+) -> None:
+    root, final_prelabel_commit, payload, creation = (
+        _complete_seal_lineage_repository(tmp_path)
+    )
+    (root / ".git" / "shallow").write_text(f"{creation}\n", encoding="ascii")
+
+    with pytest.raises(InferenceGateError, match="shallow"):
+        _validate_inference_amendment_seal_git_lineage(
+            root=root,
+            final_prelabel_commit=final_prelabel_commit,
+            tip="HEAD",
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
+
+
+def test_amendment_seal_lineage_rejects_wrong_git_top_level(
+    tmp_path: Path,
+) -> None:
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=outer, check=True)
+    (outer / "base.txt").write_text("base\n", encoding="utf-8")
+    commit = _git_commit(outer, "outer base")
+    subprocess.run(
+        ["git", "config", "core.worktree", str(outer)],
+        cwd=outer,
+        check=True,
+    )
+    nested = outer / "nested"
+    nested.mkdir()
+    (nested / ".git").write_text("gitdir: ../.git\n", encoding="utf-8")
+
+    with pytest.raises(InferenceGateError, match="exact Git top-level"):
+        _validate_inference_amendment_seal_git_lineage(
+            root=nested,
+            final_prelabel_commit=commit,
+            tip="HEAD",
+            expected_sha256="0" * 64,
+        )
+
+
+@pytest.mark.parametrize("attack", ("root_alias", "git_marker"))
+def test_amendment_seal_lineage_rejects_symlink_path_components(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    root, final_prelabel_commit, payload, _creation = (
+        _complete_seal_lineage_repository(tmp_path)
+    )
+    attacked_root = root
+    if attack == "root_alias":
+        attacked_root = tmp_path / "repo-alias"
+        attacked_root.symlink_to(root, target_is_directory=True)
+    else:
+        marker = root / ".git"
+        actual = root / "actual-git"
+        marker.rename(actual)
+        marker.symlink_to(actual.name, target_is_directory=True)
+
+    with pytest.raises(InferenceGateError, match="symlink|safe .git marker"):
+        _validate_inference_amendment_seal_git_lineage(
+            root=attacked_root,
+            final_prelabel_commit=final_prelabel_commit,
+            tip="HEAD",
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
 
 
 @pytest.mark.parametrize(

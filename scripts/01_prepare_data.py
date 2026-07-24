@@ -109,19 +109,21 @@ def main() -> None:
       "Shared seasonality and autocorrelation can produce strong pairwise association; "
       "these values establish neither hydraulic connectivity nor travel time._\n")
 
-    # 6. rating curve
-    w("## 6. Stage–discharge (F–L) rating relationship\n")
-    w("| station | spearman(FLOW,WLEVEL) | WLEVEL drift 2006→2020 (m) |")
+    # 6. raw-channel association QC; legacy WLEVEL units/datum are unknown
+    w("## 6. Raw FLOW–WLEVEL association (QC only)\n")
+    w("| station | spearman(FLOW,WLEVEL) | WLEVEL mean change 2006→2020 "
+      "(raw legacy units) |")
     w("|---|---|---|")
     for st in C.STATIONS:
         sub = panel[panel.site_id == st]
         rho = spearmanr(sub.FLOW, sub.WLEVEL).statistic
         ym = sub.groupby(sub.DATE.dt.year)["WLEVEL"].mean()
         w(f"| {st} | {rho:.3f} | {ym.iloc[-1] - ym.iloc[0]:+.1f} |")
-    w("\n_s2/p3 have near-perfect monotone FLOW–WLEVEL relationships (ρ≈0.999), "
-      "whereas b1 is weaker (ρ≈0.82). These correlations do not identify regulation, "
-      "dam influence, or comparable vertical datums. Multi-year WLEVEL drift supports "
-      "standardising WLEVEL separately by station._\n")
+    w("\n_This is a raw-channel data-QC association only. WLEVEL source semantics, "
+      "units, and vertical datum are unverified, so neither its level nor its change "
+      "is given a physical elevation, stage, regulation, or reservoir interpretation. "
+      "The channel is standardised separately by station only as a scale-handling "
+      "operation._\n")
 
     # 7. thresholds
     w("## 7. High-temperature exceedance thresholds (train q90)\n")
@@ -139,7 +141,7 @@ def main() -> None:
     w(f"- **train** {s['train'][0]}…{s['train'][1]} · **val** {s['val'][0]}…{s['val'][1]} "
       f"· **calib** {s['calib'][0]} · **development evaluation** "
       f"{s['test'][0]}…{s['test'][1]}")
-    w("- All scalers, climatology and rating curves are fit on **train only**.")
+    w("- All scalers and climatology are fit on **train only**.")
     w(f"- **DH semantics unverified** (`config.DH_SEMANTICS_VERIFIED="
       f"{C.DH_SEMANTICS_VERIFIED}`): audit is consistent with a sunshine/insolation "
       f"index but a data-dictionary check is required before any DH-based claim.")

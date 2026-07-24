@@ -304,9 +304,23 @@ def _write_development_model_fixtures(
     model_entries: dict[str, list[dict[str, object]]] = {}
     artifact_paths: set[str] = set()
     builtins = {"Persistence", "DampedPersistence", "Climatology"}
+    primary_model_order = (
+        "Persistence", "DampedPersistence", "Climatology", "LightGBM",
+        "LSTM", "ThermoRoute",
+    )
+    control_model_order = (
+        "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
+        "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded",
+    )
     for cohort in ("temporal", "external"):
         entries: list[dict[str, object]] = []
-        for model in sorted(verifier._required_model_ids(cohort)):
+        model_order = (
+            primary_model_order
+            if cohort == "external"
+            else (*primary_model_order, *control_model_order)
+        )
+        assert set(model_order) == verifier._required_model_ids(cohort)
+        for model in model_order:
             if model in builtins:
                 entries.append({"model_id": model, "executor": "builtin"})
                 continue
@@ -1485,6 +1499,638 @@ def _fixture_confirmatory_family() -> list[dict[str, object]]:
     ]
 
 
+def _fixture_model_metadata_registry(
+    root: Path,
+    model_entries: dict[str, list[dict[str, object]]],
+) -> dict[tuple[str, str], dict[str, object]]:
+    output: dict[tuple[str, str], dict[str, object]] = {}
+    for cohort, entries in model_entries.items():
+        for entry in entries:
+            if entry["executor"] == "builtin":
+                continue
+            model = str(entry["model_id"])
+            artifact = entry["artifact"]
+            assert isinstance(artifact, dict)
+            artifact_path = root / str(artifact["path"])
+            metadata_path = (
+                artifact_path
+                if entry["executor"] == "lightgbm_bundle"
+                else artifact_path / "metadata.json"
+            )
+            output[(cohort, model)] = json.loads(
+                metadata_path.read_text(encoding="utf-8")
+            )
+    return output
+
+
+def _fixture_probability_pipeline_contracts(verifier) -> dict[str, object]:
+    output: dict[str, object] = {}
+    for pipeline_class, pipeline in verifier.PROBABILISTIC_PIPELINES.items():
+        contract = {
+            "format": "thermoroute.fixture-member-quantile-contract.v1",
+            "pipeline_class": pipeline_class,
+        }
+        output[pipeline_class] = {
+            "pipeline": pipeline,
+            "member_quantile_contract": contract,
+            "member_quantile_contract_sha256": verifier._sha256_json(contract),
+        }
+    return output
+
+
+def _fixture_probability_reliability_bins(
+    event: np.ndarray,
+    probability: np.ndarray,
+    weights: np.ndarray,
+    sites: np.ndarray,
+) -> tuple[list[dict[str, object]], float]:
+    clipped = np.clip(probability.astype(float), 1e-6, 1 - 1e-6)
+    edges = np.linspace(0.0, 1.0, 11)
+    assignments = np.clip(np.digitize(clipped, edges[1:-1]), 0, 9)
+    rows: list[dict[str, object]] = []
+    ece = 0.0
+    for index in range(10):
+        selected = assignments == index
+        count = int(selected.sum())
+        bin_weight = float(weights[selected].sum())
+        mean_probability = (
+            None
+            if not count
+            else float(np.average(clipped[selected], weights=weights[selected]))
+        )
+        event_rate = (
+            None
+            if not count
+            else float(np.average(event[selected], weights=weights[selected]))
+        )
+        if mean_probability is not None and event_rate is not None:
+            ece += bin_weight * abs(event_rate - mean_probability)
+        rows.append({
+            "bin_index": index + 1,
+            "lower_bound": float(edges[index]),
+            "upper_bound": float(edges[index + 1]),
+            "upper_bound_inclusive": index == 9,
+            "n": count,
+            "n_sites": int(np.unique(sites[selected]).size),
+            "station_balanced_weight": bin_weight,
+            "mean_probability": mean_probability,
+            "event_rate": event_rate,
+        })
+    return rows, float(ece)
+
+
+def _fixture_probability_reference_predictions(
+    reference: dict[str, object],
+    sites: np.ndarray,
+    target_dates: np.ndarray,
+) -> np.ndarray:
+    dates = pd.to_datetime(target_dates)
+    if reference["mode"] == "pooled_month":
+        monthly = reference["month_probability"]
+        return np.asarray([
+            float(monthly[str(int(month))]) for month in dates.month
+        ])
+    station_month = reference["station_month_probability"]
+    return np.asarray([
+        float(station_month[f"{site}|{int(month)}"])
+        for site, month in zip(sites.astype(str), dates.month, strict=True)
+    ])
+
+
+def _fixture_probability_classification_diagnostics(
+    event: np.ndarray,
+    probability: np.ndarray,
+    weights: np.ndarray,
+) -> tuple[dict[str, float | None], dict[str, str]]:
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
+    if np.unique(event).size < 2:
+        reason = "SINGLE_CLASS_RETAINED_OUTCOMES"
+        return (
+            {
+                "auroc": None,
+                "auprc": None,
+                "calibration_intercept": None,
+                "calibration_slope": None,
+            },
+            {
+                name: reason for name in (
+                    "auroc", "auprc", "calibration_intercept",
+                    "calibration_slope",
+                )
+            },
+        )
+    clipped = np.clip(probability, 1e-6, 1 - 1e-6)
+    logit_probability = np.log(clipped / (1 - clipped))
+    calibration = LogisticRegression(C=1e6, solver="lbfgs", max_iter=2000)
+    calibration.fit(
+        logit_probability.reshape(-1, 1), event, sample_weight=weights
+    )
+    return ({
+        "auroc": float(roc_auc_score(
+            event, probability, sample_weight=weights
+        )),
+        "auprc": float(average_precision_score(
+            event, probability, sample_weight=weights
+        )),
+        "calibration_intercept": float(calibration.intercept_[0]),
+        "calibration_slope": float(calibration.coef_[0, 0]),
+    }, {})
+
+
+def _fixture_probabilistic_evaluation_v2(
+    verifier,
+    *,
+    protocol: dict[str, object],
+    authorization: dict[str, object],
+    frames: dict[str, pd.DataFrame],
+    availability: pd.DataFrame,
+    model_metadata: dict[tuple[str, str], dict[str, object]],
+    required_models: dict[str, list[str]],
+) -> dict[str, object]:
+    contract = protocol["primary_inference_contract"][
+        "probabilistic_event_contract"
+    ]
+    minimum_targets = protocol["availability_contract"][
+        "minimum_valid_targets_per_station_horizon"
+    ]
+    assert minimum_targets == 100
+    base_sha256 = verifier._sha256_json(contract)
+    erratum_binding = authorization["probability_metric_erratum"]
+    pipelines = _fixture_probability_pipeline_contracts(verifier)
+    effective_contract = {
+        "base_probabilistic_event_contract_sha256": base_sha256,
+        "probability_metric_erratum": erratum_binding,
+        "effective_output_artifact": verifier.PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+        "metric_source_fields": dict(verifier.PROBABILISTIC_SOURCE_FIELDS),
+        "nominal_quantile_handling": dict(
+            verifier.PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        ),
+        "bundle_scoring_pipeline_contracts": dict(
+            verifier.PROBABILISTIC_PIPELINES
+        ),
+    }
+    cohort_contracts: dict[str, object] = {}
+    thresholds_by_cohort: dict[str, dict[str, float]] = {}
+    for cohort in ("temporal", "external"):
+        learned = [
+            model for model in required_models[cohort]
+            if model not in verifier.PROBABILISTIC_BUILTIN_MODELS
+        ]
+        primary = "ThermoRoute" if "ThermoRoute" in learned else learned[0]
+        metadata = model_metadata[(cohort, primary)]
+        thresholds = {
+            str(site): float(value)
+            for site, value in metadata["event_thresholds"].items()
+        }
+        reference = metadata["event_reference_climatology"]
+        external = cohort == "external"
+        cohort_contracts[cohort] = {
+            "threshold_scope": (
+                "pooled_development_train_q90"
+                if external else "station_specific_development_train_q90"
+            ),
+            "threshold_registry_sha256": verifier._sha256_json(thresholds),
+            "event_reference_format": reference["format"],
+            "event_reference_mode": reference["mode"],
+            "event_reference_sha256": verifier._sha256_json(reference),
+            "event_reference_fit_interval": list(reference["fit_interval"]),
+            "event_reference_fit_observation_count": int(
+                reference["fit_observation_count"]
+            ),
+            "interpretation": (
+                "exploratory pooled statistical tail threshold; non-ecological "
+                "and not a waterbody-specific standard"
+                if external
+                else "site-local statistical tail diagnostic; not biological, "
+                "regulatory, or cross-station comparable"
+            ),
+        }
+        thresholds_by_cohort[cohort] = thresholds
+
+    rows: list[dict[str, object]] = []
+    for cohort in ("temporal", "external"):
+        frame = frames[cohort]
+        cohort_availability = availability.loc[
+            availability["cohort"].astype(str).eq(cohort)
+        ].copy()
+        for model in required_models[cohort]:
+            for horizon in (1, 3, 7):
+                all_selected = frame.loc[
+                    frame["model"].astype(str).eq(model)
+                    & frame["horizon"].astype(int).eq(horizon)
+                ].copy()
+                available_horizon = cohort_availability.loc[
+                    cohort_availability["horizon"].astype(int).eq(horizon)
+                ]
+                reportable_flags = available_horizon["reportable"].astype(
+                    str
+                ).str.lower().isin({"true", "1"})
+                reportable_sites = set(
+                    available_horizon.loc[reportable_flags, "site_no"].astype(str)
+                )
+                selected = all_selected.loc[
+                    all_selected["site_id"].astype(str).isin(reportable_sites)
+                ].copy()
+                site_counts = selected["site_id"].astype(str).value_counts()
+                n_sites = int(len(site_counts))
+                if n_sites:
+                    raw_weights = selected["site_id"].astype(str).map(
+                        {site: 1.0 / int(count) for site, count in site_counts.items()}
+                    ).to_numpy(float)
+                    weights = raw_weights / raw_weights.sum()
+                    site_total_weight = 1.0 / n_sites
+                else:
+                    weights = np.asarray([], dtype=float)
+                    site_total_weight = None
+                base = {
+                    "cohort": cohort,
+                    "model": model,
+                    "horizon": horizon,
+                    "n_forecasts_before_reportability_filter": len(all_selected),
+                    "n_forecasts": len(selected),
+                    "n_sites_before_reportability_filter": int(
+                        all_selected["site_id"].astype(str).nunique()
+                    ),
+                    "n_sites": n_sites,
+                    "minimum_targets_per_retained_site": minimum_targets,
+                    "station_balanced_weight_sum": 0.0 if not n_sites else 1.0,
+                    "minimum_site_total_weight": site_total_weight,
+                    "maximum_site_total_weight": site_total_weight,
+                    "threshold_scope": (
+                        "pooled_development_train_q90"
+                        if cohort == "external"
+                        else "station_specific_development_train_q90"
+                    ),
+                }
+                if model in verifier.PROBABILISTIC_BUILTIN_MODELS or not n_sites:
+                    reason = (
+                        "POINT_ONLY_BUILTIN_HAS_NO_FROZEN_PROBABILISTIC_HEAD"
+                        if model in verifier.PROBABILISTIC_BUILTIN_MODELS
+                        else "NO_STATION_HAS_100_COMMON_TARGETS"
+                    )
+                    rows.append({
+                        **base,
+                        "status": (
+                            "NOT_AVAILABLE"
+                            if model in verifier.PROBABILISTIC_BUILTIN_MODELS
+                            else "NOT_ESTIMABLE"
+                        ),
+                        "reason": reason,
+                        "event_count": None,
+                        "non_event_count": None,
+                        **{
+                            name: None
+                            for name in verifier.PROBABILISTIC_METRIC_FIELDS
+                        },
+                        "undefined_metric_reasons": {
+                            name: reason
+                            for name in verifier.PROBABILISTIC_METRIC_FIELDS
+                        },
+                        "reliability_bins": [],
+                    })
+                    continue
+                metadata = model_metadata[(cohort, model)]
+                sites = selected["site_id"].astype(str).to_numpy()
+                offset_keys = [
+                    f"{'__pooled__' if cohort == 'external' else site}|{horizon}"
+                    for site in sites
+                ]
+                delta = np.asarray([
+                    float(metadata["conformal_offsets"][key])
+                    for key in offset_keys
+                ])
+                truth = selected["y_true"].to_numpy(float)
+                cqr_q05 = selected["q05"].to_numpy(float)
+                q50 = selected["q50"].to_numpy(float)
+                cqr_q95 = selected["q95"].to_numpy(float)
+                nominal_q05 = cqr_q05 + delta
+                nominal_q95 = cqr_q95 - delta
+                probability = selected["p_exceed"].to_numpy(float)
+                threshold_registry = thresholds_by_cohort[cohort]
+                thresholds = np.asarray([
+                    threshold_registry[
+                        "__pooled__" if cohort == "external" else site
+                    ]
+                    for site in sites
+                ])
+                event = (truth > thresholds).astype(int)
+                p_clip = np.clip(probability, 1e-6, 1 - 1e-6)
+                pinballs = {
+                    "pinball_q05_c": float(np.sum(np.maximum(
+                        0.05 * (truth - nominal_q05),
+                        -0.95 * (truth - nominal_q05),
+                    ) * weights)),
+                    "pinball_q50_c": float(np.sum(np.maximum(
+                        0.50 * (truth - q50),
+                        -0.50 * (truth - q50),
+                    ) * weights)),
+                    "pinball_q95_c": float(np.sum(np.maximum(
+                        0.95 * (truth - nominal_q95),
+                        -0.05 * (truth - nominal_q95),
+                    ) * weights)),
+                }
+                brier = float(np.sum((probability - event) ** 2 * weights))
+                reference_probability = (
+                    _fixture_probability_reference_predictions(
+                        metadata["event_reference_climatology"],
+                        sites,
+                        selected["target_date"].to_numpy(),
+                    )
+                )
+                reference_brier = float(np.sum(
+                    (reference_probability - event) ** 2 * weights
+                ))
+                bins, ece = _fixture_probability_reliability_bins(
+                    event, probability, weights, sites
+                )
+                diagnostics, undefined = (
+                    _fixture_probability_classification_diagnostics(
+                        event, probability, weights
+                    )
+                )
+                pipeline_class = (
+                    "LightGBM" if model == "LightGBM"
+                    else "deep_LSTM_and_deterministic_controls"
+                )
+                pipeline = pipelines[pipeline_class]
+                rows.append({
+                    **base,
+                    "status": "AVAILABLE",
+                    "reason": None,
+                    "event_count": int(event.sum()),
+                    "non_event_count": int(len(event) - event.sum()),
+                    "coverage_90": float(np.sum(
+                        ((truth >= cqr_q05) & (truth <= cqr_q95)) * weights
+                    )),
+                    "mean_interval_width_c": float(np.sum(
+                        (cqr_q95 - cqr_q05) * weights
+                    )),
+                    **dict(verifier.PROBABILISTIC_SOURCE_FIELDS),
+                    "quantile_pipeline_class": pipeline_class,
+                    "quantile_pipeline": pipeline["pipeline"],
+                    "member_quantile_contract": pipeline[
+                        "member_quantile_contract"
+                    ],
+                    "member_quantile_contract_sha256": pipeline[
+                        "member_quantile_contract_sha256"
+                    ],
+                    "deployed_cqr_offset_min_c": float(delta.min()),
+                    "deployed_cqr_offset_max_c": float(delta.max()),
+                    "cqr_offset_scope": (
+                        "pooled_external"
+                        if cohort == "external"
+                        else "station_horizon_temporal"
+                    ),
+                    "direct_nominal_forward_cqr_parity_bitwise": True,
+                    "direct_nominal_q50_parity_bitwise": True,
+                    "endpoint_inversion_used": False,
+                    **pinballs,
+                    "equal_weight_three_quantile_pinball_mean_c": float(
+                        np.mean(list(pinballs.values()))
+                    ),
+                    "brier_score": brier,
+                    "frozen_reference_brier_score": reference_brier,
+                    "brier_skill_frozen_seasonal": 1 - brier / reference_brier,
+                    "log_loss": float(np.sum(
+                        -(event * np.log(p_clip)
+                          + (1 - event) * np.log(1 - p_clip)) * weights
+                    )),
+                    "auroc": diagnostics["auroc"],
+                    "auprc": diagnostics["auprc"],
+                    "ece_10_equal_width": ece,
+                    "calibration_intercept": diagnostics[
+                        "calibration_intercept"
+                    ],
+                    "calibration_slope": diagnostics["calibration_slope"],
+                    "event_rate": float(np.sum(event * weights)),
+                    "undefined_metric_reasons": undefined,
+                    "reliability_bins": bins,
+                })
+    return {
+        "format": verifier.PROBABILISTIC_EVALUATION_FORMAT,
+        "role": contract["role"],
+        "contract_sha256": base_sha256,
+        "base_probabilistic_event_contract_sha256": base_sha256,
+        "probability_metric_erratum": erratum_binding,
+        "effective_output_artifact": verifier.PROBABILISTIC_EFFECTIVE_ARTIFACT_PATH,
+        "effective_contract": effective_contract,
+        "effective_contract_sha256": verifier._sha256_json(effective_contract),
+        "probabilistic_heads": ["q05", "q50", "q95", "p_exceed"],
+        "aggregation": contract["aggregation"],
+        "minimum_valid_targets_per_station_horizon": minimum_targets,
+        "metric_weighting": (
+            "station-balanced: each retained station total weight is 1/n_sites"
+        ),
+        "event_count_definition": (
+            "unweighted raw counts of retained forecast rows by observed event class"
+        ),
+        "event_rate_and_probability_metric_weighting": (
+            "station-balanced using the same per-row weights as all reported "
+            "probability metrics"
+        ),
+        "central_interval_nominal_coverage": 0.90,
+        "metric_sources": {
+            "coverage_90_and_mean_interval_width_c": (
+                verifier.PROBABILISTIC_INTERVAL_ENDPOINT_SOURCE
+            ),
+            "pinball_q05_q50_q95": (
+                verifier.PROBABILISTIC_PINBALL_QUANTILE_SOURCE
+            ),
+            "event_probability": verifier.PROBABILISTIC_EVENT_PROBABILITY_SOURCE,
+            "event_outcome": verifier.PROBABILISTIC_EVENT_OUTCOME_SOURCE,
+        },
+        "nominal_quantile_handling": dict(
+            verifier.PROBABILISTIC_NOMINAL_QUANTILE_HANDLING
+        ),
+        "bundle_scoring_pipeline_contracts": pipelines,
+        "interval_coverage_claim": (
+            "station-balanced empirical marginal coverage only; no "
+            "conditional-coverage or exchangeability guarantee"
+        ),
+        "three_quantile_score_definition": (
+            "unscaled equal-weight arithmetic mean of nominal pre-CQR "
+            "q05/q50/q95 pinball loss"
+        ),
+        "three_quantile_score_is_crps": False,
+        "event_probability_calibration_period": "2018_only_before_confirmation",
+        "evaluation_calibration_regression": (
+            "weighted logistic regression of event on clipped forecast logit; "
+            "sklearn lbfgs, C=1e6, max_iter=2000"
+        ),
+        "event_probability_clip_for_log_and_calibration_diagnostics": [
+            1e-6, 1 - 1e-6
+        ],
+        "reliability_bins": "10_equal_width_bins_on_[0,1]",
+        "single_class_auroc_auprc_and_calibration_parameters": "NA",
+        "brier_skill_reference": (
+            "bundle-frozen seasonal development train/calibration climatology"
+        ),
+        "confirmation_event_rate_used_as_brier_reference": False,
+        "rev_status": "REV_NOT_EVALUATED_NO_PREDECLARED_COST_LOSS_RATIOS",
+        "inference_computed": False,
+        "cohort_contracts": cohort_contracts,
+        "rows": rows,
+    }
+
+
+def _write_independent_probability_v2_fixture(
+    verifier, root: Path, *, cqr_offset: float = 0.25,
+) -> dict[str, object]:
+    protocol = {
+        "primary_inference_contract": {
+            "probabilistic_event_contract": {
+                "role": "DESCRIPTIVE_NOT_IN_CONFIRMATORY_FAMILY",
+                "aggregation": "station_balanced_by_model_and_horizon",
+            },
+        },
+        "availability_contract": {
+            "minimum_valid_targets_per_station_horizon": 100,
+        },
+    }
+    authorization = {
+        "probability_metric_erratum": {
+            "path": verifier.PROBABILITY_METRIC_ERRATUM_PATH,
+            "sha256": "1" * 64,
+            "format": verifier.PROBABILITY_METRIC_ERRATUM_FORMAT,
+            "erratum_id": verifier.PROBABILITY_METRIC_ERRATUM_ID,
+            "seal": {
+                "path": verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+                "sha256": "2" * 64,
+            },
+            "erratum_document_commit": "3" * 40,
+        },
+    }
+    required_models = {
+        "temporal": ["LightGBM"],
+        "external": ["LightGBM"],
+    }
+    frames: dict[str, pd.DataFrame] = {}
+    model_metadata: dict[tuple[str, str], dict[str, object]] = {}
+    availability_rows: list[dict[str, object]] = []
+    prediction_paths: dict[str, Path] = {}
+    for cohort, site in (
+        ("temporal", "01073319"),
+        ("external", "02000001"),
+    ):
+        records: list[dict[str, object]] = []
+        for horizon in (1, 3, 7):
+            for index, issue in enumerate(
+                pd.date_range("2021-01-01", periods=100, freq="D")
+            ):
+                truth = 10.0 if index % 2 == 0 else 12.0
+                records.append({
+                    "model": "LightGBM",
+                    "scope": (
+                        "route_a_temporal_confirmation"
+                        if cohort == "temporal"
+                        else "route_a_external_history_dependent_new_gage"
+                    ),
+                    "feature_set": "WTEMP+FLOW+TEMP+PRCP+RHMEAN+DH+WDSP",
+                    "seed": -1,
+                    "site_id": site,
+                    "horizon": horizon,
+                    "split": "confirm",
+                    "issue_date": issue,
+                    "target_date": issue + pd.Timedelta(days=horizon),
+                    "y_true": truth,
+                    "y_pred": truth,
+                    "q05": truth - 1.0 - cqr_offset,
+                    "q50": truth,
+                    "q95": truth + 1.0 + cqr_offset,
+                    "p_exceed": 0.25 if truth == 10.0 else 0.75,
+                })
+            availability_rows.append({
+                "cohort": cohort,
+                "site_no": site,
+                "horizon": horizon,
+                "n_valid_targets": 100,
+                "reportable": True,
+            })
+        frame = pd.DataFrame.from_records(records).loc[
+            :, list(verifier.DEVELOPMENT_REPLAY_PREDICTION_COLUMNS)
+        ]
+        prediction_path = root / f"{cohort}.parquet"
+        prediction_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(prediction_path, index=False)
+        frames[cohort] = frame
+        prediction_paths[cohort] = prediction_path
+        offset_group = "__pooled__" if cohort == "external" else site
+        if cohort == "external":
+            reference = {
+                "format": "thermoroute.frozen-seasonal-event-reference.v1",
+                "mode": "pooled_month",
+                "threshold_scope": "pooled_development_train_q90",
+                "fit_interval": ["2006-01-01", "2018-12-31"],
+                "smoothing": 2.0,
+                "global_probability": 0.5,
+                "month_probability": {
+                    str(month): 0.5 for month in range(1, 13)
+                },
+                "fit_observation_count": 100,
+            }
+        else:
+            reference = {
+                "format": "thermoroute.frozen-seasonal-event-reference.v1",
+                "mode": "station_month",
+                "threshold_scope": "station_development_train_q90",
+                "fit_interval": ["2006-01-01", "2018-12-31"],
+                "smoothing": 2.0,
+                "global_probability": 0.5,
+                "station_probability": {site: 0.5},
+                "station_month_probability": {
+                    f"{site}|{month}": 0.5 for month in range(1, 13)
+                },
+                "fit_observation_count": 100,
+            }
+        model_metadata[(cohort, "LightGBM")] = {
+            "conformal_offsets": {
+                f"{offset_group}|{horizon}": cqr_offset
+                for horizon in (1, 3, 7)
+            },
+            "event_thresholds": {
+                "__pooled__" if cohort == "external" else site: 11.0
+            },
+            "event_reference_climatology": reference,
+        }
+    availability = pd.DataFrame.from_records(availability_rows)
+    availability_path = root / "availability.csv"
+    availability.to_csv(availability_path, index=False, lineterminator="\n")
+    artifact = _fixture_probabilistic_evaluation_v2(
+        verifier,
+        protocol=protocol,
+        authorization=authorization,
+        frames=frames,
+        availability=availability,
+        model_metadata=model_metadata,
+        required_models=required_models,
+    )
+    artifact_path = root / "probabilistic_evaluation_v2.json"
+    _write_canonical_json(verifier, root, artifact_path.name, artifact)
+    return {
+        "artifact_path": artifact_path,
+        "availability_path": availability_path,
+        "prediction_paths": prediction_paths,
+        "model_metadata": model_metadata,
+        "required_models": required_models,
+        "protocol": protocol,
+        "authorization": authorization,
+    }
+
+
+def _validate_independent_probability_fixture(verifier, fixture: dict[str, object]):
+    return verifier._validate_probabilistic_evaluation_v2(
+        artifact_path=fixture["artifact_path"],
+        availability_path=fixture["availability_path"],
+        prediction_paths=fixture["prediction_paths"],
+        model_metadata=fixture["model_metadata"],
+        required_models=fixture["required_models"],
+        protocol=fixture["protocol"],
+        authorization=fixture["authorization"],
+    )
+
+
 def _minimal_canonical_release(verifier, root: Path) -> None:
     _write_bytes(
         root,
@@ -1512,10 +2158,23 @@ def _write_protocol_seal_fixture(
             "protocol_id": "route-a-confirmatory-v1",
             "authoritative_protocol_commit": original_commit,
             "primary_inference_contract": {
-                "confirmatory_family": _fixture_confirmatory_family()
+                "confirmatory_family": _fixture_confirmatory_family(),
+                "primary_models": [
+                    "Persistence", "DampedPersistence", "Climatology",
+                    "LightGBM", "LSTM", "ThermoRoute",
+                ],
+                "mandatory_exploratory_architecture_controls": [
+                    "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
+                    "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded",
+                ],
+                "probabilistic_event_contract": json.loads(
+                    (ROOT / "protocols/route_a_confirmatory_v1.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["primary_inference_contract"]["probabilistic_event_contract"],
             },
             "availability_contract": {
-                "minimum_valid_targets_per_station_horizon": 2
+                "minimum_valid_targets_per_station_horizon": 100
             },
             "time_holdout": {
                 "primary_target_start": "2021-01-01",
@@ -1632,6 +2291,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(root, "src/thermoroute/chronology.py", b"# chronology gate\n")
     for relative in (
         "src/thermoroute/outcome_qc.py",
+        "src/thermoroute/probability_metric_erratum.py",
         "src/thermoroute/coverage_audit.py",
         "src/thermoroute/coverage_bridge.py",
         "src/thermoroute/provenance.py",
@@ -1745,6 +2405,39 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
     }
     _write_bytes(root, amendment_seal_path, json.dumps(amendment_seal).encode())
+    erratum_module = verifier._load_canonical_probability_metric_erratum_module(
+        root
+    )
+    erratum = erratum_module.expected_probability_metric_erratum_document(
+        root=root
+    )
+    _write_bytes(
+        root,
+        verifier.PROBABILITY_METRIC_ERRATUM_PATH,
+        json.dumps(erratum).encode(),
+    )
+    erratum_seal = {
+        "format": verifier.PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT,
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "erratum_id": verifier.PROBABILITY_METRIC_ERRATUM_ID,
+        "erratum": _binding(
+            verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+        ),
+        "governance_seals": {
+            "base_protocol_seal": protocol_seal_binding,
+            "inference_amendment_seal": _binding(
+                verifier, root, amendment_seal_path
+            ),
+        },
+        "erratum_document_commit": "8" * 40,
+        "history_contract": dict(erratum_module.HISTORY_CONTRACT),
+        "prelabel_attestation": dict(erratum_module.PRELABEL_ATTESTATION),
+    }
+    _write_bytes(
+        root,
+        verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        json.dumps(erratum_seal).encode(),
+    )
 
     runtime_sha256 = "c" * 64
     model_entries, _model_artifact_paths = _write_development_model_fixtures(
@@ -2522,9 +3215,12 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             for relative in (
                 "src/thermoroute/chronology.py",
                 "src/thermoroute/outcome_qc.py",
+                "src/thermoroute/probability_metric_erratum.py",
                 "scripts/28_freeze_prelabel_chronology.py",
                 "tests/test_chronology.py",
                 "protocols/route_a_outcome_qc_policy_v1.json",
+                "protocols/route_a_probability_metric_erratum_v1.json",
+                "protocols/route_a_probability_metric_erratum_seal_v1.json",
             )
         ],
         "model_source_control_artifacts": [
@@ -2604,7 +3300,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
         "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
-        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v1.json",
+        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v2.json",
         "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
         "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
         "statistics": f"{base}/trusted/statistics_v1.json",
@@ -2625,7 +3321,6 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     authorization = {
         "format": verifier.AUTHORIZATION_FORMAT,
         "status": "AUTHORIZED_LABELS_STILL_SEALED",
-        "opening_id": "a" * 24,
         "protocol": {
             **_binding(
                 verifier, root, "protocols/route_a_confirmatory_v1.json"
@@ -2670,6 +3365,21 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "seal": _binding(verifier, root, amendment_seal_path),
             "final_prelabel_commit": amendment_commit,
         },
+        "probability_metric_erratum": {
+            **_binding(
+                verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+            ),
+            "format": erratum["format"],
+            "erratum_id": erratum["erratum_id"],
+            "seal": _binding(
+                verifier,
+                root,
+                verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+            ),
+            "erratum_document_commit": erratum_seal[
+                "erratum_document_commit"
+            ],
+        },
         "inference_gate": {
             **_binding(verifier, root, gate_path),
             "format": inference_gate["format"],
@@ -2708,6 +3418,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "actual_inputs": _binding(
             verifier, root, "data_usgs/confirmatory_actual_inputs_v1.json"
+        ),
+        "actual_feature_order": [
+            "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+        ],
+        "statistics_contract_sha256": verifier._sha256_json(
+            json.loads(
+                (root / "protocols/route_a_confirmatory_v1.json").read_text(
+                    encoding="utf-8"
+                )
+            )["primary_inference_contract"]
         ),
         "runtime": {
             "format": "thermoroute.route-a-runtime.v1",
@@ -2770,6 +3490,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "state_paths": state,
     }
+    authorization["opening_id"] = verifier._sha256_json(authorization)[:24]
+    authorization["created_at_utc"] = "2026-01-01T00:00:00+00:00"
     authorization["authorization_self_sha256"] = verifier._sha256_json(authorization)
     authorization_path.write_text(json.dumps(authorization), encoding="utf-8")
     authorization_sha = verifier.sha256_file(authorization_path)
@@ -3164,6 +3886,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         verifier, root, state["acquisition_manifest"], acquisition
     )
     availability_rows: list[dict[str, object]] = []
+    trusted_probability_frames: dict[str, pd.DataFrame] = {}
+    fixture_model_metadata = _fixture_model_metadata_registry(
+        root, model_entries
+    )
     for cohort, site in (
         ("temporal", "01073319"),
         ("external", "02000001"),
@@ -3181,24 +3907,58 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 for issue in issue_dates:
                     target = issue + pd.Timedelta(days=horizon)
                     truth = 10.0 + target.dayofyear / 1000.0
+                    builtin = model in verifier.PROBABILISTIC_BUILTIN_MODELS
+                    delta = (
+                        0.0
+                        if builtin
+                        else float(
+                            fixture_model_metadata[(cohort, model)][
+                                "conformal_offsets"
+                            ][
+                                f"{'__pooled__' if cohort == 'external' else site}|"
+                                f"{horizon}"
+                            ]
+                        )
+                    )
                     rows.append(
                         {
                             "model": model,
+                            "scope": (
+                                "route_a_temporal_confirmation"
+                                if cohort == "temporal"
+                                else "route_a_external_history_dependent_new_gage"
+                            ),
+                            "feature_set": (
+                                "WTEMP+FLOW+TEMP+PRCP+RHMEAN+DH+WDSP"
+                            ),
+                            "seed": -1,
                             "site_id": site,
                             "horizon": horizon,
+                            "split": "confirm",
                             "issue_date": issue,
                             "target_date": target,
                             "y_true": float(truth),
                             "y_pred": float(truth + (model_index + 1) / 100.0),
+                            "q05": (
+                                np.nan if builtin else float(truth - 1.0 - delta)
+                            ),
+                            "q50": np.nan if builtin else float(truth),
+                            "q95": (
+                                np.nan if builtin else float(truth + 1.0 + delta)
+                            ),
+                            "p_exceed": np.nan if builtin else 0.5,
                         }
                     )
-        frame = pd.DataFrame.from_records(rows).sort_values(
+        frame = pd.DataFrame.from_records(rows).loc[
+            :, list(verifier.DEVELOPMENT_REPLAY_PREDICTION_COLUMNS)
+        ].sort_values(
             ["model", "site_id", "horizon", "issue_date", "target_date"],
             kind="mergesort",
         ).reset_index(drop=True)
         prediction_path = root / state[f"{cohort}_predictions"]
         prediction_path.parent.mkdir(parents=True, exist_ok=True)
         frame.to_parquet(prediction_path, index=False)
+        trusted_probability_frames[cohort] = frame
         for horizon in (1, 3, 7):
             count = len(
                 pd.date_range(
@@ -3218,7 +3978,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             )
     availability_path = root / state["availability_registry"]
     availability_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame.from_records(availability_rows).to_csv(
+    availability_frame = pd.DataFrame.from_records(availability_rows)
+    availability_frame.to_csv(
         availability_path, index=False, lineterminator="\n"
     )
     _write_bytes(root, state["outcome_quality_audit"], b"{}\n")
@@ -3229,7 +3990,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         7: ("ThermoRoute", "DampedPersistence", "LightGBM"),
     }
     for horizon, models in models_by_horizon.items():
-        for offset in range(3):
+        # One more than the 100-row reportability floor so deleting the single
+        # most influential row remains estimable in the outcome-QC fixture.
+        for offset in range(101):
             issue = pd.Timestamp("2021-02-01") + pd.Timedelta(days=offset)
             for model in models:
                 prediction_rows.append({
@@ -3243,9 +4006,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 })
     outcome_predictions = pd.DataFrame.from_records(prediction_rows)
     normalized_temporal = pd.DataFrame({
-        "site_no": ["01073319"] * 3,
-        "DATE": pd.date_range("2021-02-01", periods=3, freq="D"),
-        "WTEMP": [10.0, 11.0, 12.0],
+        "site_no": ["01073319"] * 108,
+        "DATE": pd.date_range("2021-02-01", periods=108, freq="D"),
+        "WTEMP": np.linspace(10.0, 12.0, 108),
     })
     spatial_sensitivity = {
         "comparisons": [
@@ -3272,14 +4035,32 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         temporal_predictions=outcome_predictions,
         normalized_temporal=normalized_temporal,
         spatial_sensitivity=spatial_sensitivity,
-        minimum_targets=2,
+        minimum_targets=100,
     )
     _write_bytes(
         root, state["outcome_qc_gate"], json.dumps(outcome_qc_gate).encode()
     )
     _write_bytes(root, state["approved_target_sensitivity"], b"{}\n")
     _write_bytes(root, state["spatial_sensitivity"], b"{}\n")
-    _write_bytes(root, state["probabilistic_evaluation"], b"{}\n")
+    probabilistic_evaluation = _fixture_probabilistic_evaluation_v2(
+        verifier,
+        protocol=json.loads(
+            (root / "protocols/route_a_confirmatory_v1.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        authorization=authorization,
+        frames=trusted_probability_frames,
+        availability=availability_frame,
+        model_metadata=fixture_model_metadata,
+        required_models=authorization["required_models"],
+    )
+    _write_canonical_json(
+        verifier,
+        root,
+        state["probabilistic_evaluation"],
+        probabilistic_evaluation,
+    )
     tests = [
         {
             "test_id": row["test_id"],
@@ -3588,6 +4369,23 @@ def _reseal_postopen_fixture_receipt(
     )
 
 
+def _refresh_postopen_fixture_artifact_binding(
+    verifier,
+    root: Path,
+    authorization_path: Path,
+    artifact_key: str,
+) -> None:
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    receipt_path = root / state["receipt"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    relative = receipt["artifacts"][artifact_key]["path"]
+    binding = _binding(verifier, root, relative)
+    receipt["artifacts"][artifact_key] = binding
+    receipt["release_bindings"]["artifacts"][artifact_key].update(binding)
+    _reseal_postopen_fixture_receipt(verifier, root, state, receipt)
+
+
 def _validate_fixture_inference_closure(
     verifier, root: Path, authorization_path: Path
 ) -> dict[str, object]:
@@ -3601,6 +4399,29 @@ def _validate_fixture_inference_closure(
     amendment_binding.update(_binding(verifier, root, amendment_binding["path"]))
     amendment_binding["seal"] = _binding(
         verifier, root, amendment_binding["seal"]["path"]
+    )
+    erratum_module = verifier._load_canonical_probability_metric_erratum_module(
+        root
+    )
+    erratum_path = root / verifier.PROBABILITY_METRIC_ERRATUM_PATH
+    erratum = erratum_module.expected_probability_metric_erratum_document(
+        root=root
+    )
+    erratum_path.write_text(json.dumps(erratum), encoding="utf-8")
+    erratum_seal_path = root / verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH
+    erratum_seal = json.loads(erratum_seal_path.read_text(encoding="utf-8"))
+    erratum_seal["erratum"] = _binding(
+        verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+    )
+    erratum_seal["governance_seals"]["inference_amendment_seal"] = (
+        _binding(verifier, root, amendment_binding["seal"]["path"])
+    )
+    erratum_seal_path.write_text(json.dumps(erratum_seal), encoding="utf-8")
+    authorization["probability_metric_erratum"].update(
+        _binding(verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH)
+    )
+    authorization["probability_metric_erratum"]["seal"] = _binding(
+        verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH
     )
 
     protocol_binding = authorization["protocol"]
@@ -3640,6 +4461,198 @@ def _manifest_command(root: Path, manifest: Path, *extra: str):
         "--no-git",
         *extra,
     ]
+
+
+def test_independent_probability_v2_recomputes_nominal_pre_cqr_pinball(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_probability_v2_nominal_test"
+    )
+    fixture = _write_independent_probability_v2_fixture(
+        verifier, tmp_path, cqr_offset=0.25
+    )
+    artifact = _validate_independent_probability_fixture(verifier, fixture)
+    assert artifact["format"] == verifier.PROBABILISTIC_EVALUATION_FORMAT
+    assert all(
+        row["endpoint_inversion_used"] is False
+        for row in artifact["rows"]
+    )
+
+
+def test_independent_probability_v2_rejects_post_cqr_endpoint_pinball_bug(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_probability_v2_endpoint_bug_test"
+    )
+    fixture = _write_independent_probability_v2_fixture(
+        verifier, tmp_path, cqr_offset=0.25
+    )
+    artifact_path = fixture["artifact_path"]
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    for row in artifact["rows"]:
+        # This is the original bug: score stored post-CQR interval endpoints as
+        # nominal q05/q95. The trusted parquet and suite offsets remain intact.
+        row["pinball_q05_c"] = 0.0625
+        row["pinball_q50_c"] = 0.0
+        row["pinball_q95_c"] = 0.0625
+        row["equal_weight_three_quantile_pinball_mean_c"] = 1.0 / 24.0
+    artifact_path.write_bytes(verifier._canonical_json_bytes(artifact))
+    with pytest.raises(ValueError, match="stored-parquet recomputation"):
+        _validate_independent_probability_fixture(verifier, fixture)
+
+
+def test_independent_probability_v2_rejects_self_consistent_metric_reseal(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_probability_v2_metric_reseal_test"
+    )
+    fixture = _write_independent_probability_v2_fixture(verifier, tmp_path)
+    artifact_path = fixture["artifact_path"]
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    for row in artifact["rows"]:
+        # Keep the forged Brier skill internally consistent with the forged
+        # reference Brier score. Only replaying the suite-frozen seasonal
+        # reference against stored target dates can reject this reseal.
+        row["frozen_reference_brier_score"] = 0.5
+        row["brier_skill_frozen_seasonal"] = (
+            1.0 - row["brier_score"] / row["frozen_reference_brier_score"]
+        )
+    artifact_path.write_bytes(verifier._canonical_json_bytes(artifact))
+    with pytest.raises(ValueError, match="stored-parquet recomputation"):
+        _validate_independent_probability_fixture(verifier, fixture)
+
+
+@pytest.mark.parametrize(
+    "attack",
+    ["count", "duplicate", "unknown_zero"],
+)
+def test_independent_probability_v2_rejects_availability_registry_attacks(
+    tmp_path, attack,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT,
+        f"thermoroute_verify_probability_v2_availability_{attack}_test",
+    )
+    fixture = _write_independent_probability_v2_fixture(verifier, tmp_path)
+    availability_path = fixture["availability_path"]
+    availability = pd.read_csv(availability_path, dtype={"site_no": "string"})
+    if attack == "count":
+        availability.loc[0, "n_valid_targets"] += 1
+    elif attack == "duplicate":
+        availability = pd.concat(
+            [availability, availability.iloc[[0]]], ignore_index=True
+        )
+    else:
+        availability = pd.concat([
+            availability,
+            pd.DataFrame.from_records([{
+                "cohort": "temporal",
+                "site_no": "09999999",
+                "horizon": 1,
+                "n_valid_targets": 0,
+                "reportable": False,
+            }]),
+        ], ignore_index=True)
+    availability.to_csv(availability_path, index=False, lineterminator="\n")
+    with pytest.raises(ValueError, match="availability|counts differ"):
+        _validate_independent_probability_fixture(verifier, fixture)
+
+
+@pytest.mark.parametrize(
+    "attack",
+    ["duplicate_row", "unknown_row", "extra_top_level"],
+)
+def test_independent_probability_v2_rejects_row_and_schema_attacks(
+    tmp_path, attack,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_probability_v2_{attack}_test"
+    )
+    fixture = _write_independent_probability_v2_fixture(verifier, tmp_path)
+    artifact_path = fixture["artifact_path"]
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    if attack == "duplicate_row":
+        artifact["rows"].append(dict(artifact["rows"][0]))
+    elif attack == "unknown_row":
+        forged = dict(artifact["rows"][0])
+        forged["model"] = "UnknownModel"
+        artifact["rows"].append(forged)
+    else:
+        artifact["undeclared_field"] = "forged"
+    artifact_path.write_bytes(verifier._canonical_json_bytes(artifact))
+    with pytest.raises(ValueError, match="schema|registry"):
+        _validate_independent_probability_fixture(verifier, fixture)
+
+
+def test_independent_probability_v2_rejects_transient_nominal_public_columns(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_probability_v2_transient_column_test"
+    )
+    fixture = _write_independent_probability_v2_fixture(verifier, tmp_path)
+    temporal_path = fixture["prediction_paths"]["temporal"]
+    frame = pd.read_parquet(temporal_path)
+    frame["_nominal_q05"] = frame["q05"] + 0.25
+    frame["_nominal_q50"] = frame["q50"]
+    frame["_nominal_q95"] = frame["q95"] - 0.25
+    frame.to_parquet(temporal_path, index=False)
+    with pytest.raises(ValueError, match="schema columns/order"):
+        _validate_independent_probability_fixture(verifier, fixture)
+
+
+def test_authorization_required_models_must_equal_protocol_and_suite_order():
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_suite_authorization_order_test"
+    )
+    primary = [
+        "Persistence", "DampedPersistence", "Climatology", "LightGBM",
+        "LSTM", "ThermoRoute",
+    ]
+    controls = [
+        "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
+        "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded",
+    ]
+    protocol = {
+        "primary_inference_contract": {
+            "primary_models": primary,
+            "mandatory_exploratory_architecture_controls": controls,
+        }
+    }
+    required = {
+        "temporal": [*primary, *controls],
+        "external": list(primary),
+    }
+    cohorts = {
+        cohort: {"models": [{"model_id": model} for model in models]}
+        for cohort, models in required.items()
+    }
+    assert verifier._validate_authorized_suite_model_order(
+        protocol, cohorts, required
+    ) == {
+        cohort: tuple(models) for cohort, models in required.items()
+    }
+
+    attacked_authorization = {
+        cohort: list(models) for cohort, models in required.items()
+    }
+    attacked_authorization["external"].pop()
+    with pytest.raises(ValueError, match="authorization required-model registry"):
+        verifier._validate_authorized_suite_model_order(
+            protocol, cohorts, attacked_authorization
+        )
+
+    attacked_cohorts = json.loads(json.dumps(cohorts))
+    attacked_cohorts["external"]["models"][0:2] = reversed(
+        attacked_cohorts["external"]["models"][0:2]
+    )
+    with pytest.raises(ValueError, match="model ID/order registry"):
+        verifier._validate_authorized_suite_model_order(
+            protocol, attacked_cohorts, required
+        )
 
 
 def test_manifest_binds_revision_source_config_data_and_detects_change(tmp_path):
@@ -3691,8 +4704,13 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
         | {"outputs/reports/report.md"}
     )
     verifier.validate_members(complete)
+    assert verifier.LEGACY_THREE_SITE_NOTICE_PATH in verifier.REQUIRED_MEMBERS
     with pytest.raises(ValueError, match="missing required members"):
         verifier.validate_members(complete - {"data/b1.csv"})
+    with pytest.raises(ValueError, match="missing required members"):
+        verifier.validate_members(
+            complete - {verifier.LEGACY_THREE_SITE_NOTICE_PATH}
+        )
     for missing_paper in verifier.REQUIRED_PAPER_MEMBERS:
         with pytest.raises(
             ValueError, match="missing registered manuscript sources"
@@ -3732,6 +4750,10 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
             verifier.validate_members(complete | {unsafe_alias})
 
     shell = MAKE_RELEASE_SCRIPT.read_text(encoding="utf-8")
+    assert verifier.LEGACY_THREE_SITE_NOTICE_PATH in shell
+    assert (
+        f"copy_path {verifier.LEGACY_THREE_SITE_NOTICE_PATH}" in shell
+    )
     paper_block = shell.split("paper_paths=(", 1)[1].split("\n)", 1)[0]
     shell_paper_paths = {
         line.strip() for line in paper_block.splitlines() if line.strip()
@@ -3884,6 +4906,170 @@ def test_v2_seal_history_and_manuscript_git_blobs_fail_closed(tmp_path):
     )
     with pytest.raises(ValueError, match="amendment/seal semantics changed"):
         verifier._load_release_sealed_amendment(root)
+
+
+def test_probability_metric_erratum_bundle_history_is_strictly_ordered(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_probability_erratum_history_test"
+    )
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    protocol_relative = "protocols/route_a_confirmatory_v1.json"
+    protocol_path = root / protocol_relative
+    protocol_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / protocol_relative, protocol_path)
+    base_commit = _commit_git_fixture(root, "base protocol")
+    base_seal = {
+        "format": verifier.PROTOCOL_SEAL_FORMAT,
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "protocol_id": "route-a-confirmatory-v1",
+        "final_prelabel_protocol": {
+            "commit": base_commit,
+            "json": _binding(verifier, root, protocol_relative),
+        },
+    }
+    _write_canonical_json(
+        verifier, root, verifier.PROTOCOL_SEAL_PATH, base_seal
+    )
+    _commit_git_fixture(root, "base protocol seal")
+
+    amendment = {
+        "format": "thermoroute.route-a-inference-amendment.v2",
+        "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+        "post_2020_wtemp_requested_or_inspected": False,
+        "outcome_independent": True,
+    }
+    _write_canonical_json(
+        verifier, root, verifier.INFERENCE_AMENDMENT_PATH, amendment
+    )
+    amendment_commit = _commit_git_fixture(root, "inference amendment")
+    amendment_seal = {
+        "format": "thermoroute.route-a-inference-amendment-seal.v2",
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "amendment": _binding(
+            verifier, root, verifier.INFERENCE_AMENDMENT_PATH
+        ),
+        "final_prelabel_commit": amendment_commit,
+    }
+    _write_canonical_json(
+        verifier,
+        root,
+        verifier.INFERENCE_AMENDMENT_SEAL_PATH,
+        amendment_seal,
+    )
+    _commit_git_fixture(root, "inference amendment seal")
+
+    erratum_module_path = root / "src/thermoroute/probability_metric_erratum.py"
+    erratum_module_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        ROOT / "src/thermoroute/probability_metric_erratum.py",
+        erratum_module_path,
+    )
+    erratum_module = verifier._load_canonical_probability_metric_erratum_module(
+        root
+    )
+    erratum = erratum_module.expected_probability_metric_erratum_document(
+        root=root
+    )
+    erratum_path = _write_canonical_json(
+        verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH, erratum
+    )
+    document_commit = _commit_git_fixture(root, "probability metric erratum")
+    erratum_seal = {
+        "format": verifier.PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT,
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "erratum_id": verifier.PROBABILITY_METRIC_ERRATUM_ID,
+        "erratum": _binding(
+            verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+        ),
+        "governance_seals": {
+            "base_protocol_seal": _binding(
+                verifier, root, verifier.PROTOCOL_SEAL_PATH
+            ),
+            "inference_amendment_seal": _binding(
+                verifier, root, verifier.INFERENCE_AMENDMENT_SEAL_PATH
+            ),
+        },
+        "erratum_document_commit": document_commit,
+        "history_contract": dict(erratum_module.HISTORY_CONTRACT),
+        "prelabel_attestation": dict(erratum_module.PRELABEL_ATTESTATION),
+    }
+    _write_canonical_json(
+        verifier,
+        root,
+        verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        erratum_seal,
+    )
+    seal_commit = _commit_git_fixture(root, "separate metric erratum seal")
+
+    verifier._verify_probability_metric_erratum_history_from_bundle(
+        root=root, bare=root, compute_commit=seal_commit
+    )
+
+    original = erratum_path.read_bytes()
+    original_seal = (root / verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH).read_bytes()
+    original_branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "switch", "-q", "-c", "erratum-rebirth", seal_commit],
+        cwd=root,
+        check=True,
+    )
+    erratum_path.unlink()
+    _commit_git_fixture(root, "delete probability metric erratum")
+    erratum_path.write_bytes(original)
+    rebirth_commit = _commit_git_fixture(
+        root, "re-add identical probability metric erratum"
+    )
+    with pytest.raises(ValueError, match="document was not created exactly once"):
+        verifier._verify_probability_metric_erratum_history_from_bundle(
+            root=root, bare=root, compute_commit=rebirth_commit
+        )
+    subprocess.run(
+        ["git", "switch", "-q", original_branch], cwd=root, check=True
+    )
+
+    attacked = json.loads(original)
+    attacked["implementation_requirements"]["trusted_artifact_path"] = (
+        "trusted/attacker_selected_probability.json"
+    )
+    _write_canonical_json(
+        verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH, attacked
+    )
+    attacked_seal = json.loads(original_seal)
+    attacked_seal["erratum"] = _binding(
+        verifier, root, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+    )
+    _write_canonical_json(
+        verifier,
+        root,
+        verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        attacked_seal,
+    )
+    with pytest.raises(ValueError, match="complete contract changed"):
+        verifier._load_release_probability_metric_erratum(root)
+    erratum_path.write_bytes(original)
+    (root / verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH).write_bytes(
+        original_seal
+    )
+
+    erratum_path.write_bytes(original + b" ")
+    _commit_git_fixture(root, "forbidden erratum rewrite")
+    erratum_path.write_bytes(original)
+    restored_commit = _commit_git_fixture(root, "restore erratum bytes")
+    with pytest.raises(ValueError, match="changed after freezing"):
+        verifier._verify_probability_metric_erratum_history_from_bundle(
+            root=root, bare=root, compute_commit=restored_commit
+        )
 
 
 def test_archive_resource_limits_are_checked_before_extraction(tmp_path, monkeypatch):
@@ -4246,6 +5432,38 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
         verifier.POSTOPEN_PROFILE,
         authorization_path=authorization,
     )
+    stage_authorization = stage / authorization.relative_to(source)
+    stage_authorization_document = json.loads(
+        stage_authorization.read_text(encoding="utf-8")
+    )
+    stage_state = stage_authorization_document["state_paths"]
+    probability_path = stage / stage_state["probabilistic_evaluation"]
+    receipt_path = stage / stage_state["receipt"]
+    receipt_sidecar_path = stage / stage_state["receipt_sha256"]
+    probability_bytes = probability_path.read_bytes()
+    receipt_bytes = receipt_path.read_bytes()
+    receipt_sidecar_bytes = receipt_sidecar_path.read_bytes()
+    attacked_probability = json.loads(probability_bytes)
+    available_row = next(
+        row for row in attacked_probability["rows"]
+        if row["status"] == "AVAILABLE"
+    )
+    available_row["pinball_q05_c"] += 1.0
+    probability_path.write_bytes(
+        verifier._canonical_json_bytes(attacked_probability)
+    )
+    _refresh_postopen_fixture_artifact_binding(
+        verifier,
+        stage,
+        stage_authorization,
+        "probabilistic_evaluation",
+    )
+    with pytest.raises(ValueError, match="stored-parquet recomputation"):
+        verifier._gather_postopen_categories(stage, stage_authorization)
+    probability_path.write_bytes(probability_bytes)
+    receipt_path.write_bytes(receipt_bytes)
+    receipt_sidecar_path.write_bytes(receipt_sidecar_bytes)
+
     _materialize_claim_fixture(verifier, stage, verifier.POSTOPEN_PROFILE)
     assert document["profile"] == "ROUTE_A_OPENED_COMPLETE"
     assert document["confirmatory_scoring_completed"] is True
@@ -4430,13 +5648,60 @@ def test_postopen_authorization_requires_exact_coverage_state_registry(
             authorization["state_paths"]["coverage_alias"] = (
                 authorization["state_paths"]["temporal_coverage_audit"]
             )
+        created_at = authorization.pop("created_at_utc")
+        authorization.pop("opening_id")
         authorization.pop("authorization_self_sha256")
+        authorization["opening_id"] = verifier._sha256_json(authorization)[:24]
+        authorization["created_at_utc"] = created_at
         authorization["authorization_self_sha256"] = verifier._sha256_json(
             authorization
         )
         path.write_text(json.dumps(authorization), encoding="utf-8")
         with pytest.raises(ValueError, match="state-path registry changed"):
             verifier._validate_authorization_structure(attacked, path)
+
+
+def test_postopen_authorization_requires_exact_top_level_schema_and_opening_id(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_authorization_identity_attacks_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+
+    for attack in ("missing", "extra"):
+        attacked_root = tmp_path / f"authorization-{attack}"
+        shutil.copytree(source, attacked_root)
+        attacked_path = attacked_root / authorization_path.relative_to(source)
+        authorization = json.loads(attacked_path.read_text(encoding="utf-8"))
+        if attack == "missing":
+            authorization.pop("actual_feature_order")
+        else:
+            authorization["attacker_extension"] = {"accepted": True}
+        authorization.pop("authorization_self_sha256")
+        authorization["authorization_self_sha256"] = verifier._sha256_json(
+            authorization
+        )
+        attacked_path.write_text(json.dumps(authorization), encoding="utf-8")
+        with pytest.raises(ValueError, match="top-level schema changed"):
+            verifier._validate_authorization_structure(
+                attacked_root, attacked_path
+            )
+
+    attacked_root = tmp_path / "authorization-opening-id"
+    shutil.copytree(source, attacked_root)
+    attacked_path = attacked_root / authorization_path.relative_to(source)
+    authorization = json.loads(attacked_path.read_text(encoding="utf-8"))
+    authorization["opening_id"] = "f" * 24
+    authorization.pop("authorization_self_sha256")
+    authorization["authorization_self_sha256"] = verifier._sha256_json(
+        authorization
+    )
+    attacked_path.write_text(json.dumps(authorization), encoding="utf-8")
+    with pytest.raises(ValueError, match="identity is inconsistent"):
+        verifier._validate_authorization_structure(attacked_root, attacked_path)
 
 
 def test_postopen_receipt_requires_exact_coverage_artifact_registry(
@@ -5536,6 +6801,14 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         json.dumps({
             "protocol_id": "route-a-confirmatory-v1",
             "authoritative_protocol_commit": original_commit,
+            "primary_inference_contract": {
+                "confirmatory_family": _fixture_confirmatory_family(),
+                "probabilistic_event_contract": json.loads(
+                    (ROOT / "protocols/route_a_confirmatory_v1.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["primary_inference_contract"]["probabilistic_event_contract"],
+            },
         }, sort_keys=True).encode() + b"\n",
     )
     subprocess.run(
@@ -5589,6 +6862,95 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         ["git", "commit", "-q", "-m", "mechanical protocol seal"],
         cwd=source, env=environment, check=True,
     )
+    amendment_path = _write_canonical_json(
+        verifier,
+        source,
+        verifier.INFERENCE_AMENDMENT_PATH,
+        {"fixture": "outcome-free inference amendment"},
+    )
+    amendment_commit = _commit_git_fixture(
+        source, "outcome-free inference amendment"
+    )
+    amendment_seal_path = _write_canonical_json(
+        verifier,
+        source,
+        verifier.INFERENCE_AMENDMENT_SEAL_PATH,
+        {
+            "format": "thermoroute.route-a-inference-amendment-seal.v2",
+            "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+            "amendment": _binding(
+                verifier, source, verifier.INFERENCE_AMENDMENT_PATH
+            ),
+            "final_prelabel_commit": amendment_commit,
+        },
+    )
+    _commit_git_fixture(source, "separate inference amendment seal")
+    erratum = json.loads(
+        (ROOT / verifier.PROBABILITY_METRIC_ERRATUM_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    erratum["governance_inputs"] = {
+        "base_protocol": _binding(
+            verifier, source, "protocols/route_a_confirmatory_v1.json"
+        ),
+        "base_protocol_seal": _binding(
+            verifier, source, verifier.PROTOCOL_SEAL_PATH
+        ),
+        "inference_amendment": _binding(
+            verifier, source, verifier.INFERENCE_AMENDMENT_PATH
+        ),
+        "inference_amendment_seal": _binding(
+            verifier, source, verifier.INFERENCE_AMENDMENT_SEAL_PATH
+        ),
+    }
+    erratum["scientific_scope"]["confirmatory_family_sha256"] = (
+        verifier._sha256_json(_fixture_confirmatory_family())
+    )
+    erratum_path = _write_canonical_json(
+        verifier, source, verifier.PROBABILITY_METRIC_ERRATUM_PATH, erratum
+    )
+    erratum_document_commit = _commit_git_fixture(
+        source, "probability metric erratum document"
+    )
+    erratum_seal_path = _write_canonical_json(
+        verifier,
+        source,
+        verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        {
+            "format": verifier.PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT,
+            "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+            "erratum_id": verifier.PROBABILITY_METRIC_ERRATUM_ID,
+            "erratum": _binding(
+                verifier, source, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+            ),
+            "governance_seals": {
+                "base_protocol_seal": _binding(
+                    verifier, source, verifier.PROTOCOL_SEAL_PATH
+                ),
+                "inference_amendment_seal": _binding(
+                    verifier, source, verifier.INFERENCE_AMENDMENT_SEAL_PATH
+                ),
+            },
+            "erratum_document_commit": erratum_document_commit,
+            "history_contract": {
+                "governance_seal_commits_must_be_ancestors": True,
+                "erratum_blob_must_match_document_commit": True,
+                "erratum_document_created_exactly_once": True,
+                "document_commit_must_precede_seal_commit": True,
+                "seal_created_exactly_once": True,
+                "erratum_and_seal_immutable_to_release_tip": True,
+            },
+            "prelabel_attestation": {
+                "post_2020_wtemp_requested_or_inspected": False,
+                "confirmation_outcomes_requested_or_inspected": False,
+                "outcome_endpoint_called": False,
+                "outcome_independent": True,
+                "network_used": False,
+            },
+        },
+    )
+    _commit_git_fixture(source, "separate probability metric erratum seal")
     compute_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=source, text=True,
         capture_output=True, check=True,
@@ -5617,6 +6979,10 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         (protocol_json, "protocols/route_a_confirmatory_v1.json"),
         (protocol, protocol_relative),
         (seal_path, verifier.PROTOCOL_SEAL_PATH),
+        (amendment_path, verifier.INFERENCE_AMENDMENT_PATH),
+        (amendment_seal_path, verifier.INFERENCE_AMENDMENT_SEAL_PATH),
+        (erratum_path, verifier.PROBABILITY_METRIC_ERRATUM_PATH),
+        (erratum_seal_path, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH),
     ):
         destination = stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -5735,6 +7101,10 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         (protocol_json, "protocols/route_a_confirmatory_v1.json"),
         (protocol, protocol_relative),
         (seal_path, verifier.PROTOCOL_SEAL_PATH),
+        (amendment_path, verifier.INFERENCE_AMENDMENT_PATH),
+        (amendment_seal_path, verifier.INFERENCE_AMENDMENT_SEAL_PATH),
+        (erratum_path, verifier.PROBABILITY_METRIC_ERRATUM_PATH),
+        (erratum_seal_path, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH),
     ):
         destination = hidden_stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -5891,6 +7261,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         {
             "protocol_id": "route-a-confirmatory-v1",
             "authoritative_protocol_commit": original_commit,
+            "primary_inference_contract": {
+                "confirmatory_family": _fixture_confirmatory_family(),
+                "probabilistic_event_contract": json.loads(
+                    (ROOT / "protocols/route_a_confirmatory_v1.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["primary_inference_contract"]["probabilistic_event_contract"],
+            },
         },
     )
     final_commit = commit("final prelabel protocol")
@@ -5934,11 +7312,19 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     gate_paths = (
         "src/thermoroute/chronology.py",
         "src/thermoroute/outcome_qc.py",
+        "src/thermoroute/probability_metric_erratum.py",
         "scripts/28_freeze_prelabel_chronology.py",
         "tests/test_chronology.py",
         "protocols/route_a_outcome_qc_policy_v1.json",
+        "protocols/route_a_probability_metric_erratum_v1.json",
+        "protocols/route_a_probability_metric_erratum_seal_v1.json",
     )
     for relative in gate_paths:
+        if relative in {
+            verifier.PROBABILITY_METRIC_ERRATUM_PATH,
+            verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        }:
+            continue
         _write_bytes(source, relative, f"# frozen gate: {relative}\n".encode())
     _write_bytes(
         source,
@@ -5999,8 +7385,77 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     inference_gate_path = "outputs/prelabel/route_a_inference_gate_v1.json"
     write_json(inference_amendment_path, {"fixture": "outcome-free amendment"})
     amendment_commit = commit("freeze outcome-free inference amendment")
-    write_json(inference_amendment_seal_path, {"fixture": "amendment seal"})
+    write_json(
+        inference_amendment_seal_path,
+        {
+            "format": "thermoroute.route-a-inference-amendment-seal.v2",
+            "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+            "amendment": _binding(
+                verifier, source, inference_amendment_path
+            ),
+            "final_prelabel_commit": amendment_commit,
+        },
+    )
     seal_commit = commit("seal outcome-free inference amendment")
+    probability_erratum = json.loads(
+        (ROOT / verifier.PROBABILITY_METRIC_ERRATUM_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    probability_erratum["governance_inputs"] = {
+        "base_protocol": _binding(verifier, source, protocol_json_path),
+        "base_protocol_seal": _binding(
+            verifier, source, verifier.PROTOCOL_SEAL_PATH
+        ),
+        "inference_amendment": _binding(
+            verifier, source, inference_amendment_path
+        ),
+        "inference_amendment_seal": _binding(
+            verifier, source, inference_amendment_seal_path
+        ),
+    }
+    probability_erratum["scientific_scope"][
+        "confirmatory_family_sha256"
+    ] = verifier._sha256_json(_fixture_confirmatory_family())
+    write_json(verifier.PROBABILITY_METRIC_ERRATUM_PATH, probability_erratum)
+    erratum_document_commit = commit("freeze probability metric erratum")
+    probability_erratum_seal = {
+        "format": verifier.PROBABILITY_METRIC_ERRATUM_SEAL_FORMAT,
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "erratum_id": verifier.PROBABILITY_METRIC_ERRATUM_ID,
+        "erratum": _binding(
+            verifier, source, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+        ),
+        "governance_seals": {
+            "base_protocol_seal": _binding(
+                verifier, source, verifier.PROTOCOL_SEAL_PATH
+            ),
+            "inference_amendment_seal": _binding(
+                verifier, source, inference_amendment_seal_path
+            ),
+        },
+        "erratum_document_commit": erratum_document_commit,
+        "history_contract": {
+            "governance_seal_commits_must_be_ancestors": True,
+            "erratum_blob_must_match_document_commit": True,
+            "erratum_document_created_exactly_once": True,
+            "document_commit_must_precede_seal_commit": True,
+            "seal_created_exactly_once": True,
+            "erratum_and_seal_immutable_to_release_tip": True,
+        },
+        "prelabel_attestation": {
+            "post_2020_wtemp_requested_or_inspected": False,
+            "confirmation_outcomes_requested_or_inspected": False,
+            "outcome_endpoint_called": False,
+            "outcome_independent": True,
+            "network_used": False,
+        },
+    }
+    write_json(
+        verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        probability_erratum_seal,
+    )
+    erratum_seal_commit = commit("seal probability metric erratum")
     write_json(inference_gate_path, {"fixture": "fail-closed inference gate"})
     frozen_source_inventory = {
         relative: verifier.sha256_file(source / relative)
@@ -6697,6 +8152,19 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "seal": _binding(verifier, source, inference_amendment_seal_path),
             "final_prelabel_commit": amendment_commit,
         },
+        "probability_metric_erratum": {
+            **_binding(
+                verifier, source, verifier.PROBABILITY_METRIC_ERRATUM_PATH
+            ),
+            "format": probability_erratum["format"],
+            "erratum_id": probability_erratum["erratum_id"],
+            "seal": _binding(
+                verifier,
+                source,
+                verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+            ),
+            "erratum_document_commit": erratum_document_commit,
+        },
         "inference_gate": _binding(verifier, source, inference_gate_path),
         "runtime": {
             "requirements_lock": _binding(
@@ -6746,12 +8214,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         final_commit,
         amendment_commit,
         seal_commit,
+        erratum_document_commit,
+        erratum_seal_commit,
         model_commit,
         input_commit,
         receipt_base_commit,
         compute_commit,
         manuscript_commit,
-    }) == 9
+    }) == 11
 
     stage = tmp_path / "chronology-stage"
     shutil.copytree(source, stage, ignore=shutil.ignore_patterns(".git"))
@@ -7260,7 +8730,7 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
         "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
         "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
         "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
-        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v1.json",
+        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v2.json",
         "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
         "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
         "statistics": f"{base}/trusted/statistics_v1.json",
@@ -7275,7 +8745,11 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
     authorization = {
         "format": verifier.AUTHORIZATION_FORMAT,
         "status": "AUTHORIZED_LABELS_STILL_SEALED",
-        "opening_id": "2" * 24,
+        "protocol": {},
+        "registries": {},
+        "model_suite": {},
+        "development_replay": {},
+        "prelabel_chronology": {},
         "source": {
             "authorization_path": authorization_relative,
             "git_commit_before_authorization": head,
@@ -7306,6 +8780,17 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             },
             "final_prelabel_commit": head,
         },
+        "probability_metric_erratum": {
+            "path": verifier.PROBABILITY_METRIC_ERRATUM_PATH,
+            "sha256": "c" * 64,
+            "format": verifier.PROBABILITY_METRIC_ERRATUM_FORMAT,
+            "erratum_id": verifier.PROBABILITY_METRIC_ERRATUM_ID,
+            "seal": {
+                "path": verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+                "sha256": "d" * 64,
+            },
+            "erratum_document_commit": head,
+        },
         "inference_gate": {
             "path": "outputs/prelabel/route_a_inference_gate_v1.json",
             "sha256": "a" * 64,
@@ -7315,6 +8800,10 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
             "policy_sha256": "b" * 64,
         },
+        "actual_inputs": {},
+        "actual_feature_order": [],
+        "required_models": {},
+        "statistics_contract_sha256": "e" * 64,
         "runtime": {
             "format": "thermoroute.route-a-runtime.v1",
             "requirements_lock": {
@@ -7333,8 +8822,12 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             "formal_numerical_policy": {},
             "deterministic_child_policy": {},
         },
+        "fixed_code": {},
+        "acquisition_plan": {},
         "state_paths": state,
     }
+    authorization["opening_id"] = verifier._sha256_json(authorization)[:24]
+    authorization["created_at_utc"] = "2026-01-01T00:00:00+00:00"
     authorization["authorization_self_sha256"] = verifier._sha256_json(authorization)
     authorization_path = root / authorization_relative
     authorization_path.parent.mkdir(parents=True)

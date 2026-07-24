@@ -12,6 +12,8 @@
   2018, and freezes the seasonal event reference over 2006–2018.
 - Retains signed raw CQR offsets for audit but deploys only nonnegative offsets,
   so calibration cannot shrink the nominal interval or change q50.
+- A sealed pre-opening erratum uses nominal pre-CQR heads for pinball, CQR endpoints
+  for coverage/width, and post-Platt probabilities for event metrics.
 - The frozen protocol specifies six primary model types and seven one-factor controls.
 - Stage 09 controls are single-seed functionality diagnostics, not causal ablations.
 - Uses station-balanced RMSE effects on identical model-pair target keys.

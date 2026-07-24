@@ -113,6 +113,9 @@ required=(
   protocols/route_a_protocol_seal_v1.json
   protocols/route_a_inference_amendment_v2.json
   protocols/route_a_inference_amendment_seal_v2.json
+  protocols/route_a_probability_metric_erratum_v1.json
+  protocols/route_a_probability_metric_erratum_seal_v1.json
+  protocols/legacy_three_site_semantics_notice_v1.md
   protocols/route_a_claim_registry_v1.json
   scripts/26_validate_claims.py
   scripts/deterministic_zip.py scripts/verify_release.py
@@ -193,6 +196,9 @@ copy_tracked_tree() {
 for path in src scripts tests .github protocols; do
   copy_tracked_tree "$path"
 done
+# Keep the authoritative b1/s2/p3 correction in dirty local release tests too;
+# production releases still require a clean, tracked worktree.
+copy_path protocols/legacy_three_site_semantics_notice_v1.md
 for path in "${paper_paths[@]}"; do
   copy_path "$path"
 done
