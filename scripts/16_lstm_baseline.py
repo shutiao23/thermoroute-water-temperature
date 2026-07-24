@@ -142,7 +142,9 @@ from thermoroute.registry import (
 )
 from thermoroute.repro import (
     assert_formal_numerical_policy,
+    atomic_write_json,
     cache_is_valid,
+    configure_deterministic_runtime,
     initialise_run_directory,
     resolve_run_identity,
     seal_artifact,
@@ -152,7 +154,6 @@ from thermoroute.repro import (
 )
 from thermoroute.train import (
     LSTMForecaster,
-    configure_deterministic_runtime,
     fit_model,
 )
 
@@ -405,6 +406,8 @@ def insample():
         }
         preds.append(r.pred)
         log(f"LSTM seed{sd}: {r.epochs+1}ep {time.time()-te:.0f}s val_rmse={r.best_val:.4f}")
+    # Reject any native-library thread drift before deriving canonical outputs.
+    assert_formal_numerical_policy()
     lstm = pd.concat(preds, ignore_index=True)
 
     # Derive, never mutate, the final artifact.  The six-model registry is a
@@ -492,7 +495,7 @@ def insample():
             directory=bundle_directory, member_count=5,
             raw_feature_order=wd.var_names,
         )
-        from thermoroute.repro import atomic_write_json
+        assert_formal_numerical_policy()
         atomic_write_json(C.MODELS / "lstm_usgs_bundle.json", {
             "run_id": identity.run_id,
             "bundle_path": bundle_directory.relative_to(ROOT).as_posix(),

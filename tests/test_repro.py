@@ -70,6 +70,139 @@ def _native_library(**overrides):
     return library
 
 
+def test_native_threadpool_policy_accepts_only_live_single_thread_pools():
+    repro_module._assert_native_threadpools_single_thread([
+        {"user_api": "openmp", "num_threads": 1},
+        _native_library(
+            user_api="blas",
+            internal_api="openblas",
+            prefix="libopenblas",
+        ),
+    ])
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        None,
+        {},
+        (),
+        [],
+        ["not-a-record"],
+        [{}],
+        [{"user_api": "blas"}],
+        [{"num_threads": 1}],
+        [_native_library(user_api=None)],
+        [_native_library(user_api="")],
+        [_native_library(user_api="unknown")],
+        [_native_library(user_api="BLAS")],
+        [_native_library(num_threads=None)],
+        [_native_library(num_threads=True)],
+        [_native_library(num_threads=False)],
+        [_native_library(num_threads=1.0)],
+        [_native_library(num_threads="1")],
+        [_native_library(num_threads=-1)],
+        [_native_library(num_threads=0)],
+        [_native_library(num_threads=2)],
+        [_native_library(), _native_library(num_threads=8)],
+    ),
+)
+def test_native_threadpool_policy_fails_closed_for_unproved_state(value):
+    with pytest.raises(RuntimeError, match="thread-pool|BLAS/OpenMP"):
+        repro_module._assert_native_threadpools_single_thread(value)
+
+
+def test_native_threadpool_inspection_error_fails_closed(monkeypatch):
+    import threadpoolctl
+
+    def fail():
+        raise OSError("injected inspection failure")
+
+    monkeypatch.setattr(threadpoolctl, "threadpool_info", fail)
+    with pytest.raises(RuntimeError, match="cannot inspect") as caught:
+        repro_module._loaded_native_threadpools()
+    assert isinstance(caught.value.__cause__, OSError)
+
+
+def test_native_threadpool_import_error_fails_closed(monkeypatch):
+    monkeypatch.setitem(sys.modules, "threadpoolctl", None)
+    with pytest.raises(RuntimeError, match="cannot inspect") as caught:
+        repro_module._loaded_native_threadpools()
+    assert isinstance(caught.value.__cause__, ModuleNotFoundError)
+
+
+def _formal_policy_fixture():
+    hash_policy = "canonical-sort-identity-collections-independent-of-hash-secret"
+    return {
+        "thread_environment": {
+            name: "1" for name in repro_module.FORMAL_THREAD_ENVIRONMENT
+        },
+        "cublas_workspace_config": ":4096:8",
+        "python_hash_environment_declaration": "0",
+        "python_hash_randomization_enabled": True,
+        "python_hash_policy": hash_policy,
+        "required": {
+            "threads": 1,
+            "cublas_workspace_config": ":4096:8",
+            "python_hash_policy": hash_policy,
+            "torch_deterministic_algorithms": True,
+            "tf32": False,
+            "float32_matmul_precision": "highest",
+        },
+        "torch": {
+            "num_threads": 1,
+            "num_interop_threads": 1,
+            "deterministic_algorithms": True,
+            "cudnn_deterministic": True,
+            "cudnn_benchmark": False,
+            "cuda_matmul_allow_tf32": False,
+            "cudnn_allow_tf32": False,
+            "float32_matmul_precision": "highest",
+        },
+    }
+
+
+def test_formal_policy_assertion_rejects_effective_native_drift(monkeypatch):
+    policy = _formal_policy_fixture()
+    monkeypatch.setattr(repro_module, "formal_numerical_policy", lambda: policy)
+    monkeypatch.setattr(repro_module, "_FORMAL_THREADPOOL_CONTROLLER", object())
+    monkeypatch.setattr(
+        repro_module,
+        "_loaded_native_threadpools",
+        lambda: [_native_library(num_threads=2)],
+    )
+    with pytest.raises(RuntimeError, match="exactly one thread"):
+        repro_module.assert_formal_numerical_policy()
+
+
+def test_formal_policy_assertion_returns_stable_policy_without_live_snapshot(
+    monkeypatch,
+):
+    policy = _formal_policy_fixture()
+    monkeypatch.setattr(repro_module, "formal_numerical_policy", lambda: policy)
+    monkeypatch.setattr(repro_module, "_FORMAL_THREADPOOL_CONTROLLER", object())
+    monkeypatch.setattr(
+        repro_module,
+        "_loaded_native_threadpools",
+        lambda: [{"user_api": "blas", "num_threads": 1}],
+    )
+    assert repro_module.assert_formal_numerical_policy() is policy
+    assert "native_threadpools" not in policy
+
+
+def test_formal_policy_assertion_requires_process_lifetime_limiter(monkeypatch):
+    policy = _formal_policy_fixture()
+    monkeypatch.setattr(repro_module, "formal_numerical_policy", lambda: policy)
+    monkeypatch.setattr(repro_module, "_FORMAL_THREADPOOL_CONTROLLER", None)
+    monkeypatch.setattr(
+        repro_module,
+        "_loaded_native_threadpools",
+        lambda: [{"user_api": "blas", "num_threads": 1}],
+    )
+    with pytest.raises(RuntimeError, match="limiter is not active"):
+        repro_module.assert_formal_numerical_policy()
+
+
 def test_native_library_identity_folds_only_exact_duplicates():
     library = _native_library()
     result = _canonical_native_library_identities(

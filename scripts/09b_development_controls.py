@@ -180,6 +180,7 @@ from thermoroute.registry import FORECAST_KEY, targets_match_at_model_precision 
 from thermoroute.repro import (  # noqa: E402
     RunIdentity,
     assert_formal_numerical_policy,
+    configure_deterministic_runtime,
     initialise_run_directory,
     resolve_run_identity,
     seal_artifact,
@@ -190,7 +191,6 @@ from thermoroute.repro import (  # noqa: E402
 )
 from thermoroute.train import (  # noqa: E402
     FitResult,
-    configure_deterministic_runtime,
     export_predictions,
     fit_model,
 )
@@ -1507,6 +1507,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         n_stations=len(stations),
         train_examples=train_examples,
     )
+    # Training-time library code may alter a native pool.  Do not publish any
+    # canonical matrix unless the effective policy still holds.
+    assert_formal_numerical_policy(require_hash_randomization=True)
     outputs = publish_final_artifacts(
         run_dir=run_dir,
         identity=identity,
@@ -1543,6 +1546,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # This is deliberately the final write in the transaction.  Any missing
     # member, budget/report failure, sidecar drift, or common-key mismatch raises
     # before the stable receipt can be replaced.
+    assert_formal_numerical_policy(require_hash_randomization=True)
     publish_stage09b_completion_receipt(receipt_path, receipt, root=ROOT)
     print(
         json.dumps(

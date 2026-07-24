@@ -118,7 +118,10 @@ def _run_worker(*, suite: Path, receipt: Path, check: bool) -> int:
         write_replay_receipt,
     )
     from thermoroute.model_suite import ModelSuiteError
-    from thermoroute.train import configure_deterministic_runtime
+    from thermoroute.repro import (
+        assert_formal_numerical_policy,
+        configure_deterministic_runtime,
+    )
 
     configure_deterministic_runtime()
     try:
@@ -136,6 +139,7 @@ def _run_worker(*, suite: Path, receipt: Path, check: bool) -> int:
                 receipt_path=receipt,
                 entrypoint_path=Path(__file__),
             )
+            assert_formal_numerical_policy(require_hash_randomization=True)
             write_replay_receipt(receipt, document)
     except (ModelSuiteError, FileExistsError, ValueError) as exc:
         print(f"FAIL-CLOSED: {exc}", file=sys.stderr)

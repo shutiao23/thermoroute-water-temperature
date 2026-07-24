@@ -137,6 +137,7 @@ from thermoroute.repro import (
     advisory_file_lock,
     assert_formal_numerical_policy,
     atomic_write_json,
+    configure_deterministic_runtime,
     initialise_run_directory,
     resolve_run_identity,
     seal_artifact,
@@ -146,7 +147,6 @@ from thermoroute.repro import (
 from thermoroute.thermoroute import ThermoRoute
 from thermoroute.train import (
     LSTMForecaster,
-    configure_deterministic_runtime,
     fit_model,
 )
 from thermoroute.weighting import ROW_EQUAL_WEIGHTING
@@ -394,6 +394,9 @@ def _run(args: argparse.Namespace) -> None:
         shard_identity=identity,
         shard_cohort="external_pooled",
     )
+    # All long-running fits have completed.  Fail before the first canonical
+    # prediction/model artifact if any native runtime left the one-thread mode.
+    assert_formal_numerical_policy()
     predictions, audit = enforce_common_forecast_keys(
         pd.concat([tr_predictions, lstm_predictions, lgb_predictions], ignore_index=True),
         ("ThermoRoute", "LSTM", "LightGBM"), split="test",
@@ -538,6 +541,7 @@ def _run(args: argparse.Namespace) -> None:
         ),
         lightgbm_entry(ROOT, manifest=lgb_manifest, raw_feature_order=wd.var_names),
     ]
+    assert_formal_numerical_policy()
     write_component_pointer(
         components_pointer,
         run_id=identity.run_id, cohort="external", entries=entries,
@@ -557,6 +561,7 @@ def _run(args: argparse.Namespace) -> None:
     # Deliberately the final filesystem write in the transaction.  The publish
     # helper validates the candidate closure before the atomic replace and
     # re-opens the on-disk receipt afterwards.
+    assert_formal_numerical_policy()
     publish_stage25_completion_receipt(
         receipt_path,
         receipt,

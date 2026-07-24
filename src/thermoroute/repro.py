@@ -51,6 +51,51 @@ FORMAL_THREAD_ENVIRONMENT = (
 )
 _FORMAL_THREADPOOL_CONTROLLER: Any | None = None
 _NATIVE_BINARY_HASH_CACHE: dict[tuple[str, int, int], str] = {}
+_FORMAL_NATIVE_USER_APIS = frozenset({"blas", "openmp"})
+
+
+def _loaded_native_threadpools() -> list[dict[str, Any]]:
+    """Return the live ``threadpoolctl`` view or fail closed.
+
+    Environment variables are only declarations.  A formal run must also
+    prove that every BLAS/OpenMP runtime already loaded in this process has
+    actually adopted the one-thread policy.
+    """
+    try:
+        from threadpoolctl import threadpool_info
+
+        value = threadpool_info()
+    except Exception as exc:  # pragma: no cover - exercised via injected loader
+        raise RuntimeError(
+            "formal run cannot inspect loaded BLAS/OpenMP thread pools"
+        ) from exc
+    if not isinstance(value, list):
+        raise RuntimeError("native thread-pool inspection returned a malformed value")
+    return value
+
+
+def _assert_native_threadpools_single_thread(value: object) -> None:
+    """Reject an absent, malformed, unknown, or non-single-thread pool view."""
+    if not isinstance(value, list) or not value:
+        raise RuntimeError(
+            "formal run requires at least one inspectable BLAS/OpenMP thread pool"
+        )
+    for index, pool in enumerate(value):
+        if not isinstance(pool, Mapping):
+            raise RuntimeError(
+                f"native thread-pool record {index} is malformed"
+            )
+        user_api = pool.get("user_api")
+        if type(user_api) is not str or user_api not in _FORMAL_NATIVE_USER_APIS:
+            raise RuntimeError(
+                f"native thread-pool record {index} has unknown user_api"
+            )
+        threads = pool.get("num_threads")
+        if type(threads) is not int or threads != 1:
+            raise RuntimeError(
+                "formal run requires every loaded BLAS/OpenMP pool to report "
+                f"exactly one thread; record {index} ({user_api}) did not"
+            )
 
 
 def _lexical_final_path(path: str | Path) -> Path:
@@ -113,7 +158,7 @@ def advisory_file_lock(
 
 
 def configure_deterministic_runtime() -> dict[str, Any]:
-    """Apply the formal single-threaded Torch/native-library policy."""
+    """Apply and verify the formal single-threaded Torch/native policy."""
     global _FORMAL_THREADPOOL_CONTROLLER
     for name in FORMAL_THREAD_ENVIRONMENT:
         os.environ[name] = "1"
@@ -127,9 +172,14 @@ def configure_deterministic_runtime() -> dict[str, Any]:
     try:
         from threadpoolctl import threadpool_limits
 
+        # Retain the controller for the process lifetime.  A temporary context
+        # would restore the previous limits before training starts.
         _FORMAL_THREADPOOL_CONTROLLER = threadpool_limits(limits=1)
-    except Exception:  # pragma: no cover - asserted through native diagnostics
+    except Exception as exc:  # pragma: no cover - formal dependency failure
         _FORMAL_THREADPOOL_CONTROLLER = None
+        raise RuntimeError(
+            "formal run cannot activate the native thread-pool limiter"
+        ) from exc
     import torch
 
     torch.set_num_threads(1)
@@ -230,6 +280,9 @@ def assert_formal_numerical_policy(
         torch_policy.get(key) != value for key, value in expected_torch.items()
     ):
         raise RuntimeError("formal Torch numerical policy is not active")
+    if _FORMAL_THREADPOOL_CONTROLLER is None:
+        raise RuntimeError("formal native thread-pool limiter is not active")
+    _assert_native_threadpools_single_thread(_loaded_native_threadpools())
     return policy
 
 

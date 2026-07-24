@@ -166,6 +166,7 @@ from thermoroute.repro import (
     atomic_write_bytes,
     atomic_write_json,
     cache_is_valid,
+    configure_deterministic_runtime,
     initialise_run_directory,
     resolve_run_identity,
     seal_artifact,
@@ -182,7 +183,6 @@ from thermoroute.registry import (
 from thermoroute.quantiles import repair_lightgbm_quantiles
 from thermoroute.thermoroute import ThermoRoute
 from thermoroute.train import (
-    configure_deterministic_runtime,
     fit_model,
     resolve_device,
 )
@@ -1176,6 +1176,9 @@ def main():
             chunks.append(r.pred)
             log(f"  {name}: {time.time()-te:.0f}s val={r.best_val:.4f}")
 
+    # Re-check the live native pools after every long-running fit and before
+    # any canonical artifact can be published.
+    assert_formal_numerical_policy()
     allp = pd.concat(chunks, ignore_index=True)
 
     # The primary registry is fixed by protocol.  It must never be inferred
@@ -1575,6 +1578,7 @@ def main():
                 lightgbm_pointer=lightgbm_pointer,
                 components_pointer=components_pointer,
             )
+            assert_formal_numerical_policy()
             publish_stage09_completion_receipt(
                 receipt_path,
                 document,
@@ -1583,6 +1587,7 @@ def main():
             )
             return receipt_path
 
+        assert_formal_numerical_policy()
         complete_stage09_transaction(
             write_report=write_report,
             validate_outputs=validate_outputs,
