@@ -12,8 +12,8 @@
     "amendment_id": "route-a-prelabel-inference-cqr-015",
     "seal": {
       "path": "protocols/route_a_inference_amendment_seal_v2.json",
-      "sha256": null,
-      "status": "PENDING_SEPARATE_POST_AMENDMENT_COMMIT_SEAL"
+      "sha256": "4b4e216f51f6d350912604a96aaa170887cbca7e952a1d097f03e54a7b99969d",
+      "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
     }
   },
   "documents": [
