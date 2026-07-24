@@ -24,6 +24,9 @@ from thermoroute.inference_gate import (
     validate_inference_gate_document,
 )
 from thermoroute.outcome_qc import POLICY_RELATIVE as OUTCOME_QC_POLICY_RELATIVE
+from thermoroute.coverage_audit import (
+    POLICY_RELATIVE as TEMPORAL_COVERAGE_POLICY_RELATIVE,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +39,7 @@ def _copy_gate_inputs(tmp_path: Path) -> None:
         STATION_REGISTRY_RELATIVE,
         AMENDMENT_RELATIVE,
         OUTCOME_QC_POLICY_RELATIVE,
+        TEMPORAL_COVERAGE_POLICY_RELATIVE,
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +80,7 @@ def _seal_lineage_repository(tmp_path: Path) -> Path:
 
 
 def _write_seal(root: Path, payload: bytes) -> None:
-    path = root / "protocols" / "route_a_inference_amendment_seal_v1.json"
+    path = root / AMENDMENT_SEAL_RELATIVE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
 
@@ -225,6 +229,15 @@ def test_amendment_keeps_all_five_objects_and_margins_byte_semantic() -> None:
         "FAIL_CLOSED_NO_REPLACEMENT"
     )
     assert recovery["external_sha256_sidecar_without_receipt"] == "FAIL_CLOSED"
+    cqr = amendment["cqr_calibration_contract"]
+    assert cqr["policy"]["deployed_offset"] == "qhat_plus=max(raw_qhat,0)"
+    assert cqr["opening_contract"]["interval_shrinkage_allowed"] is False
+    assert cqr["frozen_bundle_metadata"]["fit_intervals"] == {
+        "model_training": ["2006-01-01", "2015-12-31"],
+        "hyperparameter_selection": ["2016-01-01", "2017-12-31"],
+        "cqr_and_platt_calibration": ["2018-01-01", "2018-12-31"],
+        "seasonal_event_reference": ["2006-01-01", "2018-12-31"],
+    }
     assert amendment["lineage_contract"]["base_v1_files_remain_immutable"] is True
 
 
@@ -232,7 +245,7 @@ def test_amendment_seal_lineage_accepts_one_strict_immutable_birth(
     tmp_path: Path,
 ) -> None:
     root = _seal_lineage_repository(tmp_path)
-    amendment = root / "protocols" / "route_a_inference_amendment_v1.json"
+    amendment = root / AMENDMENT_RELATIVE
     amendment.parent.mkdir(parents=True, exist_ok=True)
     amendment.write_text("{}\n", encoding="utf-8")
     final_prelabel_commit = _git_commit(root, "amendment")
@@ -261,7 +274,7 @@ def test_amendment_seal_lineage_rejects_adversarial_histories(
     tmp_path: Path, attack: str, error: str,
 ) -> None:
     root = _seal_lineage_repository(tmp_path)
-    amendment = root / "protocols" / "route_a_inference_amendment_v1.json"
+    amendment = root / AMENDMENT_RELATIVE
     amendment.parent.mkdir(parents=True, exist_ok=True)
     payload = b'{"seal":"canonical"}\n'
 

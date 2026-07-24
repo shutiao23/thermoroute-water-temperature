@@ -4,6 +4,7 @@ import importlib.util
 from dataclasses import asdict
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import shutil
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import zipfile
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -19,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_SCRIPT = ROOT / "scripts" / "14_manifest.py"
 VERIFY_SCRIPT = ROOT / "scripts" / "verify_release.py"
 ZIP_SCRIPT = ROOT / "scripts" / "deterministic_zip.py"
+MAKE_RELEASE_SCRIPT = ROOT / "scripts" / "make_release_archive.sh"
 
 
 def _stage09b_fixture_config(
@@ -187,10 +190,117 @@ def _binding(verifier, root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "sha256": verifier.sha256_file(path)}
 
 
+def _write_development_panel_fixture(root: Path) -> tuple[str, str, str]:
+    """Write a small canonical panel spanning every frozen fit interval."""
+    panel_relative = "data_usgs/panel_usgs_120v2.parquet"
+    registry_relative = "data_usgs/station_registry_v1.csv"
+    spec_relative = "data_usgs/frozen_panel_v1.json"
+    records = [
+        {
+            "DATE": pd.Timestamp(year=year, month=month, day=15),
+            "site_id": "n90",
+            "WTEMP": float(5.0 + month + (year - 2006) / 100.0),
+            "FLOW": 1.0,
+            "WLEVEL": float("nan"),
+            "TEMP": 10.0,
+            "PRCP": 0.0,
+            "WDSP": 1.0,
+            "RHMEAN": 50.0,
+            "DH": 100.0,
+        }
+        for year in range(2006, 2021)
+        for month in range(1, 13)
+    ]
+    split_issue_dates = {
+        "val": [pd.Timestamp("2016-01-01"), pd.Timestamp("2016-02-01")],
+        "calib": [
+            pd.Timestamp("2018-01-01") + pd.Timedelta(days=index)
+            for index in range(100)
+        ],
+        "test": [pd.Timestamp("2019-01-01"), pd.Timestamp("2019-02-01")],
+    }
+    forecast_target_dates = {
+        issue_date + pd.Timedelta(days=horizon)
+        for issue_dates in split_issue_dates.values()
+        for issue_date in issue_dates
+        for horizon in (1, 3, 7)
+    }
+    records.extend(
+        {
+            "DATE": target_date,
+            "site_id": "n90",
+            # Stage 9 persists float32-canonical truth in a float64 Parquet
+            # column. This value deliberately differs across those two
+            # representations, so every positive replay exercises that rule.
+            "WTEMP": 0.1,
+            "FLOW": 1.0,
+            "WLEVEL": float("nan"),
+            "TEMP": 10.0,
+            "PRCP": 0.0,
+            "WDSP": 1.0,
+            "RHMEAN": 50.0,
+            "DH": 100.0,
+        }
+        for target_date in sorted(forecast_target_dates)
+    )
+    panel_path = root / panel_relative
+    panel_path.parent.mkdir(parents=True, exist_ok=True)
+    panel = (
+        pd.DataFrame.from_records(records)
+        .drop_duplicates(["DATE", "site_id"], keep="last")
+        .sort_values(["site_id", "DATE"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+    panel.to_parquet(panel_path, index=False)
+    _write_bytes(
+        root,
+        registry_relative,
+        b"site_no,legacy_site_id,huc2\n01073319,n90,01\n",
+    )
+    registry_path = root / registry_relative
+    specification = {
+        "schema_version": 1,
+        "panel_id": "usgs120-development-v1",
+        "panel": {
+            "path": "panel_usgs_120v2.parquet",
+            "format": "parquet",
+            "legacy_station_key": "site_id",
+            "sha256": hashlib.sha256(panel_path.read_bytes()).hexdigest(),
+            "date_start": "2006-01-01",
+            "date_end": "2020-12-31",
+            "row_count": len(panel),
+            "station_count": 1,
+            "required_columns": list(panel.columns),
+        },
+        "station_registry": {
+            "path": "station_registry_v1.csv",
+            "primary_key": "site_no",
+            "legacy_alias": "legacy_site_id",
+            "sha256": hashlib.sha256(registry_path.read_bytes()).hexdigest(),
+            "station_count": 1,
+        },
+    }
+    _write_bytes(
+        root,
+        spec_relative,
+        json.dumps(specification, sort_keys=True).encode("utf-8") + b"\n",
+    )
+    return panel_relative, registry_relative, spec_relative
+
+
 def _write_development_model_fixtures(
     verifier, root: Path, *, runtime_sha256: str
 ) -> tuple[dict[str, list[dict[str, object]]], set[str]]:
     """Create a complete suite registry backed by producer-shaped metadata."""
+    panel_relative, registry_relative, spec_relative = (
+        _write_development_panel_fixture(root)
+    )
+    panel_contracts = verifier._independent_development_panel_contracts(
+        (root / panel_relative).read_bytes(),
+        (root / registry_relative).read_bytes(),
+        (root / spec_relative).read_bytes(),
+    )
+    panel_truth = pd.read_parquet(root / panel_relative).set_index("DATE")["WTEMP"]
     model_entries: dict[str, list[dict[str, object]]] = {}
     artifact_paths: set[str] = set()
     builtins = {"Persistence", "DampedPersistence", "Climatology"}
@@ -214,10 +324,42 @@ def _write_development_model_fixtures(
             prediction_sidecar = prediction + ".meta.json"
             prediction_path = root / prediction
             prediction_path.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame({
-                "model": [model] * 12,
-                "seed": [index % members for index in range(12)],
-            }).to_parquet(prediction_path, index=False)
+            prediction_records = []
+            split_dates = {
+                "val": [pd.Timestamp("2016-01-01"), pd.Timestamp("2016-02-01")],
+                "calib": [
+                    pd.Timestamp("2018-01-01") + pd.Timedelta(days=index)
+                    for index in range(100)
+                ],
+                "test": [pd.Timestamp("2019-01-01"), pd.Timestamp("2019-02-01")],
+            }
+            for split, issue_dates in split_dates.items():
+                for issue_date in issue_dates:
+                    for horizon in (1, 3, 7):
+                        for seed in range(members):
+                            target_date = issue_date + pd.Timedelta(days=horizon)
+                            panel_value = float(panel_truth.loc[target_date])
+                            truth = float(np.float32(panel_value))
+                            assert truth != panel_value
+                            prediction_records.append({
+                                "model": model,
+                                "scope": "development_only_2006_2020",
+                                "feature_set": "USGS",
+                                "seed": seed,
+                                "site_id": "01073319",
+                                "horizon": horizon,
+                                "split": split,
+                                "issue_date": issue_date,
+                                "target_date": target_date,
+                                "y_true": truth,
+                                "y_pred": truth,
+                                "q05": truth - 2.0,
+                                "q50": truth,
+                                "q95": truth + 2.0,
+                                "p_exceed": 0.25,
+                            })
+            prediction_frame = pd.DataFrame.from_records(prediction_records)
+            prediction_frame.to_parquet(prediction_path, index=False)
             _write_canonical_json(verifier, root, prediction_sidecar, {})
             artifact_paths.update({prediction, prediction_sidecar})
             development_prediction = {
@@ -225,7 +367,7 @@ def _write_development_model_fixtures(
                     **_binding(verifier, root, prediction),
                     "sidecar": _binding(verifier, root, prediction_sidecar),
                 },
-                "rows": 12,
+                "rows": len(prediction_frame),
                 "selection": {"model": model, "seeds": list(range(members))},
                 "forecast_key_columns": [
                     "site_id", "horizon", "issue_date", "target_date"
@@ -238,6 +380,77 @@ def _write_development_model_fixtures(
                 "max_abs_difference": 0.0,
                 "atol": replay_atol,
             }
+            cqr_group = "__pooled__" if cohort == "external" else "01073319"
+            raw_cqr_offsets = {
+                f"{cqr_group}|{horizon}": -2.0 for horizon in (1, 3, 7)
+            }
+            cqr_offsets = {key: 0.0 for key in raw_cqr_offsets}
+            cqr_audit = verifier._independent_cqr_audit(
+                raw_cqr_offsets, cqr_offsets
+            )
+            constant = 0.5 / 101.0
+            event_calibrators = {
+                str(horizon): {
+                    "intercept": math.log(constant / (1.0 - constant)),
+                    "slope": 0.0,
+                    "constant": constant,
+                }
+                for horizon in (1, 3, 7)
+            }
+            calibration_fit_contract = {
+                "format": "thermoroute.route-a-calibration-fit.v1",
+                "model_training_interval_inclusive": [
+                    "2006-01-01", "2015-12-31"
+                ],
+                "hyperparameter_selection_interval_inclusive": [
+                    "2016-01-01", "2017-12-31"
+                ],
+                "source_split": "calib",
+                "issue_date_interval_inclusive": [
+                    "2018-01-01", "2018-12-31"
+                ],
+                "post_2018_rows_allowed": False,
+                "member_aggregation_before_fit": "equal_weight_member_mean",
+                "event_reference_fit_interval_inclusive": [
+                    "2006-01-01", "2018-12-31"
+                ],
+                "cqr": {
+                    "alpha": 0.10,
+                    "grouping": (
+                        "pooled_by_horizon"
+                        if cohort == "external" else "site_by_horizon"
+                    ),
+                    "target_date_boundary_purge": "2018-12-31",
+                    "deployed_offset": "qhat_plus=max(raw_qhat,0)",
+                },
+                "event_probability": {
+                    "method": "Platt_logistic_by_horizon",
+                    "grouping": "pooled_by_horizon",
+                    "fit_interval": ["2018-01-01", "2018-12-31"],
+                },
+            }
+            cqr_metadata = {
+                "panel_sha256": verifier.sha256_file(root / panel_relative),
+                "registry_sha256": verifier.sha256_file(root / registry_relative),
+                "event_thresholds": panel_contracts[cohort][
+                    "event_thresholds"
+                ],
+                "event_reference_climatology": panel_contracts[cohort][
+                    "event_reference_climatology"
+                ],
+                "event_calibrators": event_calibrators,
+                "conformal_offsets": cqr_offsets,
+                "conformal_policy": verifier.CQR_POLICY,
+                "conformal_offset_audit": cqr_audit,
+                "calibration_fit_contract": calibration_fit_contract,
+            }
+            if cohort == "external":
+                cqr_metadata["event_threshold_estimator"] = {
+                    "method": "pooled_training_empirical_quantile_v1",
+                    "quantile": 0.90,
+                    "pool_weighting": "equal_weight_per_finite_training_row",
+                    "station_balanced": False,
+                }
             if executor == "lightgbm_bundle":
                 bundle = f"outputs/models/{cohort}/{slug}/manifest.json"
                 member_names = [f"seed{seed}" for seed in range(members)]
@@ -300,6 +513,7 @@ def _write_development_model_fixtures(
                     "raw_quantile_crossing_audit": crossing,
                     "models": model_bindings,
                     "development_prediction": development_prediction,
+                    **cqr_metadata,
                 }
                 _write_canonical_json(verifier, root, bundle, manifest)
                 artifact_paths.add(bundle)
@@ -315,6 +529,7 @@ def _write_development_model_fixtures(
                     "member_count": members,
                     "weights_sha256": verifier.sha256_file(root / weights),
                     "development_prediction": development_prediction,
+                    **cqr_metadata,
                 }
                 _write_canonical_json(verifier, root, metadata_path, metadata)
                 artifact_paths.update({weights, metadata_path})
@@ -331,6 +546,230 @@ def _write_development_model_fixtures(
             })
         model_entries[cohort] = entries
     return model_entries, artifact_paths
+
+
+def _write_stage25_gate_fixture(
+    verifier,
+    root: Path,
+    *,
+    model_entries: dict[str, list[dict[str, object]]],
+    development_contract: dict[str, object],
+    source_sha256: str,
+    runtime_sha256: str,
+) -> tuple[dict[str, str], set[str]]:
+    """Create the exact canonical Stage-25 2+2+76 closure for release tests."""
+    configuration = verifier._stage25_expected_formal_configuration(
+        development_contract["predictor_bridge"]
+    )
+    identity_stable = {
+        "schema_version": "thermoroute.run.v1",
+        "panel_sha256": development_contract["panel"]["sha256"],
+        "registry_sha256": development_contract["registry"]["sha256"],
+        "config_sha256": verifier._sha256_json(configuration),
+        "source_sha256": source_sha256,
+        "runtime_sha256": runtime_sha256,
+    }
+    run_id = verifier._sha256_json(identity_stable)[:20]
+    identity = {"run_id": run_id, **identity_stable}
+    feature_order = ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"]
+    created: set[str] = set()
+
+    learned = {
+        str(entry["model_id"]): entry
+        for entry in model_entries["external"]
+        if entry["executor"] != "builtin"
+    }
+    canonical_entries: dict[str, dict[str, object]] = {}
+    for model_id, executor, slug in (
+        ("ThermoRoute", "thermoroute_bundle", "thermoroute"),
+        ("LSTM", "lstm_bundle", "lstm"),
+    ):
+        old_artifact = learned[model_id]["artifact"]
+        old_directory = root / old_artifact["path"]
+        directory = f"outputs/models/external_{slug}_bundle_{run_id}"
+        metadata = f"{directory}/metadata.json"
+        weights = f"{directory}/weights.pt"
+        _write_bytes(root, metadata, (old_directory / "metadata.json").read_bytes())
+        _write_bytes(root, weights, (old_directory / "weights.pt").read_bytes())
+        created.update({metadata, weights})
+        canonical_entries[model_id] = {
+            "model_id": model_id,
+            "executor": executor,
+            "raw_feature_order": feature_order,
+            "member_count": 5,
+            "artifact": {
+                "path": directory,
+                "metadata_sha256": verifier.sha256_file(root / metadata),
+                "weights_sha256": verifier.sha256_file(root / weights),
+            },
+        }
+
+    old_lightgbm = learned["LightGBM"]["artifact"]
+    old_manifest = json.loads(
+        (root / old_lightgbm["path"]).read_text(encoding="utf-8")
+    )
+    lightgbm_directory = f"outputs/models/external_lightgbm_bundle_{run_id}"
+    lightgbm_models: dict[str, object] = {}
+    for seed in range(5):
+        member = f"seed{seed}"
+        lightgbm_models[member] = {}
+        for horizon in (1, 3, 7):
+            heads: dict[str, dict[str, str]] = {}
+            for head in ("point", "q05", "q50", "q95", "event"):
+                filename = f"{member}_h{horizon}_{head}.txt"
+                relative = f"{lightgbm_directory}/{filename}"
+                _write_bytes(
+                    root,
+                    relative,
+                    f"{member}/h{horizon}/{head}\n".encode(),
+                )
+                created.add(relative)
+                heads[head] = {
+                    "path": filename,
+                    "sha256": verifier.sha256_file(root / relative),
+                }
+            lightgbm_models[member][str(horizon)] = heads
+    old_manifest["members"] = [f"seed{seed}" for seed in range(5)]
+    old_manifest["member_count"] = 5
+    old_manifest["horizons"] = [1, 3, 7]
+    old_manifest["raw_feature_order"] = feature_order
+    old_manifest["models"] = lightgbm_models
+    audit_members = {
+        f"seed{seed}": {
+            str(horizon): {
+                "rows": 12,
+                "forecast_key_sha256": "c" * 64,
+                "raw_prediction_sha256": "d" * 64,
+                "q05_above_q50_count": 0,
+                "q50_above_q95_count": 0,
+                "any_crossing_count": 0,
+                "any_crossing_rate": 0.0,
+                "maximum_crossing_gap_c": 0.0,
+            }
+            for horizon in (1, 3, 7)
+        }
+        for seed in range(5)
+    }
+    crossing_audit = {
+        "format": "thermoroute.raw-quantile-crossing-audit.v1",
+        "scope": "development_export_rows_before_repair",
+        "key_columns": [
+            "site_id", "horizon", "split", "issue_date", "target_date"
+        ],
+        "repair_method": "median_preserving_endpoint_clip_v1",
+        "members": audit_members,
+    }
+    crossing_audit["audit_sha256"] = verifier._sha256_json(crossing_audit)
+    old_manifest["raw_quantile_crossing_audit"] = crossing_audit
+    manifest_relative = f"{lightgbm_directory}/manifest.json"
+    _write_canonical_json(verifier, root, manifest_relative, old_manifest)
+    created.add(manifest_relative)
+    canonical_entries["LightGBM"] = {
+        "model_id": "LightGBM",
+        "executor": "lightgbm_bundle",
+        "raw_feature_order": feature_order,
+        "member_count": 5,
+        "artifact": _binding(verifier, root, manifest_relative),
+    }
+    assert len(created) == 80
+
+    model_entries["external"] = [
+        canonical_entries.get(str(entry["model_id"]), entry)
+        for entry in model_entries["external"]
+    ]
+    prediction = (
+        "outputs/predictions/"
+        f"external_pooled_development_{run_id}.parquet"
+    )
+    _write_bytes(root, prediction, b"fixture predictions\n")
+    prediction_path = root / prediction
+    _write_canonical_json(verifier, root, prediction + ".meta.json", {
+        "schema_version": "thermoroute.artifact.v1",
+        "kind": "external_pooled_development_predictions",
+        "artifact": prediction_path.name,
+        "artifact_sha256": verifier.sha256_file(prediction_path),
+        "artifact_bytes": prediction_path.stat().st_size,
+        "content_schema": "thermoroute.predictions.v1",
+        "run": identity,
+        "parents": {},
+        "extra": {
+            "common_test_keys": 1,
+            "post_2020_data_read": False,
+        },
+        "created_utc": "2026-07-22T00:00:00+00:00",
+    })
+    prediction_binding = {
+        **_binding(verifier, root, prediction),
+        "sidecar": _binding(verifier, root, prediction + ".meta.json"),
+    }
+    pointer = "outputs/models/route_a_external_components.json"
+    component_entries = [
+        canonical_entries[model_id]
+        for model_id in ("ThermoRoute", "LSTM", "LightGBM")
+    ]
+    _write_canonical_json(verifier, root, pointer, {
+        "format": "thermoroute.route-a-model-components.v1",
+        "status": "COMPLETE",
+        "training_device": "cpu",
+        "run_id": run_id,
+        "cohort": "external",
+        "raw_feature_order": feature_order,
+        "models": component_entries,
+        "development_contract": development_contract,
+        "development_prediction_artifact": prediction_binding,
+    })
+    run_manifest = f"outputs/runs/25_external_pooled/{run_id}/run.json"
+    _write_canonical_json(verifier, root, run_manifest, {
+        "schema_version": "thermoroute.run.v1",
+        "identity": identity,
+        "resolved_config": configuration,
+        "created_utc": "2026-07-22T00:00:00+00:00",
+        "environment": {},
+        "git": {},
+        "provenance": {
+            "outcome_status": "NO_POST_2020_DATA_READ",
+            "training_device": "cpu",
+        },
+    })
+    model_files = [_binding(verifier, root, relative) for relative in sorted(created)]
+    artifacts = {
+        "run_manifest": _binding(verifier, root, run_manifest),
+        "components_pointer": _binding(verifier, root, pointer),
+        "development_predictions": _binding(verifier, root, prediction),
+        "development_prediction_sidecar": _binding(
+            verifier, root, prediction + ".meta.json"
+        ),
+        "frozen_panel_spec": development_contract["frozen_panel_spec"],
+        "development_panel": development_contract["panel"],
+        "station_registry": development_contract["registry"],
+        "development_predictor_bridge": development_contract[
+            "predictor_bridge"
+        ],
+        "model_files": model_files,
+    }
+    receipt = {
+        "format": "thermoroute.stage25-completion-receipt.v1",
+        "status": "COMPLETE",
+        "stage": "25_train_external_pooled_suite",
+        "run_id": run_id,
+        "run_identity": identity,
+        "formal_configuration": configuration,
+        "training_device": "cpu",
+        "confirmation_outcomes_requested_or_read": False,
+        "artifacts": artifacts,
+        "artifact_closure_sha256": verifier._sha256_json(artifacts),
+    }
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    receipt_path = "outputs/models/route_a_stage25_completion.json"
+    _write_canonical_json(verifier, root, receipt_path, receipt)
+    created.update({
+        prediction,
+        prediction + ".meta.json",
+        pointer,
+        run_manifest,
+        receipt_path,
+    })
+    return _binding(verifier, root, receipt_path), created
 
 
 def _development_model_metadata(
@@ -365,6 +804,11 @@ def _development_replay_fixture(
     receipt_path = verifier.DEVELOPMENT_REPLAY_RECEIPT
     entrypoint = verifier.DEVELOPMENT_REPLAY_ENTRYPOINT
     metadata = _development_model_metadata(root, suite)
+    panel_contracts = verifier._independent_development_panel_contracts(
+        (root / "data_usgs/panel_usgs_120v2.parquet").read_bytes(),
+        (root / "data_usgs/station_registry_v1.csv").read_bytes(),
+        (root / "data_usgs/frozen_panel_v1.json").read_bytes(),
+    )
     rows = []
     for cohort in ("temporal", "external"):
         entries = {
@@ -373,7 +817,20 @@ def _development_replay_fixture(
         }
         for model in verifier.DEVELOPMENT_REPLAY_LEARNED_MODELS[cohort]:
             entry = entries[model]
-            prediction = metadata[(cohort, model)]["development_prediction"]
+            model_metadata = metadata[(cohort, model)]
+            prediction = model_metadata["development_prediction"]
+            prediction_path = root / prediction["artifact"]["path"]
+            calibrated_head_gate = (
+                verifier._independent_development_calibration_replay(
+                    prediction_path.read_bytes(),
+                    model_metadata,
+                    model=model,
+                    seeds=tuple(range(entry["member_count"])),
+                    external=cohort == "external",
+                    panel_contract=panel_contracts[cohort],
+                    label=f"fixture {cohort}/{model}",
+                )
+            )
             rows.append({
                 "cohort": cohort,
                 "model": model,
@@ -382,6 +839,7 @@ def _development_replay_fixture(
                 "rows": prediction["rows"],
                 "atol": prediction["atol"],
                 "max_abs_difference": 0.0,
+                "calibrated_head_gate": calibrated_head_gate,
                 "status": "PASS",
             })
     read_paths = sorted([entrypoint, suite_path])
@@ -527,6 +985,44 @@ def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
         )
 
 
+def test_release_truth_binding_accepts_stage09_float32_round_trip(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_float32_truth_round_trip"
+    )
+    model_entries, _ = _write_development_model_fixtures(
+        verifier, tmp_path, runtime_sha256="c" * 64
+    )
+    suite = {
+        "cohorts": {
+            cohort: {"models": entries}
+            for cohort, entries in model_entries.items()
+        }
+    }
+    metadata = _development_model_metadata(tmp_path, suite)[
+        ("temporal", "LightGBM")
+    ]
+    panel_contract = verifier._independent_development_panel_contracts(
+        (tmp_path / "data_usgs/panel_usgs_120v2.parquet").read_bytes(),
+        (tmp_path / "data_usgs/station_registry_v1.csv").read_bytes(),
+        (tmp_path / "data_usgs/frozen_panel_v1.json").read_bytes(),
+    )["temporal"]
+    prediction_path = tmp_path / metadata["development_prediction"]["artifact"][
+        "path"
+    ]
+
+    gate = verifier._independent_development_calibration_replay(
+        prediction_path.read_bytes(),
+        metadata,
+        model="LightGBM",
+        seeds=tuple(range(5)),
+        external=False,
+        panel_contract=panel_contract,
+        label="float32 truth round trip",
+    )
+
+    assert gate["status"] == "PASS_NONNEGATIVE_CQR_WIDENS_ONLY"
+
+
 @pytest.mark.parametrize(
     "attack",
     (
@@ -538,7 +1034,9 @@ def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
         "difference_over_tolerance", "entrypoint_binding", "suite_binding",
         "suite_missing_cohorts", "inflated_atol", "reduced_rows",
         "coordinated_inflated_atol", "coordinated_reduced_rows",
-        "nested_receipt",
+        "nested_receipt", "resealed_cqr_metadata",
+        "resealed_platt_metadata", "resealed_threshold_metadata",
+        "resealed_legacy_mapping", "resealed_y_true",
     ),
 )
 def test_release_verifier_rejects_forged_development_replay_receipt(
@@ -659,6 +1157,88 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
         models[0]["rows"] -= 1
     elif attack == "nested_receipt":
         execution["security_boundary"] = "forged but self-consistent"
+    elif attack == "resealed_cqr_metadata":
+        # Model-bundle and enclosing release hashes are outside this static
+        # function and are assumed to have been refreshed by the attacker.
+        # The forged raw/deployed registry and its audit remain internally
+        # self-consistent, so only replay from the bound rows can reject it.
+        metadata = model_metadata[("temporal", "LightGBM")]
+        deployed = metadata["conformal_offsets"]
+        forged_raw = {key: -1.0 for key in deployed}
+        metadata["conformal_offset_audit"] = verifier._independent_cqr_audit(
+            forged_raw, deployed
+        )
+    elif attack == "resealed_platt_metadata":
+        # This is a valid constant-logit parameterization, but it was not fit
+        # from the frozen calibration rows and must therefore still fail.
+        metadata = model_metadata[("temporal", "LightGBM")]
+        constant = 0.10
+        metadata["event_calibrators"] = {
+            str(horizon): {
+                "intercept": math.log(constant / (1.0 - constant)),
+                "slope": 0.0,
+                "constant": constant,
+            }
+            for horizon in (1, 3, 7)
+        }
+    elif attack == "resealed_threshold_metadata":
+        # Re-sealing a plausible q90-like value cannot substitute for reading
+        # and recomputing the threshold from the canonical panel bytes.
+        metadata = model_metadata[("temporal", "LightGBM")]
+        thresholds = dict(metadata["event_thresholds"])
+        thresholds["01073319"] += 0.25
+        metadata["event_thresholds"] = thresholds
+    elif attack == "resealed_legacy_mapping":
+        # Keep the panel's n90 legacy key and every nested hash self-consistent,
+        # but redirect it to another plausible USGS identifier. The verifier
+        # must map before computation and detect that predictions target the
+        # formerly mapped station.
+        registry_payload = (
+            b"site_no,legacy_site_id,huc2\n01073320,n90,01\n"
+        )
+        _write_bytes(
+            tmp_path, "data_usgs/station_registry_v1.csv", registry_payload
+        )
+        registry_sha256 = hashlib.sha256(registry_payload).hexdigest()
+        specification_path = tmp_path / "data_usgs/frozen_panel_v1.json"
+        specification = json.loads(specification_path.read_text(encoding="utf-8"))
+        specification["station_registry"]["sha256"] = registry_sha256
+        _write_bytes(
+            tmp_path,
+            "data_usgs/frozen_panel_v1.json",
+            json.dumps(specification, sort_keys=True).encode("utf-8") + b"\n",
+        )
+        for metadata in model_metadata.values():
+            metadata["registry_sha256"] = registry_sha256
+    elif attack == "resealed_y_true":
+        # Change every member's val truth for one forecast key, then refresh
+        # the prediction artifact binding as an enclosing release re-seal
+        # would. Calibration objects and the calibrated-head digest are still
+        # self-consistent because calibration rows and predicted heads did not
+        # change; only a strict join to frozen panel outcomes can reject this.
+        metadata = model_metadata[("temporal", "LightGBM")]
+        artifact = metadata["development_prediction"]["artifact"]
+        prediction_path = tmp_path / artifact["path"]
+        prediction_frame = pd.read_parquet(prediction_path)
+        forged = (
+            prediction_frame["model"].eq("LightGBM")
+            & prediction_frame["split"].eq("val")
+            & prediction_frame["horizon"].eq(1)
+            & prediction_frame["issue_date"].eq(pd.Timestamp("2016-01-01"))
+        )
+        assert forged.sum() == 5
+        canonical_truth = np.float32(
+            prediction_frame.loc[forged, "y_true"].iloc[0]
+        )
+        forged_truth = np.nextafter(
+            canonical_truth, np.float32(np.inf), dtype=np.float32
+        )
+        assert forged_truth != canonical_truth
+        prediction_frame.loc[forged, "y_true"] = float(forged_truth)
+        prediction_frame.to_parquet(prediction_path, index=False)
+        artifact["sha256"] = hashlib.sha256(
+            prediction_path.read_bytes()
+        ).hexdigest()
     replay.pop("receipt_self_sha256", None)
     replay["receipt_self_sha256"] = verifier._sha256_json(replay)
 
@@ -671,6 +1251,15 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
             prediction_payloads=verifier._filesystem_development_prediction_payloads(
                 tmp_path, model_metadata
             ),
+            development_panel_payload=(
+                tmp_path / "data_usgs/panel_usgs_120v2.parquet"
+            ).read_bytes(),
+            development_registry_payload=(
+                tmp_path / "data_usgs/station_registry_v1.csv"
+            ).read_bytes(),
+            frozen_panel_spec_payload=(
+                tmp_path / "data_usgs/frozen_panel_v1.json"
+            ).read_bytes(),
             suite_binding=_binding(verifier, tmp_path, suite_path),
             replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
             source_sha256=source_sha256,
@@ -700,6 +1289,93 @@ def test_release_verifier_replay_contract_matches_producer_constants():
         verifier.DEVELOPMENT_REPLAY_MODEL_CONTRACTS
         == DEVELOPMENT_REPLAY_MODEL_CONTRACTS
     )
+
+
+def test_development_prediction_payload_loader_reuses_shared_filesystem_bytes(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_replay_payload_fs_cache_test"
+    )
+    payload = bytes(range(256)) * 8
+    relative = "outputs/development/shared_predictions.parquet"
+    _write_bytes(tmp_path, relative, payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    metadata = {
+        ("temporal", "LightGBM"): {
+            "development_prediction": {
+                "artifact": {"path": relative, "sha256": digest}
+            }
+        },
+        ("temporal", "TFT"): {
+            "development_prediction": {
+                "artifact": {"path": relative, "sha256": digest}
+            }
+        },
+    }
+
+    loaded = verifier._filesystem_development_prediction_payloads(
+        tmp_path, metadata
+    )
+
+    assert loaded[("temporal", "LightGBM")] == payload
+    assert (
+        loaded[("temporal", "LightGBM")]
+        is loaded[("temporal", "TFT")]
+    )
+
+    metadata[("temporal", "TFT")]["development_prediction"]["artifact"][
+        "sha256"
+    ] = "0" * 64
+    with pytest.raises(ValueError, match="conflicting checksums"):
+        verifier._filesystem_development_prediction_payloads(tmp_path, metadata)
+
+
+def test_development_prediction_payload_loader_reuses_shared_git_blob(
+    tmp_path, monkeypatch
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_replay_payload_git_cache_test"
+    )
+    payload = bytes(range(255, -1, -1)) * 8
+    relative = "outputs/development/shared_predictions.parquet"
+    digest = hashlib.sha256(payload).hexdigest()
+    metadata = {
+        ("external", "LightGBM"): {
+            "development_prediction": {
+                "artifact": {"path": relative, "sha256": digest}
+            }
+        },
+        ("external", "TFT"): {
+            "development_prediction": {
+                "artifact": {"path": relative, "sha256": digest}
+            }
+        },
+    }
+    calls: list[tuple[object, ...]] = []
+
+    def git_blob(*args, **_kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout=payload, stderr=b"")
+
+    monkeypatch.setattr(verifier, "_run_git", git_blob)
+    loaded = verifier._git_development_prediction_payloads(
+        tmp_path / "audit.git", "a" * 40, metadata
+    )
+
+    assert len(calls) == 1
+    assert loaded[("external", "LightGBM")] == payload
+    assert loaded[("external", "LightGBM")] is loaded[("external", "TFT")]
+
+    metadata[("external", "TFT")]["development_prediction"]["artifact"][
+        "sha256"
+    ] = "0" * 64
+    calls.clear()
+    with pytest.raises(ValueError, match="conflicting checksums"):
+        verifier._git_development_prediction_payloads(
+            tmp_path / "audit.git", "a" * 40, metadata
+        )
+    assert len(calls) == 1
 
 
 def test_development_replay_filesystem_requires_canonical_producer_json(tmp_path):
@@ -751,6 +1427,15 @@ def test_development_replay_filesystem_requires_canonical_producer_json(tmp_path
             prediction_payloads=verifier._filesystem_development_prediction_payloads(
                 tmp_path, model_metadata
             ),
+            development_panel_payload=(
+                tmp_path / "data_usgs/panel_usgs_120v2.parquet"
+            ).read_bytes(),
+            development_registry_payload=(
+                tmp_path / "data_usgs/station_registry_v1.csv"
+            ).read_bytes(),
+            frozen_panel_spec_payload=(
+                tmp_path / "data_usgs/frozen_panel_v1.json"
+            ).read_bytes(),
             suite_binding=_binding(verifier, tmp_path, suite_path),
             replay_path=verifier.DEVELOPMENT_REPLAY_RECEIPT,
             source_sha256=source_sha256,
@@ -982,7 +1667,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     _write_bytes(
         root, outcome_qc_policy_path, json.dumps(outcome_qc_policy).encode()
     )
-    amendment_path = "protocols/route_a_inference_amendment_v1.json"
+    amendment_path = "protocols/route_a_inference_amendment_v2.json"
     trusted_scoring_recovery_contract = json.loads(
         (ROOT / amendment_path).read_text(encoding="utf-8")
     )["trusted_scoring_recovery_contract"]
@@ -1000,10 +1685,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "role": verifier.TEMPORAL_COVERAGE_AMENDMENT_ROLE,
     }
     amendment = {
-        "format": "thermoroute.route-a-inference-amendment.v1",
+        "format": "thermoroute.route-a-inference-amendment.v2",
         "status": "FROZEN_PRELABEL_OUTCOME_FREE",
-        "amendment_id": "route-a-prelabel-inference-scope-014",
-        "recorded_date": "2026-07-22",
+        "amendment_id": "route-a-prelabel-inference-cqr-015",
+        "recorded_date": "2026-07-24",
         "post_2020_wtemp_requested_or_inspected": False,
         "outcome_independent": True,
         "base_protocol": protocol_binding,
@@ -1030,18 +1715,19 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "temporal_coverage_policy": coverage_policy_overlay,
         },
         "trusted_scoring_recovery_contract": trusted_scoring_recovery_contract,
+        "cqr_calibration_contract": verifier.CQR_AMENDMENT_CONTRACT,
         "lineage_contract": {
             "base_v1_files_remain_immutable": True,
             "separate_amendment_seal_required": True,
-            "seal_path": "protocols/route_a_inference_amendment_seal_v1.json",
+            "seal_path": "protocols/route_a_inference_amendment_seal_v2.json",
             "amendment_commit_must_precede_seal_commit": True,
         },
     }
     _write_bytes(root, amendment_path, json.dumps(amendment).encode())
     amendment_commit = "7" * 40
-    amendment_seal_path = "protocols/route_a_inference_amendment_seal_v1.json"
+    amendment_seal_path = "protocols/route_a_inference_amendment_seal_v2.json"
     amendment_seal = {
-        "format": "thermoroute.route-a-inference-amendment-seal.v1",
+        "format": "thermoroute.route-a-inference-amendment-seal.v2",
         "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
         "amendment_id": amendment["amendment_id"],
         "amendment": _binding(verifier, root, amendment_path),
@@ -1683,11 +2369,30 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         stage9["receipt_self_sha256"] = verifier._sha256_json(stage9)
         stage9_path = "outputs/models/route_a_stage09_completion.json"
         _write_bytes(root, stage9_path, json.dumps(stage9).encode())
+
+        stage25_development = {
+            "frozen_panel_spec": _binding(
+                verifier, root, "data_usgs/frozen_panel_v1.json"
+            ),
+            "panel": bridge["panel"],
+            "registry": bridge["registry"],
+            "predictor_bridge": _binding(verifier, root, bridge_path),
+            "source_sha256": source_sha256,
+        }
+        stage25_gate, _stage25_paths = _write_stage25_gate_fixture(
+            verifier,
+            root,
+            model_entries=model_entries,
+            development_contract=stage25_development,
+            source_sha256=source_sha256,
+            runtime_sha256=runtime_sha256,
+        )
         return {
             "stage09_completion": _binding(verifier, root, stage9_path),
             "stage09b_development_controls": _binding(
                 verifier, root, controls_path
             ),
+            "stage25_external_completion": stage25_gate,
         }
 
     preopening_gates = write_preopening_gate_fixtures()
@@ -2980,23 +3685,205 @@ def test_manifest_binds_revision_source_config_data_and_detects_change(tmp_path)
 
 def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
     verifier = _load_script(VERIFY_SCRIPT, "thermoroute_verify_release_test")
-    complete = set(verifier.REQUIRED_MEMBERS) | {
-        "paper/main.tex", "outputs/reports/report.md",
-    }
+    complete = (
+        set(verifier.REQUIRED_MEMBERS)
+        | set(verifier.REQUIRED_PAPER_MEMBERS)
+        | {"outputs/reports/report.md"}
+    )
     verifier.validate_members(complete)
     with pytest.raises(ValueError, match="missing required members"):
         verifier.validate_members(complete - {"data/b1.csv"})
+    for missing_paper in verifier.REQUIRED_PAPER_MEMBERS:
+        with pytest.raises(
+            ValueError, match="missing registered manuscript sources"
+        ):
+            verifier.validate_members(complete - {missing_paper})
     with pytest.raises(ValueError, match="mixed-generation"):
         verifier.validate_members(
             complete | {"outputs/tables/usgs_stations_with_huc.csv"}
         )
+    for stale, expected_error in (
+        ("paper/ThermoRoute_paper.pdf", "rendered/binary manuscript artifact"),
+        ("paper/ThermoRoute_paper.docx", "rendered/binary manuscript artifact"),
+        ("paper/figures/stale-result.png", "rendered/binary manuscript artifact"),
+        ("paper/unregistered_notes.md", "unregistered manuscript artifact"),
+    ):
+        with pytest.raises(ValueError, match=expected_error):
+            verifier.validate_members(complete | {stale})
+    for rendered_alias in (
+        "Paper/stale.pdf",
+        "ThermoRoute_paper.docx",
+        "docs/manuscript.pdf",
+        "figures/result.png",
+        "assets/result.svg",
+    ):
+        with pytest.raises(ValueError, match="rendered/binary manuscript artifact"):
+            verifier.validate_members(complete | {rendered_alias})
+    for unsafe_alias in (
+        "paper\\stale.txt",
+        "Paper/stale.txt",
+        "paper//stale.txt",
+        "paper/./stale.txt",
+        "paper/stale. ",
+        "paper/NUL.txt",
+        "paper/e\u0301vidence.txt",
+    ):
+        with pytest.raises(ValueError, match="release path|filesystem alias"):
+            verifier.validate_members(complete | {unsafe_alias})
+
+    shell = MAKE_RELEASE_SCRIPT.read_text(encoding="utf-8")
+    paper_block = shell.split("paper_paths=(", 1)[1].split("\n)", 1)[0]
+    shell_paper_paths = {
+        line.strip() for line in paper_block.splitlines() if line.strip()
+    }
+    assert shell_paper_paths == set(verifier.ALLOWED_PAPER_MEMBERS)
 
     archive_path = tmp_path / "unsafe.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr("thermoroute/../escape.txt", "bad")
     with zipfile.ZipFile(archive_path) as archive:
-        with pytest.raises(ValueError, match="unsafe archive path"):
+        with pytest.raises(ValueError, match="unsafe archive path|unsafe platform alias"):
             verifier.normalised_members(archive)
+
+    alias_archive_path = tmp_path / "alias.zip"
+    with zipfile.ZipFile(alias_archive_path, "w") as archive:
+        archive.writestr("thermoroute/paper\\stale.txt", "bad")
+    with zipfile.ZipFile(alias_archive_path) as archive:
+        with pytest.raises(ValueError, match="prohibited character"):
+            verifier.normalised_members(archive)
+
+
+def test_v2_seal_history_and_manuscript_git_blobs_fail_closed(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_v2_seal_history_test"
+    )
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    _write_bytes(root, "protocols/base_protocol.txt", b"frozen protocol\n")
+    base_commit = _commit_git_fixture(root, "base protocol")
+    protocol_seal = {
+        "format": verifier.PROTOCOL_SEAL_FORMAT,
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "final_prelabel_protocol": {"commit": base_commit},
+    }
+    _write_canonical_json(
+        verifier, root, verifier.PROTOCOL_SEAL_PATH, protocol_seal
+    )
+    _commit_git_fixture(root, "base protocol seal")
+
+    amendment = json.loads(
+        (ROOT / verifier.INFERENCE_AMENDMENT_PATH).read_text(encoding="utf-8")
+    )
+    amendment["base_protocol_seal"] = _binding(
+        verifier, root, verifier.PROTOCOL_SEAL_PATH
+    )
+    amendment_path = _write_canonical_json(
+        verifier, root, verifier.INFERENCE_AMENDMENT_PATH, amendment
+    )
+    manuscript = _write_bytes(root, "paper/highlights.md", b"frozen source\n")
+    amendment_commit = _commit_git_fixture(root, "v2 amendment")
+
+    seal = {
+        "format": "thermoroute.route-a-inference-amendment-seal.v2",
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "amendment_id": amendment["amendment_id"],
+        "amendment": _binding(verifier, root, verifier.INFERENCE_AMENDMENT_PATH),
+        "base_protocol_seal": amendment["base_protocol_seal"],
+        "final_prelabel_commit": amendment_commit,
+        "history_contract": {
+            "base_protocol_commit_must_be_ancestor": True,
+            "amendment_blob_must_match_commit": True,
+            "amendment_commit_must_be_ancestor_of_authorization": True,
+            "seal_is_created_only_after_amendment_commit": True,
+        },
+        "prelabel_attestation": {
+            "post_2020_wtemp_requested_or_inspected": False,
+            "outcome_independent": True,
+        },
+    }
+    seal_path = _write_canonical_json(
+        verifier, root, verifier.INFERENCE_AMENDMENT_SEAL_PATH, seal
+    )
+    registry = {
+        "format": "thermoroute.route-a-claim-ledger.v2",
+        "inference_amendment_binding": {
+            **_binding(verifier, root, verifier.INFERENCE_AMENDMENT_PATH),
+            "format": amendment["format"],
+            "amendment_id": amendment["amendment_id"],
+            "seal": {
+                **_binding(
+                    verifier, root, verifier.INFERENCE_AMENDMENT_SEAL_PATH
+                ),
+                "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+            },
+        },
+    }
+    _write_canonical_json(
+        verifier,
+        root,
+        "protocols/route_a_claim_registry_v1.json",
+        registry,
+    )
+    seal_commit = _commit_git_fixture(root, "separate v2 seal")
+
+    verifier._load_release_sealed_amendment(root)
+    verifier._verify_amendment_seal_history_from_bundle(
+        root=root, bare=root, compute_commit=seal_commit
+    )
+    verifier._verify_manuscript_blobs_from_bundle(
+        root=root, bare=root, manuscript_commit=seal_commit
+    )
+
+    manuscript.write_bytes(b"uncommitted rewrite\n")
+    with pytest.raises(ValueError, match="bytes differ from Git"):
+        verifier._verify_manuscript_blobs_from_bundle(
+            root=root, bare=root, manuscript_commit=seal_commit
+        )
+    manuscript.write_bytes(b"frozen source\n")
+
+    seal_path.write_text(json.dumps(seal, indent=2) + "\n", encoding="utf-8")
+    registry["inference_amendment_binding"]["seal"]["sha256"] = (
+        verifier.sha256_file(seal_path)
+    )
+    _write_canonical_json(
+        verifier,
+        root,
+        "protocols/route_a_claim_registry_v1.json",
+        registry,
+    )
+    rewritten_commit = _commit_git_fixture(root, "forbidden seal rewrite")
+    with pytest.raises(ValueError, match="differs from its creation commit"):
+        verifier._verify_amendment_seal_history_from_bundle(
+            root=root, bare=root, compute_commit=rewritten_commit
+        )
+
+    amendment["base_protocol_seal"]["path"] = "../../outside.json"
+    _write_canonical_json(
+        verifier, root, verifier.INFERENCE_AMENDMENT_PATH, amendment
+    )
+    seal["amendment"] = _binding(
+        verifier, root, verifier.INFERENCE_AMENDMENT_PATH
+    )
+    seal["base_protocol_seal"] = amendment["base_protocol_seal"]
+    _write_canonical_json(
+        verifier, root, verifier.INFERENCE_AMENDMENT_SEAL_PATH, seal
+    )
+    registry["inference_amendment_binding"]["sha256"] = verifier.sha256_file(
+        amendment_path
+    )
+    registry["inference_amendment_binding"]["seal"]["sha256"] = (
+        verifier.sha256_file(seal_path)
+    )
+    _write_canonical_json(
+        verifier,
+        root,
+        "protocols/route_a_claim_registry_v1.json",
+        registry,
+    )
+    with pytest.raises(ValueError, match="amendment/seal semantics changed"):
+        verifier._load_release_sealed_amendment(root)
 
 
 def test_archive_resource_limits_are_checked_before_extraction(tmp_path, monkeypatch):
@@ -3164,8 +4051,8 @@ def test_release_replay_accepts_one_strict_immutable_seal_birth(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     _write_bytes(root, "base.txt")
     _commit_git_fixture(root, "base")
-    relative = "protocols/route_a_inference_amendment_seal_v1.json"
-    _write_bytes(root, "protocols/route_a_inference_amendment_v1.json", b"{}\n")
+    relative = "protocols/route_a_inference_amendment_seal_v2.json"
+    _write_bytes(root, "protocols/route_a_inference_amendment_v2.json", b"{}\n")
     amendment_commit = _commit_git_fixture(root, "amendment")
     payload = b'{"seal":"canonical"}\n'
     _write_bytes(root, relative, payload)
@@ -3201,8 +4088,8 @@ def test_release_replay_rejects_adversarial_seal_histories(
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     _write_bytes(root, "base.txt")
     _commit_git_fixture(root, "base")
-    amendment = "protocols/route_a_inference_amendment_v1.json"
-    relative = "protocols/route_a_inference_amendment_seal_v1.json"
+    amendment = "protocols/route_a_inference_amendment_v2.json"
+    relative = "protocols/route_a_inference_amendment_seal_v2.json"
     payload = b'{"seal":"canonical"}\n'
 
     if attack == "same_commit":
@@ -3604,7 +4491,7 @@ def test_postopen_release_rejects_recovery_contract_missing_tamper_and_extra(
     source = tmp_path / "source"
     source.mkdir()
     authorization_path, _ = _write_postopen_fixture(verifier, source)
-    amendment_relative = "protocols/route_a_inference_amendment_v1.json"
+    amendment_relative = "protocols/route_a_inference_amendment_v2.json"
     amendment = json.loads(
         (source / amendment_relative).read_text(encoding="utf-8")
     )
@@ -4221,6 +5108,121 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(
         verifier._validate_preopening_completion_gates(
             source, {}, missing, development, suite["numerical_runtime_sha256"]
         )
+    missing_stage25 = json.loads(json.dumps(suite))
+    missing_stage25["preopening_gates"].pop("stage25_external_completion")
+    with pytest.raises(ValueError, match="Stage-9/09b/25"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            missing_stage25,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+
+    stage25_binding = suite["preopening_gates"]["stage25_external_completion"]
+    stage25_path = source / stage25_binding["path"]
+    original_stage25 = stage25_path.read_bytes()
+    tampered_stage25 = json.loads(original_stage25)
+    tampered_stage25["status"] = "INCOMPLETE"
+    stage25_path.write_text(json.dumps(tampered_stage25), encoding="utf-8")
+    tampered_suite = json.loads(json.dumps(suite))
+    tampered_suite["preopening_gates"]["stage25_external_completion"] = _binding(
+        verifier, source, stage25_binding["path"]
+    )
+    with pytest.raises(ValueError, match="Stage-25 completion receipt is malformed"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            tampered_suite,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+    stage25_path.write_bytes(original_stage25)
+
+    def bind_stage25_receipt(document: dict[str, object]) -> dict[str, object]:
+        candidate = json.loads(json.dumps(document))
+        candidate.pop("receipt_self_sha256", None)
+        candidate["artifact_closure_sha256"] = verifier._sha256_json(
+            candidate["artifacts"]
+        )
+        candidate["receipt_self_sha256"] = verifier._sha256_json(candidate)
+        _write_canonical_json(
+            verifier, source, stage25_binding["path"], candidate
+        )
+        candidate_suite = json.loads(json.dumps(suite))
+        candidate_suite["preopening_gates"][
+            "stage25_external_completion"
+        ] = _binding(verifier, source, stage25_binding["path"])
+        return candidate_suite
+
+    pristine_stage25 = json.loads(original_stage25)
+    sidecar_relative = pristine_stage25["artifacts"][
+        "development_prediction_sidecar"
+    ]["path"]
+    sidecar_path = source / sidecar_relative
+    original_sidecar = sidecar_path.read_bytes()
+    malformed_sidecar = json.loads(original_sidecar)
+    malformed_sidecar["content_schema"] = "attacker.predictions.v1"
+    _write_canonical_json(verifier, source, sidecar_relative, malformed_sidecar)
+    sidecar_receipt = json.loads(json.dumps(pristine_stage25))
+    sidecar_receipt["artifacts"][
+        "development_prediction_sidecar"
+    ] = _binding(verifier, source, sidecar_relative)
+    sidecar_suite = bind_stage25_receipt(sidecar_receipt)
+    with pytest.raises(ValueError, match="Stage-25 prediction sidecar changed"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            sidecar_suite,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+    sidecar_path.write_bytes(original_sidecar)
+    stage25_path.write_bytes(original_stage25)
+
+    missing_seed = json.loads(json.dumps(pristine_stage25))
+    missing_seed["formal_configuration"]["seeds"].pop()
+    missing_seed_suite = bind_stage25_receipt(missing_seed)
+    with pytest.raises(ValueError, match="formal configuration changed"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            missing_seed_suite,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+    stage25_path.write_bytes(original_stage25)
+
+    missing_grid = json.loads(json.dumps(pristine_stage25))
+    missing_grid["formal_configuration"]["lstm_validation_grid"].pop()
+    missing_grid_suite = bind_stage25_receipt(missing_grid)
+    with pytest.raises(ValueError, match="formal configuration changed"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            missing_grid_suite,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+    stage25_path.write_bytes(original_stage25)
+
+    padding_relative = "outputs/models/unrelated_stage25_padding.bin"
+    _write_bytes(source, padding_relative, b"unrelated padding\n")
+    padded_receipt = json.loads(json.dumps(pristine_stage25))
+    padded_model_files = padded_receipt["artifacts"]["model_files"]
+    padded_model_files.pop()
+    padded_model_files.append(_binding(verifier, source, padding_relative))
+    padded_model_files.sort(key=lambda binding: binding["path"])
+    padded_suite = bind_stage25_receipt(padded_receipt)
+    with pytest.raises(ValueError, match="differ from canonical components"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            padded_suite,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+    stage25_path.write_bytes(original_stage25)
 
     controls_binding = suite["preopening_gates"]["stage09b_development_controls"]
     controls_path = source / controls_binding["path"]
@@ -4990,9 +5992,9 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             verifier, source, runtime_sha256=runtime_sha256
         )
     )
-    inference_amendment_path = "protocols/route_a_inference_amendment_v1.json"
+    inference_amendment_path = "protocols/route_a_inference_amendment_v2.json"
     inference_amendment_seal_path = (
-        "protocols/route_a_inference_amendment_seal_v1.json"
+        "protocols/route_a_inference_amendment_seal_v2.json"
     )
     inference_gate_path = "outputs/prelabel/route_a_inference_gate_v1.json"
     write_json(inference_amendment_path, {"fixture": "outcome-free amendment"})
@@ -5327,19 +6329,28 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     write_json(stage09b_receipt_path, stage09b_receipt)
 
+    development_contract = {
+        **{
+            name: _binding(verifier, source, relative)
+            for name, relative in development_paths.items()
+        },
+        "predictor_bridge": _binding(verifier, source, bridge_path),
+        "source_sha256": frozen_source_sha,
+    }
+    stage25_gate, stage25_paths = _write_stage25_gate_fixture(
+        verifier,
+        source,
+        model_entries=model_entries,
+        development_contract=development_contract,
+        source_sha256=frozen_source_sha,
+        runtime_sha256=runtime_sha256,
+    )
     suite = {
         "format": "thermoroute.route-a-model-suite.v1",
         "status": "FROZEN_BEFORE_LABEL_OPENING",
         "training_device": "cpu",
         "numerical_runtime_sha256": runtime_sha256,
-        "development_contract": {
-            **{
-                name: _binding(verifier, source, relative)
-                for name, relative in development_paths.items()
-            },
-            "predictor_bridge": _binding(verifier, source, bridge_path),
-            "source_sha256": frozen_source_sha,
-        },
+        "development_contract": development_contract,
         "preopening_gates": {
             "stage09_completion": _binding(
                 verifier, source, stage09_receipt_path
@@ -5347,6 +6358,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "stage09b_development_controls": _binding(
                 verifier, source, stage09b_receipt_path
             ),
+            "stage25_external_completion": stage25_gate,
         },
         "cohorts": {
             cohort: {"models": entries}
@@ -5367,11 +6379,16 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             )
         ),
     )
+    retained_development_model_artifact_paths = {
+        relative
+        for relative in development_model_artifact_paths
+        if not relative.startswith("outputs/models/external/")
+    }
     model_artifact_paths = {
         model_suite_path,
         development_replay_path,
         *development_paths.values(),
-        *development_model_artifact_paths,
+        *retained_development_model_artifact_paths,
         bridge_path,
         *bridge_normalized.values(),
         bridge_report,
@@ -5382,6 +6399,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         stage09b_receipt_path,
         *stage09b_artifacts.values(),
         *stage09b_member_paths,
+        *stage25_paths,
     }
     model_commit = commit("freeze executable models and chronology gate")
     model_tree_paths = {
@@ -6278,12 +7296,12 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             "required": True,
         },
         "inference_amendment": {
-            "path": "protocols/route_a_inference_amendment_v1.json",
+            "path": "protocols/route_a_inference_amendment_v2.json",
             "sha256": "8" * 64,
-            "format": "thermoroute.route-a-inference-amendment.v1",
-            "amendment_id": "route-a-prelabel-inference-scope-014",
+            "format": "thermoroute.route-a-inference-amendment.v2",
+            "amendment_id": "route-a-prelabel-inference-cqr-015",
             "seal": {
-                "path": "protocols/route_a_inference_amendment_seal_v1.json",
+                "path": "protocols/route_a_inference_amendment_seal_v2.json",
                 "sha256": "9" * 64,
             },
             "final_prelabel_commit": head,

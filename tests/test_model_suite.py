@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 from pathlib import Path
 import sys
@@ -19,21 +20,36 @@ from thermoroute.checkpoint import (  # noqa: E402
     neural_output_head_schema,
     save_inference_bundle,
 )
+from thermoroute import config as C  # noqa: E402
+from thermoroute import model_suite as MODEL_SUITE  # noqa: E402
 from thermoroute import results as R  # noqa: E402
+from thermoroute.conformal import (  # noqa: E402
+    cqr_policy_contract,
+    finalise_cqr_offsets,
+)
+from thermoroute.evidence import FrozenPanelSpec  # noqa: E402
 from thermoroute.frozen_inference import lstm_factory_from_metadata  # noqa: E402
 from thermoroute.model_suite import (  # noqa: E402
     LIGHTGBM_HEADS,
     MODEL_SUITE_FORMAT,
+    STAGE25_COMPLETION_RECEIPT_PATH,
     ModelSuiteError,
+    build_stage25_completion_receipt,
+    directory_binding,
     file_binding,
     development_prediction_binding,
     development_predictor_bridge_binding,
     freeze_model_suite,
     load_lightgbm_bundle,
     save_lightgbm_bundle,
+    route_a_calibration_fit_contract,
+    publish_stage25_completion_receipt,
     validate_model_suite_document,
+    validate_stage25_completion_receipt,
+    validate_development_calibrated_head_gate,
     validate_development_prediction_binding,
     verify_lightgbm_prediction_parity,
+    write_component_pointer,
     _create_json_or_require_identical,
     _learned_metadata_runtime_sha256,
 )
@@ -46,11 +62,15 @@ from thermoroute.repro import (  # noqa: E402
     RunIdentity,
     seal_artifact,
     sha256_file,
+    sha256_json,
     source_tree_hash,
 )
 
 
 def _lgb_metadata(columns):
+    offsets, offset_audit = finalise_cqr_offsets({
+        ("__pooled__", horizon): 0.0 for horizon in (1, 3, 7)
+    })
     return {
         "run_id": "fixture",
         "raw_feature_order": ["WTEMP", "FLOW"],
@@ -66,7 +86,15 @@ def _lgb_metadata(columns):
         },
         "event_thresholds": {"__pooled__": 20.0},
         "event_calibrators": {},
-        "conformal_offsets": {},
+        "conformal_offsets": {
+            f"{site}|{horizon}": value
+            for (site, horizon), value in offsets.items()
+        },
+        "conformal_policy": cqr_policy_contract(),
+        "conformal_offset_audit": offset_audit,
+        "calibration_fit_contract": route_a_calibration_fit_contract(
+            external=True
+        ),
         "source_sha256": "s",
         "panel_sha256": "p",
         "registry_sha256": "r",
@@ -497,6 +525,447 @@ def test_development_prediction_binding_recomputes_rows_keys_values_and_sidecar(
         )
 
 
+def _calibration_gate_frame() -> pd.DataFrame:
+    rows = []
+    for seed in (0, 1):
+        for horizon in C.HORIZONS:
+            for split, count, start in (
+                ("val", 1, pd.Timestamp("2016-01-10")),
+                ("calib", 100, pd.Timestamp("2018-01-01")),
+                ("test", 1, pd.Timestamp("2019-01-10")),
+            ):
+                for index in range(count):
+                    issue = start + pd.Timedelta(days=index)
+                    target = issue + pd.Timedelta(days=horizon)
+                    # Outcome truth is a property of (site, target date), not
+                    # of the horizon/issue pair used to reach that date.
+                    y_true = 10.0 + float(target.dayofyear % 20)
+                    rows.append({
+                        "model": "Fixture", "scope": "development",
+                        "feature_set": "USGS", "seed": seed,
+                        "site_id": "01000001", "horizon": horizon,
+                        "split": split, "issue_date": issue,
+                        "target_date": target,
+                        "y_true": y_true, "y_pred": y_true + 0.1 * seed,
+                        "q05": y_true - 1.0, "q50": y_true,
+                        "q95": y_true + 1.0,
+                        "p_exceed": 0.05 + 0.90 * (index % 100) / 99.0,
+                    })
+    return pd.DataFrame(rows)
+
+
+def _calibration_gate_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    frame: pd.DataFrame,
+    name: str,
+) -> dict[str, object]:
+    identity = RunIdentity(
+        run_id="fixture", panel_sha256="a" * 64,
+        registry_sha256="b" * 64, config_sha256="c" * 64,
+        source_sha256="d" * 64, runtime_sha256="e" * 64,
+    )
+    artifact = tmp_path / f"{name}.parquet"
+    R.write_predictions(frame, artifact)
+    seal_artifact(
+        artifact, identity, kind="fixture-development-predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+    )
+    binding = development_prediction_binding(
+        tmp_path, artifact, frame, max_abs_difference=0.0, atol=1e-6
+    )
+    keys = [
+        "model", "scope", "feature_set", "site_id", "horizon", "split",
+        "issue_date", "target_date",
+    ]
+    ensemble = frame.groupby(keys, as_index=False, dropna=False, sort=True).agg(
+        y_true=("y_true", "first"), y_pred=("y_pred", "mean"),
+        q05=("q05", "mean"), q50=("q50", "mean"), q95=("q95", "mean"),
+        p_exceed=("p_exceed", "mean"),
+    )
+    calibration = ensemble[ensemble.split.eq("calib")].copy()
+    threshold = 19.0
+    calibration["event"] = (calibration.y_true > threshold).astype(int)
+    offsets, audit = MODEL_SUITE.cqr_offsets_with_audit(calibration, alpha=0.10)
+    calibrators = MODEL_SUITE.P.fit_horizon_calibrators(
+        calibration, probability_col="p_exceed", outcome_col="event",
+        min_samples=100,
+    )
+    event_reference = {
+        "format": "fixture-event-reference.v1",
+        "fit_interval": ["2006-01-01", "2018-12-31"],
+        "value": 0.25,
+    }
+
+    frozen_truth = (
+        frame[["site_id", "target_date", "y_true"]]
+        .drop_duplicates()
+        .rename(columns={"target_date": "DATE", "y_true": "WTEMP"})
+        .reset_index(drop=True)
+    )
+
+    def replay_event_definition(
+        *_args: object,
+        prediction_truth: pd.DataFrame | None = None,
+        **_kwargs: object,
+    ) -> tuple[dict[str, float], dict[str, object]]:
+        assert prediction_truth is not None
+        MODEL_SUITE._validate_development_truth_against_frozen_panel(
+            frozen_truth, prediction_truth, label="Fixture"
+        )
+        return {"01000001": threshold}, dict(event_reference)
+
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_recompute_event_definition_from_frozen_panel",
+        replay_event_definition,
+    )
+    return {
+        **identity.as_dict(),
+        "member_count": 2,
+        "development_prediction": binding,
+        "event_thresholds": {"01000001": threshold},
+        "event_reference_climatology": event_reference,
+        "event_calibrators": {
+            str(horizon): calibrator.as_dict()
+            for horizon, calibrator in sorted(calibrators.items())
+        },
+        "conformal_offsets": MODEL_SUITE.serialise_offsets(offsets),
+        "conformal_policy": cqr_policy_contract(),
+        "conformal_offset_audit": audit,
+        "calibration_fit_contract": route_a_calibration_fit_contract(
+            external=False
+        ),
+    }
+
+
+def test_calibrated_head_gate_requires_every_seed_once_per_forecast_key(
+    tmp_path, monkeypatch,
+):
+    frame = _calibration_gate_frame()
+    metadata = _calibration_gate_metadata(
+        tmp_path, monkeypatch, frame, "complete"
+    )
+    gate = validate_development_calibrated_head_gate(
+        tmp_path, metadata, label="Fixture", external=False
+    )
+    assert gate["status"] == "PASS_NONNEGATIVE_CQR_WIDENS_ONLY"
+
+    attacked = frame.copy()
+    target = attacked[
+        attacked.seed.eq(1) & attacked.split.eq("test")
+        & attacked.horizon.eq(1)
+    ].index[0]
+    attacked.loc[target, "seed"] = 0
+    attacked.loc[target, "feature_set"] = "ATTACK"
+    attacked_metadata = _calibration_gate_metadata(
+        tmp_path, monkeypatch, attacked, "attacked"
+    )
+    validate_development_prediction_binding(
+        tmp_path, attacked_metadata["development_prediction"], label="Fixture"
+    )
+    with pytest.raises(ModelSuiteError, match="every declared seed exactly once"):
+        validate_development_calibrated_head_gate(
+            tmp_path, attacked_metadata, label="Fixture", external=False
+        )
+
+
+@pytest.mark.parametrize(
+    ("attack", "error"),
+    (
+        ("duplicate_panel_key", "invalid or duplicated"),
+        ("absent_prediction_key", "absent from frozen panel"),
+        ("nonfinite_panel_truth", "missing or non-finite"),
+        ("float32_overflow_truth", "not finite at model precision"),
+        ("changed_prediction_truth", "differs from frozen panel"),
+    ),
+)
+def test_development_truth_binding_fails_closed_on_panel_or_truth_attack(
+    attack, error,
+):
+    panel = pd.DataFrame({
+        "DATE": [pd.Timestamp("2018-01-02"), pd.Timestamp("2018-01-03")],
+        "site_id": ["01000001", "01000001"],
+        "WTEMP": [12.0, 13.0],
+    })
+    truth = pd.DataFrame({
+        "site_id": ["01000001"],
+        "target_date": [pd.Timestamp("2018-01-02")],
+        "y_true": [12.0],
+    })
+    if attack == "duplicate_panel_key":
+        panel = pd.concat([panel, panel.iloc[[0]]], ignore_index=True)
+    elif attack == "absent_prediction_key":
+        truth.loc[0, "target_date"] = pd.Timestamp("2018-01-04")
+    elif attack == "nonfinite_panel_truth":
+        panel.loc[0, "WTEMP"] = np.nan
+    elif attack == "float32_overflow_truth":
+        overflow = float(np.finfo(np.float32).max) * 2.0
+        panel.loc[0, "WTEMP"] = overflow
+        truth.loc[0, "y_true"] = overflow
+    else:
+        truth.loc[0, "y_true"] += 1e-3
+    with pytest.raises(ModelSuiteError, match=error):
+        MODEL_SUITE._validate_development_truth_against_frozen_panel(
+            panel, truth, label="Fixture"
+        )
+
+
+def test_development_truth_binding_compares_at_model_float32_precision():
+    panel_value = 32.123456789
+    panel = pd.DataFrame({
+        "DATE": [pd.Timestamp("2018-01-02")],
+        "site_id": ["01000001"],
+        "WTEMP": [panel_value],
+    })
+    truth = pd.DataFrame({
+        "site_id": ["01000001"],
+        "target_date": [pd.Timestamp("2018-01-02")],
+        "y_true": [float(np.float32(panel_value))],
+    })
+    MODEL_SUITE._validate_development_truth_against_frozen_panel(
+        panel, truth, label="Fixture"
+    )
+
+
+def test_calibration_gate_rejects_reclosed_prediction_truth_attack(
+    tmp_path, monkeypatch,
+):
+    """Rehashing prediction and every envelope cannot invent panel truth."""
+    frame = _calibration_gate_frame()
+    metadata = _calibration_gate_metadata(
+        tmp_path, monkeypatch, frame, "reclosed-y-true"
+    )
+    binding = metadata["development_prediction"]
+    prediction_path = tmp_path / binding["artifact"]["path"]
+    attacked = pd.read_parquet(prediction_path)
+    selected = attacked[
+        attacked["split"].eq("test") & attacked["horizon"].eq(1)
+    ].iloc[0]
+    same_outcome = (
+        attacked["site_id"].eq(selected["site_id"])
+        & attacked["target_date"].eq(selected["target_date"])
+    )
+    assert int(same_outcome.sum()) >= 2
+    attacked.loc[same_outcome, "y_true"] += 0.25
+    R.write_predictions(attacked, prediction_path)
+
+    identity = RunIdentity(
+        run_id=str(metadata["run_id"]),
+        panel_sha256=str(metadata["panel_sha256"]),
+        registry_sha256=str(metadata["registry_sha256"]),
+        config_sha256=str(metadata["config_sha256"]),
+        source_sha256=str(metadata["source_sha256"]),
+        runtime_sha256=str(metadata["runtime_sha256"]),
+    )
+    seal_artifact(
+        prediction_path,
+        identity,
+        kind="fixture-development-predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+    )
+    metadata["development_prediction"] = development_prediction_binding(
+        tmp_path,
+        prediction_path,
+        attacked,
+        max_abs_difference=0.0,
+        atol=1e-6,
+    )
+
+    metadata_path = tmp_path / "reclosed-y-true-metadata.json"
+    weights_path = tmp_path / "reclosed-y-true-weights.pt"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    weights_path.write_bytes(b"fixture weights")
+    pointer = {
+        "metadata": file_binding(tmp_path, metadata_path),
+        "weights": file_binding(tmp_path, weights_path),
+        "prediction": file_binding(tmp_path, prediction_path),
+        "prediction_sidecar": file_binding(
+            tmp_path, MODEL_SUITE.sidecar_path(prediction_path)
+        ),
+    }
+    pointer_path = tmp_path / "reclosed-y-true-pointer.json"
+    pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+    artifacts = {
+        "component_pointer": file_binding(tmp_path, pointer_path),
+        "metadata": file_binding(tmp_path, metadata_path),
+        "prediction": file_binding(tmp_path, prediction_path),
+        "prediction_sidecar": pointer["prediction_sidecar"],
+    }
+    receipt = {
+        "format": "fixture-stage-receipt.v1",
+        "artifacts": artifacts,
+        "artifact_closure_sha256": sha256_json(artifacts),
+    }
+    receipt["receipt_self_sha256"] = sha256_json(receipt)
+    assert receipt["artifact_closure_sha256"] == sha256_json(
+        receipt["artifacts"]
+    )
+    stable = dict(receipt)
+    self_digest = stable.pop("receipt_self_sha256")
+    assert self_digest == sha256_json(stable)
+
+    with pytest.raises(ModelSuiteError, match="differs from frozen panel WTEMP"):
+        validate_development_calibrated_head_gate(
+            tmp_path, metadata, label="Fixture", external=False
+        )
+
+
+@pytest.mark.parametrize(
+    ("attack", "error"),
+    (
+        ("offset", "replayed conformal_offsets"),
+        ("calibrator", "replayed event_calibrators"),
+        ("constant_calibrator", "constant calibrator invariant"),
+        ("threshold", "replayed event_thresholds"),
+        ("event_reference", "replayed event_reference_climatology"),
+    ),
+)
+def test_calibration_replay_rejects_reclosed_metadata_attack(
+    tmp_path, monkeypatch, attack, error,
+):
+    """Rehashing every enclosing object cannot bless invented calibration."""
+    frame = _calibration_gate_frame()
+    metadata = _calibration_gate_metadata(
+        tmp_path, monkeypatch, frame, f"reclosed-{attack}"
+    )
+    attacked = json.loads(json.dumps(metadata))
+    if attack == "offset":
+        raw = dict(attacked["conformal_offset_audit"]["raw_signed_offsets"])
+        raw["01000001|1"] = 0.5
+        deployed, audit = finalise_cqr_offsets(raw)
+        attacked["conformal_offsets"] = dict(deployed)
+        attacked["conformal_offset_audit"] = audit
+    elif attack == "calibrator":
+        attacked["event_calibrators"]["1"]["intercept"] += 0.25
+    elif attack == "constant_calibrator":
+        attacked["event_calibrators"]["1"] = {
+            "intercept": float(MODEL_SUITE.P.logit(np.asarray([0.25]))[0]),
+            "slope": 1.0,
+            "constant": 0.25,
+        }
+    elif attack == "threshold":
+        attacked["event_thresholds"]["01000001"] += 0.5
+    else:
+        attacked["event_reference_climatology"]["value"] += 0.1
+
+    # Simulate an attacker who controls all mutable provenance envelopes: the
+    # metadata bytes, prediction sidecar reseal, component pointer, artifact
+    # closure and receipt self-hash are all internally current after the edit.
+    bundle = tmp_path / f"bundle-{attack}"
+    bundle.mkdir()
+    metadata_path = bundle / "metadata.json"
+    weights_path = bundle / "weights.pt"
+    metadata_path.write_text(json.dumps(attacked), encoding="utf-8")
+    weights_path.write_bytes(b"fixture weights")
+    binding = attacked["development_prediction"]
+    prediction_path = tmp_path / binding["artifact"]["path"]
+    seal_artifact(
+        prediction_path,
+        RunIdentity(
+            run_id=attacked["run_id"],
+            panel_sha256=attacked["panel_sha256"],
+            registry_sha256=attacked["registry_sha256"],
+            config_sha256=attacked["config_sha256"],
+            source_sha256=attacked["source_sha256"],
+            runtime_sha256=attacked["runtime_sha256"],
+        ),
+        kind="fixture-development-predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+    )
+    binding["artifact"]["sidecar"] = file_binding(
+        tmp_path, MODEL_SUITE.sidecar_path(prediction_path)
+    )
+    pointer = {
+        "metadata": file_binding(tmp_path, metadata_path),
+        "weights": file_binding(tmp_path, weights_path),
+        "prediction_sidecar": dict(binding["artifact"]["sidecar"]),
+    }
+    pointer_path = tmp_path / f"pointer-{attack}.json"
+    pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+    artifacts = {
+        "component_pointer": file_binding(tmp_path, pointer_path),
+        "metadata": file_binding(tmp_path, metadata_path),
+        "prediction": file_binding(tmp_path, prediction_path),
+        "prediction_sidecar": dict(binding["artifact"]["sidecar"]),
+    }
+    receipt = {
+        "format": "fixture-stage-receipt.v1",
+        "artifacts": artifacts,
+        "artifact_closure_sha256": sha256_json(artifacts),
+    }
+    receipt["receipt_self_sha256"] = sha256_json(receipt)
+    assert receipt["artifact_closure_sha256"] == sha256_json(
+        receipt["artifacts"]
+    )
+    self_digest = receipt.pop("receipt_self_sha256")
+    assert self_digest == sha256_json(receipt)
+
+    with pytest.raises(ModelSuiteError, match=error):
+        validate_development_calibrated_head_gate(
+            tmp_path, attacked, label="Fixture", external=False
+        )
+
+
+@pytest.mark.parametrize("attack", ("drop_val", "escape_val_interval"))
+def test_calibration_gate_rejects_reclosed_split_registry_attack(
+    tmp_path, monkeypatch, attack,
+):
+    frame = _calibration_gate_frame()
+    if attack == "drop_val":
+        frame = frame[~frame.split.eq("val")].reset_index(drop=True)
+        error = "exactly val/calib/test"
+    else:
+        target = frame[frame.split.eq("val")].index[0]
+        frame.loc[target, "issue_date"] = pd.Timestamp("2018-01-01")
+        frame.loc[target, "target_date"] = (
+            pd.Timestamp("2018-01-01")
+            + pd.Timedelta(days=int(frame.loc[target, "horizon"]))
+        )
+        error = "val rows escape"
+    metadata = _calibration_gate_metadata(
+        tmp_path, monkeypatch, frame, f"split-{attack}"
+    )
+    with pytest.raises(ModelSuiteError, match=error):
+        validate_development_calibrated_head_gate(
+            tmp_path, metadata, label="Fixture", external=False
+        )
+
+
+def test_calibration_event_replay_maps_legacy_panel_ids_to_stable_site_no():
+    registry_path = ROOT / "data_usgs" / "station_registry_v1.csv"
+    panel_path = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
+    registry = pd.read_csv(registry_path, dtype={"site_no": "string"})
+    stable_sites = set(registry["site_no"].astype(str))
+    stable_panel = FrozenPanelSpec.load(
+        ROOT / "data_usgs" / "frozen_panel_v1.json"
+    ).load_panel(stable_site_ids=True)
+    finite = stable_panel[
+        np.isfinite(pd.to_numeric(stable_panel["WTEMP"], errors="coerce"))
+    ].iloc[[0]]
+    truth = finite[["site_id", "DATE", "WTEMP"]].rename(
+        columns={"DATE": "target_date", "WTEMP": "y_true"}
+    )
+    thresholds, reference = (
+        MODEL_SUITE._recompute_event_definition_from_frozen_panel(
+            ROOT,
+            {
+                "panel_sha256": sha256_file(panel_path),
+                "registry_sha256": sha256_file(registry_path),
+            },
+            selected_sites=stable_sites,
+            external=True,
+            label="Stable-site replay fixture",
+            prediction_truth=truth,
+        )
+    )
+    assert len(stable_sites) == 120
+    assert all(not site.startswith("n") for site in stable_sites)
+    assert thresholds == {"__pooled__": 23.0}
+    assert reference["mode"] == "pooled_month"
+    assert reference["fit_observation_count"] == 467_999
+
+
 def test_frozen_registry_create_is_idempotent_but_never_overwrites(tmp_path):
     path = tmp_path / "registry.json"
     _create_json_or_require_identical(path, {"format": "fixture", "value": 1})
@@ -569,3 +1038,387 @@ def test_lightgbm_bundle_never_overwrites_a_content_address(tmp_path):
             parity_inputs={horizon: X.iloc[:3] for horizon in (1, 3, 7)},
         )
     assert manifest.read_bytes() == original
+
+
+def _stage25_receipt_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path, dict[str, object], Path]:
+    """Create a byte-real but inference-free Stage-25 closure fixture."""
+    source = tmp_path / "src" / "fixture.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    data = tmp_path / "data_usgs"
+    data.mkdir()
+    panel = data / "panel_usgs_120v2.parquet"
+    registry = data / "station_registry_v1.csv"
+    spec = data / "frozen_panel_v1.json"
+    panel.write_bytes(b"development panel\n")
+    registry.write_bytes(b"development registry\n")
+    spec.write_bytes(b"frozen development spec\n")
+    bridge_path = data / "development_predictor_bridge_v1.json"
+    bridge_path.write_text(json.dumps({
+        "format": "thermoroute.development-predictor-bridge.v1",
+        "status": "PASS_EXACT_PRODUCT_BRIDGE",
+        "outcome_values_requested_or_read": False,
+        "panel": file_binding(tmp_path, panel),
+        "registry": file_binding(tmp_path, registry),
+    }), encoding="utf-8")
+    bridge = file_binding(tmp_path, bridge_path)
+    development_contract = {
+        "frozen_panel_spec": file_binding(tmp_path, spec),
+        "panel": file_binding(tmp_path, panel),
+        "registry": file_binding(tmp_path, registry),
+        "predictor_bridge": bridge,
+        "source_sha256": source_tree_hash(tmp_path),
+    }
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "canonical_development_contract",
+        lambda *_args, **_kwargs: dict(development_contract),
+    )
+    runtime_contract = {"fixture_numerical_runtime": "cpu-single-thread"}
+    monkeypatch.setattr(
+        MODEL_SUITE, "numerical_runtime_contract", lambda: runtime_contract
+    )
+    runtime_sha256 = sha256_json(runtime_contract)
+    threshold_contract = {
+        "method": "pooled_training_empirical_quantile_v1",
+        "quantile": 0.90,
+        "pool_weighting": "equal_weight_per_finite_training_row",
+        "station_balanced": False,
+    }
+    configuration = {
+        "stage": "25_train_external_pooled_suite",
+        "role": "prelabel_station_agnostic_development_training",
+        "panel": panel.name,
+        "registry": registry.name,
+        "variables": list(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+        "horizons": list(C.HORIZONS),
+        "seeds": list(C.USGS_SEEDS),
+        "train_config": asdict(C.TrainConfig(batch_size=1536)),
+        "preprocessing": "pooled_development_train_only",
+        "station_agnostic": True,
+        "lstm_validation_grid": [
+            dict(value) for value in MODEL_SUITE.LSTM_VALIDATION_GRID
+        ],
+        "lightgbm_validation_grid": [
+            dict(value)
+            for value in MODEL_SUITE.STAGE9_LIGHTGBM_VALIDATION_GRID
+        ],
+        "event_reference_fit_interval": ["2006-01-01", "2018-12-31"],
+        "event_threshold_estimator": threshold_contract,
+        "post_2020_data_read": False,
+        "training_device": "cpu",
+        "development_predictor_bridge": bridge,
+        "formal_numerical_policy": {"worker_threads": 1},
+    }
+    identity_fields = {
+        "schema_version": MODEL_SUITE.RUN_SCHEMA_VERSION,
+        "panel_sha256": sha256_file(panel),
+        "registry_sha256": sha256_file(registry),
+        "config_sha256": sha256_json(configuration),
+        "source_sha256": source_tree_hash(tmp_path),
+        "runtime_sha256": runtime_sha256,
+    }
+    run_id = sha256_json(identity_fields)[:20]
+    identity = {"run_id": run_id, **identity_fields}
+    run_manifest = (
+        tmp_path / "outputs" / "runs" / "25_external_pooled"
+        / run_id / "run.json"
+    )
+    run_manifest.parent.mkdir(parents=True)
+    run_manifest.write_text(json.dumps({
+        "schema_version": MODEL_SUITE.RUN_SCHEMA_VERSION,
+        "identity": identity,
+        "resolved_config": configuration,
+        "created_utc": "2026-07-24T00:00:00+00:00",
+        "environment": {},
+        "git": {},
+        "provenance": {
+            "outcome_status": "NO_POST_2020_DATA_READ",
+            "training_device": "cpu",
+        },
+    }), encoding="utf-8")
+
+    prediction = (
+        tmp_path / "outputs" / "predictions"
+        / f"external_pooled_development_{run_id}.parquet"
+    )
+    frame = pd.DataFrame([{
+        "model": "ThermoRoute",
+        "scope": "external_pooled_development",
+        "feature_set": "USGS",
+        "seed": 0,
+        "site_id": "01000001",
+        "horizon": 1,
+        "split": "test",
+        "issue_date": pd.Timestamp("2020-01-01"),
+        "target_date": pd.Timestamp("2020-01-02"),
+        "y_true": 10.0,
+        "y_pred": 10.0,
+        "q05": 9.0,
+        "q50": 10.0,
+        "q95": 11.0,
+        "p_exceed": 0.1,
+    }])
+    R.write_predictions(frame, prediction)
+    run_identity = RunIdentity(
+        run_id=run_id,
+        panel_sha256=identity_fields["panel_sha256"],
+        registry_sha256=identity_fields["registry_sha256"],
+        config_sha256=identity_fields["config_sha256"],
+        source_sha256=identity_fields["source_sha256"],
+        runtime_sha256=identity_fields["runtime_sha256"],
+    )
+    seal_artifact(
+        prediction,
+        run_identity,
+        kind="external_pooled_development_predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+        extra={"common_test_keys": 1, "post_2020_data_read": False},
+    )
+    prediction_artifact = {
+        **file_binding(tmp_path, prediction),
+        "sidecar": file_binding(
+            tmp_path, MODEL_SUITE.sidecar_path(prediction)
+        ),
+    }
+
+    metadata = {
+        **identity,
+        "training_device": "cpu",
+        "development_prediction": {"artifact": prediction_artifact},
+    }
+    models_root = tmp_path / "outputs" / "models"
+    entries: list[dict[str, object]] = []
+    for model_id, executor, stem in (
+        ("ThermoRoute", "thermoroute_bundle", "thermoroute"),
+        ("LSTM", "lstm_bundle", "lstm"),
+    ):
+        directory = models_root / f"external_{stem}_bundle_{run_id}"
+        directory.mkdir(parents=True)
+        (directory / "weights.pt").write_bytes(f"{model_id} weights".encode())
+        (directory / "metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        entries.append({
+            "model_id": model_id,
+            "executor": executor,
+            "raw_feature_order": list(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+            "member_count": 5,
+            "artifact": directory_binding(tmp_path, directory),
+        })
+
+    lightgbm_dir = models_root / f"external_lightgbm_bundle_{run_id}"
+    lightgbm_dir.mkdir(parents=True)
+    model_registry: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
+    for seed in C.USGS_SEEDS:
+        member = f"seed{seed}"
+        model_registry[member] = {}
+        for horizon in C.HORIZONS:
+            model_registry[member][str(horizon)] = {}
+            for head in LIGHTGBM_HEADS:
+                path = lightgbm_dir / f"{member}_h{horizon}_{head}.txt"
+                path.write_bytes(f"{member}/{horizon}/{head}\n".encode())
+                model_registry[member][str(horizon)][head] = {
+                    "path": path.name,
+                    "sha256": sha256_file(path),
+                }
+    lightgbm_manifest = lightgbm_dir / "manifest.json"
+    lightgbm_manifest.write_text(json.dumps({
+        **metadata,
+        "models": model_registry,
+    }), encoding="utf-8")
+    entries.append({
+        "model_id": "LightGBM",
+        "executor": "lightgbm_bundle",
+        "raw_feature_order": list(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+        "member_count": 5,
+        "artifact": file_binding(tmp_path, lightgbm_manifest),
+    })
+
+    def fake_entry_validator(
+        root: Path,
+        entry: dict[str, object],
+        _feature_order: tuple[str, ...],
+        *,
+        external: bool,
+    ) -> dict[str, object]:
+        assert root == tmp_path and external is True
+        artifact = entry["artifact"]
+        assert isinstance(artifact, dict)
+        path = tmp_path / str(artifact["path"])
+        metadata_path = (
+            path / "metadata.json"
+            if entry["executor"] != "lightgbm_bundle" else path
+        )
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    monkeypatch.setattr(
+        MODEL_SUITE, "_entry_artifact_valid", fake_entry_validator
+    )
+    components = models_root / "route_a_external_components.json"
+    write_component_pointer(
+        components,
+        run_id=run_id,
+        cohort="external",
+        entries=entries,
+        raw_feature_order=MODEL_SUITE.STAGE9_USGS_VARIABLES,
+        development_contract=development_contract,
+        development_prediction_artifact=prediction_artifact,
+    )
+    receipt_path = tmp_path / STAGE25_COMPLETION_RECEIPT_PATH
+    document = build_stage25_completion_receipt(
+        root=tmp_path,
+        run_id=run_id,
+        run_manifest=run_manifest,
+        components_pointer=components,
+    )
+    return receipt_path, components, document, lightgbm_dir / "seed0_h1_point.txt"
+
+
+def test_stage25_receipt_is_self_hashed_exact_and_atomically_published(
+    tmp_path, monkeypatch,
+):
+    receipt_path, components, document, _model = _stage25_receipt_fixture(
+        tmp_path, monkeypatch
+    )
+    assert document["status"] == "COMPLETE"
+    assert document["confirmation_outcomes_requested_or_read"] is False
+    artifacts = document["artifacts"]
+    assert isinstance(artifacts, dict)
+    assert len(artifacts["model_files"]) == 80
+    assert document["artifact_closure_sha256"] == sha256_json(artifacts)
+    assert not receipt_path.exists()
+    publish_stage25_completion_receipt(
+        receipt_path,
+        document,
+        root=tmp_path,
+        components_pointer=components,
+    )
+    validated = validate_stage25_completion_receipt(
+        receipt_path,
+        root=tmp_path,
+        components_pointer=components,
+    )
+    assert validated == document
+
+
+def test_stage25_receipt_rejects_resealed_incomplete_closure_and_byte_tamper(
+    tmp_path, monkeypatch,
+):
+    receipt_path, components, document, model = _stage25_receipt_fixture(
+        tmp_path, monkeypatch
+    )
+    publish_stage25_completion_receipt(
+        receipt_path,
+        document,
+        root=tmp_path,
+        components_pointer=components,
+    )
+    attacked = json.loads(receipt_path.read_text(encoding="utf-8"))
+    attacked["artifacts"]["model_files"].pop()
+    attacked["artifact_closure_sha256"] = sha256_json(attacked["artifacts"])
+    attacked.pop("receipt_self_sha256")
+    attacked["receipt_self_sha256"] = sha256_json(attacked)
+    receipt_path.write_text(json.dumps(attacked), encoding="utf-8")
+    with pytest.raises(ModelSuiteError, match="exact artifact closure"):
+        validate_stage25_completion_receipt(
+            receipt_path, root=tmp_path, components_pointer=components
+        )
+
+    publish_stage25_completion_receipt(
+        receipt_path,
+        document,
+        root=tmp_path,
+        components_pointer=components,
+    )
+    model.write_bytes(model.read_bytes() + b"tamper")
+    with pytest.raises(ModelSuiteError, match="checksum"):
+        validate_stage25_completion_receipt(
+            receipt_path, root=tmp_path, components_pointer=components
+        )
+
+
+def test_stage25_publish_leaves_incomplete_marker_when_preflight_fails(
+    tmp_path, monkeypatch,
+):
+    receipt_path, components, document, model = _stage25_receipt_fixture(
+        tmp_path, monkeypatch
+    )
+    marker = {
+        "format": MODEL_SUITE.STAGE25_COMPLETION_FORMAT,
+        "status": "INCOMPLETE",
+    }
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(marker), encoding="utf-8")
+    marker_bytes = receipt_path.read_bytes()
+    model.write_bytes(model.read_bytes() + b"tamper")
+    with pytest.raises(ModelSuiteError, match="checksum"):
+        publish_stage25_completion_receipt(
+            receipt_path,
+            document,
+            root=tmp_path,
+            components_pointer=components,
+        )
+    assert receipt_path.read_bytes() == marker_bytes
+    with pytest.raises(ModelSuiteError, match="schema is not exact"):
+        validate_stage25_completion_receipt(
+            receipt_path, root=tmp_path, components_pointer=components
+        )
+
+
+@pytest.mark.parametrize("tamper", ("kind", "run", "extra"))
+def test_stage25_receipt_rejects_resealed_prediction_sidecar_semantics(
+    tmp_path, monkeypatch, tamper,
+):
+    _receipt_path, components, document, _model = _stage25_receipt_fixture(
+        tmp_path, monkeypatch
+    )
+    pointer = json.loads(components.read_text(encoding="utf-8"))
+    prediction_binding = pointer["development_prediction_artifact"]
+    prediction_path = tmp_path / prediction_binding["path"]
+    lineage_path = MODEL_SUITE.sidecar_path(prediction_path)
+    lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
+    if tamper == "kind":
+        lineage["kind"] = "another_prediction_kind"
+    elif tamper == "run":
+        lineage["run"]["run_id"] = "f" * 20
+    else:
+        lineage["extra"] = {
+            "common_test_keys": 1,
+            "post_2020_data_read": True,
+        }
+    lineage_path.write_text(json.dumps(lineage), encoding="utf-8")
+    prediction_binding["sidecar"] = file_binding(tmp_path, lineage_path)
+    components.write_text(json.dumps(pointer), encoding="utf-8")
+
+    run_manifest = tmp_path / document["artifacts"]["run_manifest"]["path"]
+    with pytest.raises(ModelSuiteError, match="sidecar|lineage"):
+        build_stage25_completion_receipt(
+            root=tmp_path,
+            run_id=str(document["run_id"]),
+            run_manifest=run_manifest,
+            components_pointer=components,
+        )
+
+
+def test_stage25_writer_check_and_suite_freeze_share_one_transaction_lock():
+    stage25 = (
+        ROOT / "scripts/25_train_external_pooled_suite.py"
+    ).read_text(encoding="utf-8")
+    stage24 = (ROOT / "scripts/24_freeze_model_suite.py").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=True)"
+        in stage25
+    )
+    assert (
+        "advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False)"
+        in stage25
+    )
+    assert (
+        "advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False)"
+        in stage24
+    )

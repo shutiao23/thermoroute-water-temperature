@@ -8,7 +8,10 @@
 - Is designed to hindcast daily river water temperature at 1-, 3-, and 7-day horizons.
 - Anchors a learned temporal model to damped persistence with a bounded residual.
 - Uses a stable 120-site USGS development panel covering 2006–2020.
-- Separates training, validation, calibration, and exploratory development years.
+- Fits models on 2006–2015, selects settings on 2016–2017, fits CQR and Platt on
+  2018, and freezes the seasonal event reference over 2006–2018.
+- Retains signed raw CQR offsets for audit but deploys only nonnegative offsets,
+  so calibration cannot shrink the nominal interval or change q50.
 - The frozen protocol specifies six primary model types and seven one-factor controls.
 - Stage 09 controls are single-seed functionality diagnostics, not causal ablations.
 - Uses station-balanced RMSE effects on identical model-pair target keys.

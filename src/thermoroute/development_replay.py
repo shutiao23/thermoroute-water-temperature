@@ -33,6 +33,7 @@ from .model_suite import (
     fit_pooled_imputer,
     load_lightgbm_bundle,
     serialise_preprocessing,
+    validate_development_calibrated_head_gate,
     validate_development_prediction_binding,
     validate_model_suite_document,
     verify_lightgbm_prediction_parity,
@@ -669,6 +670,12 @@ def run_development_replay(
                 raise ModelSuiteError(
                     f"{cohort}/{model_id} replay prediction contract changed"
                 )
+            calibrated_head_gate = validate_development_calibrated_head_gate(
+                root,
+                metadata,
+                label=f"{cohort}/{model_id}",
+                external=cohort == "external",
+            )
             results.append({
                 "cohort": cohort,
                 "model": model_id,
@@ -677,6 +684,7 @@ def run_development_replay(
                 "rows": int(len(expected)),
                 "atol": float(binding["atol"]),
                 "max_abs_difference": float(difference),
+                "calibrated_head_gate": calibrated_head_gate,
                 "status": "PASS",
             })
 

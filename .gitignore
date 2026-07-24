@@ -16,6 +16,8 @@ build/
 outputs/predictions/
 outputs/models/
 outputs/logs/
+outputs/.stage19-probabilistic.lock
+outputs/.stage25-external.lock
 data/processed/
 
 # Per-station intermediate downloads (the combined panels are committed instead)

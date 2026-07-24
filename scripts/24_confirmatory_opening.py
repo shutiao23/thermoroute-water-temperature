@@ -96,10 +96,10 @@ DEFAULT_INFERENCE_GATE = (
     ROOT / "outputs" / "prelabel" / "route_a_inference_gate_v1.json"
 )
 DEFAULT_INFERENCE_AMENDMENT = (
-    ROOT / "protocols" / "route_a_inference_amendment_v1.json"
+    ROOT / "protocols" / "route_a_inference_amendment_v2.json"
 )
 DEFAULT_INFERENCE_AMENDMENT_SEAL = (
-    ROOT / "protocols" / "route_a_inference_amendment_seal_v1.json"
+    ROOT / "protocols" / "route_a_inference_amendment_seal_v2.json"
 )
 DEFAULT_OUTCOME_QC_POLICY = (
     ROOT / "protocols" / "route_a_outcome_qc_policy_v1.json"

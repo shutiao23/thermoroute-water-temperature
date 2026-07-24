@@ -84,11 +84,13 @@ from .inference_gate import (
     validate_inference_amendment_seal,
     validate_inference_gate_document,
 )
+from .conformal import CQRContractError, validate_cqr_offset_bundle
 from .evidence import EvidenceError, FrozenPanelSpec, select_confirmatory_sites
 from .model_suite import (
     ModelSuiteError,
     canonical_frame_digest,
     load_lightgbm_bundle,
+    validate_development_calibrated_head_gate,
     validate_development_prediction_binding,
     validate_model_suite_document,
 )
@@ -2775,6 +2777,17 @@ def _validate_bundle_lineage(
         lineage=lineage,
         member_count=member_count,
     )
+    try:
+        validate_development_calibrated_head_gate(
+            root,
+            metadata,
+            label=f"{cohort}/{model_id}",
+            external=cohort == "external",
+        )
+    except ModelSuiteError as exc:
+        raise OpeningContractError(
+            f"{cohort}/{model_id} final development calibrated-head gate failed"
+        ) from exc
 
 
 def _verify_torch_bundle(
@@ -6009,6 +6022,15 @@ def _frozen_calibration(
     q05, q50, q95 = (np.asarray(value, dtype=float).copy()
                      for value in (q05, q50, q95))
     probability = np.asarray(raw_probability, dtype=float).copy()
+    expected_shape = (len(station), len(horizons))
+    if (
+        any(value.shape != expected_shape for value in (q05, q50, q95, probability))
+        or not all(np.isfinite(value).all() for value in (q05, q50, q95, probability))
+        or not ((q05 <= q50).all() and (q50 <= q95).all())
+        or not (q05 < q95).all()
+        or not ((0.0 <= probability) & (probability <= 1.0)).all()
+    ):
+        raise OpeningContractError(f"{label} nominal heads are invalid before CQR")
     for column, horizon in enumerate(horizons):
         horizon = int(horizon)
         if external:
@@ -6037,6 +6059,7 @@ def _frozen_calibration(
         and np.isfinite(probability).all()
         and (q05 <= q50).all()
         and (q50 <= q95).all()
+        and (q05 < q95).all()
         and ((0.0 <= probability) & (probability <= 1.0)).all()
     ):
         raise OpeningContractError(f"{label} calibrated heads are invalid")
@@ -6084,11 +6107,25 @@ def _validate_frozen_calibration_registry(
         offset_values = np.asarray(list(offsets.values()), dtype=float)
     except (TypeError, ValueError) as exc:
         raise OpeningContractError(f"{label} CQR offsets are not numeric") from exc
-    if not np.isfinite(offset_values).all():
-        raise OpeningContractError(f"{label} contains a non-finite CQR offset")
+    if not np.isfinite(offset_values).all() or (offset_values < 0.0).any():
+        raise OpeningContractError(
+            f"{label} contains a non-finite or negative CQR offset"
+        )
+    try:
+        validate_cqr_offset_bundle(
+            offsets,
+            metadata.get("conformal_policy"),
+            metadata.get("conformal_offset_audit"),
+        )
+    except CQRContractError as exc:
+        raise OpeningContractError(
+            f"{label} CQR widens-only policy/audit is invalid"
+        ) from exc
     for horizon in horizons:
         value = calibrators[str(int(horizon))]
-        if not isinstance(value, Mapping):
+        if not isinstance(value, Mapping) or set(value) != {
+            "intercept", "slope", "constant"
+        }:
             raise OpeningContractError(f"{label} Platt calibrator is malformed")
         try:
             constant = value.get("constant")
@@ -6100,9 +6137,20 @@ def _validate_frozen_calibration_registry(
         except (KeyError, TypeError, ValueError) as exc:
             raise OpeningContractError(f"{label} Platt calibrator is invalid") from exc
         if not np.isfinite(parameters).all() or (
-            constant is not None and (not np.isfinite(constant) or not 0.0 < constant < 1.0)
+            constant is not None
+            and (
+                not np.isfinite(constant)
+                or not 0.0 < constant < 1.0
+                or parameters[1] != 0.0
+                or not np.isclose(
+                    parameters[0],
+                    float(logit(np.asarray([constant]))[0]),
+                    rtol=0.0,
+                    atol=1e-12,
+                )
+            )
         ):
-            raise OpeningContractError(f"{label} Platt calibrator is non-finite")
+            raise OpeningContractError(f"{label} Platt calibrator is invalid")
     return offsets, calibrators, thresholds
 
 

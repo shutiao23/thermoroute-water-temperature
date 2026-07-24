@@ -19,6 +19,7 @@ import json
 import math
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 from typing import Any, Iterable, Mapping
 
@@ -97,6 +98,18 @@ STAGE09B_DATA_PATHS = {
     "registry": "data_usgs/station_registry_v1.csv",
     "predictor_bridge": "data_usgs/development_predictor_bridge_v1.json",
 }
+STAGE25_RECEIPT_PATH = "outputs/models/route_a_stage25_completion.json"
+STAGE25_ARTIFACT_LABELS = (
+    "run_manifest",
+    "components_pointer",
+    "development_predictions",
+    "development_prediction_sidecar",
+    "frozen_panel_spec",
+    "development_panel",
+    "station_registry",
+    "development_predictor_bridge",
+    "model_files",
+)
 STAGE09B_ARM_SEEDS = (
     ("PlainMLP-7var", (0, 1, 2, 3, 4)),
     ("PlainCausalTCN-7var", (0, 1, 2, 3, 4)),
@@ -976,9 +989,13 @@ def _collect_preopening_receipts(
 ) -> None:
     gates = suite.get("preopening_gates")
     if not isinstance(gates, Mapping) or set(gates) != {
-        "stage09_completion", "stage09b_development_controls",
+        "stage09_completion",
+        "stage09b_development_controls",
+        "stage25_external_completion",
     }:
-        raise ChronologyError("model suite lacks exact Stage-09/09b completion gates")
+        raise ChronologyError(
+            "model suite lacks exact Stage-09/09b/25 completion gates"
+        )
     for gate_name, expected_path, expected_format, expected_status in (
         (
             "stage09_completion",
@@ -991,6 +1008,12 @@ def _collect_preopening_receipts(
             STAGE09B_RECEIPT_PATH,
             "thermoroute.stage09b-completion-receipt.v3",
             "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
+        ),
+        (
+            "stage25_external_completion",
+            STAGE25_RECEIPT_PATH,
+            "thermoroute.stage25-completion-receipt.v1",
+            "COMPLETE",
         ),
     ):
         receipt_path = _declared_root_binding(
@@ -1024,7 +1047,7 @@ def _collect_preopening_receipts(
             ):
                 raise ChronologyError("Stage-09 receipt contract changed")
             expected_artifact_labels = set(STAGE09_ARTIFACT_LABELS)
-        else:
+        elif gate_name == "stage09b_development_controls":
             expected_receipt_keys = {
                 "format", "status", "stage", "run_id", "run_identity",
                 "formal_configuration", "evidence_scope",
@@ -1049,6 +1072,30 @@ def _collect_preopening_receipts(
             ):
                 raise ChronologyError("Stage-09b receipt contract changed")
             expected_artifact_labels = set(STAGE09B_ARTIFACT_LABELS)
+        else:
+            expected_receipt_keys = {
+                "format", "status", "stage", "run_id", "run_identity",
+                "formal_configuration", "training_device",
+                "confirmation_outcomes_requested_or_read", "artifacts",
+                "artifact_closure_sha256", "receipt_self_sha256",
+            }
+            artifacts = receipt.get("artifacts")
+            if (
+                set(receipt) != expected_receipt_keys
+                or receipt.get("stage") != "25_train_external_pooled_suite"
+                or receipt.get("training_device") != "cpu"
+                or receipt.get("confirmation_outcomes_requested_or_read") is not False
+                or not isinstance(receipt.get("run_id"), str)
+                or not re.fullmatch(r"[0-9a-f]{20}", receipt["run_id"])
+                or not isinstance(receipt.get("run_identity"), Mapping)
+                or receipt["run_identity"].get("run_id") != receipt["run_id"]
+                or not isinstance(receipt.get("formal_configuration"), Mapping)
+                or not isinstance(artifacts, Mapping)
+                or receipt.get("artifact_closure_sha256")
+                != _repro_sha256_json(artifacts)
+            ):
+                raise ChronologyError("Stage-25 receipt contract changed")
+            expected_artifact_labels = set(STAGE25_ARTIFACT_LABELS)
         artifacts = receipt.get("artifacts")
         if (
             not isinstance(artifacts, Mapping)
@@ -1057,6 +1104,32 @@ def _collect_preopening_receipts(
             raise ChronologyError(f"{gate_name} artifact registry changed")
         resolved: dict[str, str] = {}
         for label, binding in artifacts.items():
+            if gate_name == "stage25_external_completion" and label == "model_files":
+                if not isinstance(binding, list) or len(binding) != 80:
+                    raise ChronologyError(
+                        "Stage-25 receipt does not bind 80 exact model files"
+                    )
+                model_paths: list[str] = []
+                for index, model_binding in enumerate(binding):
+                    if (
+                        not isinstance(model_binding, Mapping)
+                        or set(model_binding) != {"path", "sha256"}
+                    ):
+                        raise ChronologyError(
+                            "Stage-25 model-file binding is not exact"
+                        )
+                    model_paths.append(_declared_root_binding(
+                        output,
+                        root,
+                        commit,
+                        model_binding,
+                        label=f"Stage-25 model file {index}",
+                    ))
+                if model_paths != sorted(model_paths) or len(set(model_paths)) != 80:
+                    raise ChronologyError(
+                        "Stage-25 model-file registry is not sorted and unique"
+                    )
+                continue
             if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
                 raise ChronologyError(f"{gate_name} {label} binding is not exact")
             resolved[str(label)] = _declared_root_binding(
@@ -1073,6 +1146,33 @@ def _collect_preopening_receipts(
             }
             if resolved != expected_paths:
                 raise ChronologyError("Stage-09 artifact paths are noncanonical")
+            continue
+
+        if gate_name == "stage25_external_completion":
+            expected_paths = {
+                "run_manifest": (
+                    f"outputs/runs/25_external_pooled/{run_id}/run.json"
+                ),
+                "components_pointer": (
+                    "outputs/models/route_a_external_components.json"
+                ),
+                "development_predictions": (
+                    "outputs/predictions/"
+                    f"external_pooled_development_{run_id}.parquet"
+                ),
+                "development_prediction_sidecar": (
+                    "outputs/predictions/"
+                    f"external_pooled_development_{run_id}.parquet.meta.json"
+                ),
+                "frozen_panel_spec": "data_usgs/frozen_panel_v1.json",
+                "development_panel": "data_usgs/panel_usgs_120v2.parquet",
+                "station_registry": "data_usgs/station_registry_v1.csv",
+                "development_predictor_bridge": (
+                    "data_usgs/development_predictor_bridge_v1.json"
+                ),
+            }
+            if resolved != expected_paths:
+                raise ChronologyError("Stage-25 artifact paths are noncanonical")
             continue
 
         run_dir = f"outputs/runs/09b_development_controls/{run_id}"

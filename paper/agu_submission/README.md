@@ -20,8 +20,10 @@ pdflatex -interaction=nonstopmode -halt-on-error ThermoRoute_WRR.tex
 ```
 
 The Markdown currently cites sources as linked author-year text, so the pre-opening
-TeX does not depend on BibTeX. `references.bib` is retained as an archival candidate
-and must be reconciled with in-text citations before submission.
+TeX does not depend on BibTeX. The canonical `../references.bib` is retained as an
+archival candidate and must be reconciled with in-text citations before submission.
+The obsolete generated `.bbl`, duplicate bibliography, unused AGU example, and
+unused track-changes style are intentionally excluded from this package.
 
 ## Required author actions before submission
 

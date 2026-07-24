@@ -20,6 +20,10 @@ PRODUCTION_OUTCOME_QC_POLICY = ROOT / "protocols" / "route_a_outcome_qc_policy_v
 PRODUCTION_COVERAGE_POLICY = (
     ROOT / "protocols" / "route_a_temporal_coverage_policy_v1.json"
 )
+PRODUCTION_INFERENCE_AMENDMENT = (
+    ROOT / "protocols" / "route_a_inference_amendment_v2.json"
+)
+PRODUCTION_PROTOCOL_SEAL = ROOT / "protocols" / "route_a_protocol_seal_v1.json"
 
 
 def _module():
@@ -62,6 +66,12 @@ def _v2_fixture(tmp_path: Path) -> tuple[object, Path, dict, dict]:
     protocol_path.write_bytes(PRODUCTION_PROTOCOL.read_bytes())
     protocol = json.loads(protocol_path.read_text(encoding="utf-8"))
     registry = json.loads(PRODUCTION_REGISTRY.read_text(encoding="utf-8"))
+    amendment_path = tmp_path / registry["inference_amendment_binding"]["path"]
+    amendment_path.parent.mkdir(parents=True, exist_ok=True)
+    amendment_path.write_bytes(PRODUCTION_INFERENCE_AMENDMENT.read_bytes())
+    protocol_seal_path = tmp_path / "protocols" / "route_a_protocol_seal_v1.json"
+    protocol_seal_path.write_bytes(PRODUCTION_PROTOCOL_SEAL.read_bytes())
+    registry["inference_amendment_binding"]["sha256"] = _sha256(amendment_path)
     registry["protocol_binding"] = {
         "path": "protocols/route_a_confirmatory_v1.json",
         "sha256": _sha256(protocol_path),
@@ -538,6 +548,61 @@ def test_v2_pre_phase_is_derived_and_require_complete_fails(tmp_path):
     assert module.validate_claims(
         root=tmp_path, registry_path=registry_path, require_complete=True
     ) == ["PHASE: --require-complete requires a verified completed receipt"]
+
+
+def test_v2_amendment_seal_pending_and_sealed_states_fail_closed(tmp_path):
+    module, registry_path, registry, _ = _v2_fixture(tmp_path)
+    binding = registry["inference_amendment_binding"]
+    seal_path = tmp_path / binding["seal"]["path"]
+    seal_path.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(
+        module.ClaimRegistryError,
+        match="pending inference amendment seal path must be absent",
+    ):
+        module.validate_claims(root=tmp_path, registry_path=registry_path)
+
+    amendment = json.loads(
+        (tmp_path / binding["path"]).read_text(encoding="utf-8")
+    )
+    seal = {
+        "format": "thermoroute.route-a-inference-amendment-seal.v2",
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        "amendment_id": binding["amendment_id"],
+        "amendment": {
+            "path": binding["path"],
+            "sha256": binding["sha256"],
+        },
+        "base_protocol_seal": amendment["base_protocol_seal"],
+        "final_prelabel_commit": "a" * 40,
+        "history_contract": {
+            "base_protocol_commit_must_be_ancestor": True,
+            "amendment_blob_must_match_commit": True,
+            "amendment_commit_must_be_ancestor_of_authorization": True,
+            "seal_is_created_only_after_amendment_commit": True,
+        },
+        "prelabel_attestation": {
+            "post_2020_wtemp_requested_or_inspected": False,
+            "outcome_independent": True,
+        },
+    }
+    seal_path.write_text(json.dumps(seal), encoding="utf-8")
+    binding["seal"] = {
+        "path": binding["seal"]["path"],
+        "sha256": _sha256(seal_path),
+        "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+    }
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    assert module.validate_claims(root=tmp_path, registry_path=registry_path) == []
+
+    seal["prelabel_attestation"]["outcome_independent"] = False
+    seal_path.write_text(json.dumps(seal), encoding="utf-8")
+    binding["seal"]["sha256"] = _sha256(seal_path)
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    with pytest.raises(
+        module.ClaimRegistryError,
+        match="inference amendment seal semantics changed",
+    ):
+        module.validate_claims(root=tmp_path, registry_path=registry_path)
 
 
 def test_v2_pre_document_bytes_are_exactly_frozen_even_for_negative_prose(tmp_path):

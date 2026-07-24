@@ -98,14 +98,16 @@ def winkler(y: np.ndarray, lo: np.ndarray, hi: np.ndarray, alpha: float) -> floa
 
 
 def three_quantile_score(y: np.ndarray, quants: dict[float, np.ndarray]) -> float:
-    """Twice the mean pinball loss over the supplied quantiles.
+    """Unscaled arithmetic mean pinball loss over the supplied quantiles.
 
     With only q05/q50/q95 this is a proper discrete-quantile score, not CRPS.
     Calling it CRPS would imply integration over a predictive distribution that
-    the model does not provide.
+    the model does not provide.  Route A intentionally does not apply the
+    sometimes-used factor of two: its frozen contract names the literal
+    equal-weight arithmetic mean.
     """
     taus = sorted(quants)
-    return float(np.mean([pinball(y, quants[t], t) for t in taus]) * 2.0)
+    return float(np.mean([pinball(y, quants[t], t) for t in taus]))
 
 
 def probabilistic_scores(y: np.ndarray, quants: dict[float, np.ndarray],

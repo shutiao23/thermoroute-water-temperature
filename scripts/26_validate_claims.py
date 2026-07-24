@@ -111,6 +111,7 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         "format",
         "scope",
         "protocol_binding",
+        "inference_amendment_binding",
         "documents",
         "phase_resolver",
         "permanent_constraints",
@@ -129,6 +130,49 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         raise ClaimRegistryError("v2 claim-ledger top-level schema changed")
     if document.get("scope") != "Route A only":
         raise ClaimRegistryError("v2 claim ledger has an unsupported scope")
+    amendment = document.get("inference_amendment_binding")
+    if (
+        not isinstance(amendment, Mapping)
+        or set(amendment) != {
+            "path", "sha256", "format", "amendment_id", "seal"
+        }
+        or amendment.get("path")
+        != "protocols/route_a_inference_amendment_v2.json"
+        or amendment.get("format")
+        != "thermoroute.route-a-inference-amendment.v2"
+        or amendment.get("amendment_id")
+        != "route-a-prelabel-inference-cqr-015"
+        or not isinstance(amendment.get("sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", str(amendment.get("sha256"))) is None
+    ):
+        raise ClaimRegistryError("claim ledger inference-amendment binding is malformed")
+    amendment_seal = amendment.get("seal")
+    if (
+        not isinstance(amendment_seal, Mapping)
+        or set(amendment_seal) != {"path", "sha256", "status"}
+        or amendment_seal.get("path")
+        != "protocols/route_a_inference_amendment_seal_v2.json"
+        or (
+            amendment_seal.get("status")
+            == "PENDING_SEPARATE_POST_AMENDMENT_COMMIT_SEAL"
+            and amendment_seal.get("sha256") is not None
+        )
+        or (
+            amendment_seal.get("status") == "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+            and (
+                not isinstance(amendment_seal.get("sha256"), str)
+                or re.fullmatch(
+                    r"[0-9a-f]{64}", str(amendment_seal.get("sha256"))
+                )
+                is None
+            )
+        )
+        or amendment_seal.get("status") not in {
+            "PENDING_SEPARATE_POST_AMENDMENT_COMMIT_SEAL",
+            "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+        }
+    ):
+        raise ClaimRegistryError("claim ledger inference-amendment seal binding is malformed")
     patterns = document.get("documents")
     if (
         not isinstance(patterns, list)
@@ -423,6 +467,117 @@ def _validate_protocol_binding(root: Path, registry: Mapping[str, Any]) -> Mappi
     if _sha256_file(path) != expected_sha:
         raise ClaimRegistryError("claim ledger protocol SHA-256 changed")
     protocol = _load_json(path, label="claim-ledger protocol")
+
+    amendment_binding = registry.get("inference_amendment_binding")
+    assert isinstance(amendment_binding, Mapping)  # exact schema checked on load
+    amendment_path = _inside(
+        root, amendment_binding.get("path"), require_file=True
+    )
+    if _sha256_file(amendment_path) != amendment_binding.get("sha256"):
+        raise ClaimRegistryError("claim ledger inference amendment SHA-256 changed")
+    amendment = _load_json(amendment_path, label="claim-ledger inference amendment")
+    cqr_contract = amendment.get("cqr_calibration_contract")
+    cqr_policy = (
+        cqr_contract.get("policy") if isinstance(cqr_contract, Mapping) else None
+    )
+    base_protocol_seal = amendment.get("base_protocol_seal")
+    if (
+        amendment.get("format") != amendment_binding.get("format")
+        or amendment.get("amendment_id") != amendment_binding.get("amendment_id")
+        or amendment.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or amendment.get("post_2020_wtemp_requested_or_inspected") is not False
+        or amendment.get("outcome_independent") is not True
+        or not isinstance(cqr_policy, Mapping)
+        or cqr_policy.get("deployed_offset") != "qhat_plus=max(raw_qhat,0)"
+        or not isinstance(base_protocol_seal, Mapping)
+        or set(base_protocol_seal) != {"path", "sha256"}
+        or base_protocol_seal.get("path")
+        != "protocols/route_a_protocol_seal_v1.json"
+        or not isinstance(base_protocol_seal.get("sha256"), str)
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(base_protocol_seal.get("sha256", ""))
+        )
+        is None
+        or amendment.get("lineage_contract")
+        != {
+            "base_v1_files_remain_immutable": True,
+            "separate_amendment_seal_required": True,
+            "seal_path": "protocols/route_a_inference_amendment_seal_v2.json",
+            "amendment_commit_must_precede_seal_commit": True,
+        }
+    ):
+        raise ClaimRegistryError(
+            "claim ledger inference amendment identity/CQR contract changed"
+        )
+    base_protocol_seal_path = _inside(
+        root, base_protocol_seal.get("path"), require_file=True
+    )
+    if _sha256_file(base_protocol_seal_path) != base_protocol_seal.get("sha256"):
+        raise ClaimRegistryError("claim ledger base protocol seal SHA-256 changed")
+    seal = amendment_binding.get("seal")
+    assert isinstance(seal, Mapping)
+    if seal.get("status") == "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED":
+        seal_path = _inside(root, seal.get("path"), require_file=True)
+        if _sha256_file(seal_path) != seal.get("sha256"):
+            raise ClaimRegistryError(
+                "claim ledger inference amendment seal SHA-256 changed"
+            )
+        seal_document = _load_json(
+            seal_path, label="claim-ledger inference amendment seal"
+        )
+        if (
+            set(seal_document)
+            != {
+                "format",
+                "status",
+                "amendment_id",
+                "amendment",
+                "base_protocol_seal",
+                "final_prelabel_commit",
+                "history_contract",
+                "prelabel_attestation",
+            }
+            or seal_document.get("format")
+            != "thermoroute.route-a-inference-amendment-seal.v2"
+            or seal_document.get("status")
+            != "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+            or seal_document.get("amendment_id") != amendment.get("amendment_id")
+            or seal_document.get("amendment")
+            != {
+                "path": amendment_binding.get("path"),
+                "sha256": amendment_binding.get("sha256"),
+            }
+            or seal_document.get("base_protocol_seal")
+            != amendment.get("base_protocol_seal")
+            or re.fullmatch(
+                r"[0-9a-f]{40}",
+                str(seal_document.get("final_prelabel_commit", "")),
+            )
+            is None
+            or seal_document.get("history_contract")
+            != {
+                "base_protocol_commit_must_be_ancestor": True,
+                "amendment_blob_must_match_commit": True,
+                "amendment_commit_must_be_ancestor_of_authorization": True,
+                "seal_is_created_only_after_amendment_commit": True,
+            }
+            or seal_document.get("prelabel_attestation")
+            != {
+                "post_2020_wtemp_requested_or_inspected": False,
+                "outcome_independent": True,
+            }
+        ):
+            raise ClaimRegistryError(
+                "claim ledger inference amendment seal semantics changed"
+            )
+    else:
+        pending_relative = seal.get("path")
+        pending_path = _inside(root, pending_relative, require_file=False)
+        raw_pending_path = root / str(pending_relative)
+        if pending_path.exists() or raw_pending_path.is_symlink():
+            raise ClaimRegistryError(
+                "pending inference amendment seal path must be absent"
+            )
 
     def validate_predicate(predicate: object, *, label: str) -> None:
         if not isinstance(predicate, Mapping) or set(predicate) != {

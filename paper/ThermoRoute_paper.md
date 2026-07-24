@@ -8,7 +8,7 @@
 
 \* Corresponding author: [replace with verified name, ORCID, affiliation, and e-mail]
 
-> **Pre-opening manuscript status (22 July 2026).** The author block is a
+> **Pre-opening manuscript status (24 July 2026).** The author block is a
 > placeholder. The canonical development computation and the one-time target-period
 > evaluation are not complete. This manuscript therefore reports the frozen design,
 > audit boundary, and implementation status but no current performance result. All
@@ -144,7 +144,7 @@ The temporal roles are fixed before fitting:
 |---|---:|---:|---:|---|
 | Training | 2006–2015 | 438,240 | 341,646 | fit preprocessing and models |
 | Validation | 2016–2017 | 87,720 | 84,074 | choose frozen settings |
-| Calibration | 2018 | 43,800 | 42,279 | CQR and event-reference calibration |
+| Calibration | 2018 | 43,800 | 42,279 | CQR and Platt fit (2018 only); final year of the seasonal event-reference fit (2006–2018) |
 | Development evaluation | 2019–2020 | 87,720 | 85,621 | previously inspected; exploratory diagnosis only |
 
 The 2019–2020 partition was inspected and informed cohort, model, and narrative
@@ -228,9 +228,14 @@ not bound absolute error, event-tail error, interval width, or behavior after a
 distribution shift.
 
 The learned models emit a separate MSE point forecast and pinball-trained 0.05,
-0.50, and 0.95 quantile heads. Split conformalized quantile regression fitted on
-2018 widens only the nominal q05–q95 interval; q50 is not CQR-adjusted. Ensemble
-quantiles are member-wise averages, not quantiles of a mixture distribution.
+0.50, and 0.95 quantile heads. Split conformalized quantile regression is fitted
+only on 2018 after equal-weight member averaging. The exact split-conformal order
+statistic is retained as a signed raw audit value. Deployment uses
+`qhat_plus = max(raw_qhat, 0)` and returns `q05 - qhat_plus`, unchanged q50, and
+`q95 + qhat_plus`. Thus calibration may leave the nominal interval unchanged or
+widen it, but cannot shrink it. A non-finite deployed offset or a non-finite,
+crossed, or empty final interval fails closed before target labels are read.
+Ensemble quantiles are member-wise averages, not quantiles of a mixture distribution.
 Neural heads are ordered by construction, making the retained crossing-loss
 term identically zero and compatibility-only. Independently fitted LightGBM
 heads are not sorted: raw development crossings are recorded by member and
@@ -238,8 +243,9 @@ horizon, q05 and q95 are clipped to the nominal raw q50 if needed, and q50 is
 left exactly unchanged.
 Temporal CQR offsets are station-by-horizon, whereas external offsets are pooled
 by horizon. A separate event head uses each temporal station's 2006–2015 q90, or
-one pooled development-training q90 in the external arm, and one Platt calibrator
-per horizon fitted on 2018. Platt fitting is calibration-row weighted, whereas
+one pooled development-training q90 in the external arm. Its frozen seasonal
+event-reference fit spans 2006–2018, while one Platt calibrator per horizon is
+fitted only on 2018. Platt fitting is calibration-row weighted, whereas
 target-period probability summaries give every retained station equal total weight;
 that frozen weighting difference is part of the interpretation. The summaries
 claim empirical marginal coverage only. Quantile crossing,
@@ -381,10 +387,29 @@ external timestamp or independent custodian. The claim ledger derives phase only
 from the canonical authorization, intent marker, and a fully verified receipt.
 
 Before authorization, a fresh isolated process must replay all trained members,
-heads, transforms, development predictions, dependency versions, runtime probe,
-and source hashes without reading target-period outcomes. Git chronology must show
-that the model-suite commit predates candidate metadata and target-period predictor
-artifacts. Any source change after the model freeze invalidates authorization.
+raw heads, transforms, development predictions, dependency versions, runtime probe,
+and source hashes without reading target-period outcomes. The replay maps legacy
+panel aliases through the frozen station registry, requires every selected
+stable-station/target-date truth value to equal frozen-panel WTEMP, independently
+recomputes the 2006--2015 q90 thresholds and 2006--2018 seasonal event references,
+and refits CQR and Platt from the exact 2018 member-averaged rows. Thus a
+self-consistent prediction or metadata rewrite cannot substitute invented truth or
+calibration parameters. It then reapplies the
+independently reproduced nonnegative CQR registry and hashes and verifies the final
+q05/q50/q95 heads. Every final head must be finite and ordered, every interval
+nonempty, and every calibrated interval weakly no narrower than nominal. Git
+chronology must show that the model-suite commit predates candidate metadata and
+target-period predictor artifacts. Any source change after the model freeze
+invalidates authorization.
+
+The temporal experiment, matched neural-control experiment, and pooled external
+training stage each end in a separate content-bound completion receipt. The pooled
+receipt is the last atomic stage write and closes over the run manifest,
+development prediction and sidecar, component pointer, development-data bindings,
+two neural bundles, the LightGBM manifest, and its exact 75-file member/head
+registry. Model-suite
+freezing and the independent release verifier require all three receipts; a
+missing, stale, incomplete, noncanonical, or re-sealed partial closure fails closed.
 
 The opening creates one irreversible intent and one fixed request ledger. This is
 one logical opening, not exactly-once HTTP delivery. Before the acquisition manifest
@@ -504,6 +529,12 @@ importance; retrospective finalized covariates; absence of latency, memory, ener
 and multi-hardware benchmarks; owner-controlled local evidence chronology; the
 unreplayable original 1,465-candidate discovery execution; and the absence of an
 official Air2stream calibration run.
+
+The active release namespace excludes withdrawn legacy outputs and rendered
+manuscripts, but the self-contained Git-history bundle deliberately retains
+reachable deleted objects for chronology. It is not a byte-level purge. Those
+historical objects are provenance rather than current evidence and require a
+separate license/privacy review before public redistribution.
 
 ## 8. Pre-opening results placeholder and stopping rule
 

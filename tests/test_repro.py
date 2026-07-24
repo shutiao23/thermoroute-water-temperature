@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from thermoroute import opening_contract as opening_contract_module  # noqa: E40
 from thermoroute import repro as repro_module  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     _canonical_native_library_identities,
+    advisory_file_lock,
     atomic_write_parquet,
     cache_is_valid,
     canonical_json,
@@ -29,6 +31,20 @@ from thermoroute.repro import (  # noqa: E402
     source_tree_hash,
     validate_artifact_sidecar,
 )
+
+
+def test_advisory_transaction_lock_rejects_symlink(tmp_path):
+    target = tmp_path / "unrelated-owner-file"
+    target.write_text("do not chmod or lock me", encoding="utf-8")
+    original_mode = target.stat().st_mode
+    link = tmp_path / "transaction.lock"
+    link.symlink_to(target)
+
+    with pytest.raises(RuntimeError, match="cannot open transaction lock"):
+        with advisory_file_lock(link, exclusive=True):
+            raise AssertionError("symlink lock unexpectedly acquired")
+    assert target.read_text(encoding="utf-8") == "do not chmod or lock me"
+    assert target.stat().st_mode == original_mode
 
 
 def _load_script_module(path: Path, name: str):
@@ -441,11 +457,21 @@ def test_stage09_run_all_manifest_and_chronology_paths_are_exactly_aligned():
     assert manifest.STAGE09_SCORES_PATH == expected["scores"]
 
     run_all = (ROOT / "scripts" / "run_all.sh").read_text(encoding="utf-8")
+    release = (ROOT / "scripts" / "make_release_archive.sh").read_text(
+        encoding="utf-8"
+    )
+    for script in (run_all, release):
+        assert 'readonly THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-python}"' in script
+        assert "v != (3, 12)" in script
+        assert "assert sys.version_info" not in script
+        assert re.search(r"(?<![/\w])python3(?:\s|$)", script) is None
     logical_lines = run_all.replace("\\\n", " ").splitlines()
     command = next(
         line.strip()
         for line in logical_lines
-        if line.strip().startswith("python3 scripts/09_usgs_experiment.py ")
+        if line.strip().startswith(
+            '"$THERMOROUTE_PYTHON" scripts/09_usgs_experiment.py '
+        )
     )
     arguments = shlex.split(command)
     assert "--out_report" not in arguments

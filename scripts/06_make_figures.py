@@ -9,6 +9,7 @@ Run:  PYTHONPATH=src python3 scripts/06_make_figures.py
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import warnings
 from pathlib import Path
@@ -63,23 +64,58 @@ def load():
     return panel, pred, scores, expl
 
 
+def load_legacy_site_panel() -> pd.DataFrame:
+    """Load only the three ordinary monitoring-site series used by Figure 1."""
+    frames = []
+    for site_id in C.STATIONS:
+        path = C.DATA_RAW / f"{site_id}.csv"
+        frame = pd.read_csv(path, usecols=["WTEMP"])
+        frame["site_id"] = site_id
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
+
+
 # --------------------------------------------------------------------------- #
 def fig_study_area(panel):
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(8.2, 3.4),
-                                   gridspec_kw={"width_ratios": [1.05, 1]})
+    fig, (axL, axR) = plt.subplots(
+        1,
+        2,
+        figsize=(9.2, 3.6),
+        gridspec_kw={"width_ratios": [1.25, 1]},
+    )
+    fig.subplots_adjust(wspace=0.38)
     axL.set_title("a  Legacy monitoring-site identifiers")
     axL.axis("off"); axL.set_xlim(0, 10); axL.set_ylim(0, 10)
     pos = {"b1": (1.6, 5.0), "s2": (5.0, 5.0), "p3": (8.4, 5.0)}
     for st, (x, y) in pos.items():
-        box = FancyBboxPatch((x - 1.0, y - 0.7), 2.0, 1.4, boxstyle="round,pad=0.1",
-                             fc=STCOLOR[st], ec="none", alpha=0.9)
+        box = FancyBboxPatch(
+            (x - 1.15, y - 0.85),
+            2.3,
+            1.7,
+            boxstyle="round,pad=0.1",
+            fc=STCOLOR[st],
+            ec="none",
+            alpha=0.9,
+        )
         axL.add_patch(box)
-        axL.text(x, y + 0.18, st, color="white", ha="center", fontsize=12, weight="bold")
-        axL.text(x, y - 0.32, "monitoring site", color="white", ha="center", fontsize=8)
+        axL.text(
+            x, y + 0.28, st, color="white", ha="center", va="center",
+            fontsize=12, weight="bold",
+        )
+        axL.text(
+            x, y - 0.35, "monitoring\nsite", color="white", ha="center",
+            va="center", fontsize=7.5, linespacing=0.9,
+        )
     axL.text(
-        5.0, 2.8,
-        "Display order only; no reservoir, hydraulic-connectivity, or travel-time claim",
-        ha="center", va="center", fontsize=7.5, color="#444441", wrap=True,
+        5.0,
+        2.35,
+        "Display order only.\n"
+        "No reservoir, hydraulic-connectivity, or travel-time claim.",
+        ha="center",
+        va="center",
+        fontsize=7.5,
+        color="#444441",
+        linespacing=1.25,
     )
 
     axR.set_title("b  Per-station WTEMP distribution")
@@ -311,7 +347,34 @@ def fig_flow_lagmaps(expl):
     _save(fig, "fig10_flow_lagmaps")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--fig1-only",
+        action="store_true",
+        help=(
+            "render only the legacy monitoring-site identifier/distribution "
+            "figure; do not touch any historical result figure"
+        ),
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=FIG,
+        help="artifact directory (defaults to outputs/figures)",
+    )
+    return parser.parse_args()
+
+
 def main():
+    global FIG
+    args = parse_args()
+    FIG = args.output_dir.resolve()
+    FIG.mkdir(parents=True, exist_ok=True)
+    if args.fig1_only:
+        fig_study_area(load_legacy_site_panel())
+        print("fig1 complete", flush=True)
+        return
     panel, pred, scores, expl = load()
     fig_study_area(panel)
     fig_series_climatology(panel)

@@ -11,6 +11,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from thermoroute import conformal as CF  # noqa: E402
 from thermoroute import opening as OPENING  # noqa: E402
 
 
@@ -27,17 +28,22 @@ def test_trusted_lightgbm_scoring_preserves_nominal_q50(monkeypatch, tmp_path):
     raw_q50 = np.array([2.0, 1.0])
     heads = {
         "point": _FixedHead([1.5, 1.5]),
-        "q05": _FixedHead([4.0, 0.0]),
+        "q05": _FixedHead([4.0, -1.0]),
         "q50": _FixedHead(raw_q50),
-        "q95": _FixedHead([1.0, 3.0]),
+        "q95": _FixedHead([5.0, 0.0]),
         "event": _FixedHead([0.2, 0.8]),
     }
     members = {f"seed{seed}": {1: heads} for seed in range(5)}
+    deployed_offsets, offset_audit = CF.finalise_cqr_offsets(
+        {"fixture-site|1": 0.0}
+    )
     manifest = {
         "raw_feature_order": ["WTEMP"],
-        "conformal_offsets": {"fixture-site|1": 0.0},
+        "conformal_offsets": deployed_offsets,
+        "conformal_policy": CF.cqr_policy_contract(),
+        "conformal_offset_audit": offset_audit,
         "event_calibrators": {
-            "1": {"intercept": 0.0, "slope": 1.0, "constant": 0.5}
+            "1": {"intercept": 0.0, "slope": 0.0, "constant": 0.5}
         },
         "event_thresholds": {"fixture-site": 20.0},
     }
@@ -74,5 +80,5 @@ def test_trusted_lightgbm_scoring_preserves_nominal_q50(monkeypatch, tmp_path):
         external=False,
     )
     assert np.array_equal(scored["q50"].to_numpy(float), raw_q50)
-    assert np.array_equal(scored["q05"].to_numpy(float), np.array([2.0, 0.0]))
-    assert np.array_equal(scored["q95"].to_numpy(float), np.array([2.0, 3.0]))
+    assert np.array_equal(scored["q05"].to_numpy(float), np.array([2.0, -1.0]))
+    assert np.array_equal(scored["q95"].to_numpy(float), np.array([5.0, 1.0]))

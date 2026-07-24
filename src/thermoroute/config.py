@@ -26,6 +26,8 @@ PREDICTIONS = OUTPUTS / "predictions"
 REPORTS = OUTPUTS / "reports"
 MODELS = OUTPUTS / "models"
 LOGS = OUTPUTS / "logs"
+STAGE19_TRANSACTION_LOCK = OUTPUTS / ".stage19-probabilistic.lock"
+STAGE25_TRANSACTION_LOCK = OUTPUTS / ".stage25-external.lock"
 
 OUTPUT_DIRECTORIES = (
     DATA_PROCESSED, TABLES, FIGURES, PREDICTIONS, REPORTS, MODELS, LOGS,
@@ -60,7 +62,8 @@ FORCINGS: tuple[str, ...] = ("FLOW", "WLEVEL", "TEMP", "PRCP", "WDSP", "RHMEAN",
 # imputed *within each fold*; they are NOT real extremes.
 SENTINELS: Mapping[str, float] = {"WDSP": 999.9, "PRCP": 99.99}
 
-# Variables for which a log1p transform stabilises the heavy right tail.
+# Variables transformed before scaling. FLOW uses signed-log1p so negative
+# observations remain distinct; non-negative PRCP uses conventional log1p.
 LOG1P_VARS: tuple[str, ...] = ("FLOW", "PRCP")
 
 
@@ -101,7 +104,7 @@ EXCEEDANCE_QUANTILE = 0.90                                  # high-temp threshol
 class TimeSplit:
     train: tuple[str, str] = ("2006-01-01", "2015-12-31")   # 10 y  fit everything
     val: tuple[str, str] = ("2016-01-01", "2017-12-31")     # 2 y   model selection
-    calib: tuple[str, str] = ("2018-01-01", "2018-12-31")   # 1 y   conformal only
+    calib: tuple[str, str] = ("2018-01-01", "2018-12-31")   # 1 y CQR + Platt fit
     test: tuple[str, str] = ("2019-01-01", "2020-12-31")    # 2 y development eval
 
     def as_dict(self) -> Mapping[str, tuple[str, str]]:

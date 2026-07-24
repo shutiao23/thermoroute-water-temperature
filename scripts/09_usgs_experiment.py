@@ -139,7 +139,9 @@ from thermoroute.model_suite import (
     file_binding,
     lightgbm_entry,
     publish_stage09_completion_receipt,
+    route_a_calibration_fit_contract,
     save_lightgbm_bundle,
+    serialise_offsets,
     serialise_preprocessing,
     stage09_air2stream_report_status,
     stage09_outputs_are_canonical,
@@ -403,13 +405,13 @@ def _finite(value):
 
 
 def _serialise_offsets(offsets):
-    return {f"{station}|{int(horizon)}": _finite(value)
-            for (station, horizon), value in sorted(offsets.items())}
+    return serialise_offsets(offsets)
 
 
 def bundle_metadata(identity, wd, clim, imputer, thresholds, event_reference,
                     delta_scale,
-                    conformal_offsets, event_calibrators, *,
+                    conformal_offsets, conformal_offset_audit,
+                    event_calibrators, *,
                     training_device, architecture_overrides=None,
                     development_prediction=None):
     kwargs = {
@@ -448,6 +450,11 @@ def bundle_metadata(identity, wd, clim, imputer, thresholds, event_reference,
             for horizon, calibrator in sorted(event_calibrators.items())
         },
         "conformal_offsets": _serialise_offsets(conformal_offsets),
+        "conformal_policy": CF.cqr_policy_contract(),
+        "conformal_offset_audit": dict(conformal_offset_audit),
+        "calibration_fit_contract": route_a_calibration_fit_contract(
+            external=False
+        ),
         "source_sha256": identity.source_sha256,
         "panel_sha256": identity.panel_sha256,
         "registry_sha256": identity.registry_sha256,
@@ -523,7 +530,9 @@ def calibration_artifacts(predictions, thresholds):
         calibration["y_true"].to_numpy(float)
         > calibration["threshold"].to_numpy(float)
     ).astype(int)
-    offsets = CF.cqr_offsets(calibration, alpha=0.10)
+    offsets, offset_audit = CF.cqr_offsets_with_audit(
+        calibration, alpha=0.10
+    )
     calibrators = fit_horizon_calibrators(
         calibration, probability_col="p_exceed", outcome_col="event",
         min_samples=100,
@@ -535,7 +544,7 @@ def calibration_artifacts(predictions, thresholds):
         raise ValueError(f"calibration lacks frozen site×horizon offsets: {missing[:5]}")
     if set(calibrators) != set(C.HORIZONS):
         raise ValueError("event calibration lacks a declared horizon")
-    return offsets, calibrators
+    return offsets, offset_audit, calibrators
 
 
 def canon(wd, idx, model_name, preds_by_h, scope="joint_usgs"):
@@ -1036,14 +1045,16 @@ def main():
             res.pred, seed_file, identity, kind="thermoroute_seed_predictions"
         )
         tr_preds.append(res.pred)
-        seed_offsets, seed_calibrators = calibration_artifacts(res.pred, thr)
+        seed_offsets, seed_offset_audit, seed_calibrators = calibration_artifacts(
+            res.pred, thr
+        )
         save_inference_bundle(
             seed_bundle,
             members={member_name: model},
             metadata=bundle_metadata(
                 identity, wd, clim, imputer, thr, event_reference,
                 args.delta_scale,
-                seed_offsets, seed_calibrators,
+                seed_offsets, seed_offset_audit, seed_calibrators,
                 training_device=resolved_device,
             ),
             expected_member_count=1,
@@ -1138,14 +1149,19 @@ def main():
             write_prediction_artifact(
                 r.pred, af, identity, kind="thermoroute_ablation_predictions"
             )
-            ablation_offsets, ablation_calibrators = calibration_artifacts(r.pred, thr)
+            (
+                ablation_offsets,
+                ablation_offset_audit,
+                ablation_calibrators,
+            ) = calibration_artifacts(r.pred, thr)
             save_inference_bundle(
                 ab,
                 members={name: r.model},
                 metadata=bundle_metadata(
                     identity, wd, clim, imputer, thr, event_reference,
                     args.delta_scale,
-                    ablation_offsets, ablation_calibrators,
+                    ablation_offsets, ablation_offset_audit,
+                    ablation_calibrators,
                     training_device=resolved_device,
                     architecture_overrides=model_kw,
                 ),
@@ -1212,7 +1228,7 @@ def main():
         canonical_run = False
 
     parity_atol = 1e-5
-    offsets, event_calibrators = calibration_artifacts(
+    offsets, offset_audit, event_calibrators = calibration_artifacts(
         pd.concat(tr_preds, ignore_index=True), thr
     )
     full_ensemble = args.seeds == len(C.USGS_SEEDS)
@@ -1224,7 +1240,7 @@ def main():
         metadata=bundle_metadata(
             identity, wd, clim, imputer, thr, event_reference,
             args.delta_scale,
-            offsets, event_calibrators,
+            offsets, offset_audit, event_calibrators,
             training_device=resolved_device,
             development_prediction=development_prediction_binding(
                 ROOT, output_predictions,
@@ -1256,7 +1272,7 @@ def main():
 
     # LightGBM is an equally-sized five-member ensemble.  Every point,
     # quantile and event head is a native-text Booster with its own checksum.
-    lgb_offsets, lgb_calibrators = calibration_artifacts(
+    lgb_offsets, lgb_offset_audit, lgb_calibrators = calibration_artifacts(
         allp[allp.model.eq("LightGBM")], thr
     )
     lgb_bundle = C.MODELS / f"lightgbm_usgs_bundle_{identity.run_id}"
@@ -1293,6 +1309,11 @@ def main():
             "event_calibrators": {str(h): value.as_dict()
                                   for h, value in sorted(lgb_calibrators.items())},
             "conformal_offsets": _serialise_offsets(lgb_offsets),
+            "conformal_policy": CF.cqr_policy_contract(),
+            "conformal_offset_audit": lgb_offset_audit,
+            "calibration_fit_contract": route_a_calibration_fit_contract(
+                external=False
+            ),
             "source_sha256": identity.source_sha256,
             "panel_sha256": identity.panel_sha256,
             "registry_sha256": identity.registry_sha256,
@@ -1325,7 +1346,7 @@ def main():
     if args.ablations and set(ablation_members) == set(MANDATORY_ABLATIONS):
         for name in MANDATORY_ABLATIONS:
             pred = allp[allp.model.eq(name)]
-            abl_offsets, abl_calibrators = calibration_artifacts(
+            abl_offsets, abl_offset_audit, abl_calibrators = calibration_artifacts(
                 ablation_predictions[name], thr
             )
             destination = C.MODELS / f"{name.lower()}_bundle_{identity.run_id}"
@@ -1335,7 +1356,7 @@ def main():
                 metadata=bundle_metadata(
                     identity, wd, clim, imputer, thr, event_reference,
                     args.delta_scale,
-                    abl_offsets, abl_calibrators,
+                    abl_offsets, abl_offset_audit, abl_calibrators,
                     training_device=resolved_device,
                     architecture_overrides=ablation_architecture[name],
                     development_prediction=development_prediction_binding(

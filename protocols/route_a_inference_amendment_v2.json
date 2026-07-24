@@ -1,0 +1,183 @@
+{
+  "format": "thermoroute.route-a-inference-amendment.v2",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "amendment_id": "route-a-prelabel-inference-cqr-015",
+  "recorded_date": "2026-07-24",
+  "post_2020_wtemp_requested_or_inspected": false,
+  "outcome_independent": true,
+  "base_protocol": {
+    "path": "protocols/route_a_confirmatory_v1.json",
+    "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+  },
+  "base_protocol_seal": {
+    "path": "protocols/route_a_protocol_seal_v1.json",
+    "sha256": "df700fe2fac170d0466cbcaa0fae25efb4748ab82b44d49272c1e85ff5e060cd"
+  },
+  "scientific_comparisons": {
+    "count": 5,
+    "confirmatory_family_sha256": "473b2ddae17b353b3499413ecd266e684e9b411412bba5463435e8400aedb799",
+    "objects": [
+      {
+        "test_id": "H1-h1-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 1,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1001,
+        "sign_flip_seed": 5001,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 1, margin 0.00 C"
+      },
+      {
+        "test_id": "H1-h3-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 3,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1003,
+        "sign_flip_seed": 5003,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 3, margin 0.00 C"
+      },
+      {
+        "test_id": "H1-h7-vs-damped",
+        "candidate": "ThermoRoute",
+        "reference": "DampedPersistence",
+        "horizon": 7,
+        "margin_c": 0.0,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1007,
+        "sign_flip_seed": 5007,
+        "description": "ThermoRoute vs damped persistence superiority at horizon 7, margin 0.00 C"
+      },
+      {
+        "test_id": "H2-h3-vs-lightgbm",
+        "candidate": "ThermoRoute",
+        "reference": "LightGBM",
+        "horizon": 3,
+        "margin_c": 0.05,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1103,
+        "sign_flip_seed": 5103,
+        "description": "ThermoRoute vs LightGBM non-inferiority at horizon 3, margin +0.05 C"
+      },
+      {
+        "test_id": "H2-h7-vs-lightgbm",
+        "candidate": "ThermoRoute",
+        "reference": "LightGBM",
+        "horizon": 7,
+        "margin_c": 0.05,
+        "alternative": "candidate_minus_reference_below_margin",
+        "bootstrap_seed": 1107,
+        "sign_flip_seed": 5107,
+        "description": "ThermoRoute vs LightGBM non-inferiority at horizon 7, margin +0.05 C"
+      }
+    ],
+    "change_allowed": false
+  },
+  "estimand_scope": {
+    "fixed_cohort": "The point estimate is the median paired station-RMSE difference among reportable stations in the frozen availability-enriched cohort. It is descriptive for those fixed stations and observable keys.",
+    "not_claimed": "It is not a probability-sample estimate for every US river, every HUC2 region, or every calendar day.",
+    "superpopulation": "Any HUC2 bootstrap, sign-flip, confidence-interval, p-value, or Holm interpretation is conditional on an explicit exchangeable-cluster superpopulation and the frozen assumptions below."
+  },
+  "inference_scope": {
+    "cluster_bootstrap": "ASSUMPTION_CONDITIONAL_SENSITIVITY_NOT_UNCONDITIONAL_COHORT_UNCERTAINTY",
+    "exact_sign_flip": "ASSUMPTION_CONDITIONAL_ON_INDEPENDENT_WHOLE_CLUSTER_SIGN_REVERSALS_AND_JOINT_VECTOR_SIGN_SYMMETRY",
+    "exact_enumeration_limit": "Exact enumeration removes Monte-Carlo error only; it does not establish the null symmetry, independent-cluster sampling, or a general composite median null.",
+    "small_cluster_rule": "The already-declared NO_STRONG_INFERENCE diagnostics are promoted to a claim-blocking gate, with n_clusters >= 30, effective_cluster_fraction >= 0.75, and largest_cluster_share < 0.25 required before inferential wording can be considered.",
+    "null_simulation_role": "Synthetic null simulation is falsification-only and cannot establish unobserved structural assumptions. Missing, not-run, or failed simulation evidence fails closed."
+  },
+  "decision_overlay": {
+    "gate_artifact": "outputs/prelabel/route_a_inference_gate_v1.json",
+    "all_gate_components_must_pass": true,
+    "missing_unknown_or_not_run_is_failure": true,
+    "gate_failure_verdict": "DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED",
+    "supported_claim_allowed_when_gate_fails": false,
+    "strong_p_value_or_favorable_interval_cannot_override_gate": true,
+    "all_five_comparisons_must_still_be_rendered_exactly_once": true,
+    "allowed_failed_gate_wording": "Report the fixed-cohort effect and label HUC2 bootstrap/sign-flip/Holm values only as assumption-conditional sensitivities; do not claim superiority, non-inferiority, equivalence, parity, or superpopulation confirmation."
+  },
+  "additional_preopen_gates": {
+    "outcome_qc_policy": {
+      "path": "protocols/route_a_outcome_qc_policy_v1.json",
+      "sha256": "e8fb0b6857e2c4ce76fc37704ebce3d8b821585362a3a1dd4fe980edbe059b96",
+      "required": true,
+      "role": "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_directional_reporting_gate_not_complete_outcome_quality_certification"
+    },
+    "temporal_coverage_policy": {
+      "path": "protocols/route_a_temporal_coverage_policy_v1.json",
+      "sha256": "6b08850ced16de6f97ceda8b16ce89b301d5c5cccb794a4427da0a3e39e211ad",
+      "required": true,
+      "role": "predeclared_nonfiltering_temporal_coverage_and_equal_cell_descriptive_sensitivity_never_changes_formal_result_or_decision"
+    }
+  },
+  "trusted_scoring_recovery_contract": {
+    "maximum_logical_openings": 1,
+    "maximum_frozen_request_ledgers_per_opening": 1,
+    "second_logical_opening_allowed": false,
+    "http_retries_within_or_across_transport_processes_allowed": true,
+    "http_delivery_semantics": "at_least_once_until_the_response_transaction_directory_is_complete_and_durably_published",
+    "response_received_but_transaction_not_durable_may_be_requested_again": true,
+    "exactly_once_http_delivery_claimed": false,
+    "durable_canonical_response_replacement_allowed": false,
+    "raw_transport_resume_before_acquisition_manifest": "same_opening_identifier_and_exact_frozen_request_ledger_only; refetch_only_when_no_complete_durable_verifiable_canonical_transaction_exists; partial_invalid_or_noncanonical_canonical_transactions_fail_closed_without_overwrite; only_unpublished_owner_private_temporary_or_pending_state_may_be_cleaned; normalized_derived_and_trusted_outputs_must_all_be_absent",
+    "raw_transport_resume_after_acquisition_manifest_allowed": false,
+    "raw_acquisition_child_after_acquisition_manifest_allowed": false,
+    "acquisition_bundle_publication": "request_map_two_normalized_tables_and_manifest_are_generated_and_validated_in_one_private_same_filesystem_stage_then_published_by_one_directory_rename",
+    "trusted_completion_after_acquisition_manifest": "network_free_deterministic_replay_under_the_same_opening_identifier",
+    "trusted_publication": "generate_and_validate_one_complete_private_same_filesystem_directory_then_publish_by_one_directory_rename",
+    "absent_canonical_trusted_directory": "delete_only_strictly_validated_canonical_named_owner_private_same_device_read_only_regular_file_stages_without_external_hardlinks_then_recompute_a_complete_generation; any_unsafe_stage_fails_closed",
+    "complete_canonical_trusted_directory_without_receipt": "fully_replay_and_validate_all_trusted_artifacts_then_create_the_receipt_only",
+    "partial_invalid_or_noncanonical_trusted_directory": "FAIL_CLOSED_NO_REPLACEMENT",
+    "valid_receipt_without_external_sha256_sidecar": "fully_validate_receipt_and_bound_artifacts_then_derive_the_missing_sidecar_only",
+    "external_sha256_sidecar_without_receipt": "FAIL_CLOSED",
+    "security_scope": "honest_owner_misoperation_and_replay_guard_not_a_malicious_same_uid_or_owner_security_boundary"
+  },
+  "cqr_calibration_contract": {
+    "policy": {
+      "format": "thermoroute.cqr-nonnegative-offset-policy.v1",
+      "raw_conformity_score": "max(q05_minus_y,y_minus_q95)",
+      "raw_offset": "exact_split_conformal_signed_order_statistic",
+      "deployed_offset": "qhat_plus=max(raw_qhat,0)",
+      "negative_raw_offset_action": "clip_to_zero_never_shrink",
+      "nonfinite_input_or_offset_action": "FAIL_CLOSED",
+      "application": "q05_minus_qhat_plus;q50_unchanged;q95_plus_qhat_plus",
+      "required_final_order": "finite_q05<=q50<=q95_and_nonempty_interval"
+    },
+    "frozen_bundle_metadata": {
+      "required_fields": [
+        "conformal_offsets",
+        "conformal_policy",
+        "conformal_offset_audit",
+        "calibration_fit_contract"
+      ],
+      "raw_signed_offset_evidence": "retain_exact_registry_negative_zero_positive_counts_raw_min_raw_max_and_clipped_count",
+      "deployed_offset_requirement": "finite_and_nonnegative_for_every_key",
+      "fit_evidence": "CQR_and_horizon_Platt_use_only_the_2018_calib_split; CQR_purges_target_dates_after_2018-12-31",
+      "fit_intervals": {
+        "model_training": ["2006-01-01", "2015-12-31"],
+        "hyperparameter_selection": ["2016-01-01", "2017-12-31"],
+        "cqr_and_platt_calibration": ["2018-01-01", "2018-12-31"],
+        "seasonal_event_reference": ["2006-01-01", "2018-12-31"]
+      }
+    },
+    "development_replay_gate": {
+      "required": true,
+      "scope": "every_learned_temporal_and_external_model",
+      "operation": "mean_frozen_development_members_then_apply_frozen_nonnegative_CQR_and_validate_final_q05_q50_q95",
+      "pass_condition": "all_final_heads_finite_ordered_nonempty_and_every_interval_weakly_widened"
+    },
+    "opening_contract": {
+      "negative_or_nonfinite_deployed_offset": "FAIL_CLOSED_BEFORE_LABEL_READ",
+      "crossed_or_nonfinite_final_heads": "FAIL_CLOSED",
+      "q50_adjusted_by_cqr": false,
+      "interval_shrinkage_allowed": false
+    }
+  },
+  "lineage_contract": {
+    "base_v1_files_remain_immutable": true,
+    "separate_amendment_seal_required": true,
+    "seal_path": "protocols/route_a_inference_amendment_seal_v2.json",
+    "amendment_commit_must_precede_seal_commit": true
+  }
+}

@@ -2,8 +2,10 @@
 # Build one of the two explicit Route-A release profiles.
 #
 # PREOPEN_NOT_COMPLETE (default) is development evidence only.  It contains no
-# old outputs, confirmation namespace or labels and cannot support a Route-A
-# confirmatory conclusion.
+# old active outputs, confirmation namespace or labels and cannot support a
+# Route-A confirmatory conclusion.  The separately verified full-history bundle
+# intentionally retains reachable deleted Git objects for chronology; this is not
+# a byte-level purge and does not make those objects current evidence.
 #
 # ROUTE_A_OPENED_COMPLETE is accepted only when a production authorization and
 # its canonical one-shot namespace close over every model, pre-label input, raw
@@ -12,6 +14,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT_DIR="$PWD"
+readonly THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-python}"
+if ! command -v "$THERMOROUTE_PYTHON" >/dev/null 2>&1; then
+  echo "release refused: cannot find THERMOROUTE_PYTHON=$THERMOROUTE_PYTHON" >&2
+  exit 2
+fi
+"$THERMOROUTE_PYTHON" -c \
+  'import sys; v=sys.version_info[:2]; sys.exit(f"Route A requires Python 3.12, got {v[0]}.{v[1]}") if v != (3, 12) else None'
 PROFILE="PREOPEN_NOT_COMPLETE"
 AUTHORIZATION=""
 
@@ -74,7 +83,7 @@ if [[ "$PROFILE" == "ROUTE_A_OPENED_COMPLETE" ]]; then
   # This production state may contain exactly the one create-only authorization
   # and its canonical opening namespace.  The local dirty override is never
   # allowed to weaken an archive that claims confirmatory completeness.
-  PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py \
+  PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
     --check-postopen-dirt --source-root "$ROOT_DIR" \
     --authorization "$AUTHORIZATION"
 else
@@ -102,6 +111,8 @@ required=(
   protocols/route_a_confirmatory_v1.json
   protocols/route_a_confirmatory_protocol.md
   protocols/route_a_protocol_seal_v1.json
+  protocols/route_a_inference_amendment_v2.json
+  protocols/route_a_inference_amendment_seal_v2.json
   protocols/route_a_claim_registry_v1.json
   scripts/26_validate_claims.py
   scripts/deterministic_zip.py scripts/verify_release.py
@@ -112,14 +123,34 @@ for path in "${required[@]}"; do
     exit 2
   fi
 done
-for path in src scripts tests paper .github protocols; do
+for path in src scripts tests .github protocols; do
   if [[ ! -d "$path" ]]; then
     echo "release refused: required directory missing: $path" >&2
     exit 2
   fi
 done
 
-VERSION="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+# The manuscript source boundary is explicit.  Rendered PDFs/DOCX files and
+# historical figure binaries are not evidence unless they are regenerated and
+# bound by the current release contract, so never copy paper/ wholesale.
+paper_paths=(
+  paper/ThermoRoute_paper.md
+  paper/highlights.md
+  paper/cover_letter.md
+  paper/references.bib
+  paper/agu_submission/README.md
+  paper/agu_submission/ThermoRoute_WRR.tex
+  paper/agu_submission/agujournal2019.cls
+  paper/agu_submission/build_agu.py
+)
+for path in "${paper_paths[@]}"; do
+  if [[ ! -f "$path" ]]; then
+    echo "release refused: registered manuscript source missing: $path" >&2
+    exit 2
+  fi
+done
+
+VERSION="$("$THERMOROUTE_PYTHON" -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
 DIST_DIR="$ROOT_DIR/dist"
 OUT="$DIST_DIR/thermoroute_release_v${VERSION}_${PROFILE}.zip"
 SHA_FILE="${OUT}.sha256"
@@ -148,10 +179,21 @@ copy_path() {
   cp -R "$source" "$destination"
 }
 
+copy_tracked_tree() {
+  local source="$1"
+  local tracked=""
+  while IFS= read -r -d '' tracked; do
+    copy_path "$tracked"
+  done < <(git ls-files -z -- "$source")
+}
+
 # Common source/material is profile-independent.  Scientific result directories
 # are never copied wholesale; the opened profile materializer selects only the
 # authorization-derived current namespace.
-for path in src scripts tests paper .github protocols; do
+for path in src scripts tests .github protocols; do
+  copy_tracked_tree "$path"
+done
+for path in "${paper_paths[@]}"; do
   copy_path "$path"
 done
 for path in README.md LICENSE .gitignore pyproject.toml requirements.txt \
@@ -169,28 +211,28 @@ PROFILE_ARGS=(
 if [[ -n "$AUTHORIZATION" ]]; then
   PROFILE_ARGS+=(--authorization "$AUTHORIZATION")
 fi
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py "${PROFILE_ARGS[@]}"
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "${PROFILE_ARGS[@]}"
 # Establish and independently replay the archive-to-bundle protected-source
 # binding before any Python copied into the stage is allowed to execute.
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py \
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
   --materialize-git-history "$STAGE" --source-root "$ROOT_DIR" \
   --profile "$PROFILE"
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py \
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
   --materialize-claim-audit "$STAGE" --profile "$PROFILE"
 
 # A pre-opening archive must have exactly one outputs artifact: its provenance
 # manifest.  A post-opening archive receives only the canonical namespace files
 # copied by the profile materializer above.  No stale cohort output is copied.
 mkdir -p "$STAGE/outputs"
-PYTHONDONTWRITEBYTECODE=1 python3 "$STAGE/scripts/14_manifest.py" \
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" "$STAGE/scripts/14_manifest.py" \
   --root "$STAGE" --manifest "$STAGE/outputs/manifest.json" --no-git \
   --source-git-commit "$SOURCE_GIT_COMMIT" --source-git-tree "$SOURCE_GIT_TREE" \
   "${SOURCE_GIT_DIRTY[@]}"
-PYTHONDONTWRITEBYTECODE=1 python3 "$STAGE/scripts/14_manifest.py" \
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" "$STAGE/scripts/14_manifest.py" \
   --root "$STAGE" --manifest "$STAGE/outputs/manifest.json" --check --no-git
 
 mkdir -p "$DIST_DIR"
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/deterministic_zip.py \
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/deterministic_zip.py \
   "$STAGE" "$TMP_ZIP" --archive-root thermoroute
 mv "$TMP_ZIP" "$OUT"
 
@@ -200,7 +242,7 @@ SIZE="$(ls -lh "$OUT" | awk '{print $5}')"
 
 # Production verification always invokes the fixed trusted replay interface for
 # ROUTE_A_OPENED_COMPLETE.  PREOPEN_NOT_COMPLETE never touches outcome code/data.
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_release.py "$OUT"
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "$OUT"
 
 echo "profile $PROFILE"
 echo "built  $OUT  ($SIZE)"

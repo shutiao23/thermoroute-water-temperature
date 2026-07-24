@@ -142,3 +142,8 @@ def test_probabilistic_metric_is_not_labelled_crps():
     scores = metrics.probabilistic_scores(y, quants)
     assert "THREE_QUANTILE_SCORE" in scores
     assert "CRPS" not in scores
+    expected = np.mean([
+        metrics.pinball(y, quants[tau], tau) for tau in (0.05, 0.50, 0.95)
+    ])
+    assert scores["THREE_QUANTILE_SCORE"] == pytest.approx(expected)
+    assert scores["THREE_QUANTILE_SCORE"] == pytest.approx(scores["PINBALL"])

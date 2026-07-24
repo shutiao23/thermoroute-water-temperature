@@ -17,6 +17,7 @@ duration remain provenance only.
 from __future__ import annotations
 
 import atexit
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 import errno
@@ -27,12 +28,13 @@ import os
 from pathlib import Path
 import platform
 import socket
+import stat as stat_module
 import struct
 import subprocess
 import sys
 import tempfile
 import threading
-from typing import Any, Iterable, Mapping, TextIO
+from typing import Any, Iterable, Iterator, Mapping, TextIO
 
 
 RUN_SCHEMA_VERSION = "thermoroute.run.v1"
@@ -49,6 +51,65 @@ FORMAL_THREAD_ENVIRONMENT = (
 )
 _FORMAL_THREADPOOL_CONTROLLER: Any | None = None
 _NATIVE_BINARY_HASH_CACHE: dict[tuple[str, int, int], str] = {}
+
+
+def _lexical_final_path(path: str | Path) -> Path:
+    """Resolve only a path's parent, preserving the final component for O_NOFOLLOW."""
+    requested = Path(path).expanduser()
+    if requested.name in {"", ".", ".."}:
+        raise ValueError("lock path must have a safe final component")
+    requested.parent.mkdir(parents=True, exist_ok=True)
+    return requested.parent.resolve() / requested.name
+
+
+def _open_owner_private_lock_file(path: Path) -> int:
+    """Open one non-symlink, owner-private, single-link regular lock file."""
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat_module.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+        ):
+            raise RuntimeError("lock is not an owner-private single-link regular file")
+        os.fchmod(descriptor, 0o600)
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+@contextmanager
+def advisory_file_lock(
+    path: str | Path, *, exclusive: bool
+) -> Iterator[Path]:
+    """Hold one owner-private POSIX advisory lock for a complete transaction.
+
+    The lock file is coordination state, not scientific evidence.  Callers must
+    keep this context open across both validation and every dependent read/write.
+    Symlinks, non-regular files, foreign ownership, and external hard links fail
+    closed before ``flock`` is taken.
+    """
+    lock_path = _lexical_final_path(path)
+    try:
+        descriptor = _open_owner_private_lock_file(lock_path)
+    except (OSError, RuntimeError) as exc:
+        raise RuntimeError(f"cannot open transaction lock: {lock_path}") from exc
+    try:
+        fcntl.flock(
+            descriptor,
+            fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH,
+        )
+        yield lock_path
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
 
 def configure_deterministic_runtime() -> dict[str, Any]:
@@ -654,7 +715,8 @@ _RUN_DIRECTORY_LOCKS_GUARD = threading.RLock()
 
 def run_directory_lock_path(run_directory: str | Path) -> Path:
     """Return the explicit sibling lock path for a content-addressed run."""
-    run_dir = Path(run_directory).expanduser().resolve()
+    requested = Path(run_directory).expanduser()
+    run_dir = requested.parent.resolve() / requested.name
     if run_dir.name in {"", ".", ".."}:
         raise ValueError("run directory must have a non-empty run_id component")
     return run_dir.parent / f".{run_dir.name}.formal-run.lock"
@@ -684,9 +746,14 @@ def acquire_run_directory_lock(
     """
     if type(run_id) is not str or not run_id or Path(run_id).name != run_id:
         raise ValueError("run_id must be one safe, non-empty path component")
-    run_dir = Path(run_directory).expanduser().resolve()
+    requested = Path(run_directory).expanduser()
+    run_dir = requested.parent.resolve() / requested.name
     if run_dir.name != run_id:
         raise ValueError("run directory basename must exactly match run_id")
+    if run_dir.is_symlink() or (run_dir.exists() and not run_dir.is_dir()):
+        raise RunDirectoryLockError(
+            "formal run directory is a symlink or non-directory"
+        )
     lock_path = run_directory_lock_path(run_dir)
     with _RUN_DIRECTORY_LOCKS_GUARD:
         existing = _RUN_DIRECTORY_LOCKS.get(lock_path)
@@ -702,7 +769,13 @@ def acquire_run_directory_lock(
             existing.release()
             _RUN_DIRECTORY_LOCKS.pop(lock_path, None)
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = lock_path.open("a+", encoding="utf-8", newline="\n")
+        try:
+            descriptor = _open_owner_private_lock_file(lock_path)
+        except (OSError, RuntimeError) as exc:
+            raise RunDirectoryLockError(
+                f"formal run lock is unsafe: {lock_path}"
+            ) from exc
+        handle = os.fdopen(descriptor, "r+", encoding="utf-8", newline="\n")
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
@@ -1149,23 +1222,40 @@ def initialise_run_directory(root: str | Path, identity: RunIdentity, config: An
     Read-only validators do not call this initializer and therefore never take
     or mutate a lock.
     """
-    run_dir = Path(root).expanduser().resolve() / identity.run_id
-    acquire_run_directory_lock(run_dir, run_id=identity.run_id)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    metadata_path = run_dir / "run.json"
-    payload = {
-        "schema_version": RUN_SCHEMA_VERSION,
-        "identity": identity.as_dict(),
-        "resolved_config": _jsonable(config),
-        "created_utc": datetime.now(timezone.utc).isoformat(),
-        "environment": environment_fingerprint(),
-        "git": git_state(Path(root).resolve().parents[1]),
-        "provenance": _jsonable(provenance or {}),
-    }
-    if metadata_path.exists():
-        old = json.loads(metadata_path.read_text())
-        if old.get("identity") != identity.as_dict() or old.get("resolved_config") != _jsonable(config):
-            raise RuntimeError(f"run directory collision: {run_dir}")
-    else:
-        atomic_write_json(metadata_path, payload)
-    return run_dir
+    runs_root = Path(root).expanduser().resolve()
+    run_dir = runs_root / identity.run_id
+    lock = acquire_run_directory_lock(run_dir, run_id=identity.run_id)
+    try:
+        if run_dir.is_symlink() or (run_dir.exists() and not run_dir.is_dir()):
+            raise RuntimeError("formal run directory is a symlink or non-directory")
+        if not run_dir.exists():
+            run_dir.mkdir(mode=0o700)
+        if run_dir.resolve() != run_dir or run_dir.parent != runs_root:
+            raise RuntimeError("formal run directory escapes its canonical runs root")
+        metadata_path = run_dir / "run.json"
+        if metadata_path.is_symlink() or (
+            metadata_path.exists() and not metadata_path.is_file()
+        ):
+            raise RuntimeError("formal run manifest is a symlink or non-file")
+        payload = {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "identity": identity.as_dict(),
+            "resolved_config": _jsonable(config),
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "environment": environment_fingerprint(),
+            "git": git_state(runs_root.parents[1]),
+            "provenance": _jsonable(provenance or {}),
+        }
+        if metadata_path.exists():
+            old = json.loads(metadata_path.read_text())
+            if (
+                old.get("identity") != identity.as_dict()
+                or old.get("resolved_config") != _jsonable(config)
+            ):
+                raise RuntimeError(f"run directory collision: {run_dir}")
+        else:
+            atomic_write_json(metadata_path, payload)
+        return run_dir
+    except BaseException:
+        lock.release()
+        raise

@@ -5,8 +5,11 @@ Despite its name, this command never reads the frozen 30-site cohort and never
 opens post-2020 data.  It fits pooled transforms and station-agnostic models on
 the canonical 120-site development panel.  The resulting bundles can later
 expand those pooled statistics to any separately frozen external site IDs.
+Success is published only through a self-hashed receipt over the exact file
+closure; ``--check`` revalidates it without fitting or opening confirmation
+outcomes.
 
-Run: python3 scripts/25_train_external_pooled_suite.py
+Run: python scripts/25_train_external_pooled_suite.py
 """
 
 from __future__ import annotations
@@ -84,7 +87,6 @@ def _isolate_project_bytecode() -> None:
 _isolate_project_bytecode()
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np
 import pandas as pd
 
 from thermoroute import config as C
@@ -100,12 +102,17 @@ from thermoroute.frozen_inference import (
 )
 from thermoroute.model_suite import (
     LSTM_VALIDATION_GRID,
+    STAGE25_COMPLETION_FORMAT,
+    STAGE25_COMPLETION_RECEIPT_PATH,
+    build_stage25_completion_receipt,
     canonical_development_contract,
     development_predictor_bridge_binding,
     development_prediction_binding,
     file_binding,
     fit_pooled_imputer,
     lightgbm_entry,
+    publish_stage25_completion_receipt,
+    route_a_calibration_fit_contract,
     save_lightgbm_bundle,
     sequence_bundle_metadata,
     serialise_offsets,
@@ -113,6 +120,7 @@ from thermoroute.model_suite import (
     torch_entry,
     update_lightgbm_development_prediction,
     update_torch_development_prediction,
+    validate_stage25_completion_receipt,
     verify_lightgbm_prediction_parity,
     verify_sequence_prediction_parity,
     write_component_pointer,
@@ -126,7 +134,9 @@ from thermoroute.registry import (
     enforce_common_forecast_keys,
 )
 from thermoroute.repro import (
+    advisory_file_lock,
     assert_formal_numerical_policy,
+    atomic_write_json,
     initialise_run_directory,
     resolve_run_identity,
     seal_artifact,
@@ -177,13 +187,11 @@ def pooled_calibration(predictions: pd.DataFrame, threshold: float):
     calibration = ensemble_prediction_frame(predictions)
     calibration = calibration[calibration.split.eq("calib")].copy()
     calibration["event"] = (calibration.y_true.to_numpy(float) > threshold).astype(int)
-    offsets = {}
-    for horizon, group in calibration.groupby("horizon"):
-        score = np.maximum(
-            group.q05.to_numpy(float) - group.y_true.to_numpy(float),
-            group.y_true.to_numpy(float) - group.q95.to_numpy(float),
-        )
-        offsets[("__pooled__", int(horizon))] = CF.conformal_quantile(score, 0.10)
+    pooled_cqr = calibration.copy()
+    pooled_cqr["site_id"] = "__pooled__"
+    offsets, offset_audit = CF.cqr_offsets_with_audit(
+        pooled_cqr, alpha=0.10
+    )
     calibrators = fit_horizon_calibrators(
         calibration, probability_col="p_exceed", outcome_col="event",
         min_samples=100,
@@ -192,12 +200,13 @@ def pooled_calibration(predictions: pd.DataFrame, threshold: float):
         raise ValueError("external pooled CQR lacks a declared horizon")
     if set(calibrators) != set(C.HORIZONS):
         raise ValueError("external pooled event calibration lacks a declared horizon")
-    return offsets, calibrators
+    return offsets, offset_audit, calibrators
 
 
 def external_sequence_metadata(
     *, identity, wd, climatology, imputer, pooled_threshold, architecture_class,
-    architecture_kwargs, offsets, calibrators, event_reference, prediction_binding,
+    architecture_kwargs, offsets, offset_audit, calibrators, event_reference,
+    prediction_binding,
 ):
     thresholds = {site: pooled_threshold for site in C.STATIONS}
     metadata = sequence_bundle_metadata(
@@ -207,6 +216,7 @@ def external_sequence_metadata(
         thresholds=thresholds,
         event_reference_climatology=event_reference,
         conformal_offsets=offsets,
+        conformal_offset_audit=offset_audit,
         event_calibrators=calibrators,
         source_sha256=identity.source_sha256,
         panel_sha256=identity.panel_sha256,
@@ -227,16 +237,9 @@ def external_sequence_metadata(
     return metadata
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--shard-cache",
-        help=(
-            "immutable LightGBM shard-cache root; defaults to this run's "
-            "content-addressed outputs/runs directory"
-        ),
-    )
-    args = parser.parse_args()
+def _run(args: argparse.Namespace) -> None:
+    components_pointer = C.MODELS / "route_a_external_components.json"
+    receipt_path = ROOT / STAGE25_COMPLETION_RECEIPT_PATH
     runtime_policy = assert_formal_numerical_policy()
     predictor_bridge = development_predictor_bridge_binding(
         ROOT,
@@ -275,6 +278,16 @@ def main() -> None:
             "training_device": "cpu",
         },
     )
+    # Invalidate any earlier success marker immediately after taking the run
+    # lock.  A crash from this point until the final atomic receipt publication
+    # therefore leaves a document that --check must reject.
+    atomic_write_json(receipt_path, {
+        "format": STAGE25_COMPLETION_FORMAT,
+        "status": "INCOMPLETE",
+        "stage": "25_train_external_pooled_suite",
+        "run_id": identity.run_id,
+        "confirmation_outcomes_requested_or_read": False,
+    })
     # Lock before pooled preprocessing materialises arrays and before any
     # checkpoint or external shard-cache path can be reached.
     prepared = D.prepare_dataset_from_panel(str(PANEL))
@@ -405,7 +418,9 @@ def main() -> None:
          lstm_factory_from_metadata),
     ):
         rows = predictions[predictions.model.eq(model_id)]
-        offsets, calibrators = pooled_calibration(model_predictions, pooled_threshold)
+        offsets, offset_audit, calibrators = pooled_calibration(
+            model_predictions, pooled_threshold
+        )
         directory = C.MODELS / f"external_{model_id.lower()}_bundle_{identity.run_id}"
         save_inference_bundle(
             directory, members=models,
@@ -413,6 +428,7 @@ def main() -> None:
                 identity=identity, wd=wd, climatology=climatology, imputer=imputer,
                 pooled_threshold=pooled_threshold, architecture_class=architecture_class,
                 architecture_kwargs=kwargs, offsets=offsets,
+                offset_audit=offset_audit,
                 calibrators=calibrators,
                 event_reference=event_reference,
                 prediction_binding=development_prediction_binding(
@@ -437,7 +453,7 @@ def main() -> None:
         sequence_artifacts[model_id] = directory
 
     lgb_rows = predictions[predictions.model.eq("LightGBM")]
-    lgb_offsets, lgb_calibrators = pooled_calibration(
+    lgb_offsets, lgb_offset_audit, lgb_calibrators = pooled_calibration(
         lgb_rows, pooled_threshold
     )
     lgb_manifest = save_lightgbm_bundle(
@@ -474,6 +490,11 @@ def main() -> None:
             "event_calibrators": {str(h): value.as_dict()
                                   for h, value in sorted(lgb_calibrators.items())},
             "conformal_offsets": serialise_offsets(lgb_offsets),
+            "conformal_policy": CF.cqr_policy_contract(),
+            "conformal_offset_audit": lgb_offset_audit,
+            "calibration_fit_contract": route_a_calibration_fit_contract(
+                external=True
+            ),
             "source_sha256": identity.source_sha256,
             "panel_sha256": identity.panel_sha256,
             "registry_sha256": identity.registry_sha256,
@@ -518,7 +539,7 @@ def main() -> None:
         lightgbm_entry(ROOT, manifest=lgb_manifest, raw_feature_order=wd.var_names),
     ]
     write_component_pointer(
-        C.MODELS / "route_a_external_components.json",
+        components_pointer,
         run_id=identity.run_id, cohort="external", entries=entries,
         raw_feature_order=wd.var_names,
         development_contract=development_contract,
@@ -527,7 +548,56 @@ def main() -> None:
             "sidecar": file_binding(ROOT, sidecar_path(prediction_path)),
         },
     )
+    receipt = build_stage25_completion_receipt(
+        root=ROOT,
+        run_id=identity.run_id,
+        run_manifest=run_dir / "run.json",
+        components_pointer=components_pointer,
+    )
+    # Deliberately the final filesystem write in the transaction.  The publish
+    # helper validates the candidate closure before the atomic replace and
+    # re-opens the on-disk receipt afterwards.
+    publish_stage25_completion_receipt(
+        receipt_path,
+        receipt,
+        root=ROOT,
+        components_pointer=components_pointer,
+    )
     log("saved complete external pooled components: TR5 + LSTM5 + LGB5")
+    log(f"saved Stage-25 completion receipt: {receipt_path.relative_to(ROOT)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="read-only validation of the published Stage-25 completion receipt",
+    )
+    parser.add_argument(
+        "--shard-cache",
+        help=(
+            "immutable LightGBM shard-cache root; defaults to this run's "
+            "content-addressed outputs/runs directory"
+        ),
+    )
+    args = parser.parse_args()
+    components_pointer = C.MODELS / "route_a_external_components.json"
+    receipt_path = ROOT / STAGE25_COMPLETION_RECEIPT_PATH
+    if args.check:
+        with advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False):
+            receipt = validate_stage25_completion_receipt(
+                receipt_path,
+                root=ROOT,
+                components_pointer=components_pointer,
+            )
+        print(
+            f"Stage-25 COMPLETE: run_id={receipt['run_id']} "
+            f"receipt={receipt_path.relative_to(ROOT)}"
+        )
+        return
+    with advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=True):
+        _run(args)
 
 
 if __name__ == "__main__":

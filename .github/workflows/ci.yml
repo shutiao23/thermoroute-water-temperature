@@ -77,6 +77,14 @@ jobs:
           python scripts/14_manifest.py \
             --root "$PWD" --manifest /tmp/thermoroute-manifest.json \
             --check --strict-git
+      - name: Canonical Markdown to AGU TeX is current
+        if: ${{ matrix.deps == 'locked' }}
+        run: |
+          PINNED_PANDOC="$(python -c \
+            "from pathlib import Path; import pypandoc; print(Path(pypandoc.__file__).resolve().parent / 'files' / 'pandoc')")"
+          test -x "$PINNED_PANDOC"
+          PANDOC_PATH="$PINNED_PANDOC" \
+            python paper/agu_submission/build_agu.py --check
       - name: Build and import the wheel outside the source tree
         if: ${{ matrix.deps == 'locked' }}
         run: |

@@ -50,6 +50,10 @@ from thermoroute.checkpoint import (  # noqa: E402
     neural_output_head_schema,
     save_inference_bundle,
 )
+from thermoroute.conformal import (  # noqa: E402
+    cqr_policy_contract,
+    finalise_cqr_offsets,
+)
 from thermoroute.provenance import (  # noqa: E402
     canonical_json_bytes,
     sha256_bytes,
@@ -62,6 +66,22 @@ from thermoroute.probability import (  # noqa: E402
 )
 from thermoroute.repro import RunIdentity, seal_artifact  # noqa: E402
 from thermoroute.train import LSTMForecaster  # noqa: E402
+
+
+def _add_cqr_contract(metadata: dict) -> dict:
+    raw = {
+        tuple(key.rsplit("|", 1)): value
+        for key, value in metadata["conformal_offsets"].items()
+    }
+    raw = {(site, int(horizon)): value for (site, horizon), value in raw.items()}
+    deployed, audit = finalise_cqr_offsets(raw)
+    metadata["conformal_offsets"] = {
+        f"{site}|{horizon}": value
+        for (site, horizon), value in deployed.items()
+    }
+    metadata["conformal_policy"] = cqr_policy_contract()
+    metadata["conformal_offset_audit"] = audit
+    return metadata
 
 
 def test_external_registry_reader_roundtrips_candidate_metrics(tmp_path):
@@ -2736,7 +2756,7 @@ def test_worker_prediction_cannot_substitute_labels_for_frozen_model_output():
 
 
 def test_frozen_calibration_is_applied_after_member_average_and_external_is_pooled():
-    metadata = {
+    metadata = _add_cqr_contract({
         "conformal_offsets": {"01234567|1": 0.2, "01234567|3": 0.3,
                               "01234567|7": 0.4},
         "event_thresholds": {"01234567": 20.0},
@@ -2744,7 +2764,7 @@ def test_frozen_calibration_is_applied_after_member_average_and_external_is_pool
             str(horizon): {"intercept": 0.0, "slope": 1.0, "constant": None}
             for horizon in (1, 3, 7)
         },
-    }
+    })
     q05, q50, q95, probability = _frozen_calibration(
         metadata,
         np.asarray(["01234567"]),
@@ -2769,6 +2789,35 @@ def test_frozen_calibration_is_applied_after_member_average_and_external_is_pool
             q05, q50, q95, probability,
             external=True,
             label="external-fixture",
+        )
+
+    for unsafe in (-0.1, np.nan, np.inf):
+        attacked = json.loads(json.dumps(metadata))
+        attacked["conformal_offsets"]["01234567|1"] = unsafe
+        with pytest.raises(OpeningContractError, match="negative|non-finite|policy"):
+            _frozen_calibration(
+                attacked,
+                np.asarray(["01234567"]),
+                (1, 3, 7),
+                np.asarray([[9.0, 8.0, 7.0]]),
+                np.asarray([[10.0, 10.0, 10.0]]),
+                np.asarray([[11.0, 12.0, 13.0]]),
+                np.asarray([[0.2, 0.4, 0.8]]),
+                external=False,
+                label="unsafe-fixture",
+            )
+
+    with pytest.raises(OpeningContractError, match="before CQR"):
+        _frozen_calibration(
+            metadata,
+            np.asarray(["01234567"]),
+            (1, 3, 7),
+            np.asarray([[11.0, 8.0, 7.0]]),
+            np.asarray([[10.0, 10.0, 10.0]]),
+            np.asarray([[9.0, 12.0, 13.0]]),
+            np.asarray([[0.2, 0.4, 0.8]]),
+            external=False,
+            label="crossed-fixture",
         )
 
 
@@ -2804,7 +2853,7 @@ def test_trusted_sequence_scorer_loads_all_members_and_emits_one_ensemble_row(tm
             "station_agnostic": False, "station_embed_dim": 2,
         },
     }
-    metadata = {
+    metadata = _add_cqr_contract({
         "run_id": "fixture",
         "output_head_schema": neural_output_head_schema(),
         "architecture": architecture,
@@ -2824,7 +2873,7 @@ def test_trusted_sequence_scorer_loads_all_members_and_emits_one_ensemble_row(tm
         "panel_sha256": "p",
         "registry_sha256": "r",
         "runtime_sha256": "t",
-    }
+    })
     members = {}
     for seed in range(5):
         torch.manual_seed(seed)

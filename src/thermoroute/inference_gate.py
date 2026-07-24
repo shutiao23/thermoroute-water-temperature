@@ -37,17 +37,18 @@ from .coverage_audit import (
     CoverageAuditError,
     validate_temporal_coverage_policy,
 )
+from .conformal import cqr_policy_contract
 
 
 GATE_FORMAT = "thermoroute.route-a-inference-gate.v1"
-AMENDMENT_FORMAT = "thermoroute.route-a-inference-amendment.v1"
-AMENDMENT_SEAL_FORMAT = "thermoroute.route-a-inference-amendment-seal.v1"
+AMENDMENT_FORMAT = "thermoroute.route-a-inference-amendment.v2"
+AMENDMENT_SEAL_FORMAT = "thermoroute.route-a-inference-amendment-seal.v2"
 
 BASE_PROTOCOL_RELATIVE = "protocols/route_a_confirmatory_v1.json"
 BASE_PROTOCOL_SEAL_RELATIVE = "protocols/route_a_protocol_seal_v1.json"
 STATION_REGISTRY_RELATIVE = "data_usgs/station_registry_v1.csv"
-AMENDMENT_RELATIVE = "protocols/route_a_inference_amendment_v1.json"
-AMENDMENT_SEAL_RELATIVE = "protocols/route_a_inference_amendment_seal_v1.json"
+AMENDMENT_RELATIVE = "protocols/route_a_inference_amendment_v2.json"
+AMENDMENT_SEAL_RELATIVE = "protocols/route_a_inference_amendment_seal_v2.json"
 DEFAULT_GATE_RELATIVE = "outputs/prelabel/route_a_inference_gate_v1.json"
 
 MIN_CLUSTERS = 30
@@ -86,6 +87,54 @@ NULL_SIMULATION_SCENARIOS: tuple[str, ...] = (
 
 class InferenceGateError(RuntimeError):
     """The pre-outcome inference contract is absent, stale, or inconsistent."""
+
+
+def inference_amendment_cqr_contract() -> dict[str, Any]:
+    """Return the outcome-free v2 overlay that makes "widens only" executable."""
+    return {
+        "policy": cqr_policy_contract(),
+        "frozen_bundle_metadata": {
+            "required_fields": [
+                "conformal_offsets",
+                "conformal_policy",
+                "conformal_offset_audit",
+                "calibration_fit_contract",
+            ],
+            "raw_signed_offset_evidence": (
+                "retain_exact_registry_negative_zero_positive_counts_raw_min_"
+                "raw_max_and_clipped_count"
+            ),
+            "deployed_offset_requirement": "finite_and_nonnegative_for_every_key",
+            "fit_evidence": (
+                "CQR_and_horizon_Platt_use_only_the_2018_calib_split; CQR_"
+                "purges_target_dates_after_2018-12-31"
+            ),
+            "fit_intervals": {
+                "model_training": ["2006-01-01", "2015-12-31"],
+                "hyperparameter_selection": ["2016-01-01", "2017-12-31"],
+                "cqr_and_platt_calibration": ["2018-01-01", "2018-12-31"],
+                "seasonal_event_reference": ["2006-01-01", "2018-12-31"],
+            },
+        },
+        "development_replay_gate": {
+            "required": True,
+            "scope": "every_learned_temporal_and_external_model",
+            "operation": (
+                "mean_frozen_development_members_then_apply_frozen_nonnegative_"
+                "CQR_and_validate_final_q05_q50_q95"
+            ),
+            "pass_condition": (
+                "all_final_heads_finite_ordered_nonempty_and_every_interval_"
+                "weakly_widened"
+            ),
+        },
+        "opening_contract": {
+            "negative_or_nonfinite_deployed_offset": "FAIL_CLOSED_BEFORE_LABEL_READ",
+            "crossed_or_nonfinite_final_heads": "FAIL_CLOSED",
+            "q50_adjusted_by_cqr": False,
+            "interval_shrinkage_allowed": False,
+        },
+    }
 
 
 def _sha256_file(path: Path) -> str:
@@ -449,14 +498,15 @@ def validate_inference_amendment(
         "base_protocol", "base_protocol_seal", "scientific_comparisons",
         "estimand_scope", "inference_scope", "decision_overlay",
         "additional_preopen_gates", "trusted_scoring_recovery_contract",
-        "lineage_contract",
+        "cqr_calibration_contract", "lineage_contract",
     }
     if set(amendment) != required:
         raise InferenceGateError("inference amendment schema changed")
     if (
         amendment.get("format") != AMENDMENT_FORMAT
         or amendment.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
-        or amendment.get("amendment_id") != "route-a-prelabel-inference-scope-014"
+        or amendment.get("amendment_id") != "route-a-prelabel-inference-cqr-015"
+        or amendment.get("recorded_date") != "2026-07-24"
         or amendment.get("post_2020_wtemp_requested_or_inspected") is not False
         or amendment.get("outcome_independent") is not True
         or amendment.get("base_protocol") != _binding(root_path, protocol_file)
@@ -614,6 +664,12 @@ def validate_inference_amendment(
     if not isinstance(recovery, Mapping) or dict(recovery) != expected_recovery:
         raise InferenceGateError(
             "inference amendment trusted-scoring recovery contract changed"
+        )
+    if amendment.get("cqr_calibration_contract") != (
+        inference_amendment_cqr_contract()
+    ):
+        raise InferenceGateError(
+            "inference amendment CQR widens-only contract changed"
         )
     lineage = amendment.get("lineage_contract")
     if not isinstance(lineage, Mapping) or lineage != {

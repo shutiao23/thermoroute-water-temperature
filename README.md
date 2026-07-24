@@ -22,12 +22,13 @@ The repository is in a **pre-opening reconstruction state**.
 - The target interval for the one-time retrospective exercise is 2021-01-01
   through 2023-12-31. Its outcome values have not been requested or inspected in
   this workflow.
-- The final pre-label protocol and its honest-owner Git seal are in `protocols/`.
-  The seal has no external timestamp, public registration, independent custodian,
-  or write-once storage.
-- Old files under `outputs/` were produced by a legacy cohort and lack the current
-  lineage sidecars. They are historical artifacts, not current evidence, and must
-  not be cited as results of the present pipeline.
+- The final pre-label protocol, amendment, and honest-owner Git-seal machinery are
+  in `protocols/`; the claim registry records whether the amendment is still
+  pending or separately sealed. No local seal has an external timestamp, public
+  registration, independent custodian, or write-once storage.
+- Superseded files formerly stored under `outputs/` were produced by legacy cohorts
+  and lacked the current lineage sidecars. They have been removed from the active
+  evidence namespace and must not be restored or cited as results of this pipeline.
 - The outcome-free 2018–2020 Daymet/gridMET compatibility bridge is complete and
   records `PASS_EXACT_PRODUCT_BRIDGE`. This proves exact agreement for the frozen
   bridge projection, not operational predictor availability or local-day
@@ -75,7 +76,7 @@ The development split is:
 |---|---|---|
 | Train | 2006–2015 | fit models and preprocessing |
 | Validation | 2016–2017 | model selection only |
-| Calibration | 2018 | conformal calibration and frozen event references |
+| Calibration | 2018 | CQR and Platt fit (2018 only); final year of the seasonal event-reference fit (2006–2018) |
 | Development evaluation | 2019–2020 | previously inspected; exploratory diagnostics only |
 | One-time target interval | 2021–2023 | labels remain sealed until all gates pass |
 
@@ -128,15 +129,21 @@ For issue time `t` and horizon `h`, the point forecast has four main pieces:
    tail-risk guarantee.
 
 The learned models emit an MSE point and distinct pinball q05/q50/q95 heads. CQR
-fitted on 2018 widens q05/q95 only; q50 is not adjusted. Member-wise averaged
-quantiles are engineering ensemble summaries, not mixture-distribution quantiles.
+is fitted only on 2018 after member-wise averaging. Its exact split-conformal
+order statistic is retained as a signed raw audit value, while the deployed
+offset is `qhat_plus = max(raw_qhat, 0)`. The final interval is therefore
+`q05 - qhat_plus` to `q95 + qhat_plus`: it may stay unchanged or widen, but it
+cannot shrink; q50 is not adjusted. Non-finite offsets or crossed/non-finite final
+heads fail closed. Member-wise averaged quantiles are engineering ensemble
+summaries, not mixture-distribution quantiles.
 Neural quantiles are ordered by construction, so their retained crossing-loss
 field is compatibility-only and contributes zero. LightGBM's independently fit
 heads are never sorted: the bundle records raw development crossings by member
 and horizon, clips q05/q95 to the nominal raw q50 when necessary, and leaves q50
 exactly unchanged.
-Exceedance events use a frozen seasonal statistical reference derived without
-target-period labels. Probability,
+Exceedance events use a frozen seasonal statistical reference fitted on
+2006–2018 without target-period labels; horizon-specific Platt calibration uses
+2018 only. Probability,
 spatial-influence, exact-qualifier, and architecture-control outputs are descriptive
 or exploratory unless the protocol explicitly places them in the five-test family.
 The seven Stage 09 controls are seed-0-versus-seed-0, single-seed functionality and
@@ -211,18 +218,32 @@ The intended order is strict:
    hypotheses or decisions.
 3. Rebuild the canonical development chain, including the separate matched
    MLP/TCN and multi-seed feature-ladder audit; freeze all five-member temporal
-   and pooled external model bundles; replay every model head on development data.
+   and pooled external model bundles; replay every raw member and head on exact
+   development keys. The verifier maps the panel's legacy aliases through the
+   frozen station registry, requires every selected stable-station/target-date
+   truth value to equal the frozen panel WTEMP value, recomputes the 2006--2015
+   q90 thresholds and 2006--2018 seasonal references, and refits CQR and Platt
+   from the exact 2018 ensemble rows; a merely self-consistent or re-hashed
+   prediction/calibration object is rejected. It then reapplies the independently reproduced nonnegative CQR
+   registry and hashes and verifies the final q05/q50/q95 heads.
+   Before authorization, every final head must be finite and ordered, every
+   interval nonempty, and every calibrated interval no narrower than nominal.
    Stage 9 publishes its content-bound completion receipt only after the canonical
    predictions, tables, report, bundle parity checks, and all three formal pointers
    succeed. `scripts/run_all.sh` then explicitly runs Stage 09b. Stage 09b publishes
    its own receipt as its final atomic write only after the exact 31-member
    (5 MLP + 5 TCN + 21 feature-ladder) registry, common forecast keys and truth,
    architecture/optimisation budget, combined predictions, report, and every
-   lineage sidecar validate. Stage 24 rejects either receipt when it is missing,
+   lineage sidecar validate. Stage 25 likewise publishes a standalone receipt as
+   its final atomic write only after its run manifest, pooled prediction and
+   sidecar, component pointer, development-data bindings, two neural bundles, and
+   the LightGBM manifest, and all 75 LightGBM member/head files form one exact
+   80-model-file closure. Stage 24
+   rejects any of the Stage 9, Stage 09b, or Stage 25 receipts when it is missing,
    stale, incomplete, tampered, or bound to another source/runtime/panel/registry.
-   It binds both receipt paths and SHA-256 digests into the frozen suite identity;
-   the independent release verifier enforces the same two-gate closure without
-   executing archive code.
+   It binds all three receipt paths and SHA-256 digests into the frozen suite
+   identity; the independent release verifier enforces the same three-gate closure
+   without executing archive code.
 4. Commit the model-suite registry while candidate metadata and target-period
    predictor artifacts are absent.
 5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET
@@ -277,7 +298,7 @@ src/thermoroute/              model, data, inference, provenance, and opening co
 scripts/                      development, freezing, opening, and release entrypoints
 tests/                        leakage, replay, schema, failure, and release tests
 paper/                        byte-frozen pre-opening snapshots; POST claims are generated only in the canonical Markdown evidence layer
-outputs/                      legacy artifacts plus future content-addressed outputs
+outputs/                      generated content-addressed evidence; legacy artifacts are excluded
 ```
 
 ## Verification commands
@@ -319,6 +340,13 @@ not a public release. Zenodo deposit metadata is intentionally disabled while
 creator identities and the redistribution terms for each data category remain
 unverified. A `.zenodo.json` file may be restored only after verified creators and
 separate, accurate data-license metadata are available.
+
+The archive's active member namespace excludes withdrawn outputs, generated
+figures, and rendered PDF/DOCX files. Its self-contained Git-history bundle is
+intentionally different: it retains reachable deleted objects so chronology can
+be audited. The archive is therefore not a byte-level purge. Those historical
+objects are provenance only, not current evidence, and require a separate
+license/privacy review before any public redistribution.
 
 ## License
 

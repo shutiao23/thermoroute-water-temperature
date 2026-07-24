@@ -17,9 +17,13 @@ The planned study evaluates daily water-temperature hindcasts at 1-, 3-, and
 damped-persistence anchor, a learned relaxation proposal, a sparse variable/lag
 router, a causal temporal convolutional encoder, a regime mixture, bounded
 residuals, a separate MSE point head, three pinball-trained quantile heads, and a
-split-conformal 90% interval. The evaluation design emphasizes
+split-conformal 90% interval. Signed raw CQR offsets remain auditable, while the
+deployed offset is clipped below at zero so calibration cannot shrink the nominal
+interval or change q50. The evaluation design emphasizes
 common target keys, station-balanced effects, clustered spatial inference, frozen
 model/input chronology, raw qualifier provenance, and receipt-derived statements.
+Models use 2006–2015 for fitting, 2016–2017 for selection, and 2018 only for CQR
+and Platt calibration; the seasonal event-reference fit spans 2006–2018.
 The H2 comparison is limited to the frozen four-candidate, five-seed LightGBM
 procedure; historical tuning budgets were not equalized. The Stage 09 controls are
 single-seed functionality/intervention diagnostics rather than evidence of causal

@@ -3,11 +3,11 @@
 
 The current pointer is written only when Stage 9, Stage 16 and the pooled
 external training stage have all produced complete, checksum-valid components.
-Stage 9 and the separate Stage-09b matched-control matrix are accepted only with
-their final content-bound completion receipts.  A missing report, incomplete
-31-member matrix, key/budget drift, interrupted transaction or stale receipt
-fails closed.  Both accepted receipt paths and checksums become part of the
-frozen suite identity.
+Stage 9, the separate Stage-09b matched-control matrix and Stage 25 are accepted
+only with their final content-bound completion receipts.  A missing report,
+incomplete 31-member matrix or external model closure, key/budget drift,
+interrupted transaction or stale receipt fails closed.  All three accepted
+receipt paths and checksums become part of the frozen suite identity.
 This command performs no fitting and has no network or post-2020 input path.
 """
 
@@ -90,14 +90,20 @@ from thermoroute.model_suite import (  # noqa: E402
     MANDATORY_ABLATIONS,
     PRIMARY_MODELS,
     STAGE9_COMPLETION_RECEIPT_PATH,
+    STAGE25_COMPLETION_RECEIPT_PATH,
     ModelSuiteError,
     builtin_entry,
     file_binding,
     freeze_model_suite,
     load_component_pointer,
     validate_stage09_completion_receipt,
+    validate_stage25_completion_receipt,
 )
-from thermoroute.repro import sha256_file, sha256_json  # noqa: E402
+from thermoroute.repro import (  # noqa: E402
+    advisory_file_lock,
+    sha256_file,
+    sha256_json,
+)
 
 
 def _entries(pointer: dict) -> dict[str, dict]:
@@ -128,29 +134,54 @@ def _load_verified_stage09b(
     return receipt, file_binding(root, receipt_path)
 
 
+def _load_verified_stage25(
+    pointer_path: Path, receipt_path: Path, *, root: Path = ROOT,
+) -> tuple[dict, dict[str, str]]:
+    """Require the last atomic Stage-25 receipt before suite freezing."""
+    receipt = validate_stage25_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=pointer_path,
+    )
+    components = load_component_pointer(pointer_path)
+    artifacts = receipt.get("artifacts")
+    if (
+        receipt.get("run_id") != components.get("run_id")
+        or not isinstance(artifacts, dict)
+        or artifacts.get("components_pointer")
+        != file_binding(root, pointer_path)
+    ):
+        raise ModelSuiteError(
+            "Stage-25 receipt and component pointer differ after validation"
+        )
+    return components, file_binding(root, receipt_path)
+
+
 def _model_suite_id(
     *,
     protocol_sha256: str,
     stage9: dict,
     stage09_completion: dict[str, str],
     stage09b_completion: dict[str, str],
+    stage25_completion: dict[str, str],
     lstm: dict,
     external: dict,
     features: tuple[str, ...],
 ) -> str:
-    """Content-address the suite, including the receipt that admitted Stage 9."""
+    """Content-address the suite, including all three completion receipts."""
     return sha256_json({
         "protocol_sha256": protocol_sha256,
         "stage9": stage9,
         "stage09_completion": stage09_completion,
         "stage09b_completion": stage09b_completion,
+        "stage25_completion": stage25_completion,
         "lstm": lstm,
         "external": external,
         "features": features,
     })[:20]
 
 
-def main() -> None:
+def _run() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--protocol", type=Path,
@@ -178,6 +209,10 @@ def main() -> None:
         default=C.MODELS / "route_a_external_components.json",
     )
     parser.add_argument(
+        "--external-receipt", type=Path,
+        default=ROOT / STAGE25_COMPLETION_RECEIPT_PATH,
+    )
+    parser.add_argument(
         "--current", type=Path,
         default=C.MODELS / "route_a_model_suite_current.json",
     )
@@ -195,7 +230,9 @@ def main() -> None:
         args.stage09b_receipt
     )
     lstm = load_component_pointer(args.lstm)
-    external = load_component_pointer(args.external)
+    external, stage25_completion = _load_verified_stage25(
+        args.external, args.external_receipt
+    )
     if stage9.get("cohort") != "temporal_stage9":
         raise ModelSuiteError("Stage-9 component pointer has the wrong cohort")
     if lstm.get("cohort") != "temporal_lstm":
@@ -265,6 +302,7 @@ def main() -> None:
         stage9=stage9,
         stage09_completion=stage09_completion,
         stage09b_completion=stage09b_completion,
+        stage25_completion=stage25_completion,
         lstm=lstm,
         external=external,
         features=feature_order,
@@ -278,11 +316,19 @@ def main() -> None:
         development_contract=contracts[0],
         stage09_completion=stage09_completion,
         stage09b_completion=stage09b_completion,
+        stage25_completion=stage25_completion,
         registry_alias=args.destination,
     )
     print(f"frozen content-addressed Route-A model suite: {versioned}")
     print(f"frozen opening registry: {args.destination}")
     print(f"published current pointer: {args.current}")
+
+
+def main() -> None:
+    # Hold one shared Stage-25 transaction snapshot while validating the
+    # receipt, reading every external component, and freezing the suite.
+    with advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False):
+        _run()
 
 
 if __name__ == "__main__":

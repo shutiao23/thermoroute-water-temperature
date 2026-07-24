@@ -9,14 +9,16 @@ instead of pickle.
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
+from datetime import datetime
 import hashlib
+from io import BytesIO
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
@@ -35,6 +37,12 @@ from .checkpoint import (
     load_inference_bundle,
     neural_output_head_schema,
 )
+from .conformal import (
+    CQRContractError,
+    cqr_offsets_with_audit,
+    cqr_policy_contract,
+    validate_cqr_offset_bundle,
+)
 from .chronology import STAGE09_ARTIFACT_PATHS
 from .development_controls_gate import (
     DevelopmentControlsGateError,
@@ -51,16 +59,22 @@ from .quantiles import (
     validate_raw_quantile_crossing_summary,
 )
 from .repro import (
+    ARTIFACT_SCHEMA_VERSION,
     RUN_SCHEMA_VERSION,
     atomic_write_bytes,
     atomic_write_json,
+    numerical_runtime_contract,
     sha256_json,
     sidecar_path,
     source_tree_hash,
     validate_artifact_sidecar,
 )
 from .registry import FORECAST_KEY, targets_match_at_model_precision
-from .weighting import STATION_EQUAL_WEIGHTING, STATION_SUMMARY_EQUAL_WEIGHTING
+from .weighting import (
+    ROW_EQUAL_WEIGHTING,
+    STATION_EQUAL_WEIGHTING,
+    STATION_SUMMARY_EQUAL_WEIGHTING,
+)
 
 
 LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
@@ -72,6 +86,15 @@ STAGE9_COMPLETION_STATUS = "PASS_FORMAL_STAGE09_COMPLETE"
 STAGE9_COMPLETION_RECEIPT_PATH = (
     "outputs/models/route_a_stage09_completion.json"
 )
+STAGE25_COMPLETION_FORMAT = "thermoroute.stage25-completion-receipt.v1"
+STAGE25_COMPLETION_STATUS = "COMPLETE"
+STAGE25_COMPLETION_RECEIPT_PATH = (
+    "outputs/models/route_a_stage25_completion.json"
+)
+STAGE25_COMPONENT_POINTER_PATH = (
+    "outputs/models/route_a_external_components.json"
+)
+STAGE25_REQUIRED_MODELS = ("ThermoRoute", "LSTM", "LightGBM")
 STAGE9_COMPLETION_ARTIFACTS = (
     "run_manifest",
     "predictions",
@@ -101,6 +124,38 @@ LIGHTGBM_HEADS = ("point", "q05", "q50", "q95", "event")
 LIGHTGBM_QUANTILE_AUDIT_KEY_COLUMNS = (
     "site_id", "horizon", "split", "issue_date", "target_date",
 )
+DEVELOPMENT_CALIBRATED_HEAD_GATE_FORMAT = (
+    "thermoroute.development-calibrated-head-gate.v1"
+)
+CALIBRATION_FIT_CONTRACT_FORMAT = "thermoroute.route-a-calibration-fit.v1"
+CALIBRATION_REPLAY_ATOL = 1e-12
+
+
+def route_a_calibration_fit_contract(*, external: bool) -> dict[str, Any]:
+    """Return the exact development-only fit interval for CQR and Platt."""
+    return {
+        "format": CALIBRATION_FIT_CONTRACT_FORMAT,
+        "model_training_interval_inclusive": list(C.SPLIT.train),
+        "hyperparameter_selection_interval_inclusive": list(C.SPLIT.val),
+        "source_split": "calib",
+        "issue_date_interval_inclusive": list(C.SPLIT.calib),
+        "post_2018_rows_allowed": False,
+        "member_aggregation_before_fit": "equal_weight_member_mean",
+        "event_reference_fit_interval_inclusive": [
+            C.SPLIT.train[0], C.SPLIT.calib[1]
+        ],
+        "cqr": {
+            "alpha": 0.10,
+            "grouping": "pooled_by_horizon" if external else "site_by_horizon",
+            "target_date_boundary_purge": C.SPLIT.calib[1],
+            "deployed_offset": "qhat_plus=max(raw_qhat,0)",
+        },
+        "event_probability": {
+            "method": "Platt_logistic_by_horizon",
+            "grouping": "pooled_by_horizon",
+            "fit_interval": list(C.SPLIT.calib),
+        },
+    }
 LSTM_VALIDATION_GRID = (
     {"d": 64, "layers": 1, "dropout": 0.0, "station_embed_dim": 8,
      "use_derived_context": False, "anchor": "persistence"},
@@ -537,9 +592,117 @@ def _require_compatible_measured_binding(
         raise ModelSuiteError(f"{label} measured parity exceeds its frozen tolerance")
 
 
-def validate_development_prediction_binding(
-    root: str | Path, value: object, *, label: str,
-) -> None:
+@dataclass(frozen=True)
+class _DevelopmentPredictionSnapshot:
+    """One immutable read of a prediction artifact and its lineage sidecar."""
+
+    frame: pd.DataFrame
+    selected: pd.DataFrame
+    artifact_path: Path
+    artifact_sha256: str
+    sidecar_path: Path
+    sidecar_sha256: str
+    sidecar: Mapping[str, Any]
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _validate_prediction_sidecar_snapshot(
+    metadata: object,
+    *,
+    artifact: Path,
+    artifact_payload: bytes,
+    artifact_sha256: str,
+    label: str,
+) -> Mapping[str, Any]:
+    """Validate lineage against already-read artifact bytes, never the path."""
+    expected_keys = {
+        "schema_version", "kind", "artifact", "artifact_sha256",
+        "artifact_bytes", "content_schema", "run", "parents", "extra",
+        "created_utc",
+    }
+    if not isinstance(metadata, Mapping) or set(metadata) != expected_keys:
+        raise ModelSuiteError(
+            f"{label} development prediction sidecar schema is not exact"
+        )
+    try:
+        created = datetime.fromisoformat(str(metadata["created_utc"]))
+    except ValueError as exc:
+        raise ModelSuiteError(
+            f"{label} development prediction sidecar timestamp is invalid"
+        ) from exc
+    artifact_bytes = metadata.get("artifact_bytes")
+    if (
+        created.tzinfo is None
+        or created.utcoffset() is None
+        or metadata.get("schema_version") != ARTIFACT_SCHEMA_VERSION
+        or metadata.get("artifact") != artifact.name
+        or isinstance(artifact_bytes, (bool, np.bool_))
+        or not isinstance(artifact_bytes, (int, np.integer))
+        or int(artifact_bytes) != len(artifact_payload)
+        or metadata.get("artifact_sha256") != artifact_sha256
+        or metadata.get("content_schema") != R.PREDICTION_SCHEMA_VERSION
+        or not isinstance(metadata.get("kind"), str)
+        or not metadata.get("kind")
+        or not isinstance(metadata.get("parents"), Mapping)
+        or not isinstance(metadata.get("extra"), Mapping)
+    ):
+        raise ModelSuiteError(
+            f"{label} development prediction bytes or sidecar fields changed"
+        )
+    parents = metadata["parents"]
+    assert isinstance(parents, Mapping)
+    if any(
+        not isinstance(name, str)
+        or not name
+        or not _is_sha256(digest)
+        for name, digest in parents.items()
+    ):
+        raise ModelSuiteError(
+            f"{label} development prediction parent registry is malformed"
+        )
+    run = metadata.get("run")
+    run_keys = {
+        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256", "schema_version",
+    }
+    if (
+        not isinstance(run, Mapping)
+        or set(run) != run_keys
+        or run.get("schema_version") != RUN_SCHEMA_VERSION
+        or not isinstance(run.get("run_id"), str)
+        or not run.get("run_id")
+        or any(
+            not _is_sha256(run.get(field))
+            for field in (
+                "panel_sha256", "registry_sha256", "config_sha256",
+                "source_sha256", "runtime_sha256",
+            )
+        )
+    ):
+        raise ModelSuiteError(
+            f"{label} development prediction run identity is malformed"
+        )
+    return dict(metadata)
+
+
+def _read_development_prediction_snapshot(
+    root: str | Path,
+    value: object,
+    *,
+    label: str,
+) -> _DevelopmentPredictionSnapshot:
+    """Read, bind and parse development predictions from one byte snapshot."""
     if not isinstance(value, Mapping):
         raise ModelSuiteError(f"{label} lacks development prediction binding")
     required = {
@@ -547,60 +710,182 @@ def validate_development_prediction_binding(
         "max_abs_difference", "atol", "selection", "forecast_key_columns",
         "prediction_columns",
     }
-    missing = required - set(value)
-    if missing:
-        raise ModelSuiteError(f"{label} prediction binding missing: {sorted(missing)}")
+    if set(value) != required:
+        raise ModelSuiteError(f"{label} prediction binding schema is not exact")
     artifact = value["artifact"]
-    if not isinstance(artifact, Mapping) or not isinstance(artifact.get("sidecar"), Mapping):
-        raise ModelSuiteError(f"{label} prediction artifact/sidecar binding is malformed")
+    artifact_keys = {"path", "sha256", "sidecar"}
+    if not isinstance(artifact, Mapping) or set(artifact) != artifact_keys:
+        raise ModelSuiteError(f"{label} prediction artifact binding is malformed")
+    sidecar_binding = artifact.get("sidecar")
+    if (
+        not isinstance(sidecar_binding, Mapping)
+        or set(sidecar_binding) != {"path", "sha256"}
+    ):
+        raise ModelSuiteError(
+            f"{label} prediction sidecar binding is malformed"
+        )
     path = _resolve_inside(Path(root), artifact.get("path"))
-    if sha256_file(path) != artifact.get("sha256"):
+    try:
+        artifact_payload = path.read_bytes()
+    except OSError as exc:
+        raise ModelSuiteError(
+            f"{label} development prediction cannot be read"
+        ) from exc
+    artifact_digest = _sha256_bytes(artifact_payload)
+    if artifact_digest != artifact.get("sha256"):
         raise ModelSuiteError(f"{label} development prediction checksum mismatch")
-    sidecar = _resolve_inside(Path(root), artifact["sidecar"].get("path"))
+    sidecar = _resolve_inside(Path(root), sidecar_binding.get("path"))
     if sidecar != sidecar_path(path).resolve():
         raise ModelSuiteError(f"{label} binds a non-canonical prediction sidecar")
-    if sha256_file(sidecar) != artifact["sidecar"].get("sha256"):
-        raise ModelSuiteError(f"{label} development prediction sidecar checksum mismatch")
     try:
-        validate_artifact_sidecar(
-            path, schema=R.PREDICTION_SCHEMA_VERSION
-        )
-    except ValueError as exc:
+        sidecar_payload = sidecar.read_bytes()
+    except OSError as exc:
         raise ModelSuiteError(
-            f"{label} development prediction sidecar is malformed"
+            f"{label} development prediction sidecar cannot be read"
         ) from exc
-    if int(value.get("rows", 0)) < 1:
+    sidecar_digest = _sha256_bytes(sidecar_payload)
+    if sidecar_digest != sidecar_binding.get("sha256"):
+        raise ModelSuiteError(
+            f"{label} development prediction sidecar checksum mismatch"
+        )
+    try:
+        sidecar_document = json.loads(sidecar_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError(
+            f"{label} development prediction sidecar is invalid JSON"
+        ) from exc
+    validated_sidecar = _validate_prediction_sidecar_snapshot(
+        sidecar_document,
+        artifact=path,
+        artifact_payload=artifact_payload,
+        artifact_sha256=artifact_digest,
+        label=label,
+    )
+    rows = value.get("rows")
+    if (
+        isinstance(rows, (bool, np.bool_))
+        or not isinstance(rows, (int, np.integer))
+        or int(rows) < 1
+    ):
         raise ModelSuiteError(f"{label} development prediction row count is empty")
     for field in ("forecast_key_registry_sha256", "prediction_sha256"):
-        digest = str(value.get(field, ""))
-        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        if not _is_sha256(value.get(field)):
             raise ModelSuiteError(f"{label} {field} is not SHA-256")
-    difference, tolerance = float(value["max_abs_difference"]), float(value["atol"])
-    if not np.isfinite(difference) or difference < 0 or tolerance < 0 or difference > tolerance:
+    try:
+        difference = float(value["max_abs_difference"])
+        tolerance = float(value["atol"])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ModelSuiteError(
+            f"{label} development prediction parity is malformed"
+        ) from exc
+    if (
+        isinstance(value["max_abs_difference"], (bool, np.bool_))
+        or isinstance(value["atol"], (bool, np.bool_))
+        or not np.isfinite(difference)
+        or difference < 0
+        or not np.isfinite(tolerance)
+        or tolerance < 0
+        or difference > tolerance
+    ):
         raise ModelSuiteError(f"{label} development prediction parity failed")
     selection = value["selection"]
-    if not isinstance(selection, Mapping) or set(selection) < {"model", "seeds"}:
+    if not isinstance(selection, Mapping) or set(selection) != {"model", "seeds"}:
         raise ModelSuiteError(f"{label} prediction selection is malformed")
+    model = selection.get("model")
+    raw_seeds = selection.get("seeds")
+    if (
+        not isinstance(model, str)
+        or not model
+        or isinstance(raw_seeds, (str, bytes))
+        or not isinstance(raw_seeds, Sequence)
+        or not raw_seeds
+        or any(
+            isinstance(seed, (bool, np.bool_))
+            or not isinstance(seed, (int, np.integer))
+            for seed in raw_seeds
+        )
+    ):
+        raise ModelSuiteError(f"{label} prediction selection is malformed")
+    seeds = tuple(int(seed) for seed in raw_seeds)
+    if len(set(seeds)) != len(seeds):
+        raise ModelSuiteError(f"{label} prediction seed registry is duplicated")
+    if tuple(value["forecast_key_columns"]) != (
+        "site_id", "horizon", "issue_date", "target_date"
+    ):
+        raise ModelSuiteError(f"{label} forecast-key schema changed")
+    if tuple(value["prediction_columns"]) != tuple(R.PRED_COLS):
+        raise ModelSuiteError(f"{label} prediction value schema changed")
     try:
-        frame = pd.read_parquet(path)
+        frame = pd.read_parquet(BytesIO(artifact_payload))
     except Exception as exc:
-        raise ModelSuiteError(f"{label} development prediction cannot be read") from exc
+        raise ModelSuiteError(
+            f"{label} development prediction cannot be parsed"
+        ) from exc
+    missing = set(R.PRED_COLS) - set(frame)
+    if missing:
+        raise ModelSuiteError(
+            f"{label} development prediction columns are incomplete: {sorted(missing)}"
+        )
+    numeric_seed = pd.to_numeric(frame["seed"], errors="coerce")
+    if (
+        numeric_seed.isna().any()
+        or not np.isfinite(numeric_seed.to_numpy(float)).all()
+        or not np.equal(
+            numeric_seed.to_numpy(float), numeric_seed.to_numpy(float).astype(int)
+        ).all()
+    ):
+        raise ModelSuiteError(f"{label} development prediction seed is not integral")
     selected = frame[
-        frame["model"].astype(str).eq(str(selection["model"]))
-        & frame["seed"].astype(int).isin([int(seed) for seed in selection["seeds"]])
+        frame["model"].astype(str).eq(model)
+        & numeric_seed.astype(int).isin(seeds)
     ].copy()
-    if len(selected) != int(value["rows"]):
+    if len(selected) != int(rows):
         raise ModelSuiteError(f"{label} development prediction row count changed")
-    key_columns = tuple(str(column) for column in value["forecast_key_columns"])
-    prediction_columns = tuple(str(column) for column in value["prediction_columns"])
+    key_columns = ("site_id", "horizon", "issue_date", "target_date")
     key_digest = canonical_frame_digest(
         selected.drop_duplicates(list(key_columns)), key_columns
     )
-    prediction_digest = canonical_frame_digest(selected, prediction_columns)
+    prediction_digest = canonical_frame_digest(selected, R.PRED_COLS)
     if key_digest != value["forecast_key_registry_sha256"]:
         raise ModelSuiteError(f"{label} development forecast-key digest mismatch")
     if prediction_digest != value["prediction_sha256"]:
         raise ModelSuiteError(f"{label} development prediction digest mismatch")
+    return _DevelopmentPredictionSnapshot(
+        frame=frame,
+        selected=selected,
+        artifact_path=path,
+        artifact_sha256=artifact_digest,
+        sidecar_path=sidecar,
+        sidecar_sha256=sidecar_digest,
+        sidecar=validated_sidecar,
+    )
+
+
+def _assert_prediction_snapshot_unchanged(
+    snapshot: _DevelopmentPredictionSnapshot, *, label: str
+) -> None:
+    """Close the validation window before accepting a replay result."""
+    try:
+        artifact_digest = sha256_file(snapshot.artifact_path)
+        sidecar_digest = sha256_file(snapshot.sidecar_path)
+    except OSError as exc:
+        raise ModelSuiteError(
+            f"{label} development prediction changed during validation"
+        ) from exc
+    if (
+        artifact_digest != snapshot.artifact_sha256
+        or sidecar_digest != snapshot.sidecar_sha256
+    ):
+        raise ModelSuiteError(
+            f"{label} development prediction changed during validation"
+        )
+
+
+def validate_development_prediction_binding(
+    root: str | Path, value: object, *, label: str,
+) -> None:
+    snapshot = _read_development_prediction_snapshot(root, value, label=label)
+    _assert_prediction_snapshot_unchanged(snapshot, label=label)
 
 
 def _normalise_lightgbm_models(
@@ -828,6 +1113,8 @@ def save_lightgbm_bundle(
         "station_categories",
         "training_weighting", "deterministic_training",
         "event_thresholds", "event_calibrators", "conformal_offsets",
+        "conformal_policy", "conformal_offset_audit",
+        "calibration_fit_contract",
         "source_sha256", "panel_sha256", "registry_sha256", "config_sha256",
         "runtime_sha256", "training_device",
         "development_prediction",
@@ -862,6 +1149,10 @@ def save_lightgbm_bundle(
         raise ModelSuiteError("LightGBM deterministic training contract changed")
     if metadata.get("training_device") != "cpu":
         raise ModelSuiteError("formal LightGBM bundles must be trained on CPU")
+    _validate_cqr_metadata(metadata, label="LightGBM bundle")
+    _validate_calibration_fit_metadata(
+        metadata, label="LightGBM bundle", external=station_agnostic
+    )
     categories = tuple(str(value) for value in metadata["station_categories"])
     if uses_category:
         if not categories or len(categories) != len(set(categories)):
@@ -1399,11 +1690,815 @@ def serialise_preprocessing(wd: Any, climatology: Any, imputer: D.Imputer) -> di
     }
 
 
-def serialise_offsets(offsets: Mapping[tuple[str, int], object]) -> dict[str, float | None]:
-    return {
-        f"{station}|{int(horizon)}": _finite(value)
-        for (station, horizon), value in sorted(offsets.items())
+def serialise_offsets(offsets: Mapping[tuple[str, int], object]) -> dict[str, float]:
+    """Serialise only finite, nonnegative deployed CQR offsets.
+
+    Signed raw order statistics belong in ``conformal_offset_audit``.  Allowing
+    this final-deployment serializer to turn infinity into JSON ``null`` or to
+    preserve a negative value would bypass the Route-A widens-only contract.
+    """
+    output: dict[str, float] = {}
+    for (station, horizon), raw_value in sorted(offsets.items()):
+        if isinstance(raw_value, (bool, np.bool_)):
+            raise ModelSuiteError("deployed CQR offset cannot be boolean")
+        try:
+            value = float(cast(Any, raw_value))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ModelSuiteError("deployed CQR offset is not numeric") from exc
+        if not np.isfinite(value) or value < 0.0:
+            raise ModelSuiteError("deployed CQR offsets must be finite and nonnegative")
+        key = f"{str(station)}|{int(horizon)}"
+        if key in output:
+            raise ModelSuiteError("deployed CQR registry has a duplicate key")
+        output[key] = value
+    if not output:
+        raise ModelSuiteError("deployed CQR registry is empty")
+    return output
+
+
+def _validate_cqr_metadata(
+    metadata: Mapping[str, Any], *, label: str
+) -> dict[str, Any]:
+    """Require an exact nonnegative offset registry with raw signed provenance."""
+    try:
+        return validate_cqr_offset_bundle(
+            metadata.get("conformal_offsets", {}),
+            metadata.get("conformal_policy"),
+            metadata.get("conformal_offset_audit"),
+        )
+    except CQRContractError as exc:
+        raise ModelSuiteError(f"{label} CQR deployment contract is invalid") from exc
+
+
+def _validate_calibration_fit_metadata(
+    metadata: Mapping[str, Any], *, label: str, external: bool
+) -> None:
+    if metadata.get("calibration_fit_contract") != (
+        route_a_calibration_fit_contract(external=external)
+    ):
+        raise ModelSuiteError(
+            f"{label} CQR/Platt development fit interval contract changed"
+        )
+
+
+def _strict_calibration_replay_match(
+    expected: object,
+    observed: object,
+    *,
+    label: str,
+    field: str,
+) -> None:
+    """Compare replayed metadata recursively with a fixed absolute tolerance."""
+    if isinstance(expected, Mapping):
+        if not isinstance(observed, Mapping) or set(observed) != set(expected):
+            raise ModelSuiteError(
+                f"{label} replayed {field} field registry differs from metadata"
+            )
+        for key in sorted(expected, key=str):
+            _strict_calibration_replay_match(
+                expected[key], observed[key], label=label,
+                field=f"{field}.{key}",
+            )
+        return
+    if isinstance(expected, (list, tuple)):
+        if (
+            not isinstance(observed, (list, tuple))
+            or len(observed) != len(expected)
+        ):
+            raise ModelSuiteError(
+                f"{label} replayed {field} sequence differs from metadata"
+            )
+        for index, (left, right) in enumerate(zip(expected, observed)):
+            _strict_calibration_replay_match(
+                left, right, label=label, field=f"{field}[{index}]"
+            )
+        return
+    if isinstance(expected, (bool, np.bool_)):
+        if not isinstance(observed, (bool, np.bool_)) or bool(observed) != bool(expected):
+            raise ModelSuiteError(
+                f"{label} replayed {field} differs from metadata"
+            )
+        return
+    if expected is None:
+        if observed is not None:
+            raise ModelSuiteError(
+                f"{label} replayed {field} differs from metadata"
+            )
+        return
+    if isinstance(expected, (int, np.integer)):
+        if (
+            isinstance(observed, (bool, np.bool_))
+            or not isinstance(observed, (int, np.integer))
+            or int(observed) != int(expected)
+        ):
+            raise ModelSuiteError(
+                f"{label} replayed {field} differs from metadata"
+            )
+        return
+    if isinstance(expected, (float, np.floating)):
+        if isinstance(observed, (bool, np.bool_)):
+            raise ModelSuiteError(
+                f"{label} replayed {field} differs from metadata"
+            )
+        try:
+            left, right = float(expected), float(cast(Any, observed))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ModelSuiteError(
+                f"{label} replayed {field} is not numeric"
+            ) from exc
+        if (
+            not np.isfinite(left)
+            or not np.isfinite(right)
+            or not np.isclose(
+                left, right, rtol=0.0, atol=CALIBRATION_REPLAY_ATOL
+            )
+        ):
+            raise ModelSuiteError(
+                f"{label} replayed {field} differs from metadata"
+            )
+        return
+    if type(observed) is not type(expected) or observed != expected:
+        raise ModelSuiteError(
+            f"{label} replayed {field} differs from metadata"
+        )
+
+
+def _recompute_event_definition(
+    panel: pd.DataFrame,
+    *,
+    selected_sites: set[str],
+    external: bool,
+    label: str,
+) -> tuple[dict[str, float], dict[str, object]]:
+    """Recompute q90 thresholds and the frozen reference from panel outcomes."""
+    required = {"DATE", "site_id", "WTEMP"}
+    missing = required - set(panel)
+    if missing:
+        raise ModelSuiteError(
+            f"{label} canonical development panel lacks: {sorted(missing)}"
+        )
+    working = panel[["DATE", "site_id", "WTEMP"]].copy()
+    working["DATE"] = pd.to_datetime(working["DATE"], errors="coerce")
+    working["site_id"] = working["site_id"].astype(str)
+    working["WTEMP"] = pd.to_numeric(working["WTEMP"], errors="coerce")
+    if (
+        working["DATE"].isna().any()
+        or working["site_id"].eq("").any()
+        or working.duplicated(["site_id", "DATE"]).any()
+    ):
+        raise ModelSuiteError(
+            f"{label} canonical development panel keys are invalid"
+        )
+    panel_sites = set(working["site_id"])
+    if panel_sites != selected_sites:
+        raise ModelSuiteError(
+            f"{label} development prediction station registry differs from the panel"
+        )
+    finite = np.isfinite(working["WTEMP"].to_numpy(float))
+    train = working[
+        working["DATE"].between(*map(pd.Timestamp, C.SPLIT.train)) & finite
+    ].copy()
+    if train.empty:
+        raise ModelSuiteError(
+            f"{label} canonical development training interval has no outcomes"
+        )
+    if external:
+        threshold = float(train["WTEMP"].quantile(0.90))
+        thresholds = {"__pooled__": threshold}
+    else:
+        thresholds = {
+            str(site): float(group["WTEMP"].quantile(0.90))
+            for site, group in train.groupby("site_id", sort=True)
+        }
+        if set(thresholds) != panel_sites:
+            raise ModelSuiteError(
+                f"{label} one or more stations lack finite training outcomes"
+            )
+    if not thresholds or not np.isfinite(
+        np.asarray(list(thresholds.values()), dtype=float)
+    ).all():
+        raise ModelSuiteError(f"{label} replayed event thresholds are invalid")
+    try:
+        event_reference = P.fit_frozen_seasonal_event_reference(
+            working,
+            thresholds,
+            pooled=external,
+            fit_interval=(C.SPLIT.train[0], C.SPLIT.calib[1]),
+        )
+    except ValueError as exc:
+        raise ModelSuiteError(
+            f"{label} frozen seasonal event reference cannot be replayed"
+        ) from exc
+    return thresholds, event_reference
+
+
+def _validate_development_truth_against_frozen_panel(
+    panel: pd.DataFrame,
+    prediction_truth: pd.DataFrame,
+    *,
+    label: str,
+) -> None:
+    """Bind every selected development target back to canonical panel truth.
+
+    ``panel`` must already use the stable ``site_no`` identifiers produced by
+    :class:`FrozenPanelSpec`.  Forecasts at different horizons can share a
+    target date, so the comparison registry is deliberately the outcome key
+    ``(site_id, target_date)`` rather than the issue-time forecast key.
+    """
+    panel_required = {"DATE", "site_id", "WTEMP"}
+    prediction_required = {"site_id", "target_date", "y_true"}
+    panel_missing = panel_required - set(panel)
+    prediction_missing = prediction_required - set(prediction_truth)
+    if panel_missing:
+        raise ModelSuiteError(
+            f"{label} canonical development panel lacks truth columns: "
+            f"{sorted(panel_missing)}"
+        )
+    if prediction_missing:
+        raise ModelSuiteError(
+            f"{label} development prediction lacks truth columns: "
+            f"{sorted(prediction_missing)}"
+        )
+
+    canonical = panel[["DATE", "site_id", "WTEMP"]].copy()
+    panel_site_missing = canonical["site_id"].isna().any()
+    canonical["DATE"] = pd.to_datetime(canonical["DATE"], errors="coerce")
+    canonical["site_id"] = canonical["site_id"].astype(str)
+    canonical["WTEMP"] = pd.to_numeric(canonical["WTEMP"], errors="coerce")
+    if (
+        canonical.empty
+        or panel_site_missing
+        or canonical["DATE"].isna().any()
+        or not canonical["DATE"].eq(canonical["DATE"].dt.normalize()).all()
+        or canonical["site_id"].eq("").any()
+        or canonical["site_id"].str.strip().ne(canonical["site_id"]).any()
+        or canonical.duplicated(["site_id", "DATE"]).any()
+    ):
+        raise ModelSuiteError(
+            f"{label} canonical development panel truth keys are invalid or duplicated"
+        )
+
+    observed = prediction_truth[["site_id", "target_date", "y_true"]].copy()
+    prediction_site_missing = observed["site_id"].isna().any()
+    observed["site_id"] = observed["site_id"].astype(str)
+    observed["target_date"] = pd.to_datetime(
+        observed["target_date"], errors="coerce"
+    )
+    observed["y_true"] = pd.to_numeric(observed["y_true"], errors="coerce")
+    if (
+        observed.empty
+        or prediction_site_missing
+        or observed["target_date"].isna().any()
+        or not observed["target_date"].eq(
+            observed["target_date"].dt.normalize()
+        ).all()
+        or observed["site_id"].eq("").any()
+        or observed["site_id"].str.strip().ne(observed["site_id"]).any()
+        or not np.isfinite(observed["y_true"].to_numpy(float)).all()
+    ):
+        raise ModelSuiteError(
+            f"{label} development prediction truth registry is invalid"
+        )
+
+    truth_spread = observed.groupby(
+        ["site_id", "target_date"], sort=True, dropna=False
+    )["y_true"].agg(["min", "max"])
+    if truth_spread.empty or not truth_spread["min"].eq(
+        truth_spread["max"]
+    ).all():
+        raise ModelSuiteError(
+            f"{label} development predictions disagree on an outcome key"
+        )
+    unique_truth = (
+        observed.drop_duplicates(["site_id", "target_date"])
+        .rename(columns={"target_date": "DATE", "y_true": "prediction_y_true"})
+        .sort_values(["site_id", "DATE"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+    matched = unique_truth.merge(
+        canonical.rename(columns={"WTEMP": "panel_y_true"}),
+        on=["site_id", "DATE"],
+        how="left",
+        indicator=True,
+        validate="one_to_one",
+    )
+    if not matched["_merge"].eq("both").all():
+        raise ModelSuiteError(
+            f"{label} development prediction truth key is absent from frozen panel"
+        )
+    panel_truth = matched["panel_y_true"].to_numpy(float)
+    prediction_values = matched["prediction_y_true"].to_numpy(float)
+    if not np.isfinite(panel_truth).all():
+        raise ModelSuiteError(
+            f"{label} frozen panel has a missing or non-finite selected truth"
+        )
+    # Stage 09 canonicalises prediction targets to model precision (float32)
+    # before serialising them as float64.  Compare in that same precision so
+    # a legitimate round trip is accepted while any model-visible change is
+    # rejected exactly.
+    with np.errstate(over="ignore", invalid="ignore"):
+        panel_model_precision = np.asarray(panel_truth, dtype=np.float32)
+        prediction_model_precision = np.asarray(
+            prediction_values, dtype=np.float32
+        )
+    if (
+        not np.isfinite(panel_model_precision).all()
+        or not np.isfinite(prediction_model_precision).all()
+    ):
+        raise ModelSuiteError(
+            f"{label} development truth is not finite at model precision"
+        )
+    if not np.array_equal(panel_model_precision, prediction_model_precision):
+        raise ModelSuiteError(
+            f"{label} development prediction y_true differs from frozen panel WTEMP"
+        )
+
+
+def _recompute_event_definition_from_frozen_panel(
+    root: str | Path,
+    metadata: Mapping[str, Any],
+    *,
+    selected_sites: set[str],
+    external: bool,
+    label: str,
+    prediction_truth: pd.DataFrame | None = None,
+) -> tuple[dict[str, float], dict[str, object]]:
+    """Load only the canonical frozen panel and replay the event definition."""
+    from .evidence import EvidenceError, FrozenPanelSpec
+
+    root_path = Path(root).resolve()
+    spec_path = (root_path / "data_usgs" / "frozen_panel_v1.json").resolve()
+    try:
+        spec = FrozenPanelSpec.load(spec_path)
+    except EvidenceError as exc:
+        raise ModelSuiteError(
+            f"{label} canonical frozen development panel spec is invalid"
+        ) from exc
+    expected_panel = (root_path / "data_usgs" / "panel_usgs_120v2.parquet").resolve()
+    expected_registry = (root_path / "data_usgs" / "station_registry_v1.csv").resolve()
+    if spec.panel_path != expected_panel or spec.registry_path != expected_registry:
+        raise ModelSuiteError(
+            f"{label} frozen panel spec resolves non-canonical artifacts"
+        )
+    panel_sha256 = metadata.get("panel_sha256")
+    registry_sha256 = metadata.get("registry_sha256")
+    if (
+        not _is_sha256(panel_sha256)
+        or not _is_sha256(registry_sha256)
+        or spec.document.get("panel", {}).get("sha256") != panel_sha256
+        or spec.document.get("station_registry", {}).get("sha256")
+        != registry_sha256
+    ):
+        raise ModelSuiteError(
+            f"{label} metadata is bound to another development panel/registry"
+        )
+    try:
+        panel = spec.load_panel(stable_site_ids=True)
+    except EvidenceError as exc:
+        raise ModelSuiteError(
+            f"{label} canonical frozen development panel is invalid"
+        ) from exc
+    if prediction_truth is not None:
+        _validate_development_truth_against_frozen_panel(
+            panel, prediction_truth, label=label
+        )
+    return _recompute_event_definition(
+        panel,
+        selected_sites=selected_sites,
+        external=external,
+        label=label,
+    )
+
+
+def _validate_event_calibrator_metadata(
+    value: object, *, label: str
+) -> Mapping[str, Any]:
+    expected_horizons = {str(int(horizon)) for horizon in C.HORIZONS}
+    if not isinstance(value, Mapping) or set(value) != expected_horizons:
+        raise ModelSuiteError(
+            f"{label} event calibrator horizon registry is not exact"
+        )
+    for horizon in sorted(expected_horizons, key=int):
+        calibrator = value[horizon]
+        if (
+            not isinstance(calibrator, Mapping)
+            or set(calibrator) != {"intercept", "slope", "constant"}
+        ):
+            raise ModelSuiteError(
+                f"{label} h{horizon} event calibrator schema is not exact"
+            )
+        if isinstance(calibrator["intercept"], (bool, np.bool_)) or isinstance(
+            calibrator["slope"], (bool, np.bool_)
+        ):
+            raise ModelSuiteError(
+                f"{label} h{horizon} event calibrator is nonnumeric"
+            )
+        try:
+            intercept = float(calibrator["intercept"])
+            slope = float(calibrator["slope"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ModelSuiteError(
+                f"{label} h{horizon} event calibrator is nonnumeric"
+            ) from exc
+        if not np.isfinite(intercept) or not np.isfinite(slope):
+            raise ModelSuiteError(
+                f"{label} h{horizon} event calibrator is non-finite"
+            )
+        constant = calibrator["constant"]
+        if constant is None:
+            continue
+        if isinstance(constant, (bool, np.bool_)):
+            raise ModelSuiteError(
+                f"{label} h{horizon} constant calibrator is malformed"
+            )
+        try:
+            constant_value = float(constant)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ModelSuiteError(
+                f"{label} h{horizon} constant calibrator is malformed"
+            ) from exc
+        expected_intercept = float(P.logit(np.asarray([constant_value]))[0])
+        if (
+            not np.isfinite(constant_value)
+            or not 0.0 < constant_value < 1.0
+            or slope != 0.0
+            or not np.isclose(
+                intercept,
+                expected_intercept,
+                rtol=0.0,
+                atol=CALIBRATION_REPLAY_ATOL,
+            )
+        ):
+            raise ModelSuiteError(
+                f"{label} h{horizon} constant calibrator invariant failed"
+            )
+    return value
+
+
+def _validate_development_split_registry(
+    selected: pd.DataFrame, *, label: str
+) -> None:
+    """Require the exact frozen val/calib/test forecast interval registry."""
+    expected_splits = {"val", "calib", "test"}
+    splits = set(selected["split"].astype(str))
+    if splits != expected_splits:
+        raise ModelSuiteError(
+            f"{label} development split registry must be exactly val/calib/test"
+        )
+    horizons = pd.to_numeric(selected["horizon"], errors="coerce")
+    if (
+        horizons.isna().any()
+        or set(horizons.astype(int)) != set(C.HORIZONS)
+        or not np.equal(horizons.to_numpy(float), horizons.astype(int)).all()
+    ):
+        raise ModelSuiteError(
+            f"{label} development horizon registry is not exact"
+        )
+    issue_date = pd.to_datetime(selected["issue_date"], errors="coerce")
+    target_date = pd.to_datetime(selected["target_date"], errors="coerce")
+    if (
+        issue_date.isna().any()
+        or target_date.isna().any()
+        or not issue_date.eq(issue_date.dt.normalize()).all()
+        or not target_date.eq(target_date.dt.normalize()).all()
+    ):
+        raise ModelSuiteError(
+            f"{label} development forecast dates are invalid"
+        )
+    for split_name in sorted(expected_splits):
+        mask = selected["split"].astype(str).eq(split_name)
+        lower, upper = (
+            pd.Timestamp(value)
+            for value in getattr(C.SPLIT, split_name)
+        )
+        if (
+            not mask.any()
+            or not issue_date[mask].between(lower, upper).all()
+            or not target_date[mask].between(lower, upper).all()
+        ):
+            raise ModelSuiteError(
+                f"{label} {split_name} rows escape the frozen split interval"
+            )
+    calibration_target = target_date[selected["split"].astype(str).eq("calib")]
+    if (calibration_target > pd.Timestamp(C.SPLIT.calib[1])).any():
+        raise ModelSuiteError(
+            f"{label} calibration rows use post-2018 targets"
+        )
+
+
+def validate_development_calibrated_head_gate(
+    root: str | Path,
+    metadata: Mapping[str, Any],
+    *,
+    label: str,
+    external: bool,
+) -> dict[str, Any]:
+    """Replay CQR/Platt from frozen development evidence, then audit heads."""
+    _validate_cqr_metadata(metadata, label=label)
+    _validate_calibration_fit_metadata(
+        metadata, label=label, external=external
+    )
+    binding = metadata.get("development_prediction")
+    snapshot = _read_development_prediction_snapshot(root, binding, label=label)
+    if not isinstance(binding, Mapping):  # authoritative validator above
+        raise ModelSuiteError(f"{label} development prediction binding is malformed")
+    selection = binding.get("selection")
+    if not isinstance(selection, Mapping):
+        raise ModelSuiteError(f"{label} development prediction selection is malformed")
+    expected_run = {
+        "run_id": metadata.get("run_id"),
+        "panel_sha256": metadata.get("panel_sha256"),
+        "registry_sha256": metadata.get("registry_sha256"),
+        "config_sha256": metadata.get("config_sha256"),
+        "source_sha256": metadata.get("source_sha256"),
+        "runtime_sha256": metadata.get("runtime_sha256"),
+        "schema_version": RUN_SCHEMA_VERSION,
     }
+    if snapshot.sidecar.get("run") != expected_run:
+        raise ModelSuiteError(
+            f"{label} prediction sidecar belongs to another model run"
+        )
+    try:
+        R.validate_predictions(snapshot.frame)
+    except Exception as exc:
+        raise ModelSuiteError(f"{label} development predictions are invalid") from exc
+    declared_seeds = tuple(int(value) for value in selection.get("seeds", ()))
+    seeds = set(declared_seeds)
+    if not seeds or len(seeds) != len(declared_seeds):
+        raise ModelSuiteError(f"{label} CQR gate seed registry is empty or duplicated")
+    member_count = metadata.get("member_count")
+    if (
+        isinstance(member_count, (bool, np.bool_))
+        or not isinstance(member_count, (int, np.integer))
+        or int(member_count) != len(declared_seeds)
+    ):
+        raise ModelSuiteError(
+            f"{label} prediction seed registry differs from bundle members"
+        )
+    selected = snapshot.selected.copy()
+    if len(selected) != int(binding.get("rows", -1)) or selected.empty:
+        raise ModelSuiteError(f"{label} CQR gate selection row count changed")
+    _validate_development_split_registry(selected, label=label)
+    selected_sites = set(selected["site_id"].astype(str))
+    observed_combinations = set(
+        selected[["site_id", "horizon", "split"]]
+        .assign(
+            site_id=lambda value: value["site_id"].astype(str),
+            horizon=lambda value: value["horizon"].astype(int),
+            split=lambda value: value["split"].astype(str),
+        )
+        .itertuples(index=False, name=None)
+    )
+    expected_combinations = {
+        (site, int(horizon), split)
+        for site in selected_sites
+        for horizon in C.HORIZONS
+        for split in ("val", "calib", "test")
+    }
+    if observed_combinations != expected_combinations:
+        raise ModelSuiteError(
+            f"{label} development site×horizon×split registry is incomplete"
+        )
+    group_columns = [
+        "model", "scope", "feature_set", "site_id", "horizon", "split",
+        "issue_date", "target_date",
+    ]
+    seed_key = [*group_columns, "seed"]
+    if selected.duplicated(seed_key).any():
+        raise ModelSuiteError(
+            f"{label} CQR gate has a duplicate forecast-key×seed row"
+        )
+    coverage = selected.groupby(group_columns, dropna=False, sort=True)["seed"].agg(
+        ["size", "nunique"]
+    )
+    expected_members = len(seeds)
+    if (
+        coverage.empty
+        or not coverage["size"].eq(expected_members).all()
+        or not coverage["nunique"].eq(expected_members).all()
+    ):
+        raise ModelSuiteError(
+            f"{label} CQR gate does not contain every declared seed exactly once "
+            "for every forecast key"
+        )
+    if (
+        selected["scope"].astype(str).nunique(dropna=False) != 1
+        or selected["feature_set"].astype(str).nunique(dropna=False) != 1
+    ):
+        raise ModelSuiteError(
+            f"{label} calibration selection mixes scopes or feature sets"
+        )
+    if set(selected["seed"].astype(int)) != seeds:
+        raise ModelSuiteError(f"{label} CQR gate seed registry is incomplete")
+    truth_coverage = selected.groupby(
+        group_columns, dropna=False, sort=True
+    )["y_true"].agg(["min", "max"])
+    if truth_coverage.empty or not truth_coverage["min"].eq(
+        truth_coverage["max"]
+    ).all():
+        raise ModelSuiteError(
+            f"{label} ensemble members disagree on development outcomes"
+        )
+    ensemble = selected.groupby(
+        group_columns, as_index=False, dropna=False, sort=True
+    ).agg(
+        y_true=("y_true", "first"),
+        y_pred=("y_pred", "mean"),
+        q05=("q05", "mean"),
+        q50=("q50", "mean"),
+        q95=("q95", "mean"),
+        p_exceed=("p_exceed", "mean"),
+    )
+    replay_values = ensemble[
+        ["y_true", "y_pred", "q05", "q50", "q95", "p_exceed"]
+    ].to_numpy(dtype=float)
+    heads = ensemble[["q05", "q50", "q95"]].to_numpy(dtype=float)
+    if (
+        not len(heads)
+        or not np.isfinite(replay_values).all()
+        or (heads[:, 0] > heads[:, 1]).any()
+        or (heads[:, 1] > heads[:, 2]).any()
+        or (heads[:, 0] >= heads[:, 2]).any()
+        or (ensemble["p_exceed"].to_numpy(float) < 0.0).any()
+        or (ensemble["p_exceed"].to_numpy(float) > 1.0).any()
+    ):
+        raise ModelSuiteError(f"{label} nominal development heads are invalid")
+
+    if external:
+        expected_threshold_estimator = {
+            "method": "pooled_training_empirical_quantile_v1",
+            "quantile": 0.90,
+            "pool_weighting": ROW_EQUAL_WEIGHTING,
+            "station_balanced": False,
+        }
+        if metadata.get("event_threshold_estimator") != expected_threshold_estimator:
+            raise ModelSuiteError(
+                f"{label} pooled threshold estimator contract changed"
+            )
+    thresholds, event_reference = _recompute_event_definition_from_frozen_panel(
+        root,
+        metadata,
+        selected_sites=selected_sites,
+        external=external,
+        label=label,
+        prediction_truth=ensemble[["site_id", "target_date", "y_true"]],
+    )
+    _strict_calibration_replay_match(
+        thresholds,
+        metadata.get("event_thresholds"),
+        label=label,
+        field="event_thresholds",
+    )
+    _strict_calibration_replay_match(
+        event_reference,
+        metadata.get("event_reference_climatology"),
+        label=label,
+        field="event_reference_climatology",
+    )
+
+    calibration = ensemble[ensemble["split"].astype(str).eq("calib")].copy()
+    if calibration.empty or (
+        pd.to_datetime(calibration["target_date"])
+        > pd.Timestamp(C.SPLIT.calib[1])
+    ).any():
+        raise ModelSuiteError(
+            f"{label} calibration replay is empty or uses post-2018 targets"
+        )
+    if external:
+        threshold = thresholds["__pooled__"]
+        calibration["event"] = (
+            calibration["y_true"].to_numpy(float) > threshold
+        ).astype(int)
+        cqr_calibration = calibration.copy()
+        cqr_calibration["site_id"] = "__pooled__"
+    else:
+        threshold_values = calibration["site_id"].astype(str).map(thresholds)
+        if threshold_values.isna().any():
+            raise ModelSuiteError(
+                f"{label} calibration contains a site without a replayed threshold"
+            )
+        calibration["event"] = (
+            calibration["y_true"].to_numpy(float)
+            > threshold_values.to_numpy(float)
+        ).astype(int)
+        cqr_calibration = calibration
+    try:
+        replayed_offsets, replayed_offset_audit = cqr_offsets_with_audit(
+            cqr_calibration,
+            alpha=0.10,
+            purge_boundary=True,
+        )
+    except (CQRContractError, ValueError) as exc:
+        raise ModelSuiteError(f"{label} CQR offsets cannot be replayed") from exc
+    serialised_replayed_offsets = serialise_offsets(replayed_offsets)
+    expected_offset_keys = (
+        {f"__pooled__|{int(horizon)}" for horizon in C.HORIZONS}
+        if external
+        else {
+            f"{site}|{int(horizon)}"
+            for site in selected_sites
+            for horizon in C.HORIZONS
+        }
+    )
+    if set(serialised_replayed_offsets) != expected_offset_keys:
+        raise ModelSuiteError(
+            f"{label} replayed CQR offset registry is incomplete"
+        )
+    _strict_calibration_replay_match(
+        serialised_replayed_offsets,
+        metadata.get("conformal_offsets"),
+        label=label,
+        field="conformal_offsets",
+    )
+    _strict_calibration_replay_match(
+        replayed_offset_audit,
+        metadata.get("conformal_offset_audit"),
+        label=label,
+        field="conformal_offset_audit",
+    )
+
+    declared_calibrators = _validate_event_calibrator_metadata(
+        metadata.get("event_calibrators"), label=label
+    )
+    try:
+        replayed_calibrators = P.fit_horizon_calibrators(
+            calibration,
+            probability_col="p_exceed",
+            outcome_col="event",
+            min_samples=100,
+        )
+    except ValueError as exc:
+        raise ModelSuiteError(
+            f"{label} event calibrators cannot be replayed"
+        ) from exc
+    if set(replayed_calibrators) != set(C.HORIZONS):
+        raise ModelSuiteError(
+            f"{label} replayed event calibrator horizon registry is incomplete"
+        )
+    serialised_replayed_calibrators = {
+        str(int(horizon)): calibrator.as_dict()
+        for horizon, calibrator in sorted(replayed_calibrators.items())
+    }
+    _strict_calibration_replay_match(
+        serialised_replayed_calibrators,
+        declared_calibrators,
+        label=label,
+        field="event_calibrators",
+    )
+
+    offsets = metadata["conformal_offsets"]
+    assert isinstance(offsets, Mapping)
+    keys = [
+        (
+            f"__pooled__|{int(horizon)}"
+            if external else f"{str(site)}|{int(horizon)}"
+        )
+        for site, horizon in ensemble[["site_id", "horizon"]].itertuples(
+            index=False, name=None
+        )
+    ]
+    missing = sorted(set(keys) - set(offsets))
+    if missing:
+        raise ModelSuiteError(f"{label} CQR gate lacks offsets: {missing[:5]}")
+    delta = np.asarray([float(offsets[key]) for key in keys], dtype=float)
+    calibrated = heads.copy()
+    calibrated[:, 0] -= delta
+    calibrated[:, 2] += delta
+    nominal_width = heads[:, 2] - heads[:, 0]
+    calibrated_width = calibrated[:, 2] - calibrated[:, 0]
+    if (
+        not np.isfinite(calibrated).all()
+        or (calibrated[:, 0] > calibrated[:, 1]).any()
+        or (calibrated[:, 1] > calibrated[:, 2]).any()
+        or (calibrated_width <= 0.0).any()
+        or (calibrated_width < nominal_width).any()
+    ):
+        raise ModelSuiteError(f"{label} final calibrated development heads are unsafe")
+    digest_frame = ensemble[
+        ["site_id", "horizon", "split", "issue_date", "target_date"]
+    ].copy()
+    digest_frame[["q05", "q50", "q95"]] = calibrated
+    digest_columns = (
+        "site_id", "horizon", "split", "issue_date", "target_date",
+        "q05", "q50", "q95",
+    )
+    result = {
+        "format": DEVELOPMENT_CALIBRATED_HEAD_GATE_FORMAT,
+        "status": "PASS_NONNEGATIVE_CQR_WIDENS_ONLY",
+        "rows": int(len(ensemble)),
+        "offset_min": float(delta.min()),
+        "offset_max": float(delta.max()),
+        "nominal_interval_min_width": float(nominal_width.min()),
+        "calibrated_interval_min_width": float(calibrated_width.min()),
+        "minimum_width_increase": float((calibrated_width - nominal_width).min()),
+        "calibrated_heads_sha256": canonical_frame_digest(
+            digest_frame, digest_columns
+        ),
+        "all_final_heads_finite_ordered_nonempty": True,
+        "every_interval_weakly_widened": True,
+    }
+    _assert_prediction_snapshot_unchanged(snapshot, label=label)
+    return result
 
 
 def sequence_bundle_metadata(
@@ -1418,6 +2513,7 @@ def sequence_bundle_metadata(
     thresholds: Mapping[str, float],
     event_reference_climatology: Mapping[str, object],
     conformal_offsets: Mapping[tuple[str, int], object],
+    conformal_offset_audit: Mapping[str, Any],
     event_calibrators: Mapping[int, Any],
     source_sha256: str,
     panel_sha256: str,
@@ -1432,6 +2528,7 @@ def sequence_bundle_metadata(
         else dict(train_config)
     if str(training_device) != "cpu":
         raise ModelSuiteError("formal sequence bundles must be trained on CPU")
+    station_agnostic = bool(architecture_kwargs.get("station_agnostic", False))
     return {
         "run_id": str(run_id),
         "architecture": {
@@ -1452,6 +2549,11 @@ def sequence_bundle_metadata(
             for horizon, calibrator in sorted(event_calibrators.items())
         },
         "conformal_offsets": serialise_offsets(conformal_offsets),
+        "conformal_policy": cqr_policy_contract(),
+        "conformal_offset_audit": dict(conformal_offset_audit),
+        "calibration_fit_contract": route_a_calibration_fit_contract(
+            external=station_agnostic
+        ),
         "source_sha256": str(source_sha256),
         "panel_sha256": str(panel_sha256),
         "registry_sha256": str(registry_sha256),
@@ -1676,10 +2778,10 @@ def _validated_file_binding(
     return path
 
 
-def _validated_stage09_run_identity(
-    run_manifest: Mapping[str, Any],
+def _validated_content_addressed_run_identity(
+    run_manifest: Mapping[str, Any], *, label: str,
 ) -> tuple[dict[str, Any], Mapping[str, Any]]:
-    """Require the manifest identity to be internally content-addressed."""
+    """Require a run manifest identity to be internally content-addressed."""
     resolved = run_manifest.get("resolved_config")
     identity = run_manifest.get("identity")
     identity_keys = {
@@ -1704,14 +2806,23 @@ def _validated_stage09_run_identity(
         )
         or identity.get("config_sha256") != sha256_json(resolved)
     ):
-        raise ModelSuiteError("Stage-9 run manifest identity is malformed")
+        raise ModelSuiteError(f"{label} run manifest identity is malformed")
     identity_parts = {
         "schema_version": identity["schema_version"],
         **{field: identity[field] for field in digest_fields},
     }
     if identity["run_id"] != sha256_json(identity_parts)[:20]:
-        raise ModelSuiteError("Stage-9 run id is not derived from its identity")
+        raise ModelSuiteError(f"{label} run id is not derived from its identity")
     return dict(identity), resolved
+
+
+def _validated_stage09_run_identity(
+    run_manifest: Mapping[str, Any],
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    """Require the Stage-9 identity while preserving its public diagnostics."""
+    return _validated_content_addressed_run_identity(
+        run_manifest, label="Stage-9"
+    )
 
 
 def _load_formal_stage09_manifest(
@@ -2862,6 +3973,667 @@ def publish_stage09_completion_receipt(
     return write_stage09_completion_receipt(receipt_path, document)
 
 
+def canonical_stage25_artifact_paths(run_id: str) -> dict[str, str]:
+    """Return the only top-level paths admitted to a Stage-25 completion."""
+    if not isinstance(run_id, str) or not run_id:
+        raise ModelSuiteError("Stage-25 canonical paths require a run id")
+    prediction = (
+        "outputs/predictions/"
+        f"external_pooled_development_{run_id}.parquet"
+    )
+    return {
+        "run_manifest": (
+            f"outputs/runs/25_external_pooled/{run_id}/run.json"
+        ),
+        "predictions": prediction,
+        "prediction_sidecar": f"{prediction}.meta.json",
+        "components_pointer": STAGE25_COMPONENT_POINTER_PATH,
+        "thermoroute_bundle": (
+            "outputs/models/"
+            f"external_thermoroute_bundle_{run_id}"
+        ),
+        "lstm_bundle": (
+            f"outputs/models/external_lstm_bundle_{run_id}"
+        ),
+        "lightgbm_manifest": (
+            "outputs/models/"
+            f"external_lightgbm_bundle_{run_id}/manifest.json"
+        ),
+    }
+
+
+def _stage25_formal_configuration(
+    resolved: Mapping[str, Any], *, root: Path,
+) -> dict[str, Any]:
+    """Validate the complete development-only Stage-25 run configuration."""
+    expected_fields = {
+        "stage", "role", "panel", "registry", "variables", "horizons",
+        "seeds", "train_config", "preprocessing", "station_agnostic",
+        "lstm_validation_grid", "lightgbm_validation_grid",
+        "event_reference_fit_interval", "event_threshold_estimator",
+        "post_2020_data_read", "training_device",
+        "development_predictor_bridge", "formal_numerical_policy",
+    }
+    bridge = resolved.get("development_predictor_bridge")
+    numerical_policy = resolved.get("formal_numerical_policy")
+    expected_threshold = {
+        "method": "pooled_training_empirical_quantile_v1",
+        "quantile": 0.90,
+        "pool_weighting": "equal_weight_per_finite_training_row",
+        "station_balanced": False,
+    }
+    if (
+        set(resolved) != expected_fields
+        or resolved.get("stage") != "25_train_external_pooled_suite"
+        or resolved.get("role")
+        != "prelabel_station_agnostic_development_training"
+        or resolved.get("panel") != "panel_usgs_120v2.parquet"
+        or resolved.get("registry") != "station_registry_v1.csv"
+        or tuple(resolved.get("variables", ())) != STAGE9_USGS_VARIABLES
+        or tuple(resolved.get("horizons", ())) != tuple(C.HORIZONS)
+        or tuple(resolved.get("seeds", ())) != tuple(C.USGS_SEEDS)
+        or resolved.get("train_config")
+        != asdict(C.TrainConfig(batch_size=1536))
+        or resolved.get("preprocessing")
+        != "pooled_development_train_only"
+        or resolved.get("station_agnostic") is not True
+        or resolved.get("lstm_validation_grid")
+        != [dict(value) for value in LSTM_VALIDATION_GRID]
+        or resolved.get("lightgbm_validation_grid")
+        != [dict(value) for value in STAGE9_LIGHTGBM_VALIDATION_GRID]
+        or resolved.get("event_reference_fit_interval")
+        != ["2006-01-01", "2018-12-31"]
+        or resolved.get("event_threshold_estimator") != expected_threshold
+        or resolved.get("post_2020_data_read") is not False
+        or resolved.get("training_device") != "cpu"
+        or not isinstance(bridge, Mapping)
+        or set(bridge) != {"path", "sha256"}
+        or not isinstance(numerical_policy, Mapping)
+        or not numerical_policy
+    ):
+        raise ModelSuiteError(
+            "Stage-25 run manifest has malformed formal configuration"
+        )
+    expected_bridge = development_predictor_bridge_binding(
+        root,
+        panel_sha256=sha256_file(
+            root / "data_usgs" / "panel_usgs_120v2.parquet"
+        ),
+        registry_sha256=sha256_file(
+            root / "data_usgs" / "station_registry_v1.csv"
+        ),
+    )
+    if dict(bridge) != expected_bridge:
+        raise ModelSuiteError(
+            "Stage-25 configuration binds another development predictor bridge"
+        )
+    return json.loads(json.dumps(resolved, sort_keys=True))
+
+
+def _load_formal_stage25_manifest(
+    path: Path,
+    *,
+    root: Path,
+    run_id: str,
+    enforce_current_runtime: bool,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError(
+            "Stage-25 receipt binds a malformed run manifest"
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ModelSuiteError("Stage-25 receipt binds a malformed run manifest")
+    if (
+        set(manifest) != {
+            "schema_version", "identity", "resolved_config", "created_utc",
+            "environment", "git", "provenance",
+        }
+        or manifest.get("schema_version") != RUN_SCHEMA_VERSION
+    ):
+        raise ModelSuiteError(
+            "Stage-25 run manifest schema is not exact"
+        )
+    identity, resolved = _validated_content_addressed_run_identity(
+        manifest, label="Stage-25"
+    )
+    if (
+        identity["run_id"] != run_id
+        or identity["source_sha256"] != source_tree_hash(root)
+        or identity["config_sha256"] != sha256_json(resolved)
+    ):
+        raise ModelSuiteError(
+            "Stage-25 completion receipt is stale for the run or current source"
+        )
+    panel_path = root / "data_usgs" / "panel_usgs_120v2.parquet"
+    registry_path = root / "data_usgs" / "station_registry_v1.csv"
+    try:
+        panel_sha256 = sha256_file(panel_path)
+        registry_sha256 = sha256_file(registry_path)
+    except OSError as exc:
+        raise ModelSuiteError(
+            "Stage-25 canonical panel or station registry is absent"
+        ) from exc
+    if (
+        identity["panel_sha256"] != panel_sha256
+        or identity["registry_sha256"] != registry_sha256
+    ):
+        raise ModelSuiteError(
+            "Stage-25 identity differs from the canonical development data"
+        )
+    if enforce_current_runtime and identity["runtime_sha256"] != sha256_json(
+        numerical_runtime_contract()
+    ):
+        raise ModelSuiteError(
+            "Stage-25 identity differs from the current numerical runtime"
+        )
+    configuration = _stage25_formal_configuration(resolved, root=root)
+    provenance = manifest.get("provenance")
+    if (
+        not isinstance(provenance, Mapping)
+        or set(provenance) != {"outcome_status", "training_device"}
+        or provenance.get("outcome_status") != "NO_POST_2020_DATA_READ"
+        or provenance.get("training_device") != "cpu"
+    ):
+        raise ModelSuiteError(
+            "Stage-25 run manifest lacks development-only provenance"
+        )
+    return manifest, identity, configuration
+
+
+def _stage25_model_file_closure(
+    root: Path,
+    components: Mapping[str, Any],
+    *,
+    identity: Mapping[str, Any],
+    prediction_binding: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    """Validate every learned component and return its exact file closure."""
+    expected_pointer_fields = {
+        "format", "status", "training_device", "run_id", "cohort",
+        "raw_feature_order", "models", "development_contract",
+        "development_prediction_artifact",
+    }
+    if set(components) != expected_pointer_fields:
+        raise ModelSuiteError("Stage-25 component pointer schema is not exact")
+    if (
+        components.get("format") != COMPONENT_POINTER_FORMAT
+        or components.get("status") != "COMPLETE"
+        or components.get("training_device") != "cpu"
+        or components.get("cohort") != "external"
+        or components.get("run_id") != identity.get("run_id")
+    ):
+        raise ModelSuiteError("Stage-25 component pointer is not complete")
+    entries = components.get("models")
+    if not isinstance(entries, list):
+        raise ModelSuiteError("Stage-25 component registry is malformed")
+    by_id = {
+        str(entry.get("model_id")): entry
+        for entry in entries
+        if isinstance(entry, Mapping)
+    }
+    if (
+        len(by_id) != len(entries)
+        or set(by_id) != set(STAGE25_REQUIRED_MODELS)
+    ):
+        raise ModelSuiteError("Stage-25 component registry is incomplete")
+    feature_order = tuple(str(value) for value in components["raw_feature_order"])
+    if feature_order != STAGE9_USGS_VARIABLES:
+        raise ModelSuiteError("Stage-25 raw feature order changed")
+    canonical = canonical_stage25_artifact_paths(str(identity["run_id"]))
+    expected_components = {
+        "ThermoRoute": ("thermoroute_bundle", canonical["thermoroute_bundle"]),
+        "LSTM": ("lstm_bundle", canonical["lstm_bundle"]),
+        "LightGBM": ("lightgbm_bundle", canonical["lightgbm_manifest"]),
+    }
+    closure: dict[str, dict[str, str]] = {}
+    for model_id in STAGE25_REQUIRED_MODELS:
+        entry = by_id[model_id]
+        executor, expected_path = expected_components[model_id]
+        if (
+            entry.get("executor") != executor
+            or int(entry.get("member_count", 0)) != 5
+            or tuple(entry.get("raw_feature_order", ())) != feature_order
+        ):
+            raise ModelSuiteError(
+                f"Stage-25 {model_id} registry entry is malformed"
+            )
+        metadata = _entry_artifact_valid(
+            root, entry, feature_order, external=True
+        )
+        if not isinstance(metadata, Mapping):
+            raise ModelSuiteError(f"Stage-25 {model_id} metadata is absent")
+        if (
+            metadata.get("run_id") != identity.get("run_id")
+            or metadata.get("source_sha256") != identity.get("source_sha256")
+            or metadata.get("panel_sha256") != identity.get("panel_sha256")
+            or metadata.get("registry_sha256") != identity.get("registry_sha256")
+            or metadata.get("config_sha256") != identity.get("config_sha256")
+            or metadata.get("runtime_sha256") != identity.get("runtime_sha256")
+            or metadata.get("training_device") != "cpu"
+        ):
+            raise ModelSuiteError(
+                f"Stage-25 {model_id} lineage differs from its run identity"
+            )
+        development = metadata.get("development_prediction")
+        if (
+            not isinstance(development, Mapping)
+            or development.get("artifact") != prediction_binding
+        ):
+            raise ModelSuiteError(
+                f"Stage-25 {model_id} binds another development prediction"
+            )
+        artifact = entry.get("artifact")
+        if not isinstance(artifact, Mapping):
+            raise ModelSuiteError(f"Stage-25 {model_id} artifact is malformed")
+        if executor in {"thermoroute_bundle", "lstm_bundle"}:
+            if set(artifact) != {"path", "metadata_sha256", "weights_sha256"}:
+                raise ModelSuiteError(
+                    f"Stage-25 {model_id} bundle binding is malformed"
+                )
+            directory = _resolve_inside(root, artifact.get("path"), directory=True)
+            if _relative(root, directory) != expected_path or directory.is_symlink():
+                raise ModelSuiteError(
+                    f"Stage-25 {model_id} bundle path is not canonical"
+                )
+            files = {
+                path.relative_to(directory).as_posix(): path
+                for path in directory.rglob("*")
+                if path.is_file()
+            }
+            if set(files) != {"metadata.json", "weights.pt"} or any(
+                path.is_symlink() for path in files.values()
+            ):
+                raise ModelSuiteError(
+                    f"Stage-25 {model_id} bundle file closure changed"
+                )
+            expected_binding = directory_binding(root, directory)
+            if dict(artifact) != expected_binding:
+                raise ModelSuiteError(
+                    f"Stage-25 {model_id} bundle checksum changed"
+                )
+            for path in files.values():
+                binding = file_binding(root, path)
+                closure[binding["path"]] = binding
+            continue
+
+        if set(artifact) != {"path", "sha256"}:
+            raise ModelSuiteError("Stage-25 LightGBM binding is malformed")
+        manifest_path = _validated_file_binding(
+            root, artifact, label="Stage-25 LightGBM manifest"
+        )
+        if _relative(root, manifest_path) != expected_path:
+            raise ModelSuiteError(
+                "Stage-25 LightGBM manifest path is not canonical"
+            )
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModelSuiteError("Stage-25 LightGBM manifest is malformed") from exc
+        model_registry = manifest.get("models") if isinstance(manifest, Mapping) else None
+        expected_members = {f"seed{seed}" for seed in C.USGS_SEEDS}
+        expected_horizons = {str(value) for value in C.HORIZONS}
+        if not isinstance(model_registry, Mapping) or set(model_registry) != expected_members:
+            raise ModelSuiteError("Stage-25 LightGBM member closure changed")
+        expected_files = {manifest_path.resolve()}
+        for member in expected_members:
+            horizons = model_registry[member]
+            if not isinstance(horizons, Mapping) or set(horizons) != expected_horizons:
+                raise ModelSuiteError("Stage-25 LightGBM horizon closure changed")
+            for horizon in expected_horizons:
+                heads = horizons[horizon]
+                if not isinstance(heads, Mapping) or set(heads) != set(LIGHTGBM_HEADS):
+                    raise ModelSuiteError("Stage-25 LightGBM head closure changed")
+                for head in LIGHTGBM_HEADS:
+                    binding = heads[head]
+                    if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
+                        raise ModelSuiteError(
+                            "Stage-25 LightGBM model binding is malformed"
+                        )
+                    raw_path = Path(str(binding["path"]))
+                    if raw_path.is_absolute() or len(raw_path.parts) != 1:
+                        raise ModelSuiteError(
+                            "Stage-25 LightGBM model path is not flat"
+                        )
+                    path = (manifest_path.parent / raw_path).resolve()
+                    if (
+                        path.parent != manifest_path.parent.resolve()
+                        or not path.is_file()
+                        or path.is_symlink()
+                    ):
+                        raise ModelSuiteError(
+                            "Stage-25 LightGBM model path is not canonical"
+                        )
+                    if dict(binding) != {
+                        "path": raw_path.as_posix(), "sha256": sha256_file(path)
+                    }:
+                        raise ModelSuiteError(
+                            "Stage-25 LightGBM model checksum changed"
+                        )
+                    if path in expected_files:
+                        raise ModelSuiteError(
+                            "Stage-25 LightGBM file registry is duplicated"
+                        )
+                    expected_files.add(path)
+        actual_files = {
+            path.resolve()
+            for path in manifest_path.parent.rglob("*")
+            if path.is_file()
+        }
+        if actual_files != expected_files or any(
+            path.is_symlink() for path in actual_files
+        ):
+            raise ModelSuiteError("Stage-25 LightGBM file closure changed")
+        for path in actual_files:
+            binding = file_binding(root, path)
+            closure[binding["path"]] = binding
+    if len(closure) != 80:
+        raise ModelSuiteError(
+            f"Stage-25 model file closure has {len(closure)} files, expected 80"
+        )
+    return [closure[path] for path in sorted(closure)]
+
+
+def _stage25_expected_artifacts(
+    *,
+    root: Path,
+    run_id: str,
+    run_manifest: Path,
+    components_pointer: Path,
+    components: Mapping[str, Any],
+    identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    canonical = canonical_stage25_artifact_paths(run_id)
+    prediction = components.get("development_prediction_artifact")
+    if (
+        not isinstance(prediction, Mapping)
+        or set(prediction) != {"path", "sha256", "sidecar"}
+        or not isinstance(prediction.get("sidecar"), Mapping)
+    ):
+        raise ModelSuiteError(
+            "Stage-25 development prediction binding is malformed"
+        )
+    prediction_path = _validated_file_binding(
+        root,
+        {"path": prediction.get("path"), "sha256": prediction.get("sha256")},
+        label="Stage-25 development predictions",
+    )
+    sidecar_path_value = _validated_file_binding(
+        root, prediction["sidecar"], label="Stage-25 prediction sidecar"
+    )
+    if (
+        _relative(root, prediction_path) != canonical["predictions"]
+        or _relative(root, sidecar_path_value) != canonical["prediction_sidecar"]
+        or sidecar_path_value != sidecar_path(prediction_path).resolve()
+    ):
+        raise ModelSuiteError(
+            "Stage-25 development prediction path is not canonical"
+        )
+    try:
+        prediction_lineage = validate_artifact_sidecar(
+            prediction_path,
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            kind="external_pooled_development_predictions",
+        )
+    except (OSError, ValueError) as exc:
+        raise ModelSuiteError(
+            "Stage-25 development prediction sidecar is invalid"
+        ) from exc
+    extra = prediction_lineage.get("extra")
+    common_test_keys = extra.get("common_test_keys") if isinstance(extra, Mapping) else None
+    if (
+        prediction_lineage.get("run") != dict(identity)
+        or prediction_lineage.get("parents") != {}
+        or not isinstance(extra, Mapping)
+        or set(extra) != {"common_test_keys", "post_2020_data_read"}
+        or isinstance(common_test_keys, (bool, np.bool_))
+        or not isinstance(common_test_keys, (int, np.integer))
+        or int(common_test_keys) < 1
+        or extra.get("post_2020_data_read") is not False
+    ):
+        raise ModelSuiteError(
+            "Stage-25 development prediction lineage differs from its run"
+        )
+    development = components.get("development_contract")
+    if not isinstance(development, Mapping):
+        raise ModelSuiteError("Stage-25 development contract is malformed")
+    expected_development = canonical_development_contract(
+        root,
+        root / "data_usgs" / "frozen_panel_v1.json",
+        panel_sha256=str(identity["panel_sha256"]),
+        registry_sha256=str(identity["registry_sha256"]),
+        source_sha256=str(identity["source_sha256"]),
+    )
+    if dict(development) != expected_development:
+        raise ModelSuiteError(
+            "Stage-25 pointer binds another source/data contract"
+        )
+    model_files = _stage25_model_file_closure(
+        root,
+        components,
+        identity=identity,
+        prediction_binding=dict(prediction),
+    )
+    return {
+        "run_manifest": file_binding(root, run_manifest),
+        "components_pointer": file_binding(root, components_pointer),
+        "development_predictions": file_binding(root, prediction_path),
+        "development_prediction_sidecar": file_binding(root, sidecar_path_value),
+        "frozen_panel_spec": dict(development["frozen_panel_spec"]),
+        "development_panel": dict(development["panel"]),
+        "station_registry": dict(development["registry"]),
+        "development_predictor_bridge": dict(development["predictor_bridge"]),
+        "model_files": model_files,
+    }
+
+
+def build_stage25_completion_receipt(
+    *,
+    root: str | Path,
+    run_id: str,
+    run_manifest: str | Path,
+    components_pointer: str | Path,
+    enforce_current_runtime: bool = True,
+) -> dict[str, Any]:
+    """Build a deterministic receipt over the exact Stage-25 file closure."""
+    root = Path(root).resolve()
+    run_manifest = Path(run_manifest).resolve()
+    components_pointer = Path(components_pointer).resolve()
+    canonical = canonical_stage25_artifact_paths(str(run_id))
+    if (
+        _relative(root, run_manifest) != canonical["run_manifest"]
+        or _relative(root, components_pointer) != canonical["components_pointer"]
+    ):
+        raise ModelSuiteError("Stage-25 top-level artifact path is not canonical")
+    _, identity, configuration = _load_formal_stage25_manifest(
+        run_manifest,
+        root=root,
+        run_id=str(run_id),
+        enforce_current_runtime=enforce_current_runtime,
+    )
+    components = load_component_pointer(components_pointer)
+    artifacts = _stage25_expected_artifacts(
+        root=root,
+        run_id=str(run_id),
+        run_manifest=run_manifest,
+        components_pointer=components_pointer,
+        components=components,
+        identity=identity,
+    )
+    document: dict[str, Any] = {
+        "format": STAGE25_COMPLETION_FORMAT,
+        "status": STAGE25_COMPLETION_STATUS,
+        "stage": "25_train_external_pooled_suite",
+        "run_id": str(run_id),
+        "run_identity": identity,
+        "formal_configuration": configuration,
+        "training_device": "cpu",
+        "confirmation_outcomes_requested_or_read": False,
+        "artifacts": artifacts,
+        "artifact_closure_sha256": sha256_json(artifacts),
+    }
+    document["receipt_self_sha256"] = sha256_json(document)
+    return document
+
+
+def write_stage25_completion_receipt(
+    path: str | Path, document: Mapping[str, Any],
+) -> Path:
+    """Atomically publish the Stage-25 receipt as the transaction's last write."""
+    stable = {
+        key: value for key, value in document.items()
+        if key != "receipt_self_sha256"
+    }
+    if document.get("receipt_self_sha256") != sha256_json(stable):
+        raise ModelSuiteError("Stage-25 completion receipt self hash is invalid")
+    destination = Path(path)
+    atomic_write_json(destination, dict(document))
+    return destination
+
+
+def validate_stage25_completion_receipt(
+    receipt_path: str | Path,
+    *,
+    root: str | Path,
+    components_pointer: str | Path | None = None,
+    document: Mapping[str, Any] | None = None,
+    enforce_current_runtime: bool = True,
+) -> dict[str, Any]:
+    """Fail closed unless the standalone Stage-25 completion is exact."""
+    root = Path(root).resolve()
+    receipt_path = Path(receipt_path).resolve()
+    if (
+        receipt_path != (root / STAGE25_COMPLETION_RECEIPT_PATH).resolve()
+    ):
+        raise ModelSuiteError(
+            "Stage-25 completion receipt is not at its exact canonical path"
+        )
+    if document is None:
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModelSuiteError(
+                "Stage-25 completion receipt is absent or invalid"
+            ) from exc
+    else:
+        receipt = dict(document)
+    expected_keys = {
+        "format", "status", "stage", "run_id", "run_identity",
+        "formal_configuration", "training_device",
+        "confirmation_outcomes_requested_or_read", "artifacts",
+        "artifact_closure_sha256", "receipt_self_sha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != expected_keys:
+        raise ModelSuiteError("Stage-25 completion receipt schema is not exact")
+    stable = {
+        key: value for key, value in receipt.items()
+        if key != "receipt_self_sha256"
+    }
+    if receipt.get("receipt_self_sha256") != sha256_json(stable):
+        raise ModelSuiteError("Stage-25 completion receipt self hash changed")
+    if (
+        receipt.get("format") != STAGE25_COMPLETION_FORMAT
+        or receipt.get("status") != STAGE25_COMPLETION_STATUS
+        or receipt.get("stage") != "25_train_external_pooled_suite"
+        or receipt.get("training_device") != "cpu"
+        or receipt.get("confirmation_outcomes_requested_or_read") is not False
+    ):
+        raise ModelSuiteError("Stage-25 completion receipt is not COMPLETE")
+    run_id = str(receipt.get("run_id", ""))
+    if not run_id:
+        raise ModelSuiteError("Stage-25 completion receipt lacks a run id")
+    artifacts = receipt.get("artifacts")
+    artifact_keys = {
+        "run_manifest", "components_pointer", "development_predictions",
+        "development_prediction_sidecar", "frozen_panel_spec",
+        "development_panel", "station_registry",
+        "development_predictor_bridge", "model_files",
+    }
+    if not isinstance(artifacts, Mapping) or set(artifacts) != artifact_keys:
+        raise ModelSuiteError("Stage-25 artifact closure schema is not exact")
+    if receipt.get("artifact_closure_sha256") != sha256_json(artifacts):
+        raise ModelSuiteError("Stage-25 artifact closure hash changed")
+    canonical = canonical_stage25_artifact_paths(run_id)
+    run_manifest = _validated_file_binding(
+        root, artifacts["run_manifest"], label="Stage-25 run manifest"
+    )
+    pointer = _validated_file_binding(
+        root, artifacts["components_pointer"], label="Stage-25 component pointer"
+    )
+    if (
+        _relative(root, run_manifest) != canonical["run_manifest"]
+        or _relative(root, pointer) != canonical["components_pointer"]
+    ):
+        raise ModelSuiteError("Stage-25 receipt binds noncanonical artifacts")
+    if components_pointer is not None and pointer != Path(
+        components_pointer
+    ).resolve():
+        raise ModelSuiteError("Stage-25 receipt binds another component pointer")
+    _, identity, configuration = _load_formal_stage25_manifest(
+        run_manifest,
+        root=root,
+        run_id=run_id,
+        enforce_current_runtime=enforce_current_runtime,
+    )
+    if identity != receipt.get("run_identity"):
+        raise ModelSuiteError("Stage-25 completion run identity changed")
+    if configuration != receipt.get("formal_configuration"):
+        raise ModelSuiteError("Stage-25 completion configuration changed")
+    components = load_component_pointer(pointer)
+    expected_artifacts = _stage25_expected_artifacts(
+        root=root,
+        run_id=run_id,
+        run_manifest=run_manifest,
+        components_pointer=pointer,
+        components=components,
+        identity=identity,
+    )
+    if dict(artifacts) != expected_artifacts:
+        raise ModelSuiteError("Stage-25 exact artifact closure changed")
+    return receipt
+
+
+def publish_stage25_completion_receipt(
+    receipt_path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    root: str | Path,
+    components_pointer: str | Path,
+) -> Path:
+    """Preflight the whole closure, atomically publish, then re-open it."""
+    validate_stage25_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=components_pointer,
+        document=document,
+    )
+    destination = write_stage25_completion_receipt(receipt_path, document)
+    validate_stage25_completion_receipt(
+        destination,
+        root=root,
+        components_pointer=components_pointer,
+    )
+    return destination
+
+
+def stage25_completion_gate_binding(
+    receipt_path: str | Path,
+    *,
+    root: str | Path,
+    components_pointer: str | Path,
+    enforce_current_runtime: bool = True,
+) -> dict[str, str]:
+    """Validate Stage 25 and return the exact binding frozen downstream."""
+    validate_stage25_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=components_pointer,
+        enforce_current_runtime=enforce_current_runtime,
+    )
+    return file_binding(root, receipt_path)
+
+
 def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: tuple[str, ...],
                           *, external: bool) -> Mapping[str, Any] | None:
     model_id, executor = str(entry.get("model_id")), str(entry.get("executor"))
@@ -2891,6 +4663,10 @@ def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: t
                 raise ModelSuiteError(f"LightGBM bundle lacks {field}")
         if metadata.get("training_device") != "cpu":
             raise ModelSuiteError("formal LightGBM bundle is not CPU-trained")
+        _validate_cqr_metadata(metadata, label=model_id)
+        _validate_calibration_fit_metadata(
+            metadata, label=model_id, external=external
+        )
         validate_development_prediction_binding(
             root, metadata.get("development_prediction"), label="LightGBM"
         )
@@ -2930,6 +4706,10 @@ def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: t
         raise ModelSuiteError(f"{model_id} bundle lacks lineage: {sorted(missing)}")
     if metadata.get("training_device") != "cpu":
         raise ModelSuiteError(f"formal {model_id} bundle is not CPU-trained")
+    _validate_cqr_metadata(metadata, label=model_id)
+    _validate_calibration_fit_metadata(
+        metadata, label=model_id, external=external
+    )
     validate_development_prediction_binding(
         root, metadata.get("development_prediction"), label=model_id
     )
@@ -2991,7 +4771,7 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
     if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
         raise ModelSuiteError("model suite must contain temporal and external cohorts")
     suite_runtime_digests: set[str] = set()
-    for name, required, external in (
+    for name, required, is_external in (
         ("temporal", TEMPORAL_MODELS, False),
         ("external", EXTERNAL_MODELS, True),
     ):
@@ -3028,11 +4808,11 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
                 if intervention != ABLATION_INTERVENTIONS[model_id]:
                     raise ModelSuiteError(f"{model_id} intervention is not the frozen control")
             metadata = _entry_artifact_valid(
-                root, by_id[model_id], features, external=external
+                root, by_id[model_id], features, external=is_external
             )
             if metadata is not None:
                 loaded_metadata[model_id] = metadata
-        if not external:
+        if not is_external:
             primary_kwargs = dict(
                 loaded_metadata["ThermoRoute"].get("architecture", {}).get("kwargs", {})
             )
@@ -3072,7 +4852,8 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
             offsets = metadata.get("conformal_offsets")
             if not isinstance(thresholds, Mapping) or not isinstance(offsets, Mapping):
                 raise ModelSuiteError(f"{name}/{model_id} calibration registry is malformed")
-            if external:
+            _validate_cqr_metadata(metadata, label=f"{name}/{model_id}")
+            if is_external:
                 if set(thresholds) != {"__pooled__"}:
                     raise ModelSuiteError(f"external/{model_id} threshold is not pooled")
                 if set(offsets) != {"__pooled__|1", "__pooled__|3", "__pooled__|7"}:
@@ -3107,8 +4888,14 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
                     raise ModelSuiteError(
                         "temporal seasonal event reference is invalid"
                     ) from exc
+            validate_development_calibrated_head_gate(
+                root,
+                metadata,
+                label=f"{name}/{model_id}",
+                external=is_external,
+            )
         lgb_metadata = loaded_metadata["LightGBM"]
-        if external:
+        if is_external:
             if lgb_metadata.get("station_categories") != []:
                 raise ModelSuiteError("external LightGBM retains station categories")
             if "station_code" in tuple(lgb_metadata.get("design_feature_order", ())):
@@ -3152,9 +4939,18 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
     if document.get("training_device") != "cpu":
         raise ModelSuiteError("formal model suite is not CPU-trained")
     gates = document.get("preopening_gates")
-    required_gates = {"stage09_completion", "stage09b_development_controls"}
+    # Security-tightening policy for the existing suite envelope: historical
+    # two-gate documents are not grandfathered.  They must be rebuilt so the
+    # exact external-training transaction is admitted by a Stage-25 receipt.
+    required_gates = {
+        "stage09_completion",
+        "stage09b_development_controls",
+        "stage25_external_completion",
+    }
     if not isinstance(gates, Mapping) or set(gates) != required_gates:
-        raise ModelSuiteError("model suite lacks the Stage-9/09b completion gates")
+        raise ModelSuiteError(
+            "model suite lacks the Stage-9/09b/25 completion gates"
+        )
     receipt_path = _validated_file_binding(
         root, gates["stage09_completion"], label="Stage-9 completion gate"
     )
@@ -3221,6 +5017,82 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
             "model suite Stage-09b gate differs from its Stage-9 development closure"
         )
 
+    stage25_receipt_path = _validated_file_binding(
+        root,
+        gates["stage25_external_completion"],
+        label="Stage-25 external completion gate",
+    )
+    try:
+        stage25_candidate = json.loads(
+            stage25_receipt_path.read_text(encoding="utf-8")
+        )
+        stage25_pointer_binding = stage25_candidate["artifacts"][
+            "components_pointer"
+        ]
+    except (
+        OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
+    ) as exc:
+        raise ModelSuiteError(
+            "model suite Stage-25 completion gate is malformed"
+        ) from exc
+    if not isinstance(stage25_pointer_binding, Mapping):
+        raise ModelSuiteError(
+            "model suite Stage-25 component binding is malformed"
+        )
+    stage25_pointer = _resolve_inside(
+        root, stage25_pointer_binding.get("path")
+    )
+    stage25_receipt = validate_stage25_completion_receipt(
+        stage25_receipt_path,
+        root=root,
+        components_pointer=stage25_pointer,
+        # A self-contained suite must remain verifiable on another machine.
+        # The receipt still binds the original runtime exactly; only --check
+        # and the Stage-24 build require that runtime to be the current one.
+        enforce_current_runtime=False,
+    )
+    if dict(gates["stage25_external_completion"]) != file_binding(
+        root, stage25_receipt_path
+    ):
+        raise ModelSuiteError("model suite Stage-25 completion binding changed")
+    stage25 = load_component_pointer(stage25_pointer)
+    external_cohort = cohorts["external"]
+    external_entries = (
+        external_cohort.get("models")
+        if isinstance(external_cohort, Mapping)
+        else None
+    )
+    if not isinstance(external_entries, list):
+        raise ModelSuiteError("external model registry is malformed")
+    frozen_learned = {
+        str(entry.get("model_id")): entry
+        for entry in external_entries
+        if isinstance(entry, Mapping)
+        and str(entry.get("model_id")) not in BUILTIN_MODELS
+    }
+    stage25_learned = {
+        str(entry.get("model_id")): entry
+        for entry in stage25.get("models", ())
+        if isinstance(entry, Mapping)
+    }
+    stage25_identity = stage25_receipt.get("run_identity")
+    if (
+        dict(stage25_pointer_binding) != file_binding(root, stage25_pointer)
+        or frozen_learned != stage25_learned
+        or stage25.get("development_contract") != development
+        or not isinstance(stage25_identity, Mapping)
+        or stage25_identity.get("panel_sha256")
+        != development["panel"]["sha256"]
+        or stage25_identity.get("registry_sha256")
+        != development["registry"]["sha256"]
+        or stage25_identity.get("source_sha256")
+        != development["source_sha256"]
+        or stage25_identity.get("runtime_sha256") != runtime_digest
+    ):
+        raise ModelSuiteError(
+            "model suite external cohort differs from its Stage-25 completion"
+        )
+
 
 def _learned_metadata_runtime_sha256(
     root: Path,
@@ -3274,6 +5146,7 @@ def freeze_model_suite(
     development_contract: Mapping[str, Any],
     stage09_completion: Mapping[str, Any] | None = None,
     stage09b_completion: Mapping[str, Any] | None = None,
+    stage25_completion: Mapping[str, Any] | None = None,
     registry_alias: str | Path | None = None,
 ) -> Path:
     """Write the versioned suite, then (and only then) publish its current pointer."""
@@ -3294,8 +5167,13 @@ def freeze_model_suite(
             {"preopening_gates": {
                 "stage09_completion": dict(stage09_completion),
                 "stage09b_development_controls": dict(stage09b_completion),
+                "stage25_external_completion": dict(stage25_completion),
             }}
-            if stage09_completion is not None and stage09b_completion is not None
+            if (
+                stage09_completion is not None
+                and stage09b_completion is not None
+                and stage25_completion is not None
+            )
             else {}
         ),
         "cohorts": {

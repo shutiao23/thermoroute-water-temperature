@@ -508,6 +508,62 @@ def _seed_model_commit(
     stage09b_path = "outputs/models/route_a_stage09b_completion.json"
     _write(root, stage09b_path, _json_bytes(stage09b))
 
+    stage25_run_id = "a" * 20
+    stage25_run_manifest = (
+        f"outputs/runs/25_external_pooled/{stage25_run_id}/run.json"
+    )
+    stage25_pointer = "outputs/models/route_a_external_components.json"
+    stage25_predictions = (
+        "outputs/predictions/"
+        f"external_pooled_development_{stage25_run_id}.parquet"
+    )
+    stage25_prediction_sidecar = f"{stage25_predictions}.meta.json"
+    for relative, payload in (
+        (stage25_run_manifest, "{}\n"),
+        (stage25_pointer, "{}\n"),
+        (stage25_predictions, "stage25 development predictions\n"),
+        (stage25_prediction_sidecar, "{}\n"),
+    ):
+        _write(root, relative, payload)
+    stage25_model_paths = [
+        f"outputs/models/stage25-fixture/model_{index:03d}.bin"
+        for index in range(80)
+    ]
+    for index, relative in enumerate(stage25_model_paths):
+        _write(root, relative, f"model-{index}\n")
+    stage25_artifacts = {
+        "run_manifest": _binding(root, stage25_run_manifest),
+        "components_pointer": _binding(root, stage25_pointer),
+        "development_predictions": _binding(root, stage25_predictions),
+        "development_prediction_sidecar": _binding(
+            root, stage25_prediction_sidecar
+        ),
+        "frozen_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
+        "development_panel": _binding(
+            root, "data_usgs/panel_usgs_120v2.parquet"
+        ),
+        "station_registry": _binding(root, "data_usgs/station_registry_v1.csv"),
+        "development_predictor_bridge": _binding(root, bridge_path),
+        "model_files": [
+            _binding(root, relative) for relative in stage25_model_paths
+        ],
+    }
+    stage25 = {
+        "format": "thermoroute.stage25-completion-receipt.v1",
+        "status": "COMPLETE",
+        "stage": "25_train_external_pooled_suite",
+        "run_id": stage25_run_id,
+        "run_identity": {"run_id": stage25_run_id},
+        "formal_configuration": {"fixture": True},
+        "training_device": "cpu",
+        "confirmation_outcomes_requested_or_read": False,
+        "artifacts": stage25_artifacts,
+        "artifact_closure_sha256": _repro_sha(stage25_artifacts),
+    }
+    stage25["receipt_self_sha256"] = _repro_sha(stage25)
+    stage25_path = "outputs/models/route_a_stage25_completion.json"
+    _write(root, stage25_path, _json_bytes(stage25))
+
     # This is computed only after every source/protocol/control fixture byte is
     # present.  The frozen suite and replay must agree with the exact source
     # inventory committed alongside the model artifacts.
@@ -526,6 +582,7 @@ def _seed_model_commit(
         "preopening_gates": {
             "stage09_completion": _binding(root, stage9_path),
             "stage09b_development_controls": _binding(root, stage09b_path),
+            "stage25_external_completion": _binding(root, stage25_path),
         },
         "cohorts": {
             "temporal": {
@@ -928,6 +985,15 @@ def test_chronology_rejects_timestamp_valid_compiled_python(tmp_path):
     py_compile.compile(str(source), cfile=cache, doraise=True)
     with pytest.raises(ChronologyError, match="compiled Python cache is prohibited"):
         _freeze(state)
+
+
+def test_canonical_run_disables_bytecode_before_first_python_call():
+    """The standard pipeline must not manufacture its own chronology blocker."""
+    script = (ROOT / "scripts" / "run_all.sh").read_text(encoding="utf-8")
+    clear_prefix = script.index("unset PYTHONPYCACHEPREFIX")
+    disable = script.index("export PYTHONDONTWRITEBYTECODE=1")
+    first_python = script.index('"$THERMOROUTE_PYTHON"')
+    assert clear_prefix < disable < first_python
 
 
 def test_chronology_rejects_git_replace_refs(tmp_path):

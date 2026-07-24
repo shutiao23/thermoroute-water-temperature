@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -15,6 +16,8 @@ from thermoroute import repro  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     RUN_LOCK_SCHEMA_VERSION,
     RunIdentity,
+    RunDirectoryLockError,
+    advisory_file_lock,
     acquire_run_directory_lock,
     initialise_run_directory,
     release_run_directory_lock,
@@ -38,6 +41,14 @@ print("LOCKED", flush=True)
 if mode == "hold":
     time.sleep(120)
 lock.release()
+"""
+
+_ADVISORY_WRITER = f"""
+import sys
+sys.path.insert(0, {str(ROOT / 'src')!r})
+from thermoroute.repro import advisory_file_lock
+with advisory_file_lock(sys.argv[1], exclusive=True):
+    print("WRITER_LOCKED", flush=True)
 """
 
 
@@ -158,3 +169,66 @@ def test_distinct_run_ids_can_execute_concurrently(tmp_path):
             acquire_run_directory_lock(first_directory, run_id="run-two")
     finally:
         first.release()
+
+
+def test_run_lock_rejects_symlink_and_hardlink_without_touching_target(tmp_path):
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    target = tmp_path / "unrelated.txt"
+    target.write_text("KEEP ME", encoding="utf-8")
+    original_mode = target.stat().st_mode
+
+    symlink_run = runs / "symlink-run"
+    symlink_lock = run_directory_lock_path(symlink_run)
+    symlink_lock.symlink_to(target)
+    with pytest.raises(RunDirectoryLockError, match="unsafe"):
+        acquire_run_directory_lock(symlink_run, run_id="symlink-run")
+    assert target.read_text(encoding="utf-8") == "KEEP ME"
+    assert target.stat().st_mode == original_mode
+    symlink_lock.unlink()
+
+    hardlink_run = runs / "hardlink-run"
+    hardlink_lock = run_directory_lock_path(hardlink_run)
+    os.link(target, hardlink_lock)
+    with pytest.raises(RunDirectoryLockError, match="unsafe"):
+        acquire_run_directory_lock(hardlink_run, run_id="hardlink-run")
+    assert target.read_text(encoding="utf-8") == "KEEP ME"
+    assert target.stat().st_mode == original_mode
+
+
+def test_initialise_rejects_run_directory_symlink_without_external_write(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(repro, "environment_fingerprint", lambda: {"fixture": True})
+    monkeypatch.setattr(
+        repro,
+        "git_state",
+        lambda _root: {"available": False, "commit": None, "dirty": None},
+    )
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (runs / "escaped-run").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(RunDirectoryLockError, match="symlink"):
+        initialise_run_directory(
+            runs, _identity("escaped-run"), {"stage": "fixture"}
+        )
+    assert not (outside / "run.json").exists()
+
+
+def test_shared_transaction_lock_blocks_writer_until_reader_releases(tmp_path):
+    lock_path = tmp_path / "stage25.transaction.lock"
+    with advisory_file_lock(lock_path, exclusive=False):
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-c", _ADVISORY_WRITER, str(lock_path)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        time.sleep(0.2)
+        assert process.poll() is None
+    stdout, stderr = process.communicate(timeout=20)
+    assert process.returncode == 0, stderr
+    assert stdout.strip() == "WRITER_LOCKED"

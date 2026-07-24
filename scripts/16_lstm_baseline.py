@@ -213,7 +213,9 @@ def _calibration_artifacts(predictions: pd.DataFrame, thresholds: dict[str, floa
         calibration.y_true.to_numpy(float)
         > calibration.threshold.to_numpy(float)
     ).astype(int)
-    offsets = CF.cqr_offsets(calibration, alpha=0.10)
+    offsets, offset_audit = CF.cqr_offsets_with_audit(
+        calibration, alpha=0.10
+    )
     calibrators = fit_horizon_calibrators(
             calibration, probability_col="p_exceed", outcome_col="event",
             min_samples=100,
@@ -224,7 +226,7 @@ def _calibration_artifacts(predictions: pd.DataFrame, thresholds: dict[str, floa
         raise ValueError("LSTM calibration lacks the complete site×horizon registry")
     if set(calibrators) != set(C.HORIZONS):
         raise ValueError("LSTM event calibration lacks a declared horizon")
-    return offsets, calibrators
+    return offsets, offset_audit, calibrators
 
 
 def _read_member_bundle(directory: Path, identity, member: str):
@@ -372,7 +374,11 @@ def insample():
             f, identity, kind="lstm_seed_predictions",
             schema=R.PREDICTION_SCHEMA_VERSION,
         )
-        member_offsets, member_calibrators = _calibration_artifacts(r.pred, thr)
+        (
+            member_offsets,
+            member_offset_audit,
+            member_calibrators,
+        ) = _calibration_artifacts(r.pred, thr)
         save_inference_bundle(
             bundle, members={member: r.model},
             metadata=sequence_bundle_metadata(
@@ -382,6 +388,7 @@ def insample():
                 wd=wd, climatology=clim, imputer=imputer, thresholds=thr,
                 event_reference_climatology=event_reference,
                 conformal_offsets=member_offsets,
+                conformal_offset_audit=member_offset_audit,
                 event_calibrators=member_calibrators,
                 source_sha256=identity.source_sha256,
                 panel_sha256=identity.panel_sha256,
@@ -432,7 +439,7 @@ def insample():
         f"dropped={audit.dropped_rows}; {len(lc)} calib rows retained")
 
     lstm_rows = allp[allp.model.eq("LSTM")]
-    offsets, calibrators = _calibration_artifacts(lstm, thr)
+    offsets, offset_audit, calibrators = _calibration_artifacts(lstm, thr)
     bundle_directory = C.MODELS / f"lstm_usgs_bundle_{identity.run_id}"
     parity_atol = 1e-5
     save_inference_bundle(
@@ -444,6 +451,7 @@ def insample():
             wd=wd, climatology=clim, imputer=imputer, thresholds=thr,
             event_reference_climatology=event_reference,
             conformal_offsets=offsets, event_calibrators=calibrators,
+            conformal_offset_audit=offset_audit,
             source_sha256=identity.source_sha256,
             panel_sha256=identity.panel_sha256,
             registry_sha256=identity.registry_sha256,
