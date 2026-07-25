@@ -161,16 +161,15 @@ STAGE="$TMP_ROOT/thermoroute"
 TMP_ZIP="$TMP_ROOT/thermoroute_release.zip"
 
 cleanup() {
-  rm -rf "$TMP_ROOT"
+  local status=$?
+  trap - EXIT
+  rm -rf "$TMP_ROOT" || true
+  exit "$status"
 }
 trap cleanup EXIT
 
 SOURCE_GIT_COMMIT="$(git rev-parse HEAD)"
 SOURCE_GIT_TREE="$(git rev-parse 'HEAD^{tree}')"
-SOURCE_GIT_DIRTY=()
-if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
-  SOURCE_GIT_DIRTY=(--source-git-dirty)
-fi
 
 mkdir -p "$STAGE"
 
@@ -226,10 +225,18 @@ PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
 # manifest.  A post-opening archive receives only the canonical namespace files
 # copied by the profile materializer above.  No stale cohort output is copied.
 mkdir -p "$STAGE/outputs"
+MANIFEST_ARGS=(
+  --root "$STAGE"
+  --manifest "$STAGE/outputs/manifest.json"
+  --no-git
+  --source-git-commit "$SOURCE_GIT_COMMIT"
+  --source-git-tree "$SOURCE_GIT_TREE"
+)
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  MANIFEST_ARGS+=(--source-git-dirty)
+fi
 PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" "$STAGE/scripts/14_manifest.py" \
-  --root "$STAGE" --manifest "$STAGE/outputs/manifest.json" --no-git \
-  --source-git-commit "$SOURCE_GIT_COMMIT" --source-git-tree "$SOURCE_GIT_TREE" \
-  "${SOURCE_GIT_DIRTY[@]}"
+  "${MANIFEST_ARGS[@]}"
 PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" "$STAGE/scripts/14_manifest.py" \
   --root "$STAGE" --manifest "$STAGE/outputs/manifest.json" --check --no-git
 

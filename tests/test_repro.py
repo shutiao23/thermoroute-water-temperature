@@ -634,6 +634,26 @@ def test_stage09_run_all_manifest_and_chronology_paths_are_exactly_aligned():
         assert "v != (3, 12)" in script
         assert "assert sys.version_info" not in script
         assert re.search(r"(?<![/\w])python3(?:\s|$)", script) is None
+    assert "SOURCE_GIT_DIRTY=()" not in release
+    cleanup = release.split("cleanup() {", 1)[1].split("\n}", 1)[0]
+    assert "local status=$?" in cleanup
+    assert "trap - EXIT" in cleanup
+    assert 'exit "$status"' in cleanup
+    cleanup_probe = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                "set -euo pipefail\n"
+                "TMP_ROOT=$(mktemp -d)\n"
+                "cleanup() {" + cleanup + "\n}\n"
+                "trap cleanup EXIT\n"
+                "false\n"
+            ),
+        ],
+        check=False,
+    )
+    assert cleanup_probe.returncode != 0
     logical_lines = run_all.replace("\\\n", " ").splitlines()
     command = next(
         line.strip()
