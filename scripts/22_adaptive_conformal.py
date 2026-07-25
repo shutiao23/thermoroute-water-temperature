@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Route-A temporal conformal sensitivity with delayed feedback.
+"""Route-A temporal conformal sensitivities with explicitly idealized timing.
 
-Compares ordinary split-CQR, seven-day block-CQR, and delayed-feedback ACI.  All
-results are empirical diagnostics on a previously inspected development period;
-no exchangeability or conditional-coverage guarantee is claimed.
+Compares ordinary split-CQR, a 7-retained-row block-max CQR sensitivity, and an
+idealized target-date-arrival delayed ACI sensitivity.  All results are empirical
+marginal-coverage diagnostics on a previously inspected development period.
 """
 # ruff: noqa: E402
 from __future__ import annotations
@@ -38,6 +38,9 @@ PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 STATION_REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 ALPHA = 0.10
 GAMMAS = (0.005, 0.02, 0.05)
+BLOCK_RETAINED_ROWS = 7
+BLOCK_METHOD_NAME = "7-retained-row block-max CQR sensitivity"
+ACI_METHOD_NAME = "idealized target-date-arrival delayed ACI"
 
 
 def _interval_score(y, lower, upper, alpha=ALPHA):
@@ -74,7 +77,13 @@ def _run() -> None:
         for site, group in train.groupby("site_id")
     }
     huc = huc2_cluster_map(load_station_registry(STATION_REGISTRY))
-    block_offsets = block_cqr_offsets(calibration, alpha=ALPHA, block_days=7)
+    # The historical ``block_days`` API parameter counts retained, sorted rows;
+    # it does not form calendar-day blocks.
+    block_offsets = block_cqr_offsets(
+        calibration,
+        alpha=ALPHA,
+        block_days=BLOCK_RETAINED_ROWS,
+    )
 
     records = []
     for (site, horizon), test_group in evaluation.groupby(["site_id", "horizon"]):
@@ -120,17 +129,38 @@ def _run() -> None:
     result = pd.concat(records, ignore_index=True)
     atomic_write_bytes(C.TABLES / "aci_coverage.csv", result.to_csv(index=False).encode())
 
+    report = _render_report(result)
+    atomic_write_bytes(C.REPORTS / "adaptive_conformal.md", report.encode())
+    print(report)
+
+
+def _render_report(result: pd.DataFrame) -> str:
     methods = [
         ("split-CQR", "split"),
-        ("7-day block-CQR", "block"),
-        *[(f"delayed ACI gamma={gamma}", f"aci_{str(gamma).replace('.', 'p')}")
-          for gamma in GAMMAS],
+        (BLOCK_METHOD_NAME, "block"),
+        *[
+            (
+                f"{ACI_METHOD_NAME} gamma={gamma}",
+                f"aci_{str(gamma).replace('.', 'p')}",
+            )
+            for gamma in GAMMAS
+        ],
     ]
     lines = [
         "# Temporal conformal sensitivity\n",
-        "All target feedback is delayed until `target_date`; a 7-day forecast can "
-        "therefore not update ACI for the next seven issue days. Results are empirical "
-        "development-period diagnostics, not finite-sample guarantees.\n",
+        f"`{BLOCK_METHOD_NAME}` sorts each retained per-site/per-horizon "
+        "calibration group by `issue_date`, partitions row positions into consecutive "
+        f"groups of {BLOCK_RETAINED_ROWS} retained rows (with a possibly shorter final "
+        "group), and calibrates on the within-group maximum nonconformity score. "
+        "These are not seven-calendar-day blocks.\n",
+        f"`{ACI_METHOD_NAME}` uses each forecast's `target_date` only as an idealized "
+        "feedback-update proxy. The inputs to this analysis contain no verified "
+        "observation-publication timestamps, source revision or vintage histories, "
+        "or reporting-latency records. The sensitivity therefore neither observes "
+        "nor replays real feedback availability.\n",
+        "All summaries are empirical development-period marginal-coverage "
+        "diagnostics. They do not estimate conditional coverage and carry no "
+        "finite-sample coverage guarantee.\n",
         "| method | slice | n | coverage | width | interval score |",
         "|---|---|---|---|---|---|",
     ]
@@ -151,8 +181,7 @@ def _run() -> None:
         "is not described as cost-free; width and interval score are reported next "
         "to coverage for every gamma.",
     ])
-    atomic_write_bytes(C.REPORTS / "adaptive_conformal.md", "\n".join(lines).encode())
-    print("\n".join(lines))
+    return "\n".join(lines)
 
 
 def main() -> None:
