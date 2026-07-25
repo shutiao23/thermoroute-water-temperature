@@ -1,0 +1,441 @@
+{
+  "format": "thermoroute.route-a-model-matrix-amendment.v1",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "amendment_id": "route-a-prelabel-model-matrix-replication-017",
+  "recorded_date": "2026-07-25",
+  "prelabel_attestation": {
+    "post_2020_wtemp_requested_or_inspected": false,
+    "confirmation_outcomes_requested_or_inspected": false,
+    "confirmation_outcome_artifact_present": false,
+    "outcome_endpoint_called": false,
+    "outcome_independent": true,
+    "network_used": false
+  },
+  "governance_inputs": {
+    "route_a_confirmatory_protocol": {
+      "path": "protocols/route_a_confirmatory_protocol.md",
+      "sha256": "9954e630b74e544af51ae17937a28ac9f2f5375c21de6dcaa6b8735502a1fa29"
+    },
+    "route_a_confirmatory_v1": {
+      "path": "protocols/route_a_confirmatory_v1.json",
+      "sha256": "93c32e9dbfe976eaa7ef31cc5181ae1f4a415ad2b2e30674a5df64c46b968c05"
+    },
+    "route_a_protocol_seal_v1": {
+      "path": "protocols/route_a_protocol_seal_v1.json",
+      "sha256": "df700fe2fac170d0466cbcaa0fae25efb4748ab82b44d49272c1e85ff5e060cd"
+    },
+    "route_a_inference_amendment_v1": {
+      "path": "protocols/route_a_inference_amendment_v1.json",
+      "sha256": "3363e007770addee26fdab58052bfc483c00df3c52e49ddfab3d3314cfde1fff"
+    },
+    "route_a_inference_amendment_seal_v1": {
+      "path": "protocols/route_a_inference_amendment_seal_v1.json",
+      "sha256": "28d636a108a2def8c4aed71c3a3627f29f3d47347cbb85e953c9268a2eada3b0"
+    },
+    "route_a_inference_amendment_v2": {
+      "path": "protocols/route_a_inference_amendment_v2.json",
+      "sha256": "c936dac301e7f90b05e40bfcb40f86e3a2cd88e692e422fc21fa51fee785bcf8"
+    },
+    "route_a_inference_amendment_seal_v2": {
+      "path": "protocols/route_a_inference_amendment_seal_v2.json",
+      "sha256": "4b4e216f51f6d350912604a96aaa170887cbca7e952a1d097f03e54a7b99969d"
+    },
+    "route_a_probability_metric_erratum_v1": {
+      "path": "protocols/route_a_probability_metric_erratum_v1.json",
+      "sha256": "d549359f77f58c6f82b5cfbf5310be3a6165dcfb83240376ad8e210b8cb5bc82"
+    },
+    "route_a_probability_metric_erratum_seal_v1": {
+      "path": "protocols/route_a_probability_metric_erratum_seal_v1.json",
+      "sha256": "f7f15d9f4d411fb502108c03e8843d7d00523254f0514a00f00a4e1c3299818d"
+    },
+    "route_a_outcome_qc_policy_v1": {
+      "path": "protocols/route_a_outcome_qc_policy_v1.json",
+      "sha256": "e8fb0b6857e2c4ce76fc37704ebce3d8b821585362a3a1dd4fe980edbe059b96"
+    },
+    "route_a_temporal_coverage_policy_v1": {
+      "path": "protocols/route_a_temporal_coverage_policy_v1.json",
+      "sha256": "6b08850ced16de6f97ceda8b16ce89b301d5c5cccb794a4427da0a3e39e211ad"
+    },
+    "route_a_claim_registry_v1": {
+      "path": "protocols/route_a_claim_registry_v1.json",
+      "sha256": "bc3d489b6f2cfe945789a57990a15291b332ae63be6c8df0211aa2b6ff8b70b6"
+    }
+  },
+  "primary_contract_object_bindings": {
+    "base_primary_inference_contract": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract"
+      ],
+      "sha256": "d2fe818ddbd2c772a6d6eeae6495c577740b271a4a5c5ebc94d5e152062fd976"
+    },
+    "base_primary_estimand": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "primary_estimand"
+      ],
+      "sha256": "3bc667ed2b08488a2bd7fa0f19966383d06e444bbb1e2150957337a7c484a2ce"
+    },
+    "base_primary_models": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "primary_models"
+      ],
+      "sha256": "358e9daf5ab555dbb69eec8ab7990f78e5f7a0f00c0cd07ee8fe5591335cd47a"
+    },
+    "base_feature_order": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "feature_order"
+      ],
+      "sha256": "be54c8189ec97bf497d5931316adb89e33a01badb0e1b6f26a398234b43118ad"
+    },
+    "base_mandatory_architecture_controls": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "mandatory_exploratory_architecture_controls"
+      ],
+      "sha256": "5f923e976798070e99f2272391b7d2c7b2ed859d4fecf4a955a0497a90660f8b"
+    },
+    "base_confirmatory_family": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "confirmatory_family"
+      ],
+      "sha256": "473b2ddae17b353b3499413ecd266e684e9b411412bba5463435e8400aedb799"
+    },
+    "base_forecast_key": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "forecast_key"
+      ],
+      "sha256": "5317ed940523d471bad09dca8ecfd7e656c575a372f032262f0650d426d38b55"
+    },
+    "base_confirmatory_claim_decision_contract": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "confirmatory_claim_decision_contract"
+      ],
+      "sha256": "651b92013c2b4c2da7994385611c03e975c879eddd84b5dd442a7fb011cf52e9"
+    },
+    "base_probabilistic_event_contract": {
+      "source": "protocols/route_a_confirmatory_v1.json",
+      "json_path": [
+        "primary_inference_contract",
+        "probabilistic_event_contract"
+      ],
+      "sha256": "7d7540732aac8dc15dc9844296322b1c75537caf467bbaae18839aa37762b098"
+    },
+    "inference_scientific_comparisons": {
+      "source": "protocols/route_a_inference_amendment_v2.json",
+      "json_path": [
+        "scientific_comparisons"
+      ],
+      "sha256": "ad734195f2b090f2da6229ae69e9422cc709adaaec8b0591e59aa39241936220"
+    },
+    "inference_estimand_scope": {
+      "source": "protocols/route_a_inference_amendment_v2.json",
+      "json_path": [
+        "estimand_scope"
+      ],
+      "sha256": "0975d9613c8a11bb4124e788e24d05e6e3d37deb8aa8a87859f7ca7a720f7e1e"
+    },
+    "inference_decision_overlay": {
+      "source": "protocols/route_a_inference_amendment_v2.json",
+      "json_path": [
+        "decision_overlay"
+      ],
+      "sha256": "cbecdcbd54a97db0c7a6e612a6d9ac454f6a951825c658f53d6760926bebaba6"
+    }
+  },
+  "scientific_scope": {
+    "trigger": "preopening_reproducibility_and_information_fairness_audit",
+    "role": "EXPLORATORY_CONTROL_EVIDENCE_COMPLETENESS_ONLY",
+    "supersedes_only": "the_single_seed_replication_wording_for_the_seven_mandatory_Stage09_architecture_controls_and_the_preexisting_Stage09b_plain_control_input_and_head_definition",
+    "primary_model_or_feature_contract_changed": false,
+    "stage09_control_identity_or_intervention_changed": false,
+    "stage09b_plain_control_input_and_head_definition_changed": true,
+    "stage09b_change_is_prospective_and_outcome_free": true,
+    "selection_or_retuning_using_confirmation_outcomes_allowed": false
+  },
+  "stage09_architecture_control_matrix": {
+    "stage": "09",
+    "role": "MANDATORY_EXPLORATORY_ARCHITECTURE_CONTROLS",
+    "control_arms": [
+      "DampedPriorOnly",
+      "TR-noDynamicPrior",
+      "TR-fixedKappa",
+      "TR-noRouter",
+      "TR-noMoE",
+      "TR-noTCN",
+      "TR-unbounded"
+    ],
+    "arm_count": 7,
+    "seeds_per_arm": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "seed_count_per_arm": 5,
+    "expected_member_count": 35,
+    "matrix_identity": "7_control_arms_x_5_fixed_seeds_equals_35_members",
+    "pairing": {
+      "reference": "ThermoRoute_member_with_the_exact_same_seed",
+      "same_seed_required": true,
+      "exact_forecast_keys_required": true,
+      "exact_y_true_required": true,
+      "best_seed_selection_allowed": false
+    },
+    "reporting": {
+      "each_seed_retained": true,
+      "equal_weight_five_member_ensemble_mean_required": true,
+      "causal_or_module_necessity_attribution_allowed": false,
+      "capacity_matched_claim_allowed": false
+    }
+  },
+  "stage09b_development_control_matrix": {
+    "stage": "09b",
+    "role": "DEVELOPMENT_ONLY_EXPLORATORY_NOT_BLIND_NOT_CONFIRMATORY",
+    "development_interval": [
+      "2006-01-01",
+      "2020-12-31"
+    ],
+    "arms": [
+      "PlainMLP-7var",
+      "PlainCausalTCN-7var",
+      "ThermoRoute-ladder-01_WTEMP",
+      "ThermoRoute-ladder-02_plus_FLOW",
+      "ThermoRoute-ladder-03_plus_TEMP",
+      "ThermoRoute-ladder-04_plus_PRCP",
+      "ThermoRoute-ladder-05_plus_RHMEAN",
+      "ThermoRoute-ladder-06_plus_DH",
+      "ThermoRoute-ladder-07_plus_WDSP"
+    ],
+    "arm_count": 9,
+    "seeds_per_arm": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "seed_count_per_arm": 5,
+    "expected_member_count": 45,
+    "splits": [
+      "val",
+      "calib",
+      "test"
+    ],
+    "horizons": [
+      1,
+      3,
+      7
+    ],
+    "member_summary_cell_count": 405,
+    "member_summary_cell_identity": "9_arms_x_5_seeds_x_3_splits_x_3_horizons_equals_405",
+    "paired_comparisons": [
+      {
+        "comparison_family": "full_vs_control",
+        "comparison_id": "ThermoRoute-ladder-07_plus_WDSP-minus-PlainMLP-7var",
+        "candidate_arm_id": "ThermoRoute-ladder-07_plus_WDSP",
+        "reference_arm_id": "PlainMLP-7var",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "full_vs_control",
+        "comparison_id": "ThermoRoute-ladder-07_plus_WDSP-minus-PlainCausalTCN-7var",
+        "candidate_arm_id": "ThermoRoute-ladder-07_plus_WDSP",
+        "reference_arm_id": "PlainCausalTCN-7var",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "adjacent_feature_ladder",
+        "comparison_id": "ThermoRoute-ladder-02_plus_FLOW-minus-ThermoRoute-ladder-01_WTEMP",
+        "candidate_arm_id": "ThermoRoute-ladder-02_plus_FLOW",
+        "reference_arm_id": "ThermoRoute-ladder-01_WTEMP",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "adjacent_feature_ladder",
+        "comparison_id": "ThermoRoute-ladder-03_plus_TEMP-minus-ThermoRoute-ladder-02_plus_FLOW",
+        "candidate_arm_id": "ThermoRoute-ladder-03_plus_TEMP",
+        "reference_arm_id": "ThermoRoute-ladder-02_plus_FLOW",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "adjacent_feature_ladder",
+        "comparison_id": "ThermoRoute-ladder-04_plus_PRCP-minus-ThermoRoute-ladder-03_plus_TEMP",
+        "candidate_arm_id": "ThermoRoute-ladder-04_plus_PRCP",
+        "reference_arm_id": "ThermoRoute-ladder-03_plus_TEMP",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "adjacent_feature_ladder",
+        "comparison_id": "ThermoRoute-ladder-05_plus_RHMEAN-minus-ThermoRoute-ladder-04_plus_PRCP",
+        "candidate_arm_id": "ThermoRoute-ladder-05_plus_RHMEAN",
+        "reference_arm_id": "ThermoRoute-ladder-04_plus_PRCP",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "adjacent_feature_ladder",
+        "comparison_id": "ThermoRoute-ladder-06_plus_DH-minus-ThermoRoute-ladder-05_plus_RHMEAN",
+        "candidate_arm_id": "ThermoRoute-ladder-06_plus_DH",
+        "reference_arm_id": "ThermoRoute-ladder-05_plus_RHMEAN",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "comparison_family": "adjacent_feature_ladder",
+        "comparison_id": "ThermoRoute-ladder-07_plus_WDSP-minus-ThermoRoute-ladder-06_plus_DH",
+        "candidate_arm_id": "ThermoRoute-ladder-07_plus_WDSP",
+        "reference_arm_id": "ThermoRoute-ladder-06_plus_DH",
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "paired_comparison_count": 8,
+    "paired_seed_count": 40,
+    "paired_effect_cell_count": 360,
+    "paired_effect_cell_identity": "8_comparisons_x_5_seeds_x_3_splits_x_3_horizons_equals_360",
+    "plain_control_information_fairness_revision": {
+      "affected_arms": [
+        "PlainMLP-7var",
+        "PlainCausalTCN-7var"
+      ],
+      "change_timing": "PROSPECTIVE_PRELABEL_BEFORE_RETRAINING",
+      "allowed_consumed_batch_keys": [
+        "X",
+        "Mask",
+        "station",
+        "wtemp_t",
+        "clim_t",
+        "clim_tgt",
+        "damped_prior",
+        "phys_std",
+        "logflowz",
+        "season",
+        "gate"
+      ],
+      "all_unlisted_batch_keys_forbidden_to_consume": true,
+      "explicitly_forbidden_batch_keys": [
+        "y",
+        "target_date",
+        "wlevelz"
+      ],
+      "context_semantics": "same_outcome_free_issue_time_and_derived_context_as_full_ThermoRoute",
+      "common_anchor": "damped_prior",
+      "prediction_head": "unrestricted_residual_added_to_damped_prior",
+      "router_present": false,
+      "mixture_of_experts_present": false,
+      "physics_modules_present": false,
+      "bounded_residual_present": false,
+      "parameter_budget": {
+        "reference": "full_ThermoRoute_7_variable_arm",
+        "maximum_absolute_relative_difference": 0.02,
+        "exact_new_parameter_count_declared_here": false,
+        "exact_count_must_be_bound_by": "prospective_executable_contract_and_frozen_Stage09b_architecture_budget_artifact_before_any_result_interpretation"
+      },
+      "old_stage09b_artifacts_eligible_for_final_freeze": false,
+      "full_retraining_and_replay_required": true,
+      "outcome_or_result_based_retuning_allowed": false
+    },
+    "interpretation_boundary": {
+      "historical_tuning_budget_equalized": false,
+      "feature_ladder_order": [
+        "WTEMP",
+        "FLOW",
+        "TEMP",
+        "PRCP",
+        "RHMEAN",
+        "DH",
+        "WDSP"
+      ],
+      "adjacent_ladder_effect_is_path_dependent": true,
+      "independent_feature_importance_claim_allowed": false,
+      "causal_attribution_allowed": false,
+      "confirmatory_inference_allowed": false
+    }
+  },
+  "unchanged_primary_boundary": {
+    "confirmatory_family_count": 5,
+    "formal_comparisons_changed": false,
+    "formal_margins_changed": false,
+    "formal_estimand_changed": false,
+    "formal_decisions_changed": false,
+    "multiplicity_family_changed": false,
+    "primary_models_changed": false,
+    "primary_feature_order_changed": false,
+    "primary_fit_data_changed": false,
+    "primary_frozen_hyperparameters_changed": false,
+    "primary_forecast_key_registry_changed": false,
+    "probabilistic_event_contract_changed": false,
+    "confirmation_data_may_be_used_for_fit_or_selection": false,
+    "architecture_controls_remain_exploratory_descriptive": true,
+    "stage09b_remains_development_only_exploratory": true
+  },
+  "lineage_contract": {
+    "existing_governance_files_remain_immutable": true,
+    "separate_amendment_seal_required": true,
+    "seal_path": "protocols/route_a_model_matrix_amendment_seal_v1.json",
+    "seal_sha256_declared_in_this_document": false,
+    "amendment_document_commit_must_precede_seal_commit": true,
+    "amendment_document_created_exactly_once": true,
+    "seal_created_exactly_once": true,
+    "document_and_seal_immutable_after_sealing": true
+  }
+}
