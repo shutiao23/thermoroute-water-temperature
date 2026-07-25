@@ -1406,6 +1406,26 @@ def test_chronology_rejects_uncommitted_or_rewritten_receipt(tmp_path):
         validate_prelabel_chronology(state["receipt"], root=state["root"])
 
 
+@pytest.mark.parametrize("attack", ("duplicate_key", "pretty_json"))
+def test_chronology_rejects_json_aliases_at_first_publication(tmp_path, attack):
+    state = _repository(tmp_path)
+    document = _freeze(state)
+    receipt = state["receipt"]
+    receipt.chmod(0o644)
+    if attack == "duplicate_key":
+        payload = receipt.read_bytes().replace(
+            b"{", b'{"format":"attacker-alias",', 1
+        )
+        message = "duplicate JSON key"
+    else:
+        payload = (json.dumps(document, sort_keys=True, indent=2) + "\n").encode()
+        message = "canonical producer JSON"
+    receipt.write_bytes(payload)
+    _publish_receipt(state)
+    with pytest.raises(ChronologyError, match=message):
+        validate_prelabel_chronology(receipt, root=state["root"])
+
+
 def test_chronology_rejects_add_delete_hidden_on_merged_side_branch(tmp_path):
     state = _repository(tmp_path)
     main_branch = _run(state["root"], "branch", "--show-current")

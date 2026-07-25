@@ -539,6 +539,33 @@ def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+def _strict_json_object_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
+    """Decode one JSON object while rejecting aliases and non-finite values."""
+
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ChronologyError(f"{label} contains duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    def reject_constant(value: str) -> Any:
+        raise ChronologyError(f"{label} contains non-finite JSON number: {value}")
+
+    try:
+        value = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=object_pairs,
+            parse_constant=reject_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ChronologyError(f"{label} is not valid strict UTF-8 JSON") from exc
+    if not isinstance(value, dict):
+        raise ChronologyError(f"{label} is not a JSON object")
+    return value
+
+
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -680,13 +707,14 @@ def _validate_portable_receipt_bytes(
         matrix_history.get("seal"),
         label="chronology model-matrix amendment seal",
     )
-    try:
-        amendment = json.loads((root / amendment_path).read_text(encoding="utf-8"))
-        seal = json.loads((root / seal_path).read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ChronologyError("gitless model-matrix documents are invalid JSON") from exc
-    if not isinstance(amendment, Mapping) or not isinstance(seal, Mapping):
-        raise ChronologyError("gitless model-matrix documents are not objects")
+    amendment = _strict_json_object_bytes(
+        (root / amendment_path).read_bytes(),
+        label="gitless model-matrix amendment",
+    )
+    seal = _strict_json_object_bytes(
+        (root / seal_path).read_bytes(),
+        label="gitless model-matrix amendment seal",
+    )
     expected_contract_id = _validate_model_matrix_documents(
         amendment,
         seal,
@@ -745,11 +773,10 @@ def _validate_portable_receipt_bytes(
         raise ChronologyError("chronology artifact path registry is absent")
     suite_path = _normalise_path(str(paths.get("model_suite", "")))
     try:
-        suite = json.loads((root / suite_path).read_text(encoding="utf-8"))
-    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ChronologyError("gitless model suite is absent or invalid") from exc
-    if not isinstance(suite, Mapping):
-        raise ChronologyError("gitless model suite is not an object")
+        suite_payload = (root / suite_path).read_bytes()
+    except OSError as exc:
+        raise ChronologyError("gitless model suite is absent or unreadable") from exc
+    suite = _strict_json_object_bytes(suite_payload, label="gitless model suite")
     _validate_suite_model_matrix_binding(suite, history=matrix_history)
 
     protocol = document.get("protocol_history")
@@ -942,13 +969,10 @@ def _git_tree_paths(root: Path, commit: str, path: str) -> list[str]:
 
 
 def _json_from_git(root: Path, commit: str, path: str, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(_git_show(root, commit, path).decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ChronologyError(f"{label} is not valid UTF-8 JSON at {commit[:12]}") from exc
-    if not isinstance(value, dict):
-        raise ChronologyError(f"{label} is not a JSON object")
-    return value
+    return _strict_json_object_bytes(
+        _git_show(root, commit, path),
+        label=f"{label} at {commit[:12]}",
+    )
 
 
 def _binding(
@@ -3167,10 +3191,13 @@ def validate_prelabel_chronology(
             f"chronology receipt must use its canonical path: {DEFAULT_RECEIPT}"
         )
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ChronologyError("chronology receipt is absent or invalid JSON") from exc
-    if not isinstance(document, dict) or document.get("format") != CHRONOLOGY_FORMAT:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise ChronologyError("chronology receipt is absent or unreadable") from exc
+    document = _strict_json_object_bytes(payload, label="chronology receipt")
+    if payload != _canonical_json_bytes(document):
+        raise ChronologyError("chronology receipt is not canonical producer JSON")
+    if document.get("format") != CHRONOLOGY_FORMAT:
         raise ChronologyError("unsupported chronology receipt")
     stable = dict(document)
     self_digest = stable.pop("receipt_self_sha256", None)
