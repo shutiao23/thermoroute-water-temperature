@@ -443,6 +443,7 @@ def _write_development_model_fixtures(
                     "method": "Platt_logistic_by_horizon",
                     "grouping": "pooled_by_horizon",
                     "fit_interval": ["2018-01-01", "2018-12-31"],
+                    "fit_weighting": "equal_total_weight_per_station",
                 },
             }
             cqr_metadata = {

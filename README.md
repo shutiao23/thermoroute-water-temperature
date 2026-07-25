@@ -187,10 +187,10 @@ The seven Stage 09 controls are seed-0-versus-seed-0, single-seed functionality 
 intervention diagnostics. They do not prove that a component is necessary, identify
 a causal mechanism, or establish cross-seed stability.
 
-The Platt calibrator for each horizon is fitted with calibration rows as the fitting
-units, whereas target-period probability metrics give each retained station equal
-total weight. That frozen weighting difference must be kept visible when interpreting
-calibration. The optional Air2stream-style reference is an unofficial style-based
+The Platt calibrator for each horizon and the target-period probability metrics
+both give each retained station equal total weight. This prevents stations with
+more retained calibration days from silently dominating the fitted probability
+map. The optional Air2stream-style reference is an unofficial style-based
 implementation, not the official Air2stream code or a validated reproduction of it.
 
 Temporal learned models receive stable site identity, while the pooled external

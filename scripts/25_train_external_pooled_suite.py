@@ -169,7 +169,7 @@ from thermoroute.train import (
     LSTMForecaster,
     fit_model,
 )
-from thermoroute.weighting import ROW_EQUAL_WEIGHTING
+from thermoroute.weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
 
@@ -215,6 +215,7 @@ def pooled_calibration(predictions: pd.DataFrame, threshold: float):
     calibrators = fit_horizon_calibrators(
         calibration, probability_col="p_exceed", outcome_col="event",
         min_samples=100,
+        weighting=STATION_EQUAL_WEIGHTING,
     )
     if set(offsets) != {("__pooled__", int(h)) for h in C.HORIZONS}:
         raise ValueError("external pooled CQR lacks a declared horizon")

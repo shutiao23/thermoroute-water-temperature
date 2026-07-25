@@ -254,9 +254,9 @@ Temporal CQR offsets are station-by-horizon, whereas external offsets are pooled
 by horizon. A separate event head uses each temporal station's 2006–2015 q90, or
 one pooled development-training q90 in the external arm. Its frozen seasonal
 event-reference fit spans 2006–2018, while one Platt calibrator per horizon is
-fitted only on 2018. Platt fitting is calibration-row weighted, whereas
-target-period probability summaries give every retained station equal total weight;
-that frozen weighting difference is part of the interpretation. The summaries
+fitted only on 2018. Both Platt fitting and target-period probability summaries
+give every retained station equal total weight; each station's row weights are
+normalised within horizon before fitting or scoring. The summaries
 claim empirical marginal coverage only. Quantile crossing,
 station-balanced achieved coverage, interval width, three-quantile pinball mean,
 Brier score, log loss, discrimination, reliability, and calibration slope/intercept

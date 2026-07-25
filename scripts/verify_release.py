@@ -853,6 +853,7 @@ def _validate_frozen_cqr_metadata(
             "method": "Platt_logistic_by_horizon",
             "grouping": "pooled_by_horizon",
             "fit_interval": ["2018-01-01", "2018-12-31"],
+            "fit_weighting": "equal_total_weight_per_station",
         },
     }
     if metadata.get("calibration_fit_contract") != expected_fit:

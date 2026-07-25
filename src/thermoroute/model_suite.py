@@ -192,6 +192,7 @@ def route_a_calibration_fit_contract(*, external: bool) -> dict[str, Any]:
             "method": "Platt_logistic_by_horizon",
             "grouping": "pooled_by_horizon",
             "fit_interval": list(C.SPLIT.calib),
+            "fit_weighting": STATION_EQUAL_WEIGHTING,
         },
     }
 LSTM_VALIDATION_GRID = (
@@ -2544,6 +2545,7 @@ def validate_development_calibrated_head_gate(
             probability_col="p_exceed",
             outcome_col="event",
             min_samples=100,
+            weighting=STATION_EQUAL_WEIGHTING,
         )
     except ValueError as exc:
         raise ModelSuiteError(

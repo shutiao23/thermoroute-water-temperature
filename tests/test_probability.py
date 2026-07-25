@@ -20,6 +20,7 @@ from thermoroute.probability import (
     predict_frozen_seasonal_event_reference,
     validate_frozen_seasonal_event_reference,
 )
+from thermoroute.weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
 
 
 def test_platt_calibration_is_fitted_only_from_supplied_rows():
@@ -37,6 +38,46 @@ def test_platt_calibration_is_fitted_only_from_supplied_rows():
     fitted = fit_horizon_calibrators(frame, min_samples=100)
     applied = apply_horizon_calibrators(frame.iloc[:5], fitted)
     assert applied.p_exceed_calibrated.between(0, 1).all()
+
+
+def test_station_balanced_platt_is_invariant_to_station_row_duplication():
+    rows = []
+    for site, probabilities, outcomes in (
+        ("a", (0.05, 0.20, 0.70, 0.90), (0, 0, 1, 1)),
+        ("b", (0.10, 0.30, 0.80, 0.95), (1, 1, 0, 0)),
+    ):
+        rows.extend(
+            {
+                "site_id": site,
+                "horizon": 1,
+                "p_exceed": probability,
+                "event": outcome,
+            }
+            for probability, outcome in zip(probabilities, outcomes)
+        )
+    balanced = pd.DataFrame(rows)
+    availability_enriched = pd.concat(
+        [balanced[balanced.site_id.eq("a")]] * 10
+        + [balanced[balanced.site_id.eq("b")]],
+        ignore_index=True,
+    )
+    reference = fit_horizon_calibrators(
+        balanced,
+        min_samples=1,
+        weighting=STATION_EQUAL_WEIGHTING,
+    )[1]
+    duplicated = fit_horizon_calibrators(
+        availability_enriched,
+        min_samples=1,
+        weighting=STATION_EQUAL_WEIGHTING,
+    )[1]
+    row_weighted = fit_horizon_calibrators(
+        availability_enriched,
+        min_samples=1,
+        weighting=ROW_EQUAL_WEIGHTING,
+    )[1]
+    assert duplicated.as_dict() == reference.as_dict()
+    assert row_weighted.as_dict() != reference.as_dict()
 
 
 def test_seasonal_climatology_uses_fitting_panel_not_evaluation_outcomes():

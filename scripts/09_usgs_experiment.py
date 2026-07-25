@@ -205,6 +205,7 @@ from thermoroute.train import (
     fit_model,
     resolve_device,
 )
+from thermoroute.weighting import STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
 
@@ -656,6 +657,7 @@ def calibration_artifacts(predictions, thresholds):
     calibrators = fit_horizon_calibrators(
         calibration, probability_col="p_exceed", outcome_col="event",
         min_samples=100,
+        weighting=STATION_EQUAL_WEIGHTING,
     )
     expected_offsets = {(str(site), int(horizon)) for site in thresholds
                         for horizon in C.HORIZONS}

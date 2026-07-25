@@ -59,11 +59,11 @@
     "protocols/legacy_three_site_semantics_notice_v1.md"
   ],
   "preopen_document_sha256": {
-    "README.md": "3e0556224aea78f16d56706a989409fd4055182fa47f1b2d3b787a743b3039fc",
-    "paper/ThermoRoute_paper.md": "98cfb6d38556c1e14f48f757c50ada4d0d51bc2889e41b1f19355b010f69815b",
+    "README.md": "964ec9a8d42fe4b1e0a70a8a10a78378282f9050c0e2cc2996236328fb12ec44",
+    "paper/ThermoRoute_paper.md": "b0508e4429f6bb5f9cf8ba515c69203732d64d17c7b1d8d4485ba9d143e2dbef",
     "paper/highlights.md": "a2bae78002e63e088ce61eb752f597b883e45af9f96d65429b1367fda924a342",
     "paper/cover_letter.md": "c9b1821434e78b0aef7836d846fc55edcc9568f2af4bed7ba33e1509880c625d",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "1712d67271439cb16d5738754a9a8acb2b6b612d33393adea3d9e9da8c45dead",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "d0e49d499784011af6e2eb68b1e82bee0c6801e8e6cb437a5f8e3ee8c77ad26d",
     "protocols/route_a_native_thread_enforcement_notice_v1.md": "f2b60bf9dbe7108ae1498a322e86d66033c6cc82a3febcda11271d67ea40977e",
     "protocols/route_a_native_artifact_publication_notice_v1.md": "3e2075a5ee3af6f4216ad96ab0d647c3d63ea16be2fd6e43df5754d8e299d81f",
     "protocols/legacy_three_site_semantics_notice_v1.md": "2a41271ad7f9d927cb4f1a5f23b9c0abb786353e98ce15e581065e64eb87122f"

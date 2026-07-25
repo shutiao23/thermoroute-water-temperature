@@ -189,6 +189,7 @@ from thermoroute.train import (
     LSTMForecaster,
     fit_model,
 )
+from thermoroute.weighting import STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
 
@@ -270,6 +271,7 @@ def _calibration_artifacts(predictions: pd.DataFrame, thresholds: dict[str, floa
     calibrators = fit_horizon_calibrators(
             calibration, probability_col="p_exceed", outcome_col="event",
             min_samples=100,
+            weighting=STATION_EQUAL_WEIGHTING,
         )
     expected = {(str(site), int(horizon)) for site in thresholds
                 for horizon in C.HORIZONS}

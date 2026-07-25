@@ -9,6 +9,12 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
+from .weighting import (
+    ROW_EQUAL_WEIGHTING,
+    STATION_EQUAL_WEIGHTING,
+    station_equal_sample_weight,
+)
+
 
 EPS = 1e-6
 EVENT_REFERENCE_FORMAT = "thermoroute.frozen-seasonal-event-reference.v1"
@@ -37,20 +43,34 @@ class PlattCalibrator:
     constant: float | None = None
 
     @classmethod
-    def fit(cls, probabilities: np.ndarray, outcomes: np.ndarray) -> "PlattCalibrator":
+    def fit(
+        cls,
+        probabilities: np.ndarray,
+        outcomes: np.ndarray,
+        *,
+        sample_weight: np.ndarray | None = None,
+    ) -> "PlattCalibrator":
         p = _clip_probability(probabilities)
         y = np.asarray(outcomes, dtype=int)
-        ok = np.isfinite(p) & np.isfinite(y)
-        p, y = p[ok], y[ok]
+        if sample_weight is None:
+            weights = np.ones(len(y), dtype=float)
+        else:
+            weights = np.asarray(sample_weight, dtype=float)
+            if weights.shape != y.shape:
+                raise ValueError("Platt sample weights differ from outcome shape")
+        ok = np.isfinite(p) & np.isfinite(y) & np.isfinite(weights) & (weights > 0.0)
+        p, y, weights = p[ok], y[ok], weights[ok]
         if len(y) == 0:
             raise ValueError("cannot calibrate an empty sample")
+        if not np.isin(y, [0, 1]).all():
+            raise ValueError("Platt outcomes must be binary")
         if np.unique(y).size < 2:
             # Jeffreys smoothing prevents exact 0/1 probabilities.
-            constant = float((y.sum() + 0.5) / (len(y) + 1.0))
+            constant = float((np.dot(y, weights) + 0.5) / (weights.sum() + 1.0))
             return cls(intercept=float(logit(np.array([constant]))[0]), slope=0.0,
                        constant=constant)
         model = LogisticRegression(C=1e6, solver="lbfgs", max_iter=2000)
-        model.fit(logit(p).reshape(-1, 1), y)
+        model.fit(logit(p).reshape(-1, 1), y, sample_weight=weights)
         return cls(intercept=float(model.intercept_[0]), slope=float(model.coef_[0, 0]))
 
     def predict(self, probabilities: np.ndarray) -> np.ndarray:
@@ -67,21 +87,37 @@ class PlattCalibrator:
 def fit_horizon_calibrators(calibration: pd.DataFrame, *,
                             probability_col: str = "p_exceed",
                             outcome_col: str = "event",
-                            min_samples: int = 100) -> dict[int, PlattCalibrator]:
+                            min_samples: int = 100,
+                            weighting: str = ROW_EQUAL_WEIGHTING,
+                            station_col: str = "site_id",
+                            ) -> dict[int, PlattCalibrator]:
     """Fit one calibrator per horizon using calibration rows only."""
     required = {"horizon", probability_col, outcome_col}
+    if weighting == STATION_EQUAL_WEIGHTING:
+        required.add(station_col)
+    elif weighting != ROW_EQUAL_WEIGHTING:
+        raise ValueError(f"unsupported Platt calibration weighting: {weighting}")
     missing = required - set(calibration.columns)
     if missing:
         raise ValueError(f"calibration frame missing columns: {sorted(missing)}")
     calibrators: dict[int, PlattCalibrator] = {}
     for horizon, group in calibration.groupby("horizon"):
-        valid = group[[probability_col, outcome_col]].dropna()
+        columns = [probability_col, outcome_col]
+        if weighting == STATION_EQUAL_WEIGHTING:
+            columns.append(station_col)
+        valid = group[columns].dropna()
         if len(valid) < min_samples:
             raise ValueError(
                 f"horizon {horizon} has {len(valid)} calibration rows; need {min_samples}"
             )
+        sample_weight = (
+            station_equal_sample_weight(valid[station_col])
+            if weighting == STATION_EQUAL_WEIGHTING else None
+        )
         calibrators[int(horizon)] = PlattCalibrator.fit(
-            valid[probability_col].to_numpy(float), valid[outcome_col].to_numpy(int)
+            valid[probability_col].to_numpy(float),
+            valid[outcome_col].to_numpy(int),
+            sample_weight=sample_weight,
         )
     return calibrators
 
