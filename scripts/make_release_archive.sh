@@ -112,7 +112,7 @@ if [[ "$PROFILE" == "ROUTE_A_OPENED_COMPLETE" ]]; then
   # This production state may contain exactly the one create-only authorization
   # and its canonical opening namespace.  The local dirty override is never
   # allowed to weaken an archive that claims confirmatory completeness.
-  PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
+  "$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py \
     --check-postopen-dirt --source-root "$ROOT_DIR" \
     --authorization "$AUTHORIZATION"
 else
@@ -141,6 +141,8 @@ required=(
   protocols/route_a_inference_amendment_seal_v2.json
   protocols/route_a_probability_metric_erratum_v1.json
   protocols/route_a_probability_metric_erratum_seal_v1.json
+  protocols/route_a_model_matrix_amendment_v1.json
+  protocols/route_a_model_matrix_amendment_seal_v1.json
   protocols/route_a_native_thread_enforcement_notice_v1.md
   protocols/route_a_native_artifact_publication_notice_v1.md
   protocols/legacy_three_site_semantics_notice_v1.md
@@ -242,13 +244,13 @@ PROFILE_ARGS=(
 if [[ -n "$AUTHORIZATION" ]]; then
   PROFILE_ARGS+=(--authorization "$AUTHORIZATION")
 fi
-PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "${PROFILE_ARGS[@]}"
+"$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py "${PROFILE_ARGS[@]}"
 # Establish and independently replay the archive-to-bundle protected-source
 # binding before any Python copied into the stage is allowed to execute.
-PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
+"$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py \
   --materialize-git-history "$STAGE" --source-root "$ROOT_DIR" \
   --profile "$PROFILE" --distribution "$DISTRIBUTION"
-PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
+"$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py \
   --materialize-claim-audit "$STAGE" --profile "$PROFILE" \
   --distribution "$DISTRIBUTION"
 
@@ -282,7 +284,7 @@ SIZE="$(ls -lh "$OUT" | awk '{print $5}')"
 
 # Production verification always invokes the fixed trusted replay interface for
 # ROUTE_A_OPENED_COMPLETE.  PREOPEN_NOT_COMPLETE never touches outcome code/data.
-PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "$OUT" \
+"$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py "$OUT" \
   --distribution "$DISTRIBUTION"
 
 echo "profile $PROFILE"
