@@ -31,8 +31,15 @@ Models use 2006–2015 for fitting, 2016–2017 for selection, and 2018 only for
 and Platt calibration; the seasonal event-reference fit spans 2006–2018.
 The H2 comparison is limited to the frozen four-candidate, five-seed LightGBM
 procedure; historical tuning budgets were not equalized. The Stage 09 controls are
-single-seed functionality/intervention diagnostics rather than evidence of causal
-mechanisms, component necessity, or cross-seed stability.
+same-five-seed deletion/intervention sensitivities rather than evidence of causal
+mechanisms, component necessity, or capacity-matched attribution.
+An independently sealed outcome-free model-matrix amendment records this
+prospective expansion without changing the five confirmatory comparisons. The
+separate plain-neural controls are matched on trainable parameters and on the
+available outcome-free input information, use the same damped anchor, and omit
+ThermoRoute's relaxation, routing, mixture, and residual-bound structure. Historical
+hyperparameter-search budgets remain unequal, so those comparisons are still
+exploratory and noncausal.
 
 An outcome-free inference-scope amendment makes all directional wording conditional
 on a claim-blocking gate requiring at least 30 reportable clusters. The frozen
@@ -55,8 +62,8 @@ an auditable evaluation/release workflow. The manuscript will explicitly delimit
 the availability-enriched sample, retrospectively acquired latest-provider
 covariates rather than as-issued vintages, coarse HUC2
 dependence groups, daily-mean target, point-scale meteorology, missing development
-request provenance, numerical comparison margin, calibration-row-weighted Platt
-fitting versus station-balanced target metrics, observable-outcome conditioning,
+request provenance, numerical comparison margin, station-equal Platt fitting
+aligned with station-balanced target metrics, observable-outcome conditioning,
 the descriptive-only temporal-coverage sensitivities, the unofficial status of the
 Air2stream-style reference, and the local honest-owner Git seal.
 

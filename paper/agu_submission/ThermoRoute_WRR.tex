@@ -317,10 +317,31 @@ three candidate architectures with seed 0 before fitting five members. These
 tuning budgets are documented but not identical. The
 temporal component audit additionally freezes seven one-factor controls:
 prior-only, no dynamic prior, fixed relaxation, no router, no mixture, no TCN, and
-unbounded residual. Each Stage 09 control is a seed-0-versus-seed-0, single-seed
-functionality/intervention diagnostic. It does not prove component necessity,
-identify a causal mechanism, or establish cross-seed stability. Every comparison
-uses identical station/\allowbreak date/\allowbreak horizon target keys for the two models.
+unbounded residual. Each Stage 09 control uses the same five seeds (0-\/-4) as
+ThermoRoute and is paired within seed on identical forecast keys and exact target
+bytes before ensemble averaging. These are deletion/intervention sensitivities;
+they do not prove component necessity, identify a causal mechanism, or provide a
+capacity-matched attribution. Every comparison uses identical
+station/\allowbreak date/\allowbreak horizon target keys for the two models.
+
+The separate Stage 09b PlainMLP and PlainCausalTCN comparisons are prospectively
+information-matched as well as parameter-matched. Both controls receive the same
+outcome-free issue-time history, station identity, climatology, frozen damped
+anchor, standardized environmental context, and calendar/regime-gate tensors
+available to full ThermoRoute. They predict unrestricted residuals around the
+same damped anchor, but omit the learned relaxation proposal, lag router, mixture
+of experts, and residual bound. They never read the target tensor, target-date
+field, or disabled water-level channel. This removes a direct information-set
+confound, but it does not equalize historical hyperparameter-search budgets or
+make the comparison causal.
+
+The original sealed protocol called the exploratory controls single-seed. An
+independently sealed, outcome-free model-matrix amendment prospectively supersedes
+that exploratory replication rule with five fixed seeds for every Stage 09
+control and the exact 45-member Stage 09b matrix. The amendment does not change
+the five confirmatory comparisons, their estimands or margins, the data splits,
+primary models, CQR/Platt contracts, or any claim decision rule. Earlier
+single-seed and 31-member control artifacts are invalid for the amended design.
 
 The temporal arm is future-time hindcasting at known gauges. ThermoRoute and the
 LSTM receive a stable station embedding, and temporal LightGBM receives the same
@@ -415,9 +436,12 @@ non-inferiority, equivalence, parity, or a U.S.-river superpopulation claim.
 Predeclared secondary outputs include exact-approved-qualifier target sensitivity,
 equal-HUC and leave-one-HUC influence summaries, station-balanced probability
 diagnostics, architecture controls, and synthetic missingness/noise/flow/weather
-perturbations. They cannot promote or replace a failed formal test. A hypothetical
-cost--loss calculation, if retained, is an illustration rather than observed
-decision impact.
+perturbations. They cannot promote or replace a failed formal test. Stage 18 records
+\texttt{REV\_\allowbreak{}NOT\_\allowbreak{}EVALUATED\_\allowbreak{}NO\_\allowbreak{}PREDECLARED\_\allowbreak{}COST\_\allowbreak{}LOSS\_\allowbreak{}RATIOS}: no numerical relative economic
+value is computed because no cost-\/-loss ratios, real management costs, losses,
+actions, or stakeholder utility model were frozen. Even a future preregistered
+cost-\/-loss grid would remain a hypothetical development sensitivity without those
+observed decision quantities.
 
 The optional Air2stream-style a4/a8 implementation is an unofficial, exploratory
 style reference fitted by deterministic six-start bounded least squares on measured
@@ -433,6 +457,14 @@ cohort and forecast keys for which both issue-date and target-date WTEMP are ret
 finite observations in the normalized outcome tables. It does not impute unavailable
 outcomes, test missing at random, estimate all-calendar-day performance, or establish
 stability across years or seasons.
+
+A separate temporal-calibration sensitivity groups consecutive positions in the
+retained, issue-date-sorted calibration rows. Its block size of seven therefore
+means seven retained rows, not seven calendar days. The delayed-ACI sensitivity
+uses each forecast\textquotesingle s target date as an idealized feedback-arrival proxy; the inputs
+contain no verified observation-publication timestamp, revision history, data
+vintage, or reporting latency. It neither replays real feedback availability nor
+establishes conditional coverage; it reports empirical marginal coverage only.
 
 For every formal comparison, the audit reports all eight frozen descriptive
 candidates: equal weighting of the 12 year-by-season cells, leave-one-year for each
@@ -513,7 +545,8 @@ owner or same-UID adversary.
 \section{Current progress}\label{current-progress}
 
 Completed repository work includes the canonical panel/registry seal, the final
-pre-label protocol and outcome-free inference-scope amendment, deterministic model serialization contracts, development replay
+pre-label protocol, the outcome-free inference-scope and model-matrix amendments,
+deterministic model serialization contracts, development replay
 code, exact clustered inference, probability/event contracts, outcome-quality
 provenance, the committed \texttt{PASS\_\allowbreak{}EXACT\_\allowbreak{}PRODUCT\_\allowbreak{}BRIDGE} evidence, the predeclared
 temporal-coverage audit and its receipt-binding implementation, a dual-profile
@@ -526,8 +559,8 @@ Required work still outstanding at this manuscript state is:
 \tightlist
 \item
   rerun the canonical six-model development experiment, the seven mandatory
-  seed-0-versus-seed-0 diagnostic controls, and the separate matched
-  plain-neural/feature-ladder audit;
+  same-five-seed diagnostic controls, and the separate matched
+  information-and-parameter-controlled plain-neural/five-seed feature-ladder audit;
 \item
   freeze and independently replay every five-member temporal and pooled external
   learned-model bundle;

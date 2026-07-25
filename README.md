@@ -183,9 +183,28 @@ Exceedance events use a frozen seasonal statistical reference fitted on
 2018 only. Probability,
 spatial-influence, exact-qualifier, and architecture-control outputs are descriptive
 or exploratory unless the protocol explicitly places them in the five-test family.
-The seven Stage 09 controls are seed-0-versus-seed-0, single-seed functionality and
-intervention diagnostics. They do not prove that a component is necessary, identify
-a causal mechanism, or establish cross-seed stability.
+Each of the seven Stage 09 controls contains the same five seeds (0--4) as
+ThermoRoute and is paired on identical forecast keys and exact target bytes before
+ensemble averaging. These are deletion/intervention sensitivities. They do not
+prove that a component is necessary, identify a causal mechanism, or provide a
+capacity-matched attribution.
+
+The separate Stage 09b PlainMLP and PlainCausalTCN controls are prospectively
+information-matched as well as parameter-matched: they receive the same
+outcome-free issue-time history, station identity, climatology, damped anchor,
+environmental context, and calendar/gate tensors available to full ThermoRoute.
+They predict unrestricted residuals around the same frozen damped anchor, but do
+not contain ThermoRoute's relaxation proposal, router, mixture, or residual bound.
+They never read `y`, `target_date`, or the disabled water-level channel. This
+narrows one fairness confound; it does not equalize historical tuning budgets or
+turn the comparison into a causal attribution.
+
+The original sealed protocol described the exploratory architecture controls as
+single-seed. A separate outcome-free model-matrix amendment prospectively replaces
+that exploratory rule with the exact five-seed Stage 09 and 45-member Stage 09b
+matrix. It leaves the five-test confirmatory family, estimands, margins, data
+splits, primary candidates/references, CQR, Platt, and decision rules unchanged.
+Old single-seed and 31-member control artifacts are ineligible.
 
 The Platt calibrator for each horizon and the target-period probability metrics
 both give each retained station equal total weight. This prevents stations with
@@ -249,7 +268,8 @@ forecast result or evidence of management value.
 The intended order is strict:
 
 1. Commit the protocol, seal, claim ledger, dependency locks, source, tests, and
-   training code.
+   training code, followed by the separately committed outcome-free model-matrix
+   amendment and its later independent seal.
 2. Validate the committed 2018–2020 Daymet/gridMET re-fetch, archived exact
    responses, and development predictor-product bridge against the frozen panel on
    the exact site/date registry. The committed gate records
@@ -272,8 +292,8 @@ The intended order is strict:
    Stage 9 publishes its content-bound completion receipt only after the canonical
    predictions, tables, report, bundle parity checks, and all three formal pointers
    succeed. `scripts/run_all.sh` then explicitly runs Stage 09b. Stage 09b publishes
-   its own receipt as its final atomic write only after the exact 31-member
-   (5 MLP + 5 TCN + 21 feature-ladder) registry, common forecast keys and truth,
+   its own receipt as its final atomic write only after the exact 45-member
+   (5 MLP + 5 TCN + 35 feature-ladder) registry, common forecast keys and truth,
    architecture/optimisation budget, combined predictions, report, and every
    lineage sidecar validate. Stage 16 publishes a separate receipt only after
    validating its exact Stage-9 parent, the frozen LSTM selection grid and

@@ -15,12 +15,15 @@
 - A sealed pre-opening erratum uses nominal pre-CQR heads for pinball, CQR endpoints
   for coverage/width, and post-Platt probabilities for event metrics.
 - The frozen protocol specifies six primary model types and seven one-factor controls.
-- Stage 09 controls are single-seed functionality diagnostics, not causal ablations.
+- Stage 09 controls use the same five seeds as ThermoRoute but remain noncausal sensitivities.
+- An outcome-free amendment freezes the exact 45-member Stage 09b matrix.
+- Plain-neural controls match available input information and parameters, not historical tuning.
 - Uses station-balanced RMSE effects on identical model-pair target keys.
 - Computes exact whole-HUC2 sign-flip and Holm sensitivities for five frozen comparisons.
 - A minimum-30-cluster gate cannot pass with 15 HUC2 groups, so Route A is descriptive only.
 - Restricts H2 to the frozen four-candidate, five-seed LightGBM procedure.
 - Audits observable-key temporal coverage with eight fixed descriptive sensitivities.
+- Records REV as not evaluated because no cost--loss ratios or real decision utilities were frozen.
 - The opening design will archive raw target requests, identifiers, qualifiers, and conflicts.
 - Requires a model-freeze commit before candidate metadata and later covariates.
 - Generates the five comparison statements only from a fully verified one-time receipt.
