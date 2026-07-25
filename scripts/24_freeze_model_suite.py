@@ -36,6 +36,26 @@ _WORKER_CACHE_ENV = "THERMOROUTE_STAGE24_PYCACHE"
 _WORKER_NONCE_ENV = "THERMOROUTE_STAGE24_NONCE"
 
 
+def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
+    """Return the complete allowlisted Stage-24 worker environment."""
+    return {
+        "PATH": os.defpath,
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "TMPDIR": str(cache.resolve()),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTHONHASHSEED": "0",
+        _WORKER_CACHE_ENV: str(cache.resolve()),
+        _WORKER_NONCE_ENV: nonce,
+    }
+
+
 def _isolate_project_bytecode() -> None:
     if __name__ != "__main__":
         return
@@ -60,6 +80,8 @@ def _isolate_project_bytecode() -> None:
             or ROOT in expected.parents
             or (expected / ".controller-nonce").read_text(encoding="utf-8")
             != worker_nonce
+            or dict(os.environ)
+            != _formal_worker_environment(expected, worker_nonce)
         ):
             raise RuntimeError("Stage 24 formal worker isolation contract failed")
         sys.argv.pop(1)
@@ -70,9 +92,7 @@ def _isolate_project_bytecode() -> None:
             raise RuntimeError("Stage 24 controller pycache was not initially empty")
         nonce = secrets.token_hex(32)
         (cache_path / ".controller-nonce").write_text(nonce, encoding="utf-8")
-        environment = os.environ.copy()
-        environment[_WORKER_CACHE_ENV] = str(cache_path)
-        environment[_WORKER_NONCE_ENV] = nonce
+        environment = _formal_worker_environment(cache_path, nonce)
         result = subprocess.run(
             [sys.executable, "-I", "-X", f"pycache_prefix={cache}",
              str(Path(__file__).resolve()), _WORKER_ARGUMENT, *sys.argv[1:]],

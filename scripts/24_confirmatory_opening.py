@@ -32,31 +32,87 @@ import argparse
 import json
 import os
 from pathlib import Path
+import secrets
 import subprocess
 import sys
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_WORKER_ARGUMENT = "--_thermoroute-opening-worker"
+_WORKER_CACHE_ENV = "THERMOROUTE_OPENING_PYCACHE"
+_WORKER_NONCE_ENV = "THERMOROUTE_OPENING_NONCE"
+
+
+def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
+    """Return the complete allowlisted opening-controller environment."""
+    return {
+        "PATH": os.defpath,
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "TMPDIR": str(cache.resolve()),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTHONHASHSEED": "0",
+        _WORKER_CACHE_ENV: str(cache.resolve()),
+        _WORKER_NONCE_ENV: nonce,
+    }
 
 
 def _isolate_project_bytecode() -> None:
     if __name__ != "__main__":
         return
-    if any(argument in {"-h", "--help"} for argument in sys.argv[1:]):
+    worker_cache = os.environ.get(_WORKER_CACHE_ENV)
+    worker_nonce = os.environ.get(_WORKER_NONCE_ENV)
+    worker_argument = len(sys.argv) > 1 and sys.argv[1] == _WORKER_ARGUMENT
+    if (
+        any(argument in {"-h", "--help"} for argument in sys.argv[1:])
+        and worker_cache is None
+        and worker_nonce is None
+        and not worker_argument
+    ):
         # Help is parsed before project imports below.  Do not recursively
         # re-exec merely to print usage, and prohibit incidental bytecode.
         sys.dont_write_bytecode = True
         return
     prefix = Path(sys.pycache_prefix).resolve() if sys.pycache_prefix else None
-    if (
-        sys.flags.isolated
-        and prefix is not None
-        and prefix != ROOT
-        and ROOT not in prefix.parents
-    ):
+    if worker_cache is not None or worker_nonce is not None or worker_argument:
+        if not (worker_cache and worker_nonce and worker_argument):
+            raise RuntimeError("Route-A opening worker handshake is incomplete")
+        expected = Path(worker_cache).resolve()
+        flags = (
+            int(sys.flags.isolated),
+            int(sys.flags.ignore_environment),
+            int(sys.flags.no_user_site),
+            bool(sys.flags.safe_path),
+            int(sys.flags.dont_write_bytecode),
+        )
+        if (
+            flags != (1, 1, 1, True, 0)
+            or not bool(sys.flags.hash_randomization)
+            or prefix != expected
+            or not expected.is_dir()
+            or expected == ROOT
+            or ROOT in expected.parents
+            or (expected / ".controller-nonce").read_text(encoding="utf-8")
+            != worker_nonce
+            or dict(os.environ)
+            != _formal_worker_environment(expected, worker_nonce)
+        ):
+            raise RuntimeError("Route-A opening worker isolation contract failed")
+        sys.argv.pop(1)
         return
     with tempfile.TemporaryDirectory(prefix="thermoroute-opening-pycache-") as cache:
+        cache_path = Path(cache).resolve()
+        if any(cache_path.iterdir()):
+            raise RuntimeError("opening controller pycache was not initially empty")
+        nonce = secrets.token_hex(32)
+        (cache_path / ".controller-nonce").write_text(nonce, encoding="utf-8")
         result = subprocess.run(
             [
                 sys.executable,
@@ -64,10 +120,11 @@ def _isolate_project_bytecode() -> None:
                 "-X",
                 f"pycache_prefix={cache}",
                 str(Path(__file__).resolve()),
+                _WORKER_ARGUMENT,
                 *sys.argv[1:],
             ],
             cwd=ROOT,
-            env=os.environ.copy(),
+            env=_formal_worker_environment(cache_path, nonce),
             check=False,
         )
     raise SystemExit(result.returncode)

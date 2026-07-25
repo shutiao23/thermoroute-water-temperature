@@ -15,9 +15,42 @@ FORMAL_ENTRYPOINTS = (
     ("scripts/09_usgs_experiment.py", "--_thermoroute-stage09-worker"),
     ("scripts/09b_development_controls.py", "--_thermoroute-stage09b-worker"),
     ("scripts/16_lstm_baseline.py", "--_thermoroute-stage16-worker"),
+    ("scripts/24_confirmatory_opening.py", "--_thermoroute-opening-worker"),
     ("scripts/24_freeze_model_suite.py", "--_thermoroute-stage24-worker"),
     ("scripts/25_train_external_pooled_suite.py", "--_thermoroute-stage25-worker"),
+    ("scripts/28_freeze_prelabel_chronology.py", "--_thermoroute-stage28-worker"),
 )
+
+FORMAL_WORKER_ENVIRONMENT_KEYS = {
+    "scripts/09_usgs_experiment.py": (
+        "THERMOROUTE_STAGE09_PYCACHE",
+        "THERMOROUTE_STAGE09_NONCE",
+    ),
+    "scripts/09b_development_controls.py": (
+        "THERMOROUTE_STAGE09B_PYCACHE",
+        "THERMOROUTE_STAGE09B_NONCE",
+    ),
+    "scripts/16_lstm_baseline.py": (
+        "THERMOROUTE_STAGE16_PYCACHE",
+        "THERMOROUTE_STAGE16_NONCE",
+    ),
+    "scripts/24_confirmatory_opening.py": (
+        "THERMOROUTE_OPENING_PYCACHE",
+        "THERMOROUTE_OPENING_NONCE",
+    ),
+    "scripts/24_freeze_model_suite.py": (
+        "THERMOROUTE_STAGE24_PYCACHE",
+        "THERMOROUTE_STAGE24_NONCE",
+    ),
+    "scripts/25_train_external_pooled_suite.py": (
+        "THERMOROUTE_STAGE25_PYCACHE",
+        "THERMOROUTE_STAGE25_NONCE",
+    ),
+    "scripts/28_freeze_prelabel_chronology.py": (
+        "THERMOROUTE_STAGE28_PYCACHE",
+        "THERMOROUTE_STAGE28_NONCE",
+    ),
+}
 
 RUNTIME_ENFORCED_ENTRYPOINTS = {
     "scripts/09_usgs_experiment.py": 4,
@@ -1046,3 +1079,60 @@ def test_formal_worker_cannot_bypass_controller_handshake(
     )
     assert result.returncode != 0
     assert "worker handshake is incomplete" in result.stderr
+
+
+@pytest.mark.parametrize(("relative", "worker_argument"), FORMAL_ENTRYPOINTS)
+def test_formal_worker_rejects_every_inherited_environment_variable(
+    tmp_path,
+    relative,
+    worker_argument,
+):
+    cache = (tmp_path / "controller-cache").resolve()
+    cache.mkdir()
+    nonce = "formal-controller-nonce"
+    (cache / ".controller-nonce").write_text(nonce, encoding="utf-8")
+    cache_key, nonce_key = FORMAL_WORKER_ENVIRONMENT_KEYS[relative]
+    environment = {
+        "PATH": os.defpath,
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "TMPDIR": str(cache),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTHONHASHSEED": "0",
+        cache_key: str(cache),
+        nonce_key: nonce,
+        "UNDECLARED_HOST_INJECTION": "must-be-rejected",
+    }
+    if relative == "scripts/16_lstm_baseline.py":
+        environment["WORKER_THREADS"] = "1"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-X",
+            f"pycache_prefix={cache}",
+            str(ROOT / relative),
+            worker_argument,
+            "--help",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+    assert result.returncode != 0
+    assert "formal worker isolation contract failed" in result.stderr
+
+
+def test_formal_controllers_never_copy_the_host_environment():
+    for relative, _worker_argument in FORMAL_ENTRYPOINTS:
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "os.environ.copy()" not in source, relative
+        assert "dict(os.environ)" in source, relative
