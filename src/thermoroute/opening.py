@@ -98,10 +98,27 @@ from .model_suite import (
     validate_development_prediction_binding,
     validate_model_suite_document,
 )
+from .model_matrix_amendment import (
+    AMENDMENT_FORMAT as MODEL_MATRIX_AMENDMENT_FORMAT,
+    AMENDMENT_ID as MODEL_MATRIX_AMENDMENT_ID,
+    AMENDMENT_RELATIVE as MODEL_MATRIX_AMENDMENT_RELATIVE,
+    AMENDMENT_SEAL_RELATIVE as MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE,
+    AMENDMENT_STATUS as MODEL_MATRIX_AMENDMENT_STATUS,
+    ModelMatrixAmendmentError,
+    validate_model_matrix_amendment,
+    validate_model_matrix_amendment_seal,
+)
 from .opening_contract import (
+    ACQUISITION_WORK_ORDER_FIELDS,
     AcquisitionContractError,
+    AUTHORIZATION_TOP_LEVEL_FIELDS,
+    INTENT_FIELDS,
     MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES,
+    MODEL_MATRIX_AMENDMENT_BINDING_FIELDS,
     RAW_ACQUISITION_FORBIDDEN_STATE_KEYS,
+    RAW_PREFLIGHT_TRANSCRIPT_FIELDS,
+    RAW_PREFLIGHT_TRANSCRIPT_FORMAT,
+    RECEIPT_FIELDS,
     TRUSTED_STATE_KEYS,
     assert_no_symlink_components,
 )
@@ -246,33 +263,6 @@ ACQUISITION_ATTEMPT_INDEX_FORMAT = (
     "thermoroute.route-a-acquisition-attempt-index.v1"
 )
 POSTOPEN_CLAIM_DOCUMENT = "paper/ThermoRoute_paper.md"
-
-AUTHORIZATION_TOP_LEVEL_FIELDS = frozenset({
-    "format",
-    "status",
-    "protocol",
-    "registries",
-    "model_suite",
-    "development_replay",
-    "prelabel_chronology",
-    "inference_amendment",
-    "probability_metric_erratum",
-    "inference_gate",
-    "outcome_qc_policy",
-    "temporal_coverage_policy",
-    "actual_inputs",
-    "actual_feature_order",
-    "required_models",
-    "statistics_contract_sha256",
-    "runtime",
-    "fixed_code",
-    "source",
-    "acquisition_plan",
-    "state_paths",
-    "opening_id",
-    "created_at_utc",
-    "authorization_self_sha256",
-})
 
 _FIXED_ENTRYPOINTS = {
     "orchestrator": "scripts/route_a_opening_orchestrator.py",
@@ -463,11 +453,19 @@ def _logical_binding(
     }
 
 
-def exclusive_create_json(path: str | Path, value: Mapping[str, Any]) -> None:
+def exclusive_create_json(
+    path: str | Path,
+    value: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
+    repeat_publication_guard: bool = False,
+) -> None:
     """Create and fsync one immutable JSON file without replacement semantics."""
     _atomic_create_bytes(
         Path(os.path.abspath(os.fspath(path))),
         canonical_json_bytes(dict(value)),
+        publication_guard=publication_guard,
+        repeat_publication_guard=repeat_publication_guard,
     )
 
 
@@ -665,6 +663,7 @@ def _atomic_create_bytes(
     payload: bytes,
     *,
     publication_guard: Callable[[], object] | None = None,
+    repeat_publication_guard: bool = False,
 ) -> None:
     """Create immutable bytes atomically; a writer crash cannot expose a prefix."""
     path = Path(os.path.abspath(os.fspath(path)))
@@ -706,6 +705,8 @@ def _atomic_create_bytes(
             if publication_guard is not None:
                 publication_guard()
             _atomic_create_fault("before_no_replace_link", path)
+            if repeat_publication_guard and publication_guard is not None:
+                publication_guard()
             try:
                 os.link(
                     temporary.name,
@@ -1027,6 +1028,9 @@ def _fixed_code_identity(root: Path) -> dict[str, Any]:
         "thermoroute.probability_metric_erratum": (
             "src/thermoroute/probability_metric_erratum.py"
         ),
+        "thermoroute.model_matrix_amendment": (
+            "src/thermoroute/model_matrix_amendment.py"
+        ),
         "thermoroute.quantiles": "src/thermoroute/quantiles.py",
         "thermoroute.coverage_audit": "src/thermoroute/coverage_audit.py",
         "thermoroute.coverage_bridge": "src/thermoroute/coverage_bridge.py",
@@ -1153,6 +1157,7 @@ def _canonical_state_paths(
     inference_gate_sha256: str,
     inference_amendment_seal_sha256: str,
     probability_metric_erratum_seal_sha256: str,
+    model_matrix_amendment_seal_sha256: str,
     outcome_qc_policy_sha256: str,
     temporal_coverage_policy_sha256: str,
 ) -> dict[str, str]:
@@ -1166,6 +1171,9 @@ def _canonical_state_paths(
         "inference_amendment_seal_sha256": inference_amendment_seal_sha256,
         "probability_metric_erratum_seal_sha256": (
             probability_metric_erratum_seal_sha256
+        ),
+        "model_matrix_amendment_seal_sha256": (
+            model_matrix_amendment_seal_sha256
         ),
         "outcome_qc_policy_sha256": outcome_qc_policy_sha256,
         "temporal_coverage_policy_sha256": temporal_coverage_policy_sha256,
@@ -4070,6 +4078,10 @@ def freeze_opening_authorization(
     probability_metric_erratum_seal: str | Path = (
         PROBABILITY_METRIC_ERRATUM_SEAL_RELATIVE
     ),
+    model_matrix_amendment: str | Path = MODEL_MATRIX_AMENDMENT_RELATIVE,
+    model_matrix_amendment_seal: str | Path = (
+        MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE
+    ),
     outcome_qc_policy: str | Path = OUTCOME_QC_POLICY_RELATIVE,
     temporal_coverage_policy: str | Path = TEMPORAL_COVERAGE_POLICY_RELATIVE,
 ) -> dict[str, Any]:
@@ -4111,6 +4123,18 @@ def freeze_opening_authorization(
     probability_metric_erratum_seal_path = (
         probability_metric_erratum_seal_path.resolve()
     )
+    model_matrix_amendment_path = Path(model_matrix_amendment)
+    if not model_matrix_amendment_path.is_absolute():
+        model_matrix_amendment_path = root / model_matrix_amendment_path
+    model_matrix_amendment_path = model_matrix_amendment_path.resolve()
+    model_matrix_amendment_seal_path = Path(model_matrix_amendment_seal)
+    if not model_matrix_amendment_seal_path.is_absolute():
+        model_matrix_amendment_seal_path = (
+            root / model_matrix_amendment_seal_path
+        )
+    model_matrix_amendment_seal_path = (
+        model_matrix_amendment_seal_path.resolve()
+    )
     outcome_qc_policy_path = Path(outcome_qc_policy)
     if not outcome_qc_policy_path.is_absolute():
         outcome_qc_policy_path = root / outcome_qc_policy_path
@@ -4141,6 +4165,17 @@ def freeze_opening_authorization(
             root=root,
             erratum_path=probability_metric_erratum_path,
         )
+        validate_model_matrix_amendment(
+            model_matrix_amendment_path,
+            root=root,
+        )
+        model_matrix_amendment_seal_document = (
+            validate_model_matrix_amendment_seal(
+                model_matrix_amendment_seal_path,
+                root=root,
+                amendment_path=model_matrix_amendment_path,
+            )
+        )
         inference_gate_document = validate_inference_gate_document(
             inference_gate_path,
             root=root,
@@ -4160,10 +4195,11 @@ def freeze_opening_authorization(
         InferenceGateError,
         OutcomeQCGateError,
         CoverageAuditError,
+        ModelMatrixAmendmentError,
         ProbabilityMetricErratumError,
     ) as exc:
         raise OpeningContractError(
-            "prelabel inference/QC governance or probability erratum is absent or stale"
+            "prelabel inference/QC/model-matrix governance is absent or stale"
         ) from exc
     registries = validate_registry_lock(
         root=root,
@@ -4269,6 +4305,9 @@ def freeze_opening_authorization(
         probability_metric_erratum_seal_sha256=sha256_file(
             probability_metric_erratum_seal_path
         ),
+        model_matrix_amendment_seal_sha256=sha256_file(
+            model_matrix_amendment_seal_path
+        ),
         outcome_qc_policy_sha256=sha256_file(outcome_qc_policy_path),
         temporal_coverage_policy_sha256=sha256_file(
             temporal_coverage_policy_path
@@ -4334,6 +4373,16 @@ def freeze_opening_authorization(
             "seal": _binding(root, probability_metric_erratum_seal_path),
             "erratum_document_commit": probability_erratum_seal[
                 "erratum_document_commit"
+            ],
+        },
+        "model_matrix_amendment": {
+            **_binding(root, model_matrix_amendment_path),
+            "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+            "seal": _binding(root, model_matrix_amendment_seal_path),
+            "amendment_document_commit": model_matrix_amendment_seal_document[
+                "amendment_document_commit"
             ],
         },
         "inference_gate": {
@@ -4581,6 +4630,77 @@ def validate_authorization(
     if dict(probability_erratum_binding) != expected_probability_erratum_binding:
         raise OpeningContractError(
             "authorized probability metric erratum binding changed"
+        )
+    model_matrix_amendment_binding = authorization.get(
+        "model_matrix_amendment"
+    )
+    if (
+        not isinstance(model_matrix_amendment_binding, Mapping)
+        or set(model_matrix_amendment_binding)
+        != set(MODEL_MATRIX_AMENDMENT_BINDING_FIELDS)
+    ):
+        raise OpeningContractError(
+            "authorization lacks exact model-matrix amendment binding"
+        )
+    model_matrix_amendment_path = _verify_file_binding(
+        root,
+        model_matrix_amendment_binding,
+        label="model-matrix amendment",
+    )
+    model_matrix_amendment_seal_binding = (
+        model_matrix_amendment_binding.get("seal")
+    )
+    if (
+        not isinstance(model_matrix_amendment_seal_binding, Mapping)
+        or set(model_matrix_amendment_seal_binding) != {"path", "sha256"}
+    ):
+        raise OpeningContractError(
+            "authorization lacks exact model-matrix amendment seal"
+        )
+    model_matrix_amendment_seal_path = _verify_file_binding(
+        root,
+        model_matrix_amendment_seal_binding,
+        label="model-matrix amendment seal",
+    )
+    try:
+        model_matrix_amendment_document = validate_model_matrix_amendment(
+            model_matrix_amendment_path,
+            root=root,
+        )
+        model_matrix_amendment_seal_document = (
+            validate_model_matrix_amendment_seal(
+                model_matrix_amendment_seal_path,
+                root=root,
+                amendment_path=model_matrix_amendment_path,
+                allow_gitless_archive=allow_gitless_archive,
+                expected_amendment_sha256=str(
+                    model_matrix_amendment_binding.get("sha256", "")
+                ),
+                expected_seal_sha256=str(
+                    model_matrix_amendment_seal_binding.get("sha256", "")
+                ),
+            )
+        )
+    except ModelMatrixAmendmentError as exc:
+        raise OpeningContractError(
+            "authorized model-matrix amendment or seal is stale"
+        ) from exc
+    expected_model_matrix_amendment_binding = {
+        **_binding(root, model_matrix_amendment_path),
+        "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+        "status": MODEL_MATRIX_AMENDMENT_STATUS,
+        "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+        "seal": _binding(root, model_matrix_amendment_seal_path),
+        "amendment_document_commit": model_matrix_amendment_seal_document[
+            "amendment_document_commit"
+        ],
+    }
+    if (
+        dict(model_matrix_amendment_binding)
+        != expected_model_matrix_amendment_binding
+    ):
+        raise OpeningContractError(
+            "authorized model-matrix amendment binding changed"
         )
     outcome_qc_policy_binding = authorization.get("outcome_qc_policy")
     if not isinstance(outcome_qc_policy_binding, Mapping) or set(
@@ -4887,6 +5007,9 @@ def validate_authorization(
         probability_metric_erratum_seal_sha256=str(
             probability_erratum_seal_binding.get("sha256", "")
         ),
+        model_matrix_amendment_seal_sha256=str(
+            model_matrix_amendment_seal_binding.get("sha256", "")
+        ),
         outcome_qc_policy_sha256=str(
             outcome_qc_policy_binding.get("sha256", "")
         ),
@@ -4924,6 +5047,10 @@ def validate_authorization(
         "inference_amendment_seal": amendment_seal,
         "probability_metric_erratum": probability_erratum,
         "probability_metric_erratum_seal": probability_erratum_seal,
+        "model_matrix_amendment": model_matrix_amendment_document,
+        "model_matrix_amendment_seal": (
+            model_matrix_amendment_seal_document
+        ),
         "inference_gate": gate,
         "outcome_qc_policy": outcome_qc_policy_document,
         "temporal_coverage_policy": temporal_coverage_policy_document,
@@ -5798,6 +5925,9 @@ def _expected_acquisition_work_order(
         "source_tree_sha256": authorization["source"]["source_tree_sha256"],
         "runtime_sha256": preflight["runtime"]["runtime_sha256"],
         "fixed_code_sha256": preflight["fixed_code"]["sha256"],
+        "model_matrix_amendment_seal_sha256": authorization[
+            "model_matrix_amendment"
+        ]["seal"]["sha256"],
         "acquisition_plan": dict(authorization["acquisition_plan"]),
         "state_paths": dict(authorization["state_paths"]),
         "site_registries": {
@@ -5822,7 +5952,10 @@ def _expected_acquisition_work_order(
         resolved = (root / str(relative)).resolve()
         if root not in resolved.parents:
             raise OpeningContractError("acquisition work-order path escapes repository")
-    return {**stable, "work_order_self_sha256": sha256_json(stable)}
+    work_order = {**stable, "work_order_self_sha256": sha256_json(stable)}
+    if set(work_order) != set(ACQUISITION_WORK_ORDER_FIELDS):
+        raise OpeningContractError("acquisition work-order schema changed")
+    return work_order
 
 def _preflight_attestation(preflight: Mapping[str, Any]) -> dict[str, Any]:
     return {
@@ -5841,6 +5974,14 @@ def _preflight_attestation(preflight: Mapping[str, Any]) -> dict[str, Any]:
         ["inference_amendment"]["sha256"],
         "inference_amendment_seal_sha256": preflight["authorization"]
         ["inference_amendment"]["seal"]["sha256"],
+        "model_matrix_amendment_sha256": preflight["authorization"]
+        ["model_matrix_amendment"]["sha256"],
+        "model_matrix_amendment_seal_sha256": preflight["authorization"]
+        ["model_matrix_amendment"]["seal"]["sha256"],
+        "model_matrix_amendment_id": preflight["authorization"]
+        ["model_matrix_amendment"]["amendment_id"],
+        "model_matrix_amendment_status": preflight["authorization"]
+        ["model_matrix_amendment"]["status"],
         "inference_gate_sha256": preflight["authorization"]
         ["inference_gate"]["sha256"],
         "inference_gate_status": preflight["inference_gate"]["status"],
@@ -5885,6 +6026,7 @@ def _trusted_validator_identity(root: Path) -> dict[str, Any]:
         "src/thermoroute/significance.py",
         "src/thermoroute/coverage_audit.py",
         "src/thermoroute/coverage_bridge.py",
+        "src/thermoroute/model_matrix_amendment.py",
         "src/thermoroute/repro.py",
     )
     files = {
@@ -5896,6 +6038,159 @@ def _trusted_validator_identity(root: Path) -> dict[str, Any]:
         "sha256": sha256_json(files),
         "source_tree_sha256": source_tree_hash(root),
     }
+
+
+def isolated_validate_raw_preflight(
+    work_order_path: str | Path,
+    *,
+    root: str | Path,
+    challenge: str,
+) -> dict[str, Any]:
+    """Produce one network-free, challenge-bound full-preflight transcript."""
+    if (
+        not sys.flags.isolated
+        or not sys.dont_write_bytecode
+        or re.fullmatch(r"[0-9a-f]{64}", challenge) is None
+    ):
+        raise OpeningContractError(
+            "raw preflight validator requires python -I -B and a SHA-256 challenge"
+        )
+    root = Path(root).resolve()
+    work_order_path = Path(
+        os.path.abspath(os.fspath(work_order_path))
+    )
+    try:
+        work_order_path = assert_no_symlink_components(
+            root, work_order_path, require_file=True
+        )
+    except AcquisitionContractError as exc:
+        raise OpeningContractError(
+            "raw preflight work order path is unsafe"
+        ) from exc
+    raw_work_order = _load_json(
+        work_order_path, label="raw preflight acquisition work order"
+    )
+    if (
+        set(raw_work_order) != set(ACQUISITION_WORK_ORDER_FIELDS)
+        or work_order_path.read_bytes()
+        != canonical_json_bytes(raw_work_order)
+    ):
+        raise OpeningContractError(
+            "raw preflight work order is noncanonical or changed"
+        )
+    _validate_atomic_final_file(
+        work_order_path,
+        canonical_json_bytes(raw_work_order),
+        cleanup_temps=False,
+    )
+    authorization_path = _resolve_inside(
+        root, raw_work_order.get("authorization_path")
+    )
+    authorization = _load_json(
+        authorization_path, label="raw preflight opening authorization"
+    )
+    if authorization_path.read_bytes() != canonical_json_bytes(authorization):
+        raise OpeningContractError(
+            "raw preflight opening authorization is noncanonical"
+        )
+    _validate_atomic_final_file(
+        authorization_path,
+        canonical_json_bytes(authorization),
+        cleanup_temps=False,
+    )
+    preflight = validate_authorization(
+        authorization_path,
+        root=root,
+        require_clean_source=False,
+    )
+    _assert_isolated_role(
+        preflight=preflight, root=root, role="orchestrator"
+    )
+    expected_work_order = _expected_acquisition_work_order(
+        preflight, root=root
+    )
+    if (
+        raw_work_order != expected_work_order
+        or work_order_path != Path(preflight["state_paths"]["work_order"])
+    ):
+        raise OpeningContractError(
+            "raw preflight work order differs from full authorization replay"
+        )
+    intent = _validated_intent(
+        preflight=preflight,
+        root=root,
+        work_order=expected_work_order,
+    )
+    inspection = inspect_same_opening_transport_resume(
+        authorization_path, root=root
+    )
+    phase = inspection.get("resume_phase")
+    if phase not in {
+        "RAW_TRANSPORT",
+        "ACQUISITION_FINALIZATION_NETWORK_FREE",
+    }:
+        raise OpeningContractError(
+            "full raw preflight state is not acquisition eligible"
+        )
+    attestation = _preflight_attestation(preflight)
+    validator = _trusted_validator_identity(root)
+    orchestrator = preflight["fixed_code"]["entrypoints"]["orchestrator"]
+    transcript = {
+        "format": RAW_PREFLIGHT_TRANSCRIPT_FORMAT,
+        "status": "FULL_PREFLIGHT_VALIDATED_NETWORK_FREE",
+        "challenge": challenge,
+        "opening_id": preflight["authorization"]["opening_id"],
+        "authorization_path": _relative(root, authorization_path),
+        "authorization_sha256": sha256_file(authorization_path),
+        "authorization_self_sha256": authorization[
+            "authorization_self_sha256"
+        ],
+        "work_order_path": _relative(root, work_order_path),
+        "work_order_sha256": sha256_file(work_order_path),
+        "work_order_self_sha256": expected_work_order[
+            "work_order_self_sha256"
+        ],
+        "intent_path": _relative(
+            root, preflight["state_paths"]["intent"]
+        ),
+        "intent_sha256": sha256_file(preflight["state_paths"]["intent"]),
+        "intent_self_sha256": intent["intent_self_sha256"],
+        "preflight_attestation": attestation,
+        "preflight_attestation_sha256": sha256_json(attestation),
+        "trusted_validator": validator,
+        "state_namespace": preflight["authorization"]["state_paths"][
+            "namespace"
+        ],
+        "resume_phase": phase,
+        "raw_transport_resume_allowed": inspection[
+            "raw_transport_resume_allowed"
+        ],
+        "network_free_acquisition_finalization_allowed": inspection[
+            "network_free_acquisition_finalization_allowed"
+        ],
+        "source_tree_sha256": preflight["authorization"]["source"][
+            "source_tree_sha256"
+        ],
+        "runtime_sha256": preflight["runtime"]["runtime_sha256"],
+        "fixed_code_sha256": preflight["fixed_code"]["sha256"],
+        "model_matrix_amendment_sha256": preflight["authorization"]
+        ["model_matrix_amendment"]["sha256"],
+        "model_matrix_amendment_seal_sha256": preflight["authorization"]
+        ["model_matrix_amendment"]["seal"]["sha256"],
+        "development_registry_sha256": preflight["registries"]
+        ["development_sha256"],
+        "external_registry_sha256": preflight["registries"]
+        ["external_sha256"],
+        "validator_entrypoint_path": orchestrator["path"],
+        "validator_entrypoint_sha256": orchestrator["sha256"],
+        "outcome_values_parsed": False,
+        "network_used": False,
+    }
+    if set(transcript) != set(RAW_PREFLIGHT_TRANSCRIPT_FIELDS):
+        raise OpeningContractError(
+            "raw preflight transcript schema changed"
+        )
+    return transcript
 
 
 def _sanitized_child_environment(*, temporary_root: Path) -> dict[str, str]:
@@ -6061,9 +6356,10 @@ def validate_prediction_product(
     first = key_sets[str(required_models[0])]
     if not first or any(keys != first for keys in key_sets.values()):
         raise OpeningContractError("models do not share the exact forecast-key registry")
-    spread = frame.groupby(["site_id", "horizon", "issue_date", "target_date"])[
-        "y_true"
-    ].agg(lambda values: float(np.max(values) - np.min(values)))
+    grouped_labels = frame.groupby(
+        ["site_id", "horizon", "issue_date", "target_date"]
+    )["y_true"]
+    spread = grouped_labels.max() - grouped_labels.min()
     if (spread > 1e-6).any():
         raise OpeningContractError("models disagree on confirmation labels")
     return frame
@@ -10073,19 +10369,15 @@ def _validate_intent_document(
         ).hexdigest(),
         "fixed_code_sha256": preflight["fixed_code"]["sha256"],
         "runtime_sha256": preflight["runtime"]["runtime_sha256"],
+        "model_matrix_amendment_seal_sha256": preflight["authorization"]
+        ["model_matrix_amendment"]["seal"]["sha256"],
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
         "same_opening_transport_resume_allowed": True,
     }
     if any(intent.get(key) != value for key, value in expected.items()):
         raise OpeningContractError("one-time opening intent identity changed")
-    expected_fields = {
-        *expected,
-        "trusted_validator",
-        "started_at_utc",
-        "intent_self_sha256",
-    }
-    if set(intent) != expected_fields:
+    if set(intent) != set(INTENT_FIELDS):
         raise OpeningContractError("one-time opening intent schema changed")
     if intent.get("trusted_validator") != _trusted_validator_identity(root):
         raise OpeningContractError("trusted validator differs from opening intent")
@@ -10105,6 +10397,142 @@ def _validate_intent_document(
         )
 
 
+def _assert_preintent_authorization_unchanged(
+    *,
+    authorization_path: Path,
+    root: Path,
+    preflight: Mapping[str, Any],
+    attestation: Mapping[str, Any],
+    validator: Mapping[str, Any],
+) -> None:
+    """Replay all prelabel bindings immediately before intent publication."""
+    replayed = validate_authorization(
+        authorization_path,
+        root=root,
+        # The fully staged but not-yet-linked intent temp is itself expected
+        # Git dirt.  Full source inventory, governance bytes, HEAD and fixed
+        # code are still replayed; only the sole-untracked-file assertion is
+        # waived for this final publication instant.
+        require_clean_source=False,
+    )
+    if (
+        _preflight_attestation(replayed) != dict(attestation)
+        or replayed["state_paths"] != preflight["state_paths"]
+        or _trusted_validator_identity(root) != dict(validator)
+    ):
+        raise OpeningContractError(
+            "preflight changed before irreversible opening intent publication"
+        )
+    _assert_exact_preintent_publication_state(
+        authorization_path=authorization_path,
+        root=root,
+        state=preflight["state_paths"],
+    )
+
+
+def _assert_exact_preintent_publication_state(
+    *,
+    authorization_path: Path,
+    root: Path,
+    state: Mapping[str, Any],
+) -> None:
+    """Require exactly one staged intent and no other state or Git dirt."""
+    run_directory = Path(state["run_directory"])
+    intent_path = Path(state["intent"])
+    if os.path.lexists(intent_path):
+        raise OpeningContractError(
+            "one-time intent appeared before its create-only publication"
+        )
+    preexisting = sorted(
+        key
+        for key, path in state.items()
+        if key not in {"namespace", "run_directory", "intent"}
+        and os.path.lexists(path)
+    )
+    if preexisting:
+        raise OpeningContractError(
+            "canonical state changed before intent publication: "
+            f"{preexisting}"
+        )
+    with _secure_directory_chain(
+        run_directory, create=False
+    ) as run_descriptor:
+        directory_metadata = os.fstat(run_descriptor)
+        if (
+            not stat.S_ISDIR(directory_metadata.st_mode)
+            or directory_metadata.st_uid != os.geteuid()
+            or directory_metadata.st_mode & 0o022
+        ):
+            raise OpeningContractError(
+                "pre-intent publication directory is not owner-controlled"
+            )
+        entries = os.listdir(run_descriptor)
+        pattern = re.compile(
+            rf"\.{re.escape(intent_path.name)}\.[a-z0-9_]{{8}}\.tmp"
+        )
+        if len(entries) != 1 or pattern.fullmatch(entries[0]) is None:
+            raise OpeningContractError(
+                "pre-intent publication state is not exactly one staged intent"
+            )
+        temporary_path = run_directory / entries[0]
+        temporary = os.stat(
+            entries[0], dir_fd=run_descriptor, follow_symlinks=False
+        )
+        if (
+            not stat.S_ISREG(temporary.st_mode)
+            or temporary.st_uid != os.geteuid()
+            or temporary.st_dev != directory_metadata.st_dev
+            or temporary.st_nlink != 1
+            or temporary.st_mode & 0o222
+        ):
+            raise OpeningContractError(
+                "pre-intent staged intent has unsafe metadata"
+            )
+
+    _assert_exact_preintent_git_records(
+        authorization_path=authorization_path,
+        root=root,
+        temporary_path=temporary_path,
+    )
+
+
+def _assert_exact_preintent_git_records(
+    *,
+    authorization_path: Path,
+    root: Path,
+    temporary_path: Path,
+) -> None:
+    """Allow only authorization plus the one classified atomic temp in Git."""
+    authorization_relative = _relative(root, authorization_path)
+    temporary_relative = _relative(root, temporary_path)
+    expected_records = {f"?? {authorization_relative}"}
+    ignored = _run_live_git(
+        root, "check-ignore", "--quiet", "--", temporary_relative
+    )
+    if ignored.returncode == 1:
+        expected_records.add(f"?? {temporary_relative}")
+    elif ignored.returncode != 0:
+        raise OpeningContractError(
+            "cannot classify staged intent in exact Git state"
+        )
+    raw_status = _git_output(
+        root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+    )
+    records = raw_status.split("\0")
+    if records[-1:] != [""]:
+        raise OpeningContractError(
+            "pre-intent Git status is not NUL terminated"
+        )
+    actual_records = records[:-1]
+    if (
+        len(actual_records) != len(expected_records)
+        or set(actual_records) != expected_records
+    ):
+        raise OpeningContractError(
+            "pre-intent Git dirt differs from authorization plus staged intent"
+        )
+
+
 def _inspect_or_recover_preintent_temp(
     *,
     state: Mapping[str, Any],
@@ -10112,6 +10540,7 @@ def _inspect_or_recover_preintent_temp(
     root: Path,
     work_order: Mapping[str, Any],
     publish_or_remove: bool,
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """Classify the sole legal pre-intent crash remnant, optionally recover it."""
     run_directory = Path(state["run_directory"])
@@ -10191,10 +10620,14 @@ def _inspect_or_recover_preintent_temp(
                     # fsync.  Re-fsync the validated complete temp before
                     # publishing its inode under the irreversible intent name.
                     os.fsync(descriptor)
+                    if publication_guard is not None:
+                        publication_guard()
                     _atomic_create_fault(
                         "after_preintent_recovery_inode_fsync_before_link",
                         intent_path,
                     )
+                    if publication_guard is not None:
+                        publication_guard()
                     try:
                         os.link(
                             temporary_name,
@@ -10223,7 +10656,156 @@ def _inspect_or_recover_preintent_temp(
             os.close(descriptor)
 
 
+@contextmanager
+def _exclusive_opening_authorization_lock(
+    authorization_path: Path,
+) -> Iterator[None]:
+    """Serialize all opening/resume orchestrators on the immutable auth inode."""
+    authorization_path = Path(
+        os.path.abspath(os.fspath(authorization_path))
+    )
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(authorization_path, flags)
+        metadata = os.fstat(descriptor)
+        current = os.lstat(authorization_path)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_nlink != 1
+            or (metadata.st_dev, metadata.st_ino)
+            != (current.st_dev, current.st_ino)
+        ):
+            raise OpeningContractError(
+                "opening authorization lock inode is unsafe"
+            )
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise OpeningAlreadyStarted(
+                "another Route-A orchestrator holds the opening lock"
+            ) from exc
+        yield
+    except OSError as exc:
+        raise OpeningContractError(
+            "opening authorization lock path is unsafe"
+        ) from exc
+    finally:
+        if descriptor is not None:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
+
+
+def _validate_initial_authorization_with_preintent_recovery(
+    authorization_path: Path,
+    *,
+    root: Path,
+) -> dict[str, Any]:
+    """Permit only the exact atomic temp left by a killed first execution."""
+    try:
+        return validate_authorization(
+            authorization_path,
+            root=root,
+            require_clean_source=True,
+        )
+    except OpeningContractError as clean_error:
+        replayed = validate_authorization(
+            authorization_path,
+            root=root,
+            require_clean_source=False,
+        )
+        state = replayed["state_paths"]
+        if opening_status(
+            intent_path=state["intent"], receipt_path=state["receipt"]
+        ) != "SEALED_READY_OR_NOT_AUTHORIZED":
+            raise clean_error
+        work_order = _expected_acquisition_work_order(replayed, root=root)
+        recovery, _document = _inspect_or_recover_preintent_temp(
+            state=state,
+            preflight=replayed,
+            root=root,
+            work_order=work_order,
+            publish_or_remove=False,
+        )
+        if recovery not in {"PARTIAL_SAFE", "COMPLETE_VALID"}:
+            raise clean_error
+        preexisting = sorted(
+            key
+            for key, path in state.items()
+            if key not in {"namespace", "run_directory", "intent"}
+            and os.path.lexists(path)
+        )
+        if preexisting:
+            raise OpeningContractError(
+                "pre-intent recovery found other canonical state: "
+                f"{preexisting}"
+            )
+        run_directory = Path(state["run_directory"])
+        entries = os.listdir(run_directory)
+        pattern = re.compile(
+            rf"\.{re.escape(Path(state['intent']).name)}\."
+            r"[a-z0-9_]{8}\.tmp"
+        )
+        if len(entries) != 1 or pattern.fullmatch(entries[0]) is None:
+            raise OpeningContractError(
+                "pre-intent recovery lost its sole classified temp"
+            )
+        source = replayed["authorization"].get("source")
+        authorization_relative = _relative(root, authorization_path)
+        current_git = _live_git_state(root)
+        if (
+            not isinstance(source, Mapping)
+            or source.get("git_clean_before_authorization") is not True
+            or source.get("authorization_path") != authorization_relative
+            or source.get("post_freeze_allowed_git_status")
+            != f"?? {authorization_relative}"
+            or current_git.get("commit")
+            != source.get("git_commit_before_authorization")
+        ):
+            raise OpeningContractError(
+                "pre-intent recovery source/Git policy changed"
+            )
+        _assert_exact_preintent_git_records(
+            authorization_path=authorization_path,
+            root=root,
+            temporary_path=run_directory / entries[0],
+        )
+        return replayed
+
+
 def isolated_orchestrate_opening(
+    authorization_path: str | Path,
+    *,
+    root: str | Path,
+    resume: bool = False,
+) -> None:
+    """Serialize and execute one fixed opening or same-opening resume."""
+    root = Path(root).resolve()
+    authorization_path = Path(
+        os.path.abspath(os.fspath(authorization_path))
+    )
+    if (
+        authorization_path.resolve(strict=False) != authorization_path
+        or root not in authorization_path.parents
+        or not authorization_path.is_file()
+    ):
+        raise OpeningContractError("opening authorization escapes or is absent")
+    with _exclusive_opening_authorization_lock(authorization_path):
+        _isolated_orchestrate_opening_locked(
+            authorization_path,
+            root=root,
+            resume=resume,
+        )
+
+
+def _isolated_orchestrate_opening_locked(
     authorization_path: str | Path,
     *,
     root: str | Path,
@@ -10234,10 +10816,17 @@ def isolated_orchestrate_opening(
     authorization_path = Path(authorization_path).resolve()
     if root not in authorization_path.parents or not authorization_path.is_file():
         raise OpeningContractError("opening authorization escapes or is absent")
-    preflight = validate_authorization(
-        authorization_path,
-        root=root,
-        require_clean_source=not resume,
+    preflight = (
+        validate_authorization(
+            authorization_path,
+            root=root,
+            require_clean_source=False,
+        )
+        if resume
+        else _validate_initial_authorization_with_preintent_recovery(
+            authorization_path,
+            root=root,
+        )
     )
     _assert_isolated_role(preflight=preflight, root=root, role="orchestrator")
     state = preflight["state_paths"]
@@ -10255,6 +10844,16 @@ def isolated_orchestrate_opening(
     attestation = _preflight_attestation(preflight)
     work_order = _expected_acquisition_work_order(preflight, root=root)
     validator = _trusted_validator_identity(root)
+
+    def preintent_publication_guard() -> None:
+        _assert_preintent_authorization_unchanged(
+            authorization_path=authorization_path,
+            root=root,
+            preflight=preflight,
+            attestation=attestation,
+            validator=validator,
+        )
+
     run_acquisition = True
     if resume:
         inspection = inspect_same_opening_transport_resume(
@@ -10321,6 +10920,7 @@ def isolated_orchestrate_opening(
             root=root,
             work_order=work_order,
             publish_or_remove=True,
+            publication_guard=preintent_publication_guard,
         )
         recovered_complete = recovery == "COMPLETE_VALID"
         if recovered_complete:
@@ -10342,6 +10942,9 @@ def isolated_orchestrate_opening(
                 ).hexdigest(),
                 "fixed_code_sha256": preflight["fixed_code"]["sha256"],
                 "runtime_sha256": preflight["runtime"]["runtime_sha256"],
+                "model_matrix_amendment_seal_sha256": preflight[
+                    "authorization"
+                ]["model_matrix_amendment"]["seal"]["sha256"],
                 "trusted_validator": validator,
                 "started_at_utc": datetime.now(timezone.utc).isoformat(),
                 "maximum_openings": 1,
@@ -10369,7 +10972,12 @@ def isolated_orchestrate_opening(
         # This marker is the first state mutation and is never replaced.  A raw
         # continuation remains the same opening ID and the same intent.
         if not recovered_complete:
-            exclusive_create_json(state["intent"], intent)
+            exclusive_create_json(
+                state["intent"],
+                intent,
+                publication_guard=preintent_publication_guard,
+                repeat_publication_guard=True,
+            )
         exclusive_create_json(state["work_order"], work_order)
     if run_acquisition:
         _run_fixed_isolated_child(
@@ -10674,6 +11282,9 @@ def isolated_score_and_receipt(
             "status": "OPENED_AND_SCORED_ONCE",
             "opening_id": preflight["authorization"]["opening_id"],
             "authorization_sha256": preflight["authorization_sha256"],
+            "model_matrix_amendment_seal_sha256": preflight[
+                "authorization"
+            ]["model_matrix_amendment"]["seal"]["sha256"],
             "intent_sha256": sha256_file(state["intent"]),
             "work_order_sha256": sha256_file(state["work_order"]),
             "preflight_attestation": _preflight_attestation(preflight),
@@ -10720,6 +11331,10 @@ def isolated_score_and_receipt(
             **receipt_stable,
             "receipt_self_sha256": sha256_json(receipt_stable),
         }
+        if set(receipt) != set(RECEIPT_FIELDS):
+            raise OpeningContractError(
+                "opening receipt producer schema changed"
+            )
         assert_formal_numerical_policy()
         _atomic_create_bytes(
             receipt_path,
@@ -10739,6 +11354,34 @@ def isolated_score_and_receipt(
         )
         assert_formal_numerical_policy()
         return completed
+
+
+def _validate_receipt_document_envelope(
+    receipt: Mapping[str, Any],
+) -> None:
+    """Reject receipt field injection/removal before semantic validation."""
+    if set(receipt) != set(RECEIPT_FIELDS):
+        missing = sorted(RECEIPT_FIELDS - set(receipt))
+        extra = sorted(set(receipt) - RECEIPT_FIELDS)
+        raise OpeningContractError(
+            "opening receipt schema changed: "
+            f"missing={missing}, extra={extra}"
+        )
+    receipt_stable = dict(receipt)
+    receipt_self = receipt_stable.pop("receipt_self_sha256", None)
+    if not _is_sha256(receipt_self) or sha256_json(receipt_stable) != receipt_self:
+        raise OpeningContractError("opening receipt self-hash changed")
+
+
+def _assert_receipt_intent_self_hash(
+    receipt: Mapping[str, Any], intent: Mapping[str, Any]
+) -> None:
+    if receipt.get("intent_self_sha256") != intent.get(
+        "intent_self_sha256"
+    ):
+        raise OpeningContractError(
+            "opening receipt does not bind the intent self hash"
+        )
 
 
 def _read_completed_receipt(
@@ -10803,15 +11446,15 @@ def _read_completed_receipt(
     _validate_atomic_final_file(
         receipt_path, canonical_json_bytes(receipt), cleanup_temps=False
     )
-    receipt_stable = dict(receipt)
-    receipt_self = receipt_stable.pop("receipt_self_sha256", None)
-    if not _is_sha256(receipt_self) or sha256_json(receipt_stable) != receipt_self:
-        raise OpeningContractError("opening receipt self-hash changed")
+    _validate_receipt_document_envelope(receipt)
     expected = {
         "format": RECEIPT_FORMAT,
         "status": "OPENED_AND_SCORED_ONCE",
         "opening_id": authorization.get("opening_id"),
         "authorization_sha256": sha256_file(authorization_path),
+        "model_matrix_amendment_seal_sha256": authorization[
+            "model_matrix_amendment"
+        ]["seal"]["sha256"],
         "opening_count": 1,
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
@@ -10861,9 +11504,10 @@ def _read_completed_receipt(
         canonical_json_bytes(expected_work_order),
         cleanup_temps=False,
     )
-    _validated_intent(
+    validated_intent = _validated_intent(
         preflight=preflight, root=root, work_order=expected_work_order
     )
+    _assert_receipt_intent_self_hash(receipt, validated_intent)
     expected_sidecar = (
         f"{sha256_file(receipt_path)}  {receipt_path.name}\n"
     ).encode("ascii")
@@ -11039,6 +11683,8 @@ def isolated_verify_release(
             "source_tree_sha256"
         ],
         "runtime_sha256": preflight["runtime"]["runtime_sha256"],
+        "model_matrix_amendment_seal_sha256": preflight["authorization"]
+        ["model_matrix_amendment"]["seal"]["sha256"],
         "all_predeclared_models_reported": receipt[
             "all_predeclared_models_reported"
         ],

@@ -20,6 +20,12 @@ import thermoroute.outcome_acquisition as outcome_acquisition  # noqa: E402
 from thermoroute.provenance import canonical_json_bytes, sha256_file  # noqa: E402
 
 
+def _model_matrix_amendment_binding() -> dict[str, Any]:
+    return {
+        "seal": {"sha256": "b" * 64},
+    }
+
+
 def _publication_state(root: Path) -> dict[str, Path]:
     run = root / "outputs" / "confirmatory" / "route_a_fixture"
     run.mkdir(parents=True)
@@ -153,6 +159,202 @@ def test_opening_atomic_receipt_guard_runs_after_staging_before_link(
     assert observed == [payload]
     assert not receipt.exists()
     assert not list(tmp_path.glob(f".{receipt.name}.*.tmp"))
+
+
+def test_preintent_guard_rejects_seal_drift_before_irreversible_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authorization_path = tmp_path / "authorization.json"
+    authorization_path.write_text("{}\n", encoding="utf-8")
+    intent_path = tmp_path / "opening_intent_v1.json"
+    original = {
+        "state_paths": {},
+        "attestation": {"model_matrix_amendment_seal_sha256": "b" * 64},
+    }
+    replayed = {
+        "state_paths": {},
+        "attestation": {"model_matrix_amendment_seal_sha256": "c" * 64},
+    }
+    monkeypatch.setattr(
+        opening, "validate_authorization", lambda *_args, **_kwargs: replayed
+    )
+    monkeypatch.setattr(
+        opening,
+        "_preflight_attestation",
+        lambda value: value["attestation"],
+    )
+    monkeypatch.setattr(
+        opening,
+        "_trusted_validator_identity",
+        lambda _root: {"sha256": "validator"},
+    )
+
+    def guard() -> None:
+        opening._assert_preintent_authorization_unchanged(
+            authorization_path=authorization_path,
+            root=tmp_path,
+            preflight=original,
+            attestation=original["attestation"],
+            validator={"sha256": "validator"},
+        )
+
+    with pytest.raises(
+        opening.OpeningContractError,
+        match="before irreversible opening intent publication",
+    ):
+        opening.exclusive_create_json(
+            intent_path,
+            {"fixture": True},
+            publication_guard=guard,
+        )
+    assert not intent_path.exists()
+    assert not list(tmp_path.glob(f".{intent_path.name}.*.tmp"))
+
+
+def test_preintent_guard_is_replayed_after_fault_hook_before_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    intent = tmp_path / "opening_intent_v1.json"
+    injected = tmp_path / "forbidden-state"
+    calls = 0
+
+    def guard() -> None:
+        nonlocal calls
+        calls += 1
+        if injected.exists():
+            raise opening.OpeningContractError(
+                "state changed in check-to-link interval"
+            )
+
+    def fault(point: str, _path: Path) -> None:
+        if point == "before_no_replace_link":
+            injected.write_bytes(b"forbidden")
+
+    monkeypatch.setattr(opening, "_atomic_create_fault", fault)
+    with pytest.raises(
+        opening.OpeningContractError,
+        match="check-to-link interval",
+    ):
+        opening.exclusive_create_json(
+            intent,
+            {"fixture": True},
+            publication_guard=guard,
+            repeat_publication_guard=True,
+        )
+    assert calls == 2
+    assert not intent.exists()
+
+
+def test_receipt_envelope_rejects_self_consistent_unknown_field() -> None:
+    stable = {
+        key: None
+        for key in opening.RECEIPT_FIELDS
+        if key != "receipt_self_sha256"
+    }
+    forged = {**stable, "attacker_extension": "accepted-if-subset-only"}
+    receipt = {
+        **forged,
+        "receipt_self_sha256": opening.sha256_json(forged),
+    }
+    with pytest.raises(opening.OpeningContractError, match="schema changed"):
+        opening._validate_receipt_document_envelope(receipt)
+
+
+def test_receipt_directly_rejects_wrong_intent_self_hash() -> None:
+    with pytest.raises(
+        opening.OpeningContractError,
+        match="intent self hash",
+    ):
+        opening._assert_receipt_intent_self_hash(
+            {"intent_self_sha256": "a" * 64},
+            {"intent_self_sha256": "b" * 64},
+        )
+
+
+def test_opening_authorization_lock_rejects_concurrent_orchestrator(
+    tmp_path: Path,
+) -> None:
+    authorization = tmp_path / "authorization.json"
+    authorization.write_bytes(b"{}")
+    with opening._exclusive_opening_authorization_lock(authorization):
+        with pytest.raises(
+            opening.OpeningAlreadyStarted,
+            match="holds the opening lock",
+        ):
+            with opening._exclusive_opening_authorization_lock(authorization):
+                pass
+
+
+def test_initial_validation_allows_only_classified_preintent_crash_temp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authorization = tmp_path / "authorization.json"
+    authorization.write_bytes(b"{}")
+    run = tmp_path / "run"
+    run.mkdir()
+    intent = run / "opening_intent_v1.json"
+    temporary = run / f".{intent.name}.abcdefgh.tmp"
+    temporary.write_bytes(b'{"partial":')
+    state = {
+        "namespace": "fixture",
+        "run_directory": run,
+        "intent": intent,
+        "receipt": run / "receipt.json",
+    }
+    authorization_relative = authorization.relative_to(tmp_path).as_posix()
+    preflight = {
+        "state_paths": state,
+        "authorization": {
+            "source": {
+                "git_clean_before_authorization": True,
+                "authorization_path": authorization_relative,
+                "post_freeze_allowed_git_status": (
+                    f"?? {authorization_relative}"
+                ),
+                "git_commit_before_authorization": "c" * 40,
+            }
+        },
+    }
+    calls: list[bool] = []
+
+    def validate(*_args: Any, **kwargs: Any) -> dict[str, Any]:
+        clean = bool(kwargs["require_clean_source"])
+        calls.append(clean)
+        if clean:
+            raise opening.OpeningContractError("staged temp is expected dirt")
+        return preflight
+
+    monkeypatch.setattr(opening, "validate_authorization", validate)
+    monkeypatch.setattr(
+        opening,
+        "_expected_acquisition_work_order",
+        lambda *_args, **_kwargs: {"fixture": True},
+    )
+    monkeypatch.setattr(
+        opening,
+        "_inspect_or_recover_preintent_temp",
+        lambda **_kwargs: ("PARTIAL_SAFE", None),
+    )
+    monkeypatch.setattr(
+        opening,
+        "_live_git_state",
+        lambda _root: {"commit": "c" * 40},
+    )
+    observed_temp: list[Path] = []
+    monkeypatch.setattr(
+        opening,
+        "_assert_exact_preintent_git_records",
+        lambda **kwargs: observed_temp.append(kwargs["temporary_path"]),
+    )
+    assert opening._validate_initial_authorization_with_preintent_recovery(
+        authorization,
+        root=tmp_path,
+    ) is preflight
+    assert calls == [True, False]
+    assert observed_temp == [temporary]
 
 
 def test_acquisition_bundle_is_all_or_nothing_at_directory_rename(
@@ -670,6 +872,7 @@ def test_execute_recovers_real_preintent_atomic_remnant(
         "authorization": {
             "opening_id": "fixture-opening",
             "state_paths": authorization_state,
+            "model_matrix_amendment": _model_matrix_amendment_binding(),
         },
         "fixed_code": {"sha256": "fixed"},
         "runtime": {"runtime_sha256": "runtime"},
@@ -687,6 +890,7 @@ def test_execute_recovers_real_preintent_atomic_remnant(
         ).hexdigest(),
         "fixed_code_sha256": "fixed",
         "runtime_sha256": "runtime",
+        "model_matrix_amendment_seal_sha256": "b" * 64,
         "trusted_validator": {"fixture": True},
         "started_at_utc": "2026-07-22T00:00:00+00:00",
         "maximum_openings": 1,
@@ -753,6 +957,11 @@ def test_execute_recovers_real_preintent_atomic_remnant(
     )
     monkeypatch.setattr(
         opening, "_trusted_validator_identity", lambda _root: {"fixture": True}
+    )
+    monkeypatch.setattr(
+        opening,
+        "_assert_exact_preintent_publication_state",
+        lambda **_kwargs: None,
     )
     if kill_point == "after_parent_directory_create_before_temp":
         status = opening.inspect_same_opening_transport_resume(
@@ -992,6 +1201,7 @@ def _stub_trusted_scorer(
         "authorization": {
             "opening_id": "fixture-opening",
             "state_paths": authorization_state,
+            "model_matrix_amendment": _model_matrix_amendment_binding(),
         },
         "authorization_sha256": "a" * 64,
         "state_paths": state,
@@ -1133,6 +1343,7 @@ def test_synthetic_crash_recovery_never_reacquires_or_replaces_labels(
 
     receipt = opening.isolated_score_and_receipt(work_order, root=tmp_path)
     assert receipt["status"] == "OPENED_AND_SCORED_ONCE"
+    assert receipt["model_matrix_amendment_seal_sha256"] == "b" * 64
     assert receipt["temporal_coverage_audit"] == {
         **receipt["artifacts"]["temporal_coverage_audit"],
         "format": opening.TEMPORAL_COVERAGE_AUDIT_FORMAT,

@@ -103,6 +103,21 @@ def _probability_metric_erratum_binding() -> dict:
     }
 
 
+def _model_matrix_amendment_binding() -> dict:
+    return {
+        "path": "protocols/route_a_model_matrix_amendment_v1.json",
+        "sha256": "d" * 64,
+        "format": "thermoroute.route-a-model-matrix-amendment.v1",
+        "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+        "amendment_id": "route-a-prelabel-model-matrix-replication-017",
+        "seal": {
+            "path": "protocols/route_a_model_matrix_amendment_seal_v1.json",
+            "sha256": "e" * 64,
+        },
+        "amendment_document_commit": "f" * 40,
+    }
+
+
 def _probability_metric_execution_contract() -> dict:
     nominal_handling = {
         "source": (
@@ -813,6 +828,11 @@ def test_acquisition_rechecks_frozen_source_before_first_network_io(
     )
     monkeypatch.setattr(
         outcome_acquisition,
+        "run_full_raw_preflight_validator",
+        lambda *_args, **_kwargs: {"challenge": "f" * 64},
+    )
+    monkeypatch.setattr(
+        outcome_acquisition,
         "validate_frozen_source_identity",
         lambda **_kwargs: (_ for _ in ()).throw(
             acquisition_contract.AcquisitionContractError(
@@ -908,6 +928,11 @@ def test_raw_entrypoint_rejects_dangling_provider_before_network(
         outcome_acquisition,
         "validate_acquisition_work_order",
         lambda *_args, **_kwargs: (work_order, authorization, state),
+    )
+    monkeypatch.setattr(
+        outcome_acquisition,
+        "run_full_raw_preflight_validator",
+        lambda *_args, **_kwargs: {"challenge": "f" * 64},
     )
     network_calls = 0
 
@@ -1054,9 +1079,165 @@ def test_nwis_response_read_is_chunked_hashed_and_capped(monkeypatch, tmp_path):
             },
             request_ledger_sha256="c" * 64,
             attempt_number=1,
+            pre_socket_guard=lambda: None,
             attempts=1,
         )
     assert not raw_root.exists()
+
+
+def test_every_socket_attempt_runs_guard_before_opener_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = {
+        "schema_version": 1,
+        "provider": "usgs-nwis-confirmatory-dv",
+        "method": "GET",
+        "url": opening_module.build_nwis_confirmatory_url(
+            "01000001", "2021-01-01", "2021-01-02"
+        ),
+        "headers": {},
+    }
+    spec = {
+        "request": request,
+        "request_sha256": sha256_bytes(canonical_json_bytes(request)),
+    }
+    opener_calls = 0
+
+    class _Opener:
+        def open(self, *_args, **_kwargs):
+            nonlocal opener_calls
+            opener_calls += 1
+            raise AssertionError("socket opener ran after guard failure")
+
+    monkeypatch.setattr(
+        outcome_acquisition.urllib.request,
+        "build_opener",
+        lambda *_args: _Opener(),
+    )
+
+    def reject_tamper() -> None:
+        raise acquisition_contract.AcquisitionContractError(
+            "authorization changed after full preflight"
+        )
+
+    with pytest.raises(
+        outcome_acquisition.OutcomeAcquisitionError,
+        match="fixed NWIS acquisition failed",
+    ):
+        outcome_acquisition._fetch_create_only(
+            raw_root=tmp_path / "raw",
+            spec=spec,
+            work_order={
+                "opening_id": "fixture",
+                "authorization_sha256": "a" * 64,
+                "work_order_self_sha256": "b" * 64,
+            },
+            request_ledger_sha256="c" * 64,
+            attempt_number=1,
+            pre_socket_guard=reject_tamper,
+            attempts=2,
+        )
+    assert opener_calls == 0
+
+
+def test_raw_preflight_transcript_rejects_unknown_field_before_use(
+    tmp_path: Path,
+) -> None:
+    transcript = {
+        key: None
+        for key in acquisition_contract.RAW_PREFLIGHT_TRANSCRIPT_FIELDS
+    }
+    transcript["attacker_extension"] = "self-consistent-but-undeclared"
+    with pytest.raises(
+        acquisition_contract.AcquisitionContractError,
+        match="top-level schema changed",
+    ):
+        acquisition_contract._validate_raw_preflight_transcript(
+            transcript,
+            challenge="a" * 64,
+            root=tmp_path,
+            work_order_path=tmp_path / "missing-work-order.json",
+            work_order={},
+            authorization={},
+        )
+
+
+def test_raw_preflight_transcript_rejects_replayed_challenge_before_use(
+    tmp_path: Path,
+) -> None:
+    transcript = {
+        key: None
+        for key in acquisition_contract.RAW_PREFLIGHT_TRANSCRIPT_FIELDS
+    }
+    transcript.update({
+        "format": acquisition_contract.RAW_PREFLIGHT_TRANSCRIPT_FORMAT,
+        "status": "FULL_PREFLIGHT_VALIDATED_NETWORK_FREE",
+        "challenge": "b" * 64,
+    })
+    with pytest.raises(
+        acquisition_contract.AcquisitionContractError,
+        match="challenge/status changed",
+    ):
+        acquisition_contract._validate_raw_preflight_transcript(
+            transcript,
+            challenge="a" * 64,
+            root=tmp_path,
+            work_order_path=tmp_path / "missing-work-order.json",
+            work_order={},
+            authorization={},
+        )
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "message"),
+    [
+        (b"{ }\n", b"", "not exact canonical JSON"),
+        (b"{}\n\n", b"", "not exactly one line"),
+        (b"{}\n", b"unexpected warning", "failed or wrote stderr"),
+        (b'{"x":1,"x":1}\n', b"", "duplicate JSON key"),
+    ],
+)
+def test_raw_preflight_subprocess_output_is_strictly_framed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stdout: bytes,
+    stderr: bytes,
+    message: str,
+) -> None:
+    validator = tmp_path / "scripts" / "route_a_opening_orchestrator.py"
+    validator.parent.mkdir()
+    validator.write_bytes(b"# fixed validator fixture\n")
+    work_order = tmp_path / "work-order.json"
+    work_order.write_bytes(b"{}\n")
+    authorization = {
+        "fixed_code": {
+            "entrypoints": {
+                "orchestrator": {
+                    "path": "scripts/route_a_opening_orchestrator.py",
+                    "realpath": str(validator),
+                    "sha256": sha256_file(validator),
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(
+        acquisition_contract.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=stdout, stderr=stderr
+        ),
+    )
+    with pytest.raises(
+        acquisition_contract.AcquisitionContractError,
+        match=message,
+    ):
+        acquisition_contract.run_full_raw_preflight_validator(
+            work_order,
+            root=tmp_path,
+            work_order={},
+            authorization=authorization,
+        )
 
 
 def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
@@ -1144,12 +1325,20 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         }
         source_inventory = opening_module.source_inventory(ROOT)
         authorization_path = fixture_root / "authorization.json"
+        model_matrix_binding = _model_matrix_amendment_binding()
+        model_matrix_binding["sha256"] = sha256_file(
+            ROOT / model_matrix_binding["path"]
+        )
+        model_matrix_binding["seal"]["sha256"] = sha256_file(
+            ROOT / model_matrix_binding["seal"]["path"]
+        )
         authorization = {
             "format": acquisition_contract.AUTHORIZATION_FORMAT,
             "status": "AUTHORIZED_LABELS_STILL_SEALED",
             "opening_id": "offline-two-site-fixture",
             "protocol": {"sha256": "c" * 64},
             "registries": registries,
+            "model_matrix_amendment": model_matrix_binding,
             "source": {
                 "authorization_path": authorization_path.relative_to(ROOT).as_posix(),
                 "source_tree_sha256": opening_module.sha256_json(
@@ -1161,6 +1350,9 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             "fixed_code": {
                 "sha256": "d" * 64,
                 "entrypoints": {
+                    "orchestrator": fixed_binding(
+                        "scripts/route_a_opening_orchestrator.py"
+                    ),
                     "acquisition": fixed_binding(
                         "scripts/route_a_outcome_acquisition.py"
                     )
@@ -1183,10 +1375,16 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             },
             "state_paths": state_paths,
         }
+        for key in (
+            acquisition_contract.AUTHORIZATION_TOP_LEVEL_FIELDS
+            - {"authorization_self_sha256"}
+        ):
+            authorization.setdefault(key, None)
         authorization["authorization_self_sha256"] = opening_module.sha256_json(
             authorization
         )
         write_json(authorization_path, authorization)
+        authorization_path.chmod(0o444)
         authorization_sha256 = sha256_file(authorization_path)
 
         work_order_path = ROOT / state_paths["work_order"]
@@ -1198,6 +1396,9 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             "source_tree_sha256": authorization["source"]["source_tree_sha256"],
             "runtime_sha256": authorization["runtime"]["runtime_sha256"],
             "fixed_code_sha256": authorization["fixed_code"]["sha256"],
+            "model_matrix_amendment_seal_sha256": authorization[
+                "model_matrix_amendment"
+            ]["seal"]["sha256"],
             "acquisition_plan": authorization["acquisition_plan"],
             "state_paths": state_paths,
             "site_registries": {
@@ -1221,14 +1422,20 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
             "status": "OPENING_STARTED_IRREVERSIBLE",
             "opening_id": authorization["opening_id"],
             "authorization_sha256": authorization_sha256,
+            "preflight_attestation_sha256": "a" * 64,
             "work_order_self_sha256": work_order["work_order_self_sha256"],
             "work_order_file_sha256": sha256_file(work_order_path),
             "fixed_code_sha256": authorization["fixed_code"]["sha256"],
             "runtime_sha256": authorization["runtime"]["runtime_sha256"],
-                "maximum_openings": 1,
-                "retry_after_failure_allowed": False,
-                "same_opening_transport_resume_allowed": True,
-            }
+            "model_matrix_amendment_seal_sha256": authorization[
+                "model_matrix_amendment"
+            ]["seal"]["sha256"],
+            "trusted_validator": {"fixture": True},
+            "started_at_utc": "2026-07-25T00:00:00+00:00",
+            "maximum_openings": 1,
+            "retry_after_failure_allowed": False,
+            "same_opening_transport_resume_allowed": True,
+        }
         intent["intent_self_sha256"] = opening_module.sha256_json(intent)
         write_json(intent_path, intent)
         intent_path.chmod(0o444)
@@ -1239,6 +1446,7 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         }
         allow_external_success = fixture_root / "allow_external_success"
         kill_after_complete_replay = fixture_root / "kill_after_complete_replay"
+        network_marker = fixture_root / "network_was_reached"
         wrapper_path = fixture_root / "offline_http_wrapper.py"
         wrapper_path.write_text(
             "\n".join([
@@ -1254,9 +1462,14 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
                 f"PAYLOADS = {encoded_payloads!r}",
                 f"ALLOW_EXTERNAL_SUCCESS = Path({str(allow_external_success)!r})",
                 f"KILL_AFTER_COMPLETE_REPLAY = Path({str(kill_after_complete_replay)!r})",
+                f"NETWORK_MARKER = Path({str(network_marker)!r})",
                 f"REQUEST_LEDGER = Path({str(ROOT / state_paths['transport_root'] / 'request_ledger_v1.json')!r})",
-                "RESUME = sys.argv[1:] == ['resume']",
+                "BYPASS_PREFLIGHT = 'bypass-preflight' in sys.argv[1:]",
+                "RESUME = 'resume' in sys.argv[1:]",
                 "time.sleep = lambda _seconds: None",
+                "if BYPASS_PREFLIGHT:",
+                "    acquisition.run_full_raw_preflight_validator = lambda *_args, **_kwargs: {'challenge': 'f' * 64}",
+                "    acquisition.revalidate_raw_preflight_volatile_bindings = lambda *_args, **_kwargs: None",
                 "CALL_COUNT = 0",
                 "def transport_fault(point):",
                 "    if point == 'after_complete_transaction_replay' and KILL_AFTER_COMPLETE_REPLAY.exists():",
@@ -1281,6 +1494,7 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
                 "class Opener:",
                 "    def open(self, request, timeout):",
                 "        global CALL_COUNT",
+                "        NETWORK_MARKER.write_text('network reached\\n', encoding='utf-8')",
                 "        CALL_COUNT += 1",
                 "        if not REQUEST_LEDGER.is_file():",
                 "            raise AssertionError('HTTPS attempted before ledger freeze')",
@@ -1300,7 +1514,25 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         child_environment = opening_module._sanitized_child_environment(
             temporary_root=child_tmp
         )
-        command = [sys.executable, "-I", "-B", str(wrapper_path)]
+        production_negative = subprocess.run(
+            [sys.executable, "-I", "-B", str(wrapper_path)],
+            cwd=ROOT,
+            env=child_environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert production_negative.returncode != 0
+        assert not network_marker.exists()
+        assert not (ROOT / state_paths["transport_root"]).exists()
+
+        command = [
+            sys.executable,
+            "-I",
+            "-B",
+            str(wrapper_path),
+            "bypass-preflight",
+        ]
         initial = subprocess.run(
             command,
             cwd=ROOT,
@@ -1317,6 +1549,7 @@ def test_raw_acquisition_entrypoint_runs_isolated_two_site_offline_e2e():
         assert not (raw_root / "snapshot_index.json").exists()
         transport_root = ROOT / state_paths["transport_root"]
         ledger_path = transport_root / "request_ledger_v1.json"
+        assert ledger_path.is_file(), initial.stderr
         frozen_ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
         assert frozen_ledger["request_count"] == 2
         temporal_request = next(
@@ -1851,6 +2084,38 @@ def _stub_resume_inspection(tmp_path, monkeypatch):
     return authorization_path, state
 
 
+def test_resume_rejects_model_matrix_seal_drift_before_transport_inspection(
+    tmp_path, monkeypatch,
+):
+    authorization_path = tmp_path / "authorization.json"
+    authorization_path.write_text("{}\n", encoding="utf-8")
+    transport_called = False
+
+    def reject_authorization(*_args, **_kwargs):
+        raise OpeningContractError("model-matrix amendment seal is stale")
+
+    def inspect_transport(**_kwargs):
+        nonlocal transport_called
+        transport_called = True
+        return {}
+
+    monkeypatch.setattr(
+        opening_module, "validate_authorization", reject_authorization
+    )
+    monkeypatch.setattr(
+        outcome_acquisition, "inspect_transport_resume_state", inspect_transport
+    )
+
+    with pytest.raises(
+        OpeningContractError,
+        match="model-matrix amendment seal is stale",
+    ):
+        opening_module.inspect_same_opening_transport_resume(
+            authorization_path, root=tmp_path
+        )
+    assert transport_called is False
+
+
 @pytest.mark.parametrize(
     "forbidden_kind",
     ["outcome_qc_gate", "trusted_directory", "acquisition_directory"],
@@ -1865,6 +2130,11 @@ def test_raw_entrypoint_directly_rejects_every_publication_boundary(
         outcome_acquisition,
         "validate_acquisition_work_order",
         lambda *_args, **_kwargs: (work_order, authorization, state),
+    )
+    monkeypatch.setattr(
+        outcome_acquisition,
+        "run_full_raw_preflight_validator",
+        lambda *_args, **_kwargs: {"challenge": "f" * 64},
     )
 
     network_calls = 0
@@ -2076,6 +2346,7 @@ def test_probability_metric_erratum_seal_hash_binds_opening_namespace(tmp_path):
         "prelabel_chronology_sha256": "5" * 64,
         "inference_gate_sha256": "6" * 64,
         "inference_amendment_seal_sha256": "7" * 64,
+        "model_matrix_amendment_seal_sha256": "c" * 64,
         "outcome_qc_policy_sha256": "8" * 64,
         "temporal_coverage_policy_sha256": "9" * 64,
     }
@@ -2094,16 +2365,174 @@ def test_probability_metric_erratum_seal_hash_binds_opening_namespace(tmp_path):
     assert first["run_directory"] != second["run_directory"]
 
 
-def test_fixed_code_identity_binds_chronology_and_probability_erratum_modules():
+def test_model_matrix_amendment_seal_hash_binds_opening_namespace(tmp_path):
+    frozen_inputs = {
+        "protocol_sha256": "1" * 64,
+        "source_tree_sha256": "2" * 64,
+        "model_suite_sha256": "3" * 64,
+        "prelabel_inputs_sha256": "4" * 64,
+        "prelabel_chronology_sha256": "5" * 64,
+        "inference_gate_sha256": "6" * 64,
+        "inference_amendment_seal_sha256": "7" * 64,
+        "probability_metric_erratum_seal_sha256": "a" * 64,
+        "outcome_qc_policy_sha256": "8" * 64,
+        "temporal_coverage_policy_sha256": "9" * 64,
+    }
+    first = opening_module._canonical_state_paths(
+        tmp_path,
+        **frozen_inputs,
+        model_matrix_amendment_seal_sha256="b" * 64,
+    )
+    second = opening_module._canonical_state_paths(
+        tmp_path,
+        **frozen_inputs,
+        model_matrix_amendment_seal_sha256="c" * 64,
+    )
+
+    assert first["namespace"] != second["namespace"]
+    assert first["run_directory"] != second["run_directory"]
+
+
+def test_legacy_raw_work_order_without_model_matrix_seal_is_rejected(tmp_path):
+    work_order_path = tmp_path / "legacy_work_order.json"
+    legacy = {
+        "format": acquisition_contract.ACQUISITION_WORK_ORDER_FORMAT,
+        "authorization_path": "authorization.json",
+    }
+    legacy["work_order_self_sha256"] = opening_module.sha256_json(legacy)
+    work_order_path.write_bytes(canonical_json_bytes(legacy))
+    work_order_path.chmod(0o444)
+
+    with pytest.raises(
+        acquisition_contract.AcquisitionContractError,
+        match="work-order schema changed",
+    ):
+        acquisition_contract.validate_acquisition_work_order(
+            work_order_path,
+            root=tmp_path,
+            entrypoint_path=tmp_path / "unused_entrypoint.py",
+        )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    ("wrong_path", "extra_field", "malformed_commit", "malformed_seal_sha"),
+)
+def test_raw_contract_rejects_model_matrix_binding_tampering(attack):
+    authorization = {
+        "model_matrix_amendment": _model_matrix_amendment_binding()
+    }
+    binding = authorization["model_matrix_amendment"]
+    if attack == "wrong_path":
+        binding["path"] = "protocols/attacker_amendment.json"
+    elif attack == "extra_field":
+        binding["attacker_extension"] = True
+    elif attack == "malformed_commit":
+        binding["amendment_document_commit"] = "not-a-commit"
+    else:
+        binding["seal"]["sha256"] = "not-a-sha256"
+
+    with pytest.raises(
+        acquisition_contract.AcquisitionContractError,
+        match="model-matrix amendment",
+    ):
+        acquisition_contract._model_matrix_amendment_seal_sha256(
+            authorization
+        )
+
+
+def test_work_order_and_intent_bind_model_matrix_seal(
+    tmp_path, monkeypatch,
+):
+    state = {
+        "namespace": "fixture",
+        "run_directory": "outputs/confirmatory/route_a_fixture",
+        "work_order": (
+            "outputs/confirmatory/route_a_fixture/acquisition_work_order_v1.json"
+        ),
+        "intent": "outputs/confirmatory/route_a_fixture/opening_intent_v1.json",
+    }
+    authorization = {
+        "opening_id": "fixture-opening",
+        "source": {
+            "authorization_path": "authorization.json",
+            "source_tree_sha256": "1" * 64,
+        },
+        "model_matrix_amendment": _model_matrix_amendment_binding(),
+        "acquisition_plan": {"fixture": True},
+        "state_paths": state,
+    }
+    preflight = {
+        "authorization": authorization,
+        "authorization_sha256": "2" * 64,
+        "runtime": {"runtime_sha256": "3" * 64},
+        "fixed_code": {"sha256": "4" * 64},
+        "registries": {
+            "development_sha256": "5" * 64,
+            "external_sha256": "6" * 64,
+            "development": pd.DataFrame({"site_no": ["01000001"]}),
+            "external": pd.DataFrame({"site_no": ["02000001"]}),
+        },
+    }
+    first = opening_module._expected_acquisition_work_order(
+        preflight, root=tmp_path
+    )
+    attacked_preflight = copy.deepcopy(preflight)
+    attacked_preflight["authorization"]["model_matrix_amendment"]["seal"][
+        "sha256"
+    ] = "0" * 64
+    second = opening_module._expected_acquisition_work_order(
+        attacked_preflight, root=tmp_path
+    )
+
+    assert first["model_matrix_amendment_seal_sha256"] == "e" * 64
+    assert first["work_order_self_sha256"] != second["work_order_self_sha256"]
+
+    monkeypatch.setattr(
+        opening_module, "_preflight_attestation", lambda _preflight: {"ok": True}
+    )
+    intent_stable = {
+        "format": opening_module.INTENT_FORMAT,
+        "status": "OPENING_STARTED_IRREVERSIBLE",
+        "opening_id": authorization["opening_id"],
+        "authorization_sha256": preflight["authorization_sha256"],
+        "preflight_attestation_sha256": opening_module.sha256_json({"ok": True}),
+        "work_order_self_sha256": first["work_order_self_sha256"],
+        "work_order_file_sha256": sha256_bytes(canonical_json_bytes(first)),
+        "fixed_code_sha256": preflight["fixed_code"]["sha256"],
+        "runtime_sha256": preflight["runtime"]["runtime_sha256"],
+        "model_matrix_amendment_seal_sha256": "0" * 64,
+        "trusted_validator": {"fixture": True},
+        "started_at_utc": "2026-07-25T00:00:00+00:00",
+        "maximum_openings": 1,
+        "retry_after_failure_allowed": False,
+        "same_opening_transport_resume_allowed": True,
+    }
+    intent = {
+        **intent_stable,
+        "intent_self_sha256": opening_module.sha256_json(intent_stable),
+    }
+    with pytest.raises(OpeningContractError, match="intent identity changed"):
+        opening_module._validate_intent_document(
+            intent,
+            preflight=preflight,
+            root=tmp_path,
+            work_order=first,
+        )
+
+
+def test_fixed_code_identity_binds_all_governance_validator_modules():
     identity = opening_module._fixed_code_identity(ROOT)
 
     assert "thermoroute.chronology" in identity["modules"]
     assert "thermoroute.probability_metric_erratum" in identity["modules"]
+    assert "thermoroute.model_matrix_amendment" in identity["modules"]
     assert all(
         len(identity["modules"][name]["sha256"]) == 64
         for name in (
             "thermoroute.chronology",
             "thermoroute.probability_metric_erratum",
+            "thermoroute.model_matrix_amendment",
         )
     )
 
@@ -2130,6 +2559,8 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         "protocols/route_a_temporal_coverage_policy_v1.json",
         "protocols/route_a_probability_metric_erratum_v1.json",
         "protocols/route_a_probability_metric_erratum_seal_v1.json",
+        "protocols/route_a_model_matrix_amendment_v1.json",
+        "protocols/route_a_model_matrix_amendment_seal_v1.json",
     )
     paths = {name: tmp_path / name for name in relative_paths}
     for name, path in paths.items():
@@ -2238,6 +2669,14 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     probability_erratum_seal_document = {
         "erratum_document_commit": "5" * 40,
     }
+    model_matrix_amendment_document = {
+        "format": "thermoroute.route-a-model-matrix-amendment.v1",
+        "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+        "amendment_id": "route-a-prelabel-model-matrix-replication-017",
+    }
+    model_matrix_amendment_seal_document = {
+        "amendment_document_commit": "6" * 40,
+    }
     gate_document = {
         "format": "thermoroute.route-a-inference-gate.v1",
         "status": "FAIL_CLOSED_DESCRIPTIVE_ONLY",
@@ -2264,6 +2703,16 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         opening_module,
         "validate_probability_metric_erratum_seal",
         lambda *_args, **_kwargs: probability_erratum_seal_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_model_matrix_amendment",
+        lambda *_args, **_kwargs: model_matrix_amendment_document,
+    )
+    monkeypatch.setattr(
+        opening_module,
+        "validate_model_matrix_amendment_seal",
+        lambda *_args, **_kwargs: model_matrix_amendment_seal_document,
     )
     monkeypatch.setattr(
         opening_module,
@@ -2363,6 +2812,12 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         dry_run["probability_metric_erratum_seal"]
         == probability_erratum_seal_document
     )
+    assert dry_run["model_matrix_amendment"] == (
+        model_matrix_amendment_document
+    )
+    assert dry_run["model_matrix_amendment_seal"] == (
+        model_matrix_amendment_seal_document
+    )
     assert frozen["probability_metric_erratum"] == {
         "path": "protocols/route_a_probability_metric_erratum_v1.json",
         "sha256": sha256_file(
@@ -2381,6 +2836,24 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
             ),
         },
         "erratum_document_commit": "5" * 40,
+    }
+    assert frozen["model_matrix_amendment"] == {
+        "path": "protocols/route_a_model_matrix_amendment_v1.json",
+        "sha256": sha256_file(
+            paths["protocols/route_a_model_matrix_amendment_v1.json"]
+        ),
+        "format": "thermoroute.route-a-model-matrix-amendment.v1",
+        "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+        "amendment_id": "route-a-prelabel-model-matrix-replication-017",
+        "seal": {
+            "path": "protocols/route_a_model_matrix_amendment_seal_v1.json",
+            "sha256": sha256_file(
+                paths[
+                    "protocols/route_a_model_matrix_amendment_seal_v1.json"
+                ]
+            ),
+        },
+        "amendment_document_commit": "6" * 40,
     }
     assert not Path(dry_run["intent_path"]).exists()
 
@@ -2430,6 +2903,48 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     with pytest.raises(
         OpeningContractError,
         match="lacks exact probability-metric-erratum binding",
+    ):
+        validate_authorization(authorization, root=tmp_path)
+    authorization.write_bytes(authorization_original)
+    authorization.chmod(0o444)
+
+    for mutation in ("missing_commit", "unknown_extension"):
+        authorization.chmod(0o644)
+        attacked = json.loads(authorization_original)
+        if mutation == "missing_commit":
+            attacked["model_matrix_amendment"].pop(
+                "amendment_document_commit"
+            )
+        else:
+            attacked["model_matrix_amendment"]["attacker_extension"] = True
+        attacked.pop("authorization_self_sha256")
+        attacked["authorization_self_sha256"] = opening_module.sha256_json(
+            attacked
+        )
+        authorization.write_text(json.dumps(attacked), encoding="utf-8")
+        with pytest.raises(
+            OpeningContractError,
+            match="exact model-matrix amendment binding",
+        ):
+            validate_authorization(authorization, root=tmp_path)
+        authorization.write_bytes(authorization_original)
+        authorization.chmod(0o444)
+
+    authorization.chmod(0o644)
+    wrong_model_matrix_seal = json.loads(authorization_original)
+    wrong_model_matrix_seal["model_matrix_amendment"]["seal"]["sha256"] = (
+        "0" * 64
+    )
+    wrong_model_matrix_seal.pop("authorization_self_sha256")
+    wrong_model_matrix_seal["authorization_self_sha256"] = (
+        opening_module.sha256_json(wrong_model_matrix_seal)
+    )
+    authorization.write_text(
+        json.dumps(wrong_model_matrix_seal), encoding="utf-8"
+    )
+    with pytest.raises(
+        OpeningContractError,
+        match="model-matrix amendment seal checksum mismatch",
     ):
         validate_authorization(authorization, root=tmp_path)
     authorization.write_bytes(authorization_original)
@@ -3420,6 +3935,7 @@ def test_producer_development_binding_replays_through_opening_validator(tmp_path
         config_sha256=config_sha,
         source_sha256=lineage["source_sha256"],
         runtime_sha256="f" * 64,
+        input_closure_sha256="e" * 64,
     )
     seal_artifact(
         artifact,

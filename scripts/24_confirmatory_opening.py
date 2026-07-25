@@ -132,6 +132,17 @@ def _isolate_project_bytecode() -> None:
 
 _isolate_project_bytecode()
 
+sys.path.insert(0, str(ROOT / "src"))
+from thermoroute.opening import (  # noqa: E402
+    OpeningContractError,
+    freeze_opening_authorization,
+    inspect_same_opening_transport_resume,
+    opening_status,
+    resume_opening_once,
+    run_opening_once,
+    validate_authorization,
+)
+
 
 DEFAULT_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
 DEFAULT_DEVELOPMENT_REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
@@ -157,6 +168,12 @@ DEFAULT_INFERENCE_AMENDMENT = (
 )
 DEFAULT_INFERENCE_AMENDMENT_SEAL = (
     ROOT / "protocols" / "route_a_inference_amendment_seal_v2.json"
+)
+DEFAULT_MODEL_MATRIX_AMENDMENT = (
+    ROOT / "protocols" / "route_a_model_matrix_amendment_v1.json"
+)
+DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL = (
+    ROOT / "protocols" / "route_a_model_matrix_amendment_seal_v1.json"
 )
 DEFAULT_OUTCOME_QC_POLICY = (
     ROOT / "protocols" / "route_a_outcome_qc_policy_v1.json"
@@ -192,6 +209,8 @@ def freeze(args: argparse.Namespace) -> None:
         inference_gate=args.inference_gate,
         inference_amendment=args.inference_amendment,
         inference_amendment_seal=args.inference_amendment_seal,
+        model_matrix_amendment=args.model_matrix_amendment,
+        model_matrix_amendment_seal=args.model_matrix_amendment_seal,
         outcome_qc_policy=args.outcome_qc_policy,
         temporal_coverage_policy=args.temporal_coverage_policy,
     )
@@ -220,6 +239,16 @@ def preflight(args: argparse.Namespace) -> None:
         "prelabel_chronology_status": result["prelabel_chronology"]["status"],
         "inference_gate_status": result["inference_gate"]["status"],
         "inference_claim_eligible": result["inference_gate"]["claim_eligible"],
+        "model_matrix_amendment_id": result["model_matrix_amendment"][
+            "amendment_id"
+        ],
+        "model_matrix_amendment_status": result["model_matrix_amendment"][
+            "status"
+        ],
+        "model_matrix_amendment_sha256": result["authorization"]
+        ["model_matrix_amendment"]["sha256"],
+        "model_matrix_amendment_seal_sha256": result["authorization"]
+        ["model_matrix_amendment"]["seal"]["sha256"],
         "outcome_qc_policy_status": result["outcome_qc_policy"]["status"],
         "temporal_coverage_policy_status": result[
             "temporal_coverage_policy"
@@ -322,6 +351,9 @@ def execute(args: argparse.Namespace) -> None:
         "status": receipt["status"],
         "opening_id": receipt["opening_id"],
         "opening_count": receipt["opening_count"],
+        "model_matrix_amendment_seal_sha256": receipt[
+            "model_matrix_amendment_seal_sha256"
+        ],
         "state_namespace": receipt["state_paths"]["namespace"],
         "receipt": receipt["state_paths"]["receipt"],
         "receipt_sha256": receipt["state_paths"]["receipt_sha256"],
@@ -334,6 +366,9 @@ def resume(args: argparse.Namespace) -> None:
         "status": receipt["status"],
         "opening_id": receipt["opening_id"],
         "opening_count": receipt["opening_count"],
+        "model_matrix_amendment_seal_sha256": receipt[
+            "model_matrix_amendment_seal_sha256"
+        ],
         "same_opening_resume": (
             "RAW_TRANSPORT_OR_NETWORK_FREE_TRUSTED_COMPLETION_"
             "UNDER_ORIGINAL_INTENT"
@@ -391,6 +426,16 @@ def main() -> None:
         default=DEFAULT_INFERENCE_AMENDMENT_SEAL,
     )
     freeze_parser.add_argument(
+        "--model-matrix-amendment",
+        type=Path,
+        default=DEFAULT_MODEL_MATRIX_AMENDMENT,
+    )
+    freeze_parser.add_argument(
+        "--model-matrix-amendment-seal",
+        type=Path,
+        default=DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
+    )
+    freeze_parser.add_argument(
         "--outcome-qc-policy", type=Path, default=DEFAULT_OUTCOME_QC_POLICY,
     )
     freeze_parser.add_argument(
@@ -429,18 +474,6 @@ def main() -> None:
     resume_parser.set_defaults(func=resume)
 
     args = parser.parse_args()
-    sys.path.insert(0, str(ROOT / "src"))
-    from thermoroute.opening import (
-        OpeningContractError,
-        freeze_opening_authorization,
-        inspect_same_opening_transport_resume,
-        opening_status,
-        resume_opening_once,
-        run_opening_once,
-        validate_authorization,
-        validate_completed_receipt,
-    )
-
     try:
         args.func(args)
     except OpeningContractError as exc:

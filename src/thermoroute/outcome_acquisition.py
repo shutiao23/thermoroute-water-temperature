@@ -38,6 +38,8 @@ from .opening_contract import (
     RAW_ACQUISITION_FORBIDDEN_STATE_KEYS,
     TRUSTED_STATE_KEYS,
     assert_no_symlink_components,
+    revalidate_raw_preflight_volatile_bindings,
+    run_full_raw_preflight_validator,
     validate_acquisition_work_order,
     validate_frozen_source_identity,
 )
@@ -1292,6 +1294,7 @@ def _fetch_create_only(
     work_order: Mapping[str, Any],
     request_ledger_sha256: str,
     attempt_number: int,
+    pre_socket_guard: Callable[[], None],
     attempts: int = 3,
 ) -> tuple[bytes, dict[str, Any], Path, Path]:
     request = dict(spec["request"])
@@ -1317,7 +1320,9 @@ def _fetch_create_only(
                 def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
                     return None
 
-            with urllib.request.build_opener(_RejectRedirects).open(
+            opener = urllib.request.build_opener(_RejectRedirects)
+            pre_socket_guard()
+            with opener.open(
                 http_request, timeout=120.0
             ) as response:
                 candidate, candidate_sha256 = _read_bounded_response(response)
@@ -2131,6 +2136,12 @@ def acquire_from_work_order(
         work_order, authorization, state = validate_acquisition_work_order(
             work_order_path, root=root, entrypoint_path=entrypoint_path
         )
+        raw_preflight = run_full_raw_preflight_validator(
+            work_order_path,
+            root=root,
+            work_order=work_order,
+            authorization=authorization,
+        )
     except Exception as exc:
         raise OutcomeAcquisitionError("acquisition contract validation failed") from exc
     evidence = _evidence_paths(state)
@@ -2297,6 +2308,16 @@ def acquire_from_work_order(
                     root=root,
                     authorization=authorization,
                 )
+                def pre_socket_guard() -> None:
+                    revalidate_raw_preflight_volatile_bindings(
+                        work_order_path,
+                        root=root,
+                        entrypoint_path=entrypoint_path,
+                        transcript=raw_preflight,
+                        expected_work_order=work_order,
+                        expected_authorization=authorization,
+                    )
+
                 for request_sha in missing:
                     complete[request_sha] = _fetch_create_only(
                         raw_root=raw_root,
@@ -2304,6 +2325,7 @@ def acquire_from_work_order(
                         work_order=work_order,
                         request_ledger_sha256=request_ledger_sha256,
                         attempt_number=active_attempt,
+                        pre_socket_guard=pre_socket_guard,
                     )
             except Exception as exc:
                 try:

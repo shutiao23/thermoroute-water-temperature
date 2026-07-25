@@ -7,7 +7,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import secrets
 import stat
+import subprocess
 import sys
 from typing import Any, Mapping
 
@@ -29,6 +32,187 @@ ACQUISITION_ATTEMPT_INDEX_FORMAT = (
     "thermoroute.route-a-acquisition-attempt-index.v1"
 )
 INTENT_FORMAT = "thermoroute.route-a-opening-intent.v1"
+MODEL_MATRIX_AMENDMENT_FORMAT = (
+    "thermoroute.route-a-model-matrix-amendment.v1"
+)
+MODEL_MATRIX_AMENDMENT_STATUS = "FROZEN_PRELABEL_OUTCOME_FREE"
+MODEL_MATRIX_AMENDMENT_ID = "route-a-prelabel-model-matrix-replication-017"
+MODEL_MATRIX_AMENDMENT_RELATIVE = (
+    "protocols/route_a_model_matrix_amendment_v1.json"
+)
+MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE = (
+    "protocols/route_a_model_matrix_amendment_seal_v1.json"
+)
+AUTHORIZATION_TOP_LEVEL_FIELDS = frozenset({
+    "format",
+    "status",
+    "protocol",
+    "registries",
+    "model_suite",
+    "development_replay",
+    "prelabel_chronology",
+    "inference_amendment",
+    "probability_metric_erratum",
+    "model_matrix_amendment",
+    "inference_gate",
+    "outcome_qc_policy",
+    "temporal_coverage_policy",
+    "actual_inputs",
+    "actual_feature_order",
+    "required_models",
+    "statistics_contract_sha256",
+    "runtime",
+    "fixed_code",
+    "source",
+    "acquisition_plan",
+    "state_paths",
+    "opening_id",
+    "created_at_utc",
+    "authorization_self_sha256",
+})
+MODEL_MATRIX_AMENDMENT_BINDING_FIELDS = frozenset({
+    "path",
+    "sha256",
+    "format",
+    "status",
+    "amendment_id",
+    "seal",
+    "amendment_document_commit",
+})
+ACQUISITION_WORK_ORDER_FIELDS = frozenset({
+    "format",
+    "opening_id",
+    "authorization_path",
+    "authorization_sha256",
+    "source_tree_sha256",
+    "runtime_sha256",
+    "fixed_code_sha256",
+    "model_matrix_amendment_seal_sha256",
+    "acquisition_plan",
+    "state_paths",
+    "site_registries",
+    "work_order_self_sha256",
+})
+INTENT_FIELDS = frozenset({
+    "format",
+    "status",
+    "opening_id",
+    "authorization_sha256",
+    "preflight_attestation_sha256",
+    "work_order_self_sha256",
+    "work_order_file_sha256",
+    "fixed_code_sha256",
+    "runtime_sha256",
+    "model_matrix_amendment_seal_sha256",
+    "trusted_validator",
+    "started_at_utc",
+    "maximum_openings",
+    "retry_after_failure_allowed",
+    "same_opening_transport_resume_allowed",
+    "intent_self_sha256",
+})
+RECEIPT_FIELDS = frozenset({
+    "format",
+    "status",
+    "opening_id",
+    "authorization_sha256",
+    "model_matrix_amendment_seal_sha256",
+    "intent_sha256",
+    "work_order_sha256",
+    "preflight_attestation",
+    "preflight_attestation_sha256",
+    "trusted_validator",
+    "fixed_code",
+    "authorized_runtime",
+    "completion_environment",
+    "python_hash_seed_interpreter_effect",
+    "completed_at_utc",
+    "opening_count",
+    "maximum_openings",
+    "retry_after_failure_allowed",
+    "same_opening_transport_resume_allowed",
+    "transport_recovery",
+    "all_predeclared_models_reported",
+    "reported_models",
+    "artifacts",
+    "trusted_prediction_hashes",
+    "formal_tests",
+    "temporal_coverage_audit",
+    "state_paths",
+    "release_bindings",
+    "intent_self_sha256",
+    "security_boundary",
+    "receipt_self_sha256",
+})
+RAW_PREFLIGHT_TRANSCRIPT_FORMAT = (
+    "thermoroute.route-a-raw-preflight-transcript.v1"
+)
+RAW_PREFLIGHT_TRANSCRIPT_FIELDS = frozenset({
+    "format",
+    "status",
+    "challenge",
+    "opening_id",
+    "authorization_path",
+    "authorization_sha256",
+    "authorization_self_sha256",
+    "work_order_path",
+    "work_order_sha256",
+    "work_order_self_sha256",
+    "intent_path",
+    "intent_sha256",
+    "intent_self_sha256",
+    "preflight_attestation",
+    "preflight_attestation_sha256",
+    "trusted_validator",
+    "state_namespace",
+    "resume_phase",
+    "raw_transport_resume_allowed",
+    "network_free_acquisition_finalization_allowed",
+    "source_tree_sha256",
+    "runtime_sha256",
+    "fixed_code_sha256",
+    "model_matrix_amendment_sha256",
+    "model_matrix_amendment_seal_sha256",
+    "development_registry_sha256",
+    "external_registry_sha256",
+    "validator_entrypoint_path",
+    "validator_entrypoint_sha256",
+    "outcome_values_parsed",
+    "network_used",
+})
+RAW_PREFLIGHT_ATTESTATION_FIELDS = frozenset({
+    "authorization_sha256",
+    "opening_id",
+    "protocol_sha256",
+    "development_registry_sha256",
+    "external_registry_sha256",
+    "external_lock_sha256",
+    "model_suite_sha256",
+    "development_replay_sha256",
+    "prelabel_chronology_sha256",
+    "inference_amendment_sha256",
+    "inference_amendment_seal_sha256",
+    "model_matrix_amendment_sha256",
+    "model_matrix_amendment_seal_sha256",
+    "model_matrix_amendment_id",
+    "model_matrix_amendment_status",
+    "inference_gate_sha256",
+    "inference_gate_status",
+    "inference_claim_eligible",
+    "outcome_qc_policy_sha256",
+    "temporal_coverage_policy_sha256",
+    "prelabel_inputs_sha256",
+    "actual_feature_order",
+    "required_models",
+    "source_tree_sha256",
+    "runtime_sha256",
+    "requirements_lock_sha256",
+    "hashed_requirements_lock_sha256",
+    "golden_inference_sha256",
+    "fixed_code_sha256",
+    "state_namespace",
+})
+MAX_RAW_PREFLIGHT_TRANSCRIPT_BYTES = 1024 * 1024
 MAX_CONFIRMATORY_NWIS_RESPONSE_BYTES = 32 * 1024 * 1024
 TRUSTED_STATE_KEYS = (
     "availability_registry",
@@ -87,6 +271,71 @@ def _sha256_json(value: object) -> str:
         value, sort_keys=True, separators=(",", ":"), allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _object_without_duplicate_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise AcquisitionContractError(
+                f"acquisition contract contains duplicate JSON key: {key}"
+            )
+        value[key] = item
+    return value
+
+
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _model_matrix_amendment_seal_sha256(
+    authorization: Mapping[str, Any],
+) -> str:
+    """Validate the raw child's exact outer governance binding."""
+    binding = authorization.get("model_matrix_amendment")
+    if (
+        not isinstance(binding, Mapping)
+        or set(binding) != set(MODEL_MATRIX_AMENDMENT_BINDING_FIELDS)
+        or binding.get("path") != MODEL_MATRIX_AMENDMENT_RELATIVE
+        or not _is_sha256(binding.get("sha256"))
+        or binding.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
+        or binding.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
+        or binding.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or not isinstance(binding.get("amendment_document_commit"), str)
+        or re.fullmatch(
+            r"[0-9a-f]{40}", str(binding.get("amendment_document_commit"))
+        )
+        is None
+    ):
+        raise AcquisitionContractError(
+            "opening authorization model-matrix amendment binding changed"
+        )
+    seal = binding.get("seal")
+    if (
+        not isinstance(seal, Mapping)
+        or set(seal) != {"path", "sha256"}
+        or seal.get("path") != MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE
+        or not _is_sha256(seal.get("sha256"))
+    ):
+        raise AcquisitionContractError(
+            "opening authorization model-matrix amendment seal changed"
+        )
+    return str(seal["sha256"])
 
 
 def sha256_file(path: str | Path) -> str:
@@ -270,11 +519,19 @@ def validate_frozen_source_identity(
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raw = path.read_bytes()
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_object_without_duplicate_keys,
+        )
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AcquisitionContractError(f"cannot read acquisition contract: {path}") from exc
     if not isinstance(value, dict):
         raise AcquisitionContractError("acquisition contract must be a JSON object")
+    if raw != _canonical_json_bytes(value):
+        raise AcquisitionContractError(
+            f"acquisition contract is not exact canonical JSON: {path}"
+        )
     return value
 
 
@@ -350,25 +607,58 @@ def validate_acquisition_work_order(
     work_order = _read_json(work_order_path)
     if work_order.get("format") != ACQUISITION_WORK_ORDER_FORMAT:
         raise AcquisitionContractError("unsupported acquisition work-order format")
+    if set(work_order) != set(ACQUISITION_WORK_ORDER_FIELDS):
+        raise AcquisitionContractError("acquisition work-order schema changed")
     self_hashed = dict(work_order)
     self_digest = self_hashed.pop("work_order_self_sha256", None)
     if self_digest != _sha256_json(self_hashed):
         raise AcquisitionContractError("acquisition work-order self hash changed")
 
     authorization_path = _inside(root, work_order.get("authorization_path"), file=True)
+    _require_immutable_atomic_final(
+        authorization_path, label="opening authorization"
+    )
     authorization = _read_json(authorization_path)
     if authorization.get("format") != AUTHORIZATION_FORMAT:
         raise AcquisitionContractError("unsupported opening authorization")
+    if set(authorization) != set(AUTHORIZATION_TOP_LEVEL_FIELDS):
+        raise AcquisitionContractError("opening authorization schema changed")
     self_hashed_authorization = dict(authorization)
     auth_self_digest = self_hashed_authorization.pop("authorization_self_sha256", None)
     if auth_self_digest != _sha256_json(self_hashed_authorization):
         raise AcquisitionContractError("opening authorization self hash changed")
+    model_matrix_amendment_seal_sha256 = (
+        _model_matrix_amendment_seal_sha256(authorization)
+    )
+    source = authorization.get("source")
+    if (
+        not isinstance(source, Mapping)
+        or source.get("authorization_path")
+        != work_order.get("authorization_path")
+    ):
+        raise AcquisitionContractError(
+            "authorization source policy names another authorization file"
+        )
+    matrix_binding = authorization["model_matrix_amendment"]
+    matrix_path = _inside(root, matrix_binding["path"], file=True)
+    seal_binding = matrix_binding["seal"]
+    seal_path = _inside(root, seal_binding["path"], file=True)
+    if (
+        sha256_file(matrix_path) != matrix_binding["sha256"]
+        or sha256_file(seal_path) != seal_binding["sha256"]
+    ):
+        raise AcquisitionContractError(
+            "model-matrix amendment or seal bytes changed"
+        )
     expected_equal = {
         "opening_id": authorization.get("opening_id"),
         "authorization_sha256": sha256_file(authorization_path),
-        "source_tree_sha256": authorization.get("source", {}).get("source_tree_sha256"),
+        "source_tree_sha256": source.get("source_tree_sha256"),
         "runtime_sha256": authorization.get("runtime", {}).get("runtime_sha256"),
         "fixed_code_sha256": authorization.get("fixed_code", {}).get("sha256"),
+        "model_matrix_amendment_seal_sha256": (
+            model_matrix_amendment_seal_sha256
+        ),
         "acquisition_plan": authorization.get("acquisition_plan"),
         "state_paths": authorization.get("state_paths"),
     }
@@ -413,6 +703,8 @@ def validate_acquisition_work_order(
         resolved["intent"], label="opening intent"
     )
     self_hashed_intent = dict(intent)
+    if set(intent) != set(INTENT_FIELDS):
+        raise AcquisitionContractError("opening intent schema changed")
     intent_self_digest = self_hashed_intent.pop("intent_self_sha256", None)
     if intent_self_digest != _sha256_json(self_hashed_intent):
         raise AcquisitionContractError("opening intent self hash changed")
@@ -425,6 +717,9 @@ def validate_acquisition_work_order(
         "work_order_file_sha256": sha256_file(work_order_path),
         "fixed_code_sha256": authorization.get("fixed_code", {}).get("sha256"),
         "runtime_sha256": authorization.get("runtime", {}).get("runtime_sha256"),
+        "model_matrix_amendment_seal_sha256": (
+            model_matrix_amendment_seal_sha256
+        ),
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
         "same_opening_transport_resume_allowed": True,
@@ -495,3 +790,319 @@ def validate_acquisition_work_order(
     _validate_acquisition_environment()
 
     return work_order, authorization, resolved
+
+
+def _validate_raw_preflight_transcript(
+    transcript: Mapping[str, Any],
+    *,
+    challenge: str,
+    root: Path,
+    work_order_path: Path,
+    work_order: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the full validator's challenge-bound canonical assertion."""
+    if set(transcript) != set(RAW_PREFLIGHT_TRANSCRIPT_FIELDS):
+        raise AcquisitionContractError(
+            "raw preflight transcript top-level schema changed"
+        )
+    if (
+        transcript.get("format") != RAW_PREFLIGHT_TRANSCRIPT_FORMAT
+        or transcript.get("status")
+        != "FULL_PREFLIGHT_VALIDATED_NETWORK_FREE"
+        or transcript.get("challenge") != challenge
+        or not re.fullmatch(r"[0-9a-f]{64}", challenge)
+    ):
+        raise AcquisitionContractError(
+            "raw preflight transcript challenge/status changed"
+        )
+    authorization_path = _inside(
+        root, work_order.get("authorization_path"), file=True
+    )
+    state = work_order.get("state_paths")
+    if not isinstance(state, Mapping):
+        raise AcquisitionContractError(
+            "raw preflight work-order state paths are malformed"
+        )
+    intent_path = _inside(root, state.get("intent"), file=True)
+    fixed_code = authorization.get("fixed_code")
+    source = authorization.get("source")
+    runtime = authorization.get("runtime")
+    registries = authorization.get("registries")
+    matrix = authorization.get("model_matrix_amendment")
+    if (
+        not isinstance(fixed_code, Mapping)
+        or not isinstance(source, Mapping)
+        or not isinstance(runtime, Mapping)
+        or not isinstance(registries, Mapping)
+        or not isinstance(matrix, Mapping)
+    ):
+        raise AcquisitionContractError(
+            "raw preflight authorization bindings are malformed"
+        )
+    entrypoints = fixed_code.get("entrypoints")
+    matrix_seal = matrix.get("seal")
+    development_registry = registries.get("development")
+    external_registry = registries.get("external")
+    if (
+        not isinstance(entrypoints, Mapping)
+        or not isinstance(matrix_seal, Mapping)
+        or not isinstance(development_registry, Mapping)
+        or not isinstance(external_registry, Mapping)
+    ):
+        raise AcquisitionContractError(
+            "raw preflight nested authorization bindings are malformed"
+        )
+    orchestrator = entrypoints.get("orchestrator")
+    if not isinstance(orchestrator, Mapping):
+        raise AcquisitionContractError(
+            "raw preflight validator entrypoint binding is malformed"
+        )
+    validator_path = _inside(root, orchestrator.get("path"), file=True)
+    expected = {
+        "opening_id": authorization.get("opening_id"),
+        "authorization_path": work_order.get("authorization_path"),
+        "authorization_sha256": sha256_file(authorization_path),
+        "authorization_self_sha256": authorization.get(
+            "authorization_self_sha256"
+        ),
+        "work_order_path": work_order_path.relative_to(root).as_posix(),
+        "work_order_sha256": sha256_file(work_order_path),
+        "work_order_self_sha256": work_order.get(
+            "work_order_self_sha256"
+        ),
+        "intent_path": state.get("intent"),
+        "intent_sha256": sha256_file(intent_path),
+        "intent_self_sha256": _read_json(intent_path).get(
+            "intent_self_sha256"
+        ),
+        "state_namespace": state.get("namespace"),
+        "source_tree_sha256": source.get("source_tree_sha256"),
+        "runtime_sha256": runtime.get("runtime_sha256"),
+        "fixed_code_sha256": fixed_code.get("sha256"),
+        "model_matrix_amendment_sha256": matrix.get("sha256"),
+        "model_matrix_amendment_seal_sha256": matrix_seal.get("sha256"),
+        "development_registry_sha256": development_registry.get("sha256"),
+        "external_registry_sha256": external_registry.get("sha256"),
+        "validator_entrypoint_path": orchestrator.get("path"),
+        "validator_entrypoint_sha256": sha256_file(validator_path),
+        "outcome_values_parsed": False,
+        "network_used": False,
+    }
+    wrong = [
+        key
+        for key, value in expected.items()
+        if transcript.get(key) != value
+    ]
+    if wrong:
+        raise AcquisitionContractError(
+            "raw preflight transcript binding changed: "
+            + ", ".join(sorted(wrong))
+        )
+    phase = transcript.get("resume_phase")
+    raw_allowed = transcript.get("raw_transport_resume_allowed")
+    finalization_allowed = transcript.get(
+        "network_free_acquisition_finalization_allowed"
+    )
+    if (
+        phase == "RAW_TRANSPORT"
+        and (raw_allowed is not True or finalization_allowed is not False)
+    ) or (
+        phase == "ACQUISITION_FINALIZATION_NETWORK_FREE"
+        and (raw_allowed is not False or finalization_allowed is not True)
+    ) or phase not in {
+        "RAW_TRANSPORT",
+        "ACQUISITION_FINALIZATION_NETWORK_FREE",
+    }:
+        raise AcquisitionContractError(
+            "raw preflight transcript state is not acquisition eligible"
+        )
+    attestation = transcript.get("preflight_attestation")
+    if (
+        not isinstance(attestation, Mapping)
+        or set(attestation) != set(RAW_PREFLIGHT_ATTESTATION_FIELDS)
+        or transcript.get("preflight_attestation_sha256")
+        != _sha256_json(attestation)
+    ):
+        raise AcquisitionContractError(
+            "raw preflight attestation schema/hash changed"
+        )
+    attestation_expected = {
+        "authorization_sha256": expected["authorization_sha256"],
+        "opening_id": expected["opening_id"],
+        "development_registry_sha256": expected[
+            "development_registry_sha256"
+        ],
+        "external_registry_sha256": expected[
+            "external_registry_sha256"
+        ],
+        "model_matrix_amendment_sha256": expected[
+            "model_matrix_amendment_sha256"
+        ],
+        "model_matrix_amendment_seal_sha256": expected[
+            "model_matrix_amendment_seal_sha256"
+        ],
+        "source_tree_sha256": expected["source_tree_sha256"],
+        "runtime_sha256": expected["runtime_sha256"],
+        "fixed_code_sha256": expected["fixed_code_sha256"],
+        "state_namespace": expected["state_namespace"],
+    }
+    if any(
+        attestation.get(key) != value
+        for key, value in attestation_expected.items()
+    ):
+        raise AcquisitionContractError(
+            "raw preflight attestation differs from raw contract"
+        )
+    trusted_validator = transcript.get("trusted_validator")
+    if (
+        not isinstance(trusted_validator, Mapping)
+        or set(trusted_validator)
+        != {"implementation", "files", "sha256", "source_tree_sha256"}
+        or trusted_validator.get("implementation")
+        != "thermoroute.opening.trusted-validator.v1"
+        or not isinstance(trusted_validator.get("files"), Mapping)
+        or trusted_validator.get("sha256")
+        != _sha256_json(trusted_validator["files"])
+        or trusted_validator.get("source_tree_sha256")
+        != expected["source_tree_sha256"]
+    ):
+        raise AcquisitionContractError(
+            "raw preflight trusted-validator identity changed"
+        )
+    return dict(transcript)
+
+
+def run_full_raw_preflight_validator(
+    work_order_path: str | Path,
+    *,
+    root: str | Path,
+    work_order: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Run the fixed full validator before the raw child mutates transport."""
+    root = Path(root).resolve()
+    canonical_work_order = assert_no_symlink_components(
+        root,
+        Path(os.path.abspath(os.fspath(work_order_path))),
+        require_file=True,
+    )
+    challenge = secrets.token_hex(32)
+    fixed_code = authorization.get("fixed_code", {})
+    entry = fixed_code.get("entrypoints", {}).get("orchestrator", {})
+    if (
+        not isinstance(entry, Mapping)
+        or entry.get("path") != "scripts/route_a_opening_orchestrator.py"
+    ):
+        raise AcquisitionContractError(
+            "raw preflight fixed validator entrypoint changed"
+        )
+    validator = _inside(root, entry.get("path"), file=True)
+    if (
+        str(validator) != entry.get("realpath")
+        or sha256_file(validator) != entry.get("sha256")
+    ):
+        raise AcquisitionContractError(
+            "raw preflight fixed validator bytes changed"
+        )
+    command = [
+        sys.executable,
+        "-I",
+        "-B",
+        str(validator),
+        "--raw-preflight-work-order",
+        str(canonical_work_order),
+        "--challenge",
+        challenge,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=root,
+            env=dict(os.environ),
+            capture_output=True,
+            check=False,
+            timeout=900,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AcquisitionContractError(
+            "fixed raw preflight validator could not complete"
+        ) from exc
+    if result.returncode != 0 or result.stderr != b"":
+        raise AcquisitionContractError(
+            "fixed raw preflight validator failed or wrote stderr"
+        )
+    stdout = result.stdout
+    if not stdout or len(stdout) > MAX_RAW_PREFLIGHT_TRANSCRIPT_BYTES:
+        raise AcquisitionContractError(
+            "raw preflight transcript has an invalid byte length"
+        )
+    if not stdout.endswith(b"\n") or b"\n" in stdout[:-1]:
+        raise AcquisitionContractError(
+            "raw preflight transcript is not exactly one line"
+        )
+    try:
+        transcript = json.loads(
+            stdout[:-1].decode("utf-8"),
+            object_pairs_hook=_object_without_duplicate_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AcquisitionContractError(
+            "raw preflight transcript is not valid JSON"
+        ) from exc
+    if (
+        not isinstance(transcript, dict)
+        or stdout != _canonical_json_bytes(transcript)
+    ):
+        raise AcquisitionContractError(
+            "raw preflight transcript is not exact canonical JSON"
+        )
+    return _validate_raw_preflight_transcript(
+        transcript,
+        challenge=challenge,
+        root=root,
+        work_order_path=canonical_work_order,
+        work_order=work_order,
+        authorization=authorization,
+    )
+
+
+def revalidate_raw_preflight_volatile_bindings(
+    work_order_path: str | Path,
+    *,
+    root: str | Path,
+    entrypoint_path: str | Path,
+    transcript: Mapping[str, Any],
+    expected_work_order: Mapping[str, Any],
+    expected_authorization: Mapping[str, Any],
+) -> None:
+    """Replay all raw-visible bytes immediately before every socket open."""
+    current_work_order, current_authorization, _state = (
+        validate_acquisition_work_order(
+            work_order_path,
+            root=root,
+            entrypoint_path=entrypoint_path,
+        )
+    )
+    if (
+        current_work_order != dict(expected_work_order)
+        or current_authorization != dict(expected_authorization)
+    ):
+        raise AcquisitionContractError(
+            "raw preflight documents changed after validation"
+        )
+    challenge = transcript.get("challenge")
+    if not isinstance(challenge, str):
+        raise AcquisitionContractError(
+            "raw preflight transcript lost its challenge"
+        )
+    _validate_raw_preflight_transcript(
+        transcript,
+        challenge=challenge,
+        root=Path(root).resolve(),
+        work_order_path=Path(
+            os.path.abspath(os.fspath(work_order_path))
+        ),
+        work_order=current_work_order,
+        authorization=current_authorization,
+    )
