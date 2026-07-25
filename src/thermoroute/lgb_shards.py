@@ -49,6 +49,7 @@ _LINEAGE_KEYS = {
     "run_id", "run_schema_version", "cohort", "seed", "horizon", "head",
     "source_sha256",
     "runtime_sha256", "panel_sha256", "registry_sha256", "config_sha256",
+    "input_closure_sha256",
     "design_key_sha256", "head_config_sha256",
 }
 _MODEL_KEYS = {"path", "sha256", "bytes"}
@@ -84,6 +85,7 @@ class LightGBMShardLineage:
     panel_sha256: str
     registry_sha256: str
     config_sha256: str
+    input_closure_sha256: str
     design_key_sha256: str
     head_config_sha256: str
 
@@ -112,6 +114,7 @@ class LightGBMShardLineage:
             panel_sha256=identity.panel_sha256,
             registry_sha256=identity.registry_sha256,
             config_sha256=identity.config_sha256,
+            input_closure_sha256=identity.input_closure_sha256,
             design_key_sha256=str(design_key_sha256),
             head_config_sha256=sha256_json(head_config),
         )
@@ -152,7 +155,8 @@ def _validate_lineage_dict(value: object) -> dict[str, Any]:
         raise LightGBMShardError("LightGBM shard logical identity is malformed")
     for field in (
         "source_sha256", "runtime_sha256", "panel_sha256", "registry_sha256",
-        "config_sha256", "design_key_sha256", "head_config_sha256",
+        "config_sha256", "input_closure_sha256", "design_key_sha256",
+        "head_config_sha256",
     ):
         if not _is_sha256(value[field]):
             raise LightGBMShardError(f"LightGBM shard {field} is malformed")

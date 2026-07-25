@@ -61,6 +61,7 @@ from thermoroute import config as C
 from thermoroute import conformal as CF
 from thermoroute import results as R
 from thermoroute.checkpoint import load_inference_bundle
+from thermoroute.input_closure import compose_input_closure_digest
 from thermoroute.model_suite import (
     ModelSuiteError,
     STAGE16_COMPLETION_RECEIPT_PATH,
@@ -1538,10 +1539,28 @@ def validate_probability_receipt(
             "config_sha256",
             "source_sha256",
             "runtime_sha256",
+            "input_closure_sha256",
             "schema_version",
         }
     ):
         raise ProbabilityContractError("probability receipt lineage is malformed")
+    input_components = {
+        "panel": str(inputs["panel"]["sha256"]),
+        "registry": str(inputs["registry"]["sha256"]),
+        "prediction": str(prediction["artifact"]["sha256"]),
+        "prediction_lineage": str(prediction["lineage_sidecar"]["sha256"]),
+        "stage16_completion_receipt": str(
+            inputs["stage16_completion_receipt"]["sha256"]
+        ),
+        "stage9_components": str(component_pointers["stage9"]["sha256"]),
+        "lstm_components": str(component_pointers["lstm"]["sha256"]),
+        "protocol": str(inputs["protocol"]["sha256"]),
+        **{
+            f"model_file:{binding['path']}": str(binding["sha256"])
+            for model in PROB_MODELS
+            for binding in bundle_files[model]
+        },
+    }
     if (
         lineage["source_sha256"] != run_identity["source_sha256"]
         or lineage["panel_sha256"] != run_identity["panel_sha256"]
@@ -1550,6 +1569,8 @@ def validate_probability_receipt(
         or lineage["frozen_bundle_runtime_sha256"] != run_identity["runtime_sha256"]
         or inputs["panel"].get("sha256") != run_identity["panel_sha256"]
         or inputs["registry"].get("sha256") != run_identity["registry_sha256"]
+        or compose_input_closure_digest(input_components)
+        != run_identity["input_closure_sha256"]
     ):
         raise ProbabilityContractError("probability receipt lineage bindings disagree")
     contract = document.get("contract")
@@ -1874,11 +1895,32 @@ def _run(
         "stage16_completion_receipt_sha256": str(stage16_binding["sha256"]),
         "protocol_sha256": sha256_file(protocol_path),
     }
+    input_components = {
+        "panel": sha256_file(panel),
+        "registry": sha256_file(registry),
+        "prediction": sha256_file(predictions_path),
+        "prediction_lineage": sha256_file(sidecar_path(predictions_path)),
+        "stage16_completion_receipt": str(stage16_binding["sha256"]),
+        "stage9_components": sha256_file(stage9_components),
+        "lstm_components": sha256_file(lstm_components),
+        "protocol": sha256_file(protocol_path),
+    }
+    for contract in contracts.values():
+        for binding in contract.model_files:
+            input_components[f"model_file:{binding['path']}"] = str(
+                binding["sha256"]
+            )
+    input_closure_sha256 = compose_input_closure_digest(input_components)
+    stage19_config.update({
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": len(input_components),
+    })
     identity = resolve_run_identity(
         root=ROOT,
         panel=panel,
         registry=registry,
         config=stage19_config,
+        input_closure_sha256=input_closure_sha256,
     )
     if identity.runtime_sha256 != actual_runtime_sha256:
         raise ProbabilityContractError("Stage19 runtime identity changed during evaluation")

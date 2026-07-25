@@ -37,7 +37,7 @@ import threading
 from typing import Any, Callable, Iterable, Iterator, Mapping, TextIO
 
 
-RUN_SCHEMA_VERSION = "thermoroute.run.v1"
+RUN_SCHEMA_VERSION = "thermoroute.run.v2"
 ARTIFACT_SCHEMA_VERSION = "thermoroute.artifact.v1"
 RUN_LOCK_SCHEMA_VERSION = "thermoroute.run-lock.v1"
 DARWIN_SYSCTL_PATH = "/usr/sbin/sysctl"
@@ -680,7 +680,19 @@ class RunIdentity:
     config_sha256: str
     source_sha256: str
     runtime_sha256: str
+    input_closure_sha256: str
     schema_version: str = RUN_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        digest = self.input_closure_sha256
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError(
+                "RunIdentity input_closure_sha256 must be a lowercase SHA-256"
+            )
 
     def as_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -902,6 +914,7 @@ atexit.register(_release_all_run_directory_locks)
 
 def resolve_run_identity(*, root: str | Path, panel: str | Path,
                          registry: str | Path, config: Any,
+                         input_closure_sha256: str,
                          source_patterns: Iterable[str] = DEFAULT_SOURCE_PATTERNS
                          ) -> RunIdentity:
     """Resolve a content address from data, registry, configuration, and code."""
@@ -912,6 +925,7 @@ def resolve_run_identity(*, root: str | Path, panel: str | Path,
         "config_sha256": sha256_json(config),
         "source_sha256": source_tree_hash(root, source_patterns),
         "runtime_sha256": sha256_json(numerical_runtime_contract()),
+        "input_closure_sha256": input_closure_sha256,
     }
     return RunIdentity(run_id=sha256_json(parts)[:20], **parts)
 
@@ -1207,7 +1221,8 @@ def validate_artifact_sidecar(
     run = metadata["run"]
     run_keys = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     if (
         not isinstance(run, dict)
@@ -1219,7 +1234,14 @@ def validate_artifact_sidecar(
             not isinstance(run.get(field), str) or len(run[field]) != 64
             for field in (
                 "panel_sha256", "registry_sha256", "config_sha256",
-                "source_sha256", "runtime_sha256",
+                "source_sha256", "runtime_sha256", "input_closure_sha256",
+            )
+        )
+        or any(
+            any(character not in "0123456789abcdef" for character in run[field])
+            for field in (
+                "panel_sha256", "registry_sha256", "config_sha256",
+                "source_sha256", "runtime_sha256", "input_closure_sha256",
             )
         )
     ):

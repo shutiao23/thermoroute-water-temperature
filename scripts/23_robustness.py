@@ -29,6 +29,7 @@ from thermoroute import data as D
 from thermoroute import datasets as DS
 from thermoroute import features as F
 from thermoroute.checkpoint import instantiate_inference_ensemble
+from thermoroute.input_closure import compose_input_closure_digest
 from thermoroute.repro import (
     atomic_write_bytes,
     atomic_write_json,
@@ -344,7 +345,8 @@ def main() -> None:
     if not canonical_predictions_path.is_file():
         raise FileNotFoundError(
             f"canonical predictions not found: {canonical_predictions_path}")
-    bundle_directory, pointer = _load_bundle_pointer(args.bundle_pointer.resolve())
+    bundle_pointer_path = args.bundle_pointer.resolve()
+    bundle_directory, pointer = _load_bundle_pointer(bundle_pointer_path)
 
     prepared = D.prepare_dataset_from_panel(str(panel_path), stable_site_ids=True)
     panel = prepared["panel_raw"]
@@ -373,6 +375,18 @@ def main() -> None:
     )
 
     ladder = route_a_perturbation_ladder()
+    input_components = {
+        "panel": sha256_file(panel_path),
+        "registry": sha256_file(registry_path),
+        "bundle_pointer": sha256_file(bundle_pointer_path),
+        "bundle_metadata": sha256_file(bundle_directory / "metadata.json"),
+        "bundle_weights": sha256_file(bundle_directory / "weights.pt"),
+        "canonical_predictions": sha256_file(canonical_predictions_path),
+        "canonical_prediction_sidecar": sha256_file(
+            sidecar_path(canonical_predictions_path)
+        ),
+    }
+    input_closure_sha256 = compose_input_closure_digest(input_components)
     resolved_config = {
         "stage": "route_a_robustness",
         "schema": ROBUSTNESS_SCHEMA_VERSION,
@@ -407,9 +421,16 @@ def main() -> None:
         "uncertainty_scope": "between-station/basin; no daily time resampling",
         "n_bootstrap": args.n_bootstrap,
         "seed": args.seed,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": len(input_components),
     }
     run_identity = resolve_run_identity(
-        root=ROOT, panel=panel_path, registry=registry_path, config=resolved_config)
+        root=ROOT,
+        panel=panel_path,
+        registry=registry_path,
+        config=resolved_config,
+        input_closure_sha256=input_closure_sha256,
+    )
     if metadata.get("source_sha256") != run_identity.source_sha256:
         raise ValueError(
             "inference bundle source hash differs from the robustness code tree; "

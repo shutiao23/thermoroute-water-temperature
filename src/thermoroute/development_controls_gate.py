@@ -62,6 +62,7 @@ from .development_controls import (
     scientific_summary_document,
     summary_csv_bytes,
 )
+from .input_closure import InputClosure, InputClosureError, resolve_development_input_closure
 from .predictor_bridge import (
     assert_exact_predictor_table,
     compare_predictor_bridge,
@@ -352,6 +353,7 @@ def _validate_formal_configuration(value: object) -> dict[str, Any]:
         "parameter_match_tolerance_fraction", "architecture_candidates_per_arm",
         "historical_tuning_budget_equalized", "development_predictor_bridge",
         "formal_numerical_policy", "eval_batch_size",
+        "input_closure_sha256", "input_closure_file_count",
     }
     expected_templates = {
         arm.arm_id: architecture_template(arm, n_stations=120) for arm in arms
@@ -390,6 +392,10 @@ def _validate_formal_configuration(value: object) -> dict[str, Any]:
         or value["eval_batch_size"] < 1
         or not isinstance(bridge, Mapping)
         or set(bridge) != {"path", "sha256"}
+        or not isinstance(value.get("input_closure_sha256"), str)
+        or _HEX64.fullmatch(str(value["input_closure_sha256"])) is None
+        or type(value.get("input_closure_file_count")) is not int
+        or value["input_closure_file_count"] < 1
     ):
         raise DevelopmentControlsGateError(
             "Stage-09b is not the exact formal arm/seed run"
@@ -400,17 +406,18 @@ def _validate_formal_configuration(value: object) -> dict[str, Any]:
 
 def _validate_run_manifest(
     path: Path, *, root: Path, run_id: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], InputClosure]:
     manifest = _load_json(path, label="Stage-09b run manifest")
     config = _validate_formal_configuration(manifest.get("resolved_config"))
     identity = manifest.get("identity")
     identity_keys = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     digests = (
         "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
     )
     if (
         set(manifest) != {
@@ -426,6 +433,8 @@ def _validate_run_manifest(
             or _HEX64.fullmatch(str(identity[field])) is None for field in digests
         )
         or identity.get("config_sha256") != sha256_json(config)
+        or identity.get("input_closure_sha256")
+        != config.get("input_closure_sha256")
         or identity.get("source_sha256") != source_tree_hash(root)
     ):
         raise DevelopmentControlsGateError("Stage-09b receipt is stale for the run/source")
@@ -435,6 +444,24 @@ def _validate_run_manifest(
     }
     if identity["run_id"] != sha256_json(identity_parts)[:20]:
         raise DevelopmentControlsGateError("Stage-09b run id is not content-addressed")
+    try:
+        input_closure = resolve_development_input_closure(root)
+        input_closure.assert_unchanged()
+    except InputClosureError as exc:
+        raise DevelopmentControlsGateError(
+            "Stage-09b fixed development input closure cannot be replayed"
+        ) from exc
+    if (
+        identity.get("input_closure_sha256")
+        != input_closure.binding_digest
+        or config.get("input_closure_sha256")
+        != input_closure.binding_digest
+        or config.get("input_closure_file_count")
+        != len(input_closure.inventory)
+    ):
+        raise DevelopmentControlsGateError(
+            "Stage-09b run identity differs from the fixed development input closure"
+        )
     try:
         created = datetime.fromisoformat(str(manifest["created_utc"]))
     except ValueError as exc:
@@ -452,7 +479,7 @@ def _validate_run_manifest(
     expected = (root / "outputs" / "runs" / STAGE09B_STAGE / run_id / "run.json").resolve()
     if path.resolve() != expected:
         raise DevelopmentControlsGateError("Stage-09b run manifest path is noncanonical")
-    return dict(identity), config
+    return dict(identity), config, input_closure
 
 
 def _validate_bridge_binding(root: Path, value: object, *, label: str) -> Path:
@@ -1261,7 +1288,9 @@ def validate_stage09b_completion_receipt(
     ):
         if paths[sidecar_label] != sidecar_path(paths[artifact_label]).resolve():
             raise DevelopmentControlsGateError("Stage-09b final sidecar alignment changed")
-    identity, config = _validate_run_manifest(paths["run_manifest"], root=root, run_id=run_id)
+    identity, config, input_closure = _validate_run_manifest(
+        paths["run_manifest"], root=root, run_id=run_id
+    )
     if receipt.get("run_identity") != identity or receipt.get("formal_configuration") != config:
         raise DevelopmentControlsGateError("Stage-09b run identity/configuration changed")
     if config["development_predictor_bridge"] != _file_binding(root, paths["predictor_bridge"]):
@@ -1376,6 +1405,7 @@ def validate_stage09b_completion_receipt(
     semantic = _load_json(paths["semantic_audit"], label="Stage-09b semantic audit")
     if semantic != expected_semantic:
         raise DevelopmentControlsGateError("Stage-09b semantic audit is stale or forged")
+    input_closure.assert_unchanged()
     if publication_guard is not None:
         publication_guard()
     return receipt

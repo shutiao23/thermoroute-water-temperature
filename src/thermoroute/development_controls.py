@@ -27,7 +27,14 @@ from . import data as D
 from . import datasets as DS
 from . import features as F
 from . import results as R
-from .neural_baselines import PlainCausalTCNForecaster, PlainMLPForecaster
+from .neural_baselines import (
+    INFORMATION_MATCHED_COMMON_ANCHOR,
+    INFORMATION_MATCHED_EXCLUDED_KEYS,
+    INFORMATION_MATCHED_INPUT_KEYS,
+    INFORMATION_MATCHED_NONCAUSAL_BOUNDARY,
+    PlainCausalTCNForecaster,
+    PlainMLPForecaster,
+)
 from .registry import FORECAST_KEY, targets_match_at_model_precision
 from .thermoroute import ThermoRoute
 
@@ -49,9 +56,10 @@ LADDER_SEEDS: tuple[int, ...] = C.USGS_SEEDS
 TRAIN_CONFIG = C.TrainConfig(batch_size=1536)
 MLP_HIDDEN_DIM = 70
 TCN_CHANNELS = 54
+INFORMATION_MATCHED_GATE_DIM = 6
 THERMOROUTE_REFERENCE_PARAMETERS = 38_505
-MLP_EXPECTED_PARAMETERS = 38_545
-TCN_EXPECTED_PARAMETERS = 38_031
+MLP_EXPECTED_PARAMETERS = 38_860
+TCN_EXPECTED_PARAMETERS = 38_346
 DEVELOPMENT_SCOPE = "development_only_2006_2020"
 DEVELOPMENT_DISCLOSURE = (
     "2019-2020 outcomes were already inspected during development; this is "
@@ -210,6 +218,9 @@ def build_arm_model(arm: ArmSpec, *, seed: int, n_stations: int) -> torch.nn.Mod
             horizons=C.HORIZONS, n_stations=n_stations,
             station_agnostic=False, init_seed=int(seed),
             hidden_dim=MLP_HIDDEN_DIM, depth=2, dropout=TRAIN_CONFIG.dropout,
+            use_information_matched_context=True,
+            n_phys=physics_count(arm.variables),
+            gate_dim=INFORMATION_MATCHED_GATE_DIM,
         )
     if arm.family == "PlainCausalTCN":
         return PlainCausalTCNForecaster(
@@ -218,6 +229,9 @@ def build_arm_model(arm: ArmSpec, *, seed: int, n_stations: int) -> torch.nn.Mod
             station_agnostic=False, init_seed=int(seed),
             channels=TCN_CHANNELS, blocks=4, kernel_size=3,
             dropout=TRAIN_CONFIG.dropout,
+            use_information_matched_context=True,
+            n_phys=physics_count(arm.variables),
+            gate_dim=INFORMATION_MATCHED_GATE_DIM,
         )
     if arm.family == "ThermoRoute":
         return ThermoRoute(
@@ -315,6 +329,7 @@ def architecture_budget_rows(
     rows: list[dict[str, Any]] = []
     for arm in selected:
         count = counts[arm.arm_id]
+        is_plain_control = arm.family in {"PlainMLP", "PlainCausalTCN"}
         rows.append({
             "arm_id": arm.arm_id,
             "family": arm.family,
@@ -352,6 +367,29 @@ def architecture_budget_rows(
                 architecture_template(arm, n_stations=n_stations),
                 sort_keys=True, separators=(",", ":"), allow_nan=False,
             ),
+            "information_matched_context": is_plain_control,
+            "model_input_keys_read": (
+                ",".join(INFORMATION_MATCHED_INPUT_KEYS)
+                if is_plain_control else None
+            ),
+            "model_input_keys_explicitly_excluded": (
+                ",".join(INFORMATION_MATCHED_EXCLUDED_KEYS)
+                if is_plain_control else None
+            ),
+            "common_forecast_anchor": (
+                INFORMATION_MATCHED_COMMON_ANCHOR
+                if is_plain_control else "damped_prior"
+            ),
+            "residual_parameterization": (
+                "unrestricted_additive_neural_residual"
+                if is_plain_control
+                else "bounded_additive_neural_residual"
+            ),
+            "uses_learned_physics_prior": not is_plain_control,
+            "uses_dynamic_lag_router": not is_plain_control,
+            "uses_mixture_of_experts": not is_plain_control,
+            "causal_interpretation_allowed": False,
+            "noncausal_boundary": INFORMATION_MATCHED_NONCAUSAL_BOUNDARY,
             "mlp_hidden_dim": MLP_HIDDEN_DIM if arm.family == "PlainMLP" else None,
             "mlp_depth": 2 if arm.family == "PlainMLP" else None,
             "tcn_channels": TCN_CHANNELS if arm.family == "PlainCausalTCN" else None,
@@ -1055,7 +1093,9 @@ def render_report(
     )
     budget_view = _markdown_table(budget[[
         "arm_id", "variables", "seed_count", "trainable_parameters",
-        "parameter_ratio_to_full_thermoroute", "maximum_optimizer_steps_per_seed",
+        "parameter_ratio_to_full_thermoroute", "information_matched_context",
+        "common_forecast_anchor", "residual_parameterization",
+        "maximum_optimizer_steps_per_seed",
     ]])
     splits = values["splits"]
     return f"""# Development-only neural controls and feature ladder
@@ -1075,15 +1115,25 @@ All models use the frozen 120-site 2006--2020 panel, 32 days of history,
 horizons 1/3/7 days, CPU-only deterministic execution, equal-station fixed-size
 bootstrap sampling, AdamW, the same declared maximum optimisation budget, and
 early-stopping rule. PlainMLP and PlainCausalTCN receive the seven declared
-history variables and masks. ThermoRoute additionally receives its declared
-train-fitted deviation reference and calendar-derived auxiliary inputs. The feature ladder adds one
-declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP, RHMEAN,
-DH, WDSP.
+history variables and masks plus the exact frozen outcome-free issue-time and
+derived context: station, current water temperature and climatology, target-date
+climatology, train-fitted damped-persistence anchor, physical forcing vector,
+standardised log flow, season, and regime-gate vector. They explicitly never
+read `y`, `target_date`, or `wlevelz`. Both controls predict an unrestricted
+additive residual from `damped_prior`; neither contains a learned physics prior,
+dynamic lag router, mixture of experts, or bounded residual. The feature ladder
+adds one declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP,
+RHMEAN, DH, WDSP.
 
 The two pure-neural controls are parameter-matched within 2% of the full
 ThermoRoute architecture. Each architecture has one fixed candidate here.
 This does not equalise ThermoRoute's historical tuning advantage, so
 `historical_tuning_budget_equalized` remains false.
+
+Information matching removes the named model-input access disadvantage only.
+It does not make the architectures causally comparable, equalise representation
+capacity or historical search effort, or support claims that any ThermoRoute
+component is causally necessary.
 
 Exact member count: {values['expected_members']}. Common forecast keys per member:
 {values['common_forecast_keys']}. Total prediction rows: {values['prediction_rows']}.

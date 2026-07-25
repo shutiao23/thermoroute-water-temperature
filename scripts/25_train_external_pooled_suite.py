@@ -153,6 +153,10 @@ from thermoroute.registry import (
     canonicalize_prediction_truth_inplace,
     enforce_common_forecast_keys,
 )
+from thermoroute.input_closure import (
+    compose_input_closure_digest,
+    resolve_development_input_closure,
+)
 from thermoroute.repro import (
     advisory_file_lock,
     assert_formal_numerical_policy,
@@ -244,6 +248,7 @@ def external_sequence_metadata(
         registry_sha256=identity.registry_sha256,
         config_sha256=identity.config_sha256,
         runtime_sha256=identity.runtime_sha256,
+        input_closure_sha256=identity.input_closure_sha256,
         training_device="cpu",
         development_prediction=prediction_binding,
     )
@@ -262,6 +267,16 @@ def _run(args: argparse.Namespace) -> None:
     components_pointer = C.MODELS / "route_a_external_components.json"
     receipt_path = ROOT / STAGE25_COMPLETION_RECEIPT_PATH
     runtime_policy = assert_formal_numerical_policy()
+    development_input_closure = resolve_development_input_closure(ROOT)
+    input_closure_sha256 = compose_input_closure_digest({
+        "development": development_input_closure.binding_digest,
+    })
+    development_input_closure.assert_unchanged()
+
+    def assert_stage25_publication_inputs() -> None:
+        assert_formal_numerical_policy()
+        development_input_closure.assert_unchanged()
+
     predictor_bridge = development_predictor_bridge_binding(
         ROOT,
         panel_sha256=sha256_file(PANEL),
@@ -288,9 +303,16 @@ def _run(args: argparse.Namespace) -> None:
         "training_device": "cpu",
         "development_predictor_bridge": predictor_bridge,
         "formal_numerical_policy": runtime_policy,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": len(development_input_closure.inventory),
+        "input_closure_component_count": 1,
     }
     identity = resolve_run_identity(
-        root=ROOT, panel=PANEL, registry=REGISTRY, config=run_config
+        root=ROOT,
+        panel=PANEL,
+        registry=REGISTRY,
+        config=run_config,
+        input_closure_sha256=input_closure_sha256,
     )
     run_dir = initialise_run_directory(
         ROOT / "outputs" / "runs" / "25_external_pooled", identity, run_config,
@@ -298,7 +320,7 @@ def _run(args: argparse.Namespace) -> None:
             "outcome_status": "NO_POST_2020_DATA_READ",
             "training_device": "cpu",
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
     # Invalidate any earlier success marker immediately after taking the run
     # lock.  A crash from this point until the final atomic receipt publication
@@ -312,10 +334,11 @@ def _run(args: argparse.Namespace) -> None:
             "run_id": identity.run_id,
             "confirmation_outcomes_requested_or_read": False,
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
     # Lock before pooled preprocessing materialises arrays and before any
     # checkpoint or external shard-cache path can be reached.
+    assert_stage25_publication_inputs()
     prepared = D.prepare_dataset_from_panel(str(PANEL))
     panel, masks = prepared["panel_raw"], prepared["masks"]
     stations = tuple(prepared["stations"])
@@ -342,8 +365,13 @@ def _run(args: argparse.Namespace) -> None:
         Path(args.shard_cache).expanduser().resolve()
         if args.shard_cache else run_dir / "lightgbm_shards"
     )
+    if lightgbm_shard_cache != run_dir / "lightgbm_shards":
+        raise ValueError(
+            "formal Stage-25 shard cache must remain inside its run directory"
+        )
 
     # LSTM architecture selection: validation rows only, station embedding off.
+    assert_stage25_publication_inputs()
     candidates = []
     for candidate_id, candidate in enumerate(LSTM_VALIDATION_GRID):
         kwargs = {
@@ -425,7 +453,7 @@ def _run(args: argparse.Namespace) -> None:
     )
     # All long-running fits have completed.  Fail before the first canonical
     # prediction/model artifact if any native runtime left the one-thread mode.
-    assert_formal_numerical_policy()
+    assert_stage25_publication_inputs()
     predictions, audit = enforce_common_forecast_keys(
         pd.concat([tr_predictions, lstm_predictions, lgb_predictions], ignore_index=True),
         ("ThermoRoute", "LSTM", "LightGBM"), split="test",
@@ -435,13 +463,13 @@ def _run(args: argparse.Namespace) -> None:
     R.write_predictions(
         predictions,
         prediction_path,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
     seal_artifact(
         prediction_path, identity, kind="external_pooled_development_predictions",
         schema=R.PREDICTION_SCHEMA_VERSION,
         extra={"common_test_keys": audit.common_unique, "post_2020_data_read": False},
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
 
     parity_atol = 1e-5
@@ -473,16 +501,16 @@ def _run(args: argparse.Namespace) -> None:
                     max_abs_difference=parity_atol, atol=parity_atol,
                 ),
             ), expected_member_count=5,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage25_publication_inputs,
         )
         difference = verify_sequence_prediction_parity(
             directory, wd=wd, expected=rows,
             model_factory=lambda _member, metadata, factory=factory: factory(metadata),
             member_seeds={f"seed{seed}": seed for seed in SEEDS},
             atol=parity_atol,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage25_publication_inputs,
         )
-        assert_formal_numerical_policy()
+        assert_stage25_publication_inputs()
         update_torch_development_prediction(
             directory,
             development_prediction_binding(
@@ -540,21 +568,22 @@ def _run(args: argparse.Namespace) -> None:
             "registry_sha256": identity.registry_sha256,
             "config_sha256": identity.config_sha256,
             "runtime_sha256": identity.runtime_sha256,
+            "input_closure_sha256": identity.input_closure_sha256,
             "training_device": "cpu",
             "development_prediction": development_prediction_binding(
                 ROOT, prediction_path, lgb_rows,
                 max_abs_difference=1e-12, atol=1e-12,
             ),
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
     lgb_difference = verify_lightgbm_prediction_parity(
         lgb_manifest, evaluation_design=lgb_evaluation_design,
         expected=lgb_rows,
         member_seeds={f"seed{seed}": seed for seed in SEEDS}, atol=1e-12,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
-    assert_formal_numerical_policy()
+    assert_stage25_publication_inputs()
     update_lightgbm_development_prediction(
         lgb_manifest,
         development_prediction_binding(
@@ -581,7 +610,7 @@ def _run(args: argparse.Namespace) -> None:
         ),
         lightgbm_entry(ROOT, manifest=lgb_manifest, raw_feature_order=wd.var_names),
     ]
-    assert_formal_numerical_policy()
+    assert_stage25_publication_inputs()
     write_component_pointer(
         components_pointer,
         run_id=identity.run_id, cohort="external", entries=entries,
@@ -591,7 +620,7 @@ def _run(args: argparse.Namespace) -> None:
             **file_binding(ROOT, prediction_path),
             "sidecar": file_binding(ROOT, sidecar_path(prediction_path)),
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
     receipt = build_stage25_completion_receipt(
         root=ROOT,
@@ -602,13 +631,13 @@ def _run(args: argparse.Namespace) -> None:
     # Deliberately the final filesystem write in the transaction.  The publish
     # helper validates the candidate closure before the atomic replace and
     # re-opens the on-disk receipt afterwards.
-    assert_formal_numerical_policy()
+    assert_stage25_publication_inputs()
     publish_stage25_completion_receipt(
         receipt_path,
         receipt,
         root=ROOT,
         components_pointer=components_pointer,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage25_publication_inputs,
     )
     log("saved complete external pooled components: TR5 + LSTM5 + LGB5")
     log(f"saved Stage-25 completion receipt: {receipt_path.relative_to(ROOT)}")
@@ -633,11 +662,21 @@ def main() -> None:
     receipt_path = ROOT / STAGE25_COMPLETION_RECEIPT_PATH
     if args.check:
         with advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False):
+            development_input_closure = resolve_development_input_closure(ROOT)
+            expected_input_closure_sha256 = compose_input_closure_digest({
+                "development": development_input_closure.binding_digest,
+            })
             receipt = validate_stage25_completion_receipt(
                 receipt_path,
                 root=ROOT,
                 components_pointer=components_pointer,
             )
+            if (
+                receipt.get("run_identity", {}).get("input_closure_sha256")
+                != expected_input_closure_sha256
+            ):
+                raise ValueError("Stage-25 development input closure changed")
+            development_input_closure.assert_unchanged()
         assert_formal_numerical_policy()
         print(
             f"Stage-25 COMPLETE: run_id={receipt['run_id']} "

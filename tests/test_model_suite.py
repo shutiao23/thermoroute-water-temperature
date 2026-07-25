@@ -111,6 +111,7 @@ def _lgb_metadata(columns):
         "registry_sha256": "r",
         "config_sha256": "c",
         "runtime_sha256": "t" * 64,
+        "input_closure_sha256": "f" * 64,
         "training_device": "cpu",
         "development_prediction": {"path": "predictions.parquet", "sha256": "d"},
     }
@@ -649,6 +650,7 @@ def test_development_prediction_binding_recomputes_rows_keys_values_and_sidecar(
             config_sha256="c" * 64,
             source_sha256="d" * 64,
             runtime_sha256="e" * 64,
+            input_closure_sha256="f" * 64,
         ),
         kind="fixture-development-predictions",
         schema=R.PREDICTION_SCHEMA_VERSION,
@@ -708,6 +710,7 @@ def _calibration_gate_metadata(
         run_id="fixture", panel_sha256="a" * 64,
         registry_sha256="b" * 64, config_sha256="c" * 64,
         source_sha256="d" * 64, runtime_sha256="e" * 64,
+        input_closure_sha256="f" * 64,
     )
     artifact = tmp_path / f"{name}.parquet"
     R.write_predictions(frame, artifact)
@@ -901,6 +904,7 @@ def test_calibration_gate_rejects_reclosed_prediction_truth_attack(
         config_sha256=str(metadata["config_sha256"]),
         source_sha256=str(metadata["source_sha256"]),
         runtime_sha256=str(metadata["runtime_sha256"]),
+        input_closure_sha256=str(metadata["input_closure_sha256"]),
     )
     seal_artifact(
         prediction_path,
@@ -1013,6 +1017,7 @@ def test_calibration_replay_rejects_reclosed_metadata_attack(
             config_sha256=attacked["config_sha256"],
             source_sha256=attacked["source_sha256"],
             runtime_sha256=attacked["runtime_sha256"],
+            input_closure_sha256=attacked["input_closure_sha256"],
         ),
         kind="fixture-development-predictions",
         schema=R.PREDICTION_SCHEMA_VERSION,
@@ -1386,6 +1391,24 @@ def _stage25_receipt_fixture(
         MODEL_SUITE, "numerical_runtime_contract", lambda: runtime_contract
     )
     runtime_sha256 = sha256_json(runtime_contract)
+    development_input_digest = "a" * 64
+    input_closure_sha256 = MODEL_SUITE.compose_input_closure_digest({
+        "development": development_input_digest,
+    })
+
+    class FixtureInputClosure:
+        binding_digest = development_input_digest
+        inventory = (object(),)
+
+        @staticmethod
+        def assert_unchanged() -> None:
+            return None
+
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "resolve_development_input_closure",
+        lambda _root: FixtureInputClosure(),
+    )
     threshold_contract = {
         "method": "pooled_training_empirical_quantile_v1",
         "quantile": 0.90,
@@ -1416,6 +1439,9 @@ def _stage25_receipt_fixture(
         "training_device": "cpu",
         "development_predictor_bridge": bridge,
         "formal_numerical_policy": {"worker_threads": 1},
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": 1,
+        "input_closure_component_count": 1,
     }
     identity_fields = {
         "schema_version": MODEL_SUITE.RUN_SCHEMA_VERSION,
@@ -1424,6 +1450,7 @@ def _stage25_receipt_fixture(
         "config_sha256": sha256_json(configuration),
         "source_sha256": source_tree_hash(tmp_path),
         "runtime_sha256": runtime_sha256,
+        "input_closure_sha256": input_closure_sha256,
     }
     run_id = sha256_json(identity_fields)[:20]
     identity = {"run_id": run_id, **identity_fields}
@@ -1474,6 +1501,7 @@ def _stage25_receipt_fixture(
         config_sha256=identity_fields["config_sha256"],
         source_sha256=identity_fields["source_sha256"],
         runtime_sha256=identity_fields["runtime_sha256"],
+        input_closure_sha256=identity_fields["input_closure_sha256"],
     )
     seal_artifact(
         prediction,

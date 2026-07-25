@@ -30,6 +30,7 @@ from .provenance import canonical_json_bytes
 
 
 INPUT_CLOSURE_FORMAT = "thermoroute.development-input-closure.v1"
+COMPOSED_INPUT_CLOSURE_FORMAT = "thermoroute.composed-input-closure.v1"
 
 FROZEN_SPEC_PATH = PurePosixPath("data_usgs/frozen_panel_v1.json")
 PANEL_PATH = PurePosixPath("data_usgs/panel_usgs_120v2.parquet")
@@ -249,6 +250,43 @@ def _require_digest(value: object, *, label: str) -> str:
     ):
         raise InputClosureError(f"{label} is not a lowercase SHA-256")
     return value
+
+
+def compose_input_closure_digest(
+    components: Mapping[str, str],
+) -> str:
+    """Compose named component digests into one canonical input-closure digest.
+
+    Names are part of the commitment, so exchanging two semantically different
+    inputs with identical container positions cannot preserve the digest.  The
+    sorted list representation makes the result independent of mapping insertion
+    order while retaining an exact, independently reproducible composition.
+    """
+    if not isinstance(components, Mapping) or not components:
+        raise InputClosureError("input-closure composition must not be empty")
+    records: list[dict[str, str]] = []
+    for name, digest in components.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or name != name.strip()
+            or any(character in name for character in ("\\", "\x00"))
+        ):
+            raise InputClosureError("input-closure component name is malformed")
+        records.append({
+            "name": name,
+            "sha256": _require_digest(
+                digest, label=f"input-closure component {name!r}"
+            ),
+        })
+    records.sort(key=lambda record: record["name"])
+    if len({record["name"] for record in records}) != len(records):
+        raise InputClosureError("input-closure component names are duplicated")
+    document = {
+        "format": COMPOSED_INPUT_CLOSURE_FORMAT,
+        "components": records,
+    }
+    return hashlib.sha256(canonical_json_bytes(document)).hexdigest()
 
 
 def _json_object(payload: bytes, *, label: str) -> dict[str, Any]:

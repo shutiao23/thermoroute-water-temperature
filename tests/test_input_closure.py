@@ -13,9 +13,11 @@ import thermoroute.input_closure as input_closure
 from thermoroute.input_closure import (
     BRIDGE_MANIFEST_PATH,
     BRIDGE_RAW_INDEXES,
+    COMPOSED_INPUT_CLOSURE_FORMAT,
     FROZEN_SPEC_PATH,
     INPUT_CLOSURE_FORMAT,
     InputClosureError,
+    compose_input_closure_digest,
     resolve_development_input_closure,
 )
 from thermoroute.provenance import canonical_json_bytes
@@ -28,6 +30,39 @@ def _write(path: Path, payload: bytes) -> None:
 
 def _sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def test_composes_named_component_digests_canonically() -> None:
+    components = {"development": "a" * 64, "stage09_receipt": "b" * 64}
+    expected = _sha(canonical_json_bytes({
+        "format": COMPOSED_INPUT_CLOSURE_FORMAT,
+        "components": [
+            {"name": "development", "sha256": "a" * 64},
+            {"name": "stage09_receipt", "sha256": "b" * 64},
+        ],
+    }))
+    assert compose_input_closure_digest(components) == expected
+    assert compose_input_closure_digest(dict(reversed(components.items()))) == expected
+    assert compose_input_closure_digest({
+        **components, "stage09_components": "c" * 64,
+    }) != expected
+
+
+@pytest.mark.parametrize(
+    "components",
+    (
+        {},
+        {"": "a" * 64},
+        {" development": "a" * 64},
+        {"development": "A" * 64},
+        {"development": "a" * 63},
+    ),
+)
+def test_composed_input_closure_rejects_noncanonical_components(
+    components: dict[str, str],
+) -> None:
+    with pytest.raises(InputClosureError):
+        compose_input_closure_digest(components)
 
 
 def _binding(root: Path, path: Path) -> dict[str, str]:

@@ -61,6 +61,7 @@ def _identity(run_id: str) -> RunIdentity:
         config_sha256=digest,
         source_sha256=digest,
         runtime_sha256=digest,
+        input_closure_sha256=digest,
     )
 
 

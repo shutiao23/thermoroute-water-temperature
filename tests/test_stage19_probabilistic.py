@@ -303,6 +303,7 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
         config_sha256="1" * 64,
         source_sha256="2" * 64,
         runtime_sha256="3" * 64,
+        input_closure_sha256="4" * 64,
     )
     seal_artifact(
         prediction,
@@ -317,15 +318,6 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
         path = tmp_path / f"{model}.metadata.json"
         path.write_text(f"{model}\n", encoding="utf-8")
         model_metadata[model] = path
-
-    stage19_identity = RunIdentity(
-        run_id="stage19-fixture",
-        panel_sha256=frozen_identity.panel_sha256,
-        registry_sha256=frozen_identity.registry_sha256,
-        config_sha256="5" * 64,
-        source_sha256=frozen_identity.source_sha256,
-        runtime_sha256=frozen_identity.runtime_sha256,
-    )
 
     def binding(path: Path) -> dict[str, str]:
         return {
@@ -350,6 +342,34 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
             model: [binding(path)] for model, path in model_metadata.items()
         },
     }
+    input_components = {
+        "panel": inputs["panel"]["sha256"],
+        "registry": inputs["registry"]["sha256"],
+        "prediction": inputs["prediction"]["artifact"]["sha256"],
+        "prediction_lineage": inputs["prediction"]["lineage_sidecar"]["sha256"],
+        "stage16_completion_receipt": inputs["stage16_completion_receipt"][
+            "sha256"
+        ],
+        "stage9_components": inputs["component_pointers"]["stage9"]["sha256"],
+        "lstm_components": inputs["component_pointers"]["lstm"]["sha256"],
+        "protocol": inputs["protocol"]["sha256"],
+        **{
+            f"model_file:{binding['path']}": binding["sha256"]
+            for model in STAGE19.PROB_MODELS
+            for binding in inputs["bundle_files"][model]
+        },
+    }
+    stage19_identity = RunIdentity(
+        run_id="stage19-fixture",
+        panel_sha256=frozen_identity.panel_sha256,
+        registry_sha256=frozen_identity.registry_sha256,
+        config_sha256="5" * 64,
+        source_sha256=frozen_identity.source_sha256,
+        runtime_sha256=frozen_identity.runtime_sha256,
+        input_closure_sha256=STAGE19.compose_input_closure_digest(
+            input_components
+        ),
+    )
     parents = {
         "prediction": inputs["prediction"]["artifact"]["sha256"],
         "prediction_lineage": inputs["prediction"]["lineage_sidecar"]["sha256"],
@@ -467,6 +487,22 @@ def test_receipt_cannot_drop_stage16_gate_and_reseal_public_self_hash(tmp_path):
     changed["receipt_self_sha256"] = sha256_json(changed)
     receipt.write_text(json.dumps(changed), encoding="utf-8")
     with pytest.raises(STAGE19.ProbabilityContractError, match="input closure"):
+        STAGE19.validate_probability_receipt(
+            receipt,
+            root=tmp_path,
+            enforce_current_source_and_runtime=False,
+            enforce_canonical_paths=False,
+        )
+
+
+def test_receipt_cannot_replace_input_closure_and_reseal_public_self_hash(tmp_path):
+    receipt, _document, _outputs = _receipt_fixture(tmp_path)
+    changed = json.loads(receipt.read_text(encoding="utf-8"))
+    changed["run_identity"]["input_closure_sha256"] = "0" * 64
+    changed.pop("receipt_self_sha256")
+    changed["receipt_self_sha256"] = sha256_json(changed)
+    receipt.write_text(json.dumps(changed), encoding="utf-8")
+    with pytest.raises(STAGE19.ProbabilityContractError, match="bindings disagree"):
         STAGE19.validate_probability_receipt(
             receipt,
             root=tmp_path,

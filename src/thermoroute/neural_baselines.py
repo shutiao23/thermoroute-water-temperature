@@ -1,11 +1,13 @@
 """Plain neural controls for development-only architecture comparisons.
 
-The models in this module deliberately contain none of ThermoRoute's
-relaxation-shaped auxiliary proposal, dynamic lag router, mixture of experts,
-or bounded residual.  They use
-only the observed history tensors ``X`` and ``Mask`` and, when explicitly
-enabled, the issue site's integer identity.  A batch may contain the remaining
-``WindowedData.batch`` fields, including ``y``; those fields are never read.
+The models in this module deliberately contain none of ThermoRoute's learned
+physics prior, dynamic lag router, mixture of experts, or bounded residual.
+Their backwards-compatible default uses only the observed history tensors
+``X`` and ``Mask`` and, when explicitly enabled, the issue site's integer
+identity.  The opt-in information-matched mode additionally consumes the exact
+outcome-free issue-time/train-fit context declared by Stage 09b and predicts an
+unrestricted additive residual from the common ``damped_prior`` anchor.  It
+never consumes ``y``, ``target_date``, or ``wlevelz``.
 
 These controls make an architecture comparison possible, but their default
 parameter counts are not a fairness guarantee.  A study must match parameter
@@ -29,6 +31,25 @@ _BUDGET_MATCHING_NOTE = (
     "and tuning budget externally; the constructor defaults do not establish fairness."
 )
 _FUTURE_KEYS_NEVER_READ = ("y", "clim_tgt", "damped_prior", "target_date")
+INFORMATION_MATCHED_INPUT_KEYS = (
+    "X",
+    "Mask",
+    "station",
+    "wtemp_t",
+    "clim_t",
+    "clim_tgt",
+    "damped_prior",
+    "phys_std",
+    "logflowz",
+    "season",
+    "gate",
+)
+INFORMATION_MATCHED_EXCLUDED_KEYS = ("y", "target_date", "wlevelz")
+INFORMATION_MATCHED_COMMON_ANCHOR = "damped_prior"
+INFORMATION_MATCHED_NONCAUSAL_BOUNDARY = (
+    "Development-only predictive architecture control; temporal non-anticipation "
+    "does not identify a causal effect or establish causal necessity."
+)
 
 
 @dataclass(frozen=True)
@@ -105,6 +126,12 @@ def _validated_seed(seed: int) -> int:
     return seed
 
 
+def _validated_bool(value: bool, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be explicitly True or False")
+    return value
+
+
 def _validate_common_constructor(
     *,
     n_vars: int,
@@ -172,6 +199,92 @@ def _validate_history(
     return X, mask.to(dtype=torch.bool)
 
 
+def _validated_float_field(
+    batch: Mapping[str, Tensor],
+    key: str,
+    *,
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
+    device: torch.device,
+) -> Tensor:
+    """Return one exact-schema floating field or fail before model arithmetic."""
+    value = batch[key]
+    if not isinstance(value, Tensor):
+        raise TypeError(f"batch[{key!r}] must be a torch tensor")
+    if tuple(value.shape) != shape:
+        raise ValueError(f"batch[{key!r}] must have shape {list(shape)}")
+    if not value.is_floating_point():
+        raise TypeError(f"batch[{key!r}] must have a floating dtype")
+    if value.dtype != dtype:
+        raise TypeError(f"batch[{key!r}] must have dtype {dtype}")
+    if value.device != device:
+        raise ValueError(f"batch[{key!r}] must be on device {device}")
+    if not bool(torch.isfinite(value).all().item()):
+        raise ValueError(f"batch[{key!r}] must be finite")
+    return value
+
+
+def _validate_information_matched_context(
+    batch: Mapping[str, Tensor],
+    *,
+    X: Tensor,
+    horizons: int,
+    n_phys: int,
+    gate_dim: int,
+    model_dtype: torch.dtype,
+    model_device: torch.device,
+) -> tuple[Tensor, Tensor]:
+    """Validate and concatenate only the prospective Stage-09b context.
+
+    Keys outside :data:`INFORMATION_MATCHED_INPUT_KEYS` are deliberately never
+    indexed here.  In particular, labels and dates may coexist in the training
+    batch but cannot enter this model's computation graph.
+    """
+    missing = sorted(set(INFORMATION_MATCHED_INPUT_KEYS) - set(batch))
+    if missing:
+        raise KeyError(f"batch is missing information-matched fields: {missing}")
+    if X.dtype != model_dtype:
+        raise TypeError(f"batch['X'] must have model dtype {model_dtype}")
+    if X.device != model_device:
+        raise ValueError(f"batch['X'] must be on model device {model_device}")
+    raw_mask = batch["Mask"]
+    assert isinstance(raw_mask, Tensor)  # guaranteed by _validate_history
+    if raw_mask.dtype != torch.bool and raw_mask.dtype != X.dtype:
+        raise TypeError("batch['Mask'] must be bool or have the same dtype as batch['X']")
+
+    batch_size = X.shape[0]
+    schema = (
+        ("wtemp_t", (batch_size,)),
+        ("clim_t", (batch_size,)),
+        ("clim_tgt", (batch_size, horizons)),
+        ("damped_prior", (batch_size, horizons)),
+        ("phys_std", (batch_size, n_phys)),
+        ("logflowz", (batch_size,)),
+        ("season", (batch_size, 2)),
+        ("gate", (batch_size, gate_dim)),
+    )
+    fields = {
+        key: _validated_float_field(
+            batch, key, shape=shape, dtype=X.dtype, device=X.device
+        )
+        for key, shape in schema
+    }
+    context = torch.cat(
+        [
+            fields["wtemp_t"][:, None],
+            fields["clim_t"][:, None],
+            fields["clim_tgt"],
+            fields["damped_prior"],
+            fields["phys_std"],
+            fields["logflowz"][:, None],
+            fields["season"],
+            fields["gate"],
+        ],
+        dim=-1,
+    )
+    return context, fields[INFORMATION_MATCHED_COMMON_ANCHOR]
+
+
 def _masked_history_features(X: Tensor, observed: Tensor) -> Tensor:
     values = torch.where(observed, X, torch.zeros((), dtype=X.dtype, device=X.device))
     return torch.cat([values, observed.to(dtype=X.dtype)], dim=-1)
@@ -200,15 +313,30 @@ def _validated_station(
     return station
 
 
-def _outputs_from_raw(raw: Tensor, *, horizons: int, min_spread: float) -> NeuralBaselineOutputs:
+def _outputs_from_raw(
+    raw: Tensor,
+    *,
+    horizons: int,
+    min_spread: float,
+    anchor: Tensor | None = None,
+) -> NeuralBaselineOutputs:
     batch_size = raw.shape[0]
     raw = raw.reshape(batch_size, horizons, 5)
-    point = raw[..., 0]
-    q_med = raw[..., 1]
+    point_residual = raw[..., 0]
+    q_med_residual = raw[..., 1]
+    if anchor is None:
+        point = point_residual
+        q_med = q_med_residual
+        prior = torch.full_like(q_med, float("nan"))
+    else:
+        if tuple(anchor.shape) != (batch_size, horizons):  # defensive
+            raise ValueError("anchor must have shape [B, H]")
+        point = anchor + point_residual
+        q_med = anchor + q_med_residual
+        prior = anchor
     q_lo = q_med - (nn.functional.softplus(raw[..., 2]) + min_spread)
     q_hi = q_med + (nn.functional.softplus(raw[..., 3]) + min_spread)
     event_logit = raw[..., 4]
-    nan_forecast = torch.full_like(q_med, float("nan"))
     nan_sample = torch.full(
         (batch_size,), float("nan"), dtype=q_med.dtype, device=q_med.device
     )
@@ -218,7 +346,7 @@ def _outputs_from_raw(raw: Tensor, *, horizons: int, min_spread: float) -> Neura
         q_med=q_med,
         q_hi=q_hi,
         event_logit=event_logit,
-        prior=nan_forecast,
+        prior=prior,
         kappa=nan_sample,
         teq=nan_sample.clone(),
         lag_weights=q_med.new_zeros((batch_size, horizons, 0, 0)),
@@ -240,6 +368,9 @@ class _PlainBaseline(nn.Module):
     min_spread: float
     init_seed: int
     station_embedding: nn.Embedding | None
+    use_information_matched_context: bool
+    n_phys: int
+    gate_dim: int
 
     def _history(self, batch: Mapping[str, Tensor]) -> tuple[Tensor, Tensor]:
         return _validate_history(
@@ -261,6 +392,37 @@ class _PlainBaseline(nn.Module):
         )
         return torch.cat([representation, self.station_embedding(station)], dim=-1)
 
+    def _information_context(
+        self,
+        batch: Mapping[str, Tensor],
+        X: Tensor,
+    ) -> tuple[Tensor | None, Tensor | None]:
+        if not self.use_information_matched_context:
+            return None, None
+        reference_parameter = next(self.parameters())
+        context, anchor = _validate_information_matched_context(
+            batch,
+            X=X,
+            horizons=len(self.horizons),
+            n_phys=self.n_phys,
+            gate_dim=self.gate_dim,
+            model_dtype=reference_parameter.dtype,
+            model_device=reference_parameter.device,
+        )
+        _validated_station(
+            batch,
+            batch_size=X.shape[0],
+            n_stations=self.n_stations,
+            device=X.device,
+        )
+        return context, anchor
+
+    @property
+    def information_context_dim(self) -> int:
+        if not self.use_information_matched_context:
+            return 0
+        return 1 + 1 + len(self.horizons) * 2 + self.n_phys + 1 + 2 + self.gate_dim
+
     def n_params(self) -> int:
         """Number of trainable parameters; use it when matching control budgets."""
         return sum(parameter.numel() for parameter in self.parameters() if parameter.requires_grad)
@@ -269,16 +431,26 @@ class _PlainBaseline(nn.Module):
         raise NotImplementedError
 
     def architecture_metadata(self) -> dict[str, object]:
-        return {
-            "format_version": 2,
+        input_keys = (
+            INFORMATION_MATCHED_INPUT_KEYS
+            if self.use_information_matched_context
+            else (("X", "Mask") if self.station_agnostic else ("X", "Mask", "station"))
+        )
+        excluded_keys = (
+            INFORMATION_MATCHED_EXCLUDED_KEYS
+            if self.use_information_matched_context
+            else _FUTURE_KEYS_NEVER_READ
+        )
+        metadata: dict[str, object] = {
+            "format_version": 3 if self.use_information_matched_context else 2,
             "architecture_id": self.architecture_id,
             "module": self.__class__.__module__,
             "class_name": self.__class__.__name__,
             "constructor_kwargs": self.architecture_kwargs(),
-            "input_keys_read": (
-                ("X", "Mask") if self.station_agnostic else ("X", "Mask", "station")
-            ),
-            "future_keys_never_read": _FUTURE_KEYS_NEVER_READ,
+            "input_keys_read": input_keys,
+            "future_keys_never_read": excluded_keys,
+            "input_keys_explicitly_excluded": excluded_keys,
+            "excluded_keys_may_be_present_but_are_never_read": True,
             "output_keys": ("point", "q_lo", "q_med", "q_hi", "event_logit"),
             "point_objective": "mse_conditional_mean",
             "q50_is_independent_from_point": True,
@@ -286,6 +458,31 @@ class _PlainBaseline(nn.Module):
             "trainable_parameters": self.n_params(),
             "budget_matching_note": _BUDGET_MATCHING_NOTE,
         }
+        if self.use_information_matched_context:
+            metadata.update({
+                "information_contract": "stage09b_outcome_free_issue_time_v1",
+                "information_context_feature_order": (
+                    "wtemp_t",
+                    "clim_t",
+                    "clim_tgt[horizons]",
+                    "damped_prior[horizons]",
+                    "phys_std",
+                    "logflowz",
+                    "season[sin_doy,cos_doy]",
+                    "gate",
+                ),
+                "common_anchor": INFORMATION_MATCHED_COMMON_ANCHOR,
+                "forecast_parameterization": (
+                    "damped_prior_plus_unrestricted_additive_neural_residual"
+                ),
+                "uses_learned_physics_prior": False,
+                "uses_dynamic_lag_router": False,
+                "uses_mixture_of_experts": False,
+                "uses_bounded_residual": False,
+                "causal_interpretation_allowed": False,
+                "noncausal_boundary": INFORMATION_MATCHED_NONCAUSAL_BOUNDARY,
+            })
+        return metadata
 
 
 class PlainMLPForecaster(_PlainBaseline):
@@ -307,6 +504,9 @@ class PlainMLPForecaster(_PlainBaseline):
         depth: int = 2,
         dropout: float = 0.10,
         min_spread: float = 1e-4,
+        use_information_matched_context: bool = False,
+        n_phys: int = 4,
+        gate_dim: int = 6,
     ) -> None:
         super().__init__()
         (
@@ -332,6 +532,18 @@ class PlainMLPForecaster(_PlainBaseline):
         )
         self.hidden_dim = _positive_int(hidden_dim, "hidden_dim")
         self.depth = _positive_int(depth, "depth")
+        self.use_information_matched_context = _validated_bool(
+            use_information_matched_context, "use_information_matched_context"
+        )
+        if self.use_information_matched_context and self.station_agnostic:
+            raise ValueError(
+                "information-matched context requires station_agnostic=False "
+                "because station is part of the frozen input schema"
+            )
+        self.n_phys = _positive_int(n_phys, "n_phys")
+        self.gate_dim = _positive_int(gate_dim, "gate_dim")
+        if self.use_information_matched_context:
+            self.architecture_id = "plain_information_matched_mlp_v1"
 
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(self.init_seed)
@@ -352,17 +564,26 @@ class PlainMLPForecaster(_PlainBaseline):
                 if self.station_agnostic
                 else nn.Embedding(self.n_stations, self.station_embed_dim)
             )
-            head_dim = self.hidden_dim + (0 if self.station_agnostic else self.station_embed_dim)
+            head_dim = (
+                self.hidden_dim
+                + self.information_context_dim
+                + (0 if self.station_agnostic else self.station_embed_dim)
+            )
             self.head = nn.Linear(head_dim, 5 * len(self.horizons))
 
     def forward(self, batch: Mapping[str, Tensor]) -> NeuralBaselineOutputs:
         X, observed = self._history(batch)
+        information_context, anchor = self._information_context(batch, X)
         flattened = _masked_history_features(X, observed).flatten(start_dim=1)
-        representation = self._append_station(self.encoder(flattened), batch)
+        representation = self.encoder(flattened)
+        if information_context is not None:
+            representation = torch.cat([representation, information_context], dim=-1)
+        representation = self._append_station(representation, batch)
         return _outputs_from_raw(
             self.head(representation),
             horizons=len(self.horizons),
             min_spread=self.min_spread,
+            anchor=anchor,
         )
 
     def architecture_kwargs(self) -> dict[str, object]:
@@ -378,6 +599,9 @@ class PlainMLPForecaster(_PlainBaseline):
             "depth": self.depth,
             "dropout": self.dropout_probability,
             "min_spread": self.min_spread,
+            "use_information_matched_context": self.use_information_matched_context,
+            "n_phys": self.n_phys,
+            "gate_dim": self.gate_dim,
         }
 
 
@@ -423,6 +647,9 @@ class PlainCausalTCNForecaster(_PlainBaseline):
         kernel_size: int = 3,
         dropout: float = 0.10,
         min_spread: float = 1e-4,
+        use_information_matched_context: bool = False,
+        n_phys: int = 4,
+        gate_dim: int = 6,
     ) -> None:
         super().__init__()
         (
@@ -449,6 +676,18 @@ class PlainCausalTCNForecaster(_PlainBaseline):
         self.channels = _positive_int(channels, "channels")
         self.blocks = _positive_int(blocks, "blocks")
         self.kernel_size = _positive_int(kernel_size, "kernel_size")
+        self.use_information_matched_context = _validated_bool(
+            use_information_matched_context, "use_information_matched_context"
+        )
+        if self.use_information_matched_context and self.station_agnostic:
+            raise ValueError(
+                "information-matched context requires station_agnostic=False "
+                "because station is part of the frozen input schema"
+            )
+        self.n_phys = _positive_int(n_phys, "n_phys")
+        self.gate_dim = _positive_int(gate_dim, "gate_dim")
+        if self.use_information_matched_context:
+            self.architecture_id = "plain_information_matched_causal_tcn_v1"
         if self.kernel_size < 2:
             raise ValueError("kernel_size must be at least 2 for a temporal convolution")
 
@@ -474,7 +713,11 @@ class PlainCausalTCNForecaster(_PlainBaseline):
                 if self.station_agnostic
                 else nn.Embedding(self.n_stations, self.station_embed_dim)
             )
-            head_dim = self.channels + (0 if self.station_agnostic else self.station_embed_dim)
+            head_dim = (
+                self.channels
+                + self.information_context_dim
+                + (0 if self.station_agnostic else self.station_embed_dim)
+            )
             self.head = nn.Linear(head_dim, 5 * len(self.horizons))
 
     def _encode_validated(self, X: Tensor, observed: Tensor) -> Tensor:
@@ -500,12 +743,16 @@ class PlainCausalTCNForecaster(_PlainBaseline):
 
     def forward(self, batch: Mapping[str, Tensor]) -> NeuralBaselineOutputs:
         X, observed = self._history(batch)
+        information_context, anchor = self._information_context(batch, X)
         final_state = self._encode_validated(X, observed)[:, -1, :]
+        if information_context is not None:
+            final_state = torch.cat([final_state, information_context], dim=-1)
         representation = self._append_station(final_state, batch)
         return _outputs_from_raw(
             self.head(representation),
             horizons=len(self.horizons),
             min_spread=self.min_spread,
+            anchor=anchor,
         )
 
     def architecture_kwargs(self) -> dict[str, object]:
@@ -522,10 +769,17 @@ class PlainCausalTCNForecaster(_PlainBaseline):
             "kernel_size": self.kernel_size,
             "dropout": self.dropout_probability,
             "min_spread": self.min_spread,
+            "use_information_matched_context": self.use_information_matched_context,
+            "n_phys": self.n_phys,
+            "gate_dim": self.gate_dim,
         }
 
 
 __all__ = [
+    "INFORMATION_MATCHED_COMMON_ANCHOR",
+    "INFORMATION_MATCHED_EXCLUDED_KEYS",
+    "INFORMATION_MATCHED_INPUT_KEYS",
+    "INFORMATION_MATCHED_NONCAUSAL_BOUNDARY",
     "NeuralBaselineOutputs",
     "PlainCausalTCNForecaster",
     "PlainMLPForecaster",

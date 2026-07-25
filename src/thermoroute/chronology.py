@@ -31,7 +31,7 @@ LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
 REPLAY_FORMAT = "thermoroute.route-a-development-replay.v1"
 INPUT_MANIFEST_FORMAT = "thermoroute.route-a-prelabel-inputs.v1"
 PROTOCOL_SEAL_FORMAT = "thermoroute.route-a-protocol-seal.v1"
-RUN_IDENTITY_SCHEMA_VERSION = "thermoroute.run.v1"
+RUN_IDENTITY_SCHEMA_VERSION = "thermoroute.run.v2"
 
 DEFAULT_RECEIPT = "outputs/prelabel/route_a_prelabel_chronology_v1.json"
 DEFAULT_PROTOCOL_SEAL = "protocols/route_a_protocol_seal_v1.json"
@@ -1070,6 +1070,47 @@ def _is_lower_sha256(value: object) -> bool:
     )
 
 
+def _validate_receipt_run_identity(
+    receipt: Mapping[str, Any], *, label: str,
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Mirror RunIdentity v2 without importing numerical runtime modules."""
+    identity = receipt.get("run_identity")
+    configuration = receipt.get("formal_configuration")
+    identity_keys = {
+        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
+    }
+    digest_fields = identity_keys - {"run_id", "schema_version"}
+    run_id = receipt.get("run_id")
+    if (
+        not isinstance(identity, Mapping)
+        or set(identity) != identity_keys
+        or not isinstance(configuration, Mapping)
+        or identity.get("schema_version") != RUN_IDENTITY_SCHEMA_VERSION
+        or not isinstance(run_id, str)
+        or re.fullmatch(r"[0-9a-f]{20}", run_id) is None
+        or identity.get("run_id") != run_id
+        or any(
+            not _is_lower_sha256(identity.get(field))
+            for field in digest_fields
+        )
+        or _repro_sha256_json(configuration)
+        != identity.get("config_sha256")
+        or configuration.get("input_closure_sha256")
+        != identity.get("input_closure_sha256")
+        or type(configuration.get("input_closure_file_count")) is not int
+        or configuration["input_closure_file_count"] < 1
+    ):
+        raise ChronologyError(f"{label} RunIdentity v2 contract changed")
+    identity_parts = {
+        key: identity[key] for key in identity_keys - {"run_id"}
+    }
+    if _repro_sha256_json(identity_parts)[:20] != run_id:
+        raise ChronologyError(f"{label} run id is not content-addressed")
+    return identity, configuration
+
+
 def _stage16_float(value: object, *, label: str) -> float:
     if type(value) not in {int, float}:
         raise ChronologyError(f"{label} is malformed")
@@ -1408,6 +1449,7 @@ def _collect_preopening_receipts(
             or receipt_self != _repro_sha256_json(unhashed)
         ):
             raise ChronologyError(f"{gate_name} receipt is stale or malformed")
+        _validate_receipt_run_identity(receipt, label=gate_name)
         if gate_name == "stage09_completion":
             expected_receipt_keys = {
                 "format", "status", "stage", "run_id", "run_identity",
@@ -1439,7 +1481,8 @@ def _collect_preopening_receipts(
             identity = receipt.get("run_identity")
             identity_keys = {
                 "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-                "source_sha256", "runtime_sha256", "schema_version",
+                "source_sha256", "runtime_sha256", "input_closure_sha256",
+                "schema_version",
             }
             run_id = receipt.get("run_id")
             if (
@@ -1464,6 +1507,7 @@ def _collect_preopening_receipts(
                     for key in (
                         "panel_sha256", "registry_sha256", "config_sha256",
                         "source_sha256", "runtime_sha256",
+                        "input_closure_sha256",
                     )
                 )
                 or _repro_sha256_json(identity_parts)[:20] != run_id

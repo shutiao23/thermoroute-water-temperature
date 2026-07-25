@@ -60,6 +60,27 @@ STAGE24 = _load_script("scripts/24_freeze_model_suite.py", "stage24_controls_fix
 VERIFY_RELEASE = _load_script("scripts/verify_release.py", "stage09b_release_fixture")
 
 
+class _FixtureDevelopmentInputClosure:
+    binding_digest = "6" * 64
+    inventory = (object(),)
+
+    @staticmethod
+    def assert_unchanged() -> None:
+        return None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _fixed_development_input_closure():
+    original = CONTROLS_GATE.resolve_development_input_closure
+    CONTROLS_GATE.resolve_development_input_closure = (
+        lambda _root: _FixtureDevelopmentInputClosure()
+    )
+    try:
+        yield
+    finally:
+        CONTROLS_GATE.resolve_development_input_closure = original
+
+
 def _binding(root: Path, path: Path) -> dict[str, str]:
     return {
         "path": path.resolve().relative_to(root.resolve()).as_posix(),
@@ -401,6 +422,8 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         "development_predictor_bridge": _binding(root, bridge),
         "formal_numerical_policy": _formal_policy(),
         "eval_batch_size": 2,
+        "input_closure_sha256": "6" * 64,
+        "input_closure_file_count": 1,
     }
     identity_parts = {
         "schema_version": RUN_SCHEMA_VERSION,
@@ -409,6 +432,7 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         "config_sha256": sha256_json(config),
         "source_sha256": source_tree_hash(root),
         "runtime_sha256": "5" * 64,
+        "input_closure_sha256": "6" * 64,
     }
     identity = RunIdentity(
         run_id=sha256_json(identity_parts)[:20],

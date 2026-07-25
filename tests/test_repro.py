@@ -34,6 +34,9 @@ from thermoroute.repro import (  # noqa: E402
 )
 
 
+INPUT_CLOSURE_SHA256 = "f" * 64
+
+
 def test_atomic_publication_guard_runs_after_staging_and_before_replace(tmp_path):
     destination = tmp_path / "authoritative.bin"
     destination.write_bytes(b"old-authoritative-bytes")
@@ -517,22 +520,63 @@ def _fixture(tmp_path: Path):
 
 def test_run_identity_changes_with_data_config_and_source(tmp_path):
     root, panel, registry = _fixture(tmp_path)
-    first = resolve_run_identity(root=root, panel=panel, registry=registry, config={"delta": 1.0})
+    first = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"delta": 1.0},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
+    )
 
     panel.write_text("site,y\na,2\n")
     data_changed = resolve_run_identity(root=root, panel=panel, registry=registry,
-                                        config={"delta": 1.0})
+                                        config={"delta": 1.0},
+                                        input_closure_sha256=INPUT_CLOSURE_SHA256)
     assert data_changed.run_id != first.run_id
 
     panel.write_text("site,y\na,1\n")
     config_changed = resolve_run_identity(root=root, panel=panel, registry=registry,
-                                          config={"delta": 1.01})
+                                          config={"delta": 1.01},
+                                          input_closure_sha256=INPUT_CLOSURE_SHA256)
     assert config_changed.run_id != first.run_id
 
     (root / "src" / "model.py").write_text("VALUE = 2\n")
     source_changed = resolve_run_identity(root=root, panel=panel, registry=registry,
-                                          config={"delta": 1.0})
+                                          config={"delta": 1.0},
+                                          input_closure_sha256=INPUT_CLOSURE_SHA256)
     assert source_changed.run_id != first.run_id
+
+    closure_changed = resolve_run_identity(
+        root=root,
+        panel=panel,
+        registry=registry,
+        config={"delta": 1.0},
+        input_closure_sha256="e" * 64,
+    )
+    assert closure_changed.run_id != source_changed.run_id
+
+
+@pytest.mark.parametrize(
+    "digest", ("", "a" * 63, "A" * 64, "g" * 64),
+)
+def test_run_identity_requires_lowercase_input_closure_sha256(
+    tmp_path,
+    digest,
+):
+    root, panel, registry = _fixture(tmp_path)
+    with pytest.raises(ValueError, match="input_closure_sha256"):
+        resolve_run_identity(
+            root=root,
+            panel=panel,
+            registry=registry,
+            config={"delta": 1.0},
+            input_closure_sha256=digest,
+        )
+
+
+def test_resolve_run_identity_has_no_input_closure_default(tmp_path):
+    root, panel, registry = _fixture(tmp_path)
+    with pytest.raises(TypeError, match="input_closure_sha256"):
+        resolve_run_identity(  # type: ignore[call-arg]
+            root=root, panel=panel, registry=registry, config={"delta": 1.0}
+        )
 
 
 def test_run_identity_automatically_tracks_host_runtime_hash(monkeypatch, tmp_path):
@@ -547,13 +591,15 @@ def test_run_identity_automatically_tracks_host_runtime_hash(monkeypatch, tmp_pa
         repro_module, "numerical_runtime_contract", lambda: first_contract
     )
     first = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     monkeypatch.setattr(
         repro_module, "numerical_runtime_contract", lambda: second_contract
     )
     second = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert first.runtime_sha256 == repro_module.sha256_json(first_contract)
     assert second.runtime_sha256 == repro_module.sha256_json(second_contract)
@@ -566,10 +612,12 @@ def test_eval_batch_size_is_a_scientific_run_identity_input(tmp_path):
     first = resolve_run_identity(
         root=root, panel=panel, registry=registry,
         config={"stage": "09b_development_controls", "eval_batch_size": 2048},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     second = resolve_run_identity(
         root=root, panel=panel, registry=registry,
         config={"stage": "09b_development_controls", "eval_batch_size": 4096},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert first.config_sha256 != second.config_sha256
     assert first.run_id != second.run_id
@@ -582,12 +630,14 @@ def test_protocol_is_part_of_source_and_run_identity(tmp_path):
     protocol.write_text('{"margin":0.05}\n')
     first_source = source_tree_hash(root)
     first = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     protocol.write_text('{"margin":0.10}\n')
     assert source_tree_hash(root) != first_source
     second = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert second.run_id != first.run_id
 
@@ -601,18 +651,21 @@ def test_shell_and_ci_entrypoints_are_part_of_source_identity(tmp_path):
     shell.write_text("#!/usr/bin/env bash\npython scripts/train.py\n")
     workflow.write_text("jobs: {}\n")
     first = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
 
     shell.write_text("#!/usr/bin/env bash\npython scripts/train.py --formal\n")
     second = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert second.run_id != first.run_id
 
     workflow.write_text("jobs:\n  test: {}\n")
     third = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert third.run_id != second.run_id
 
@@ -685,11 +738,13 @@ def test_hashed_transitive_lock_is_part_of_source_identity(tmp_path):
     hashed_lock = root / "requirements-lock-py312-hashed.txt"
     hashed_lock.write_text("numpy==1 --hash=sha256:one\n")
     first = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     hashed_lock.write_text("numpy==1 --hash=sha256:two\n")
     second = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert second.run_id != first.run_id
 
@@ -792,7 +847,8 @@ def test_source_identity_is_identical_across_all_freeze_and_release_chains(tmp_p
 def test_cache_requires_matching_sidecar_and_intact_bytes(tmp_path):
     root, panel, registry = _fixture(tmp_path)
     identity = resolve_run_identity(root=root, panel=panel, registry=registry,
-                                    config={"delta": 1.0})
+                                    config={"delta": 1.0},
+                                    input_closure_sha256=INPUT_CLOSURE_SHA256)
     artifact = root / "runs" / "predictions.parquet"
     atomic_write_parquet(pd.DataFrame({"value": [1.0]}), artifact, index=False)
     assert not cache_is_valid(artifact, identity, schema="pred.v1")
@@ -809,7 +865,8 @@ def test_cache_requires_matching_sidecar_and_intact_bytes(tmp_path):
 def test_parent_sidecar_validation_is_exact_and_rejects_unknown_fields(tmp_path):
     root, panel, registry = _fixture(tmp_path)
     identity = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     artifact = root / "parent.parquet"
     atomic_write_parquet(pd.DataFrame({"value": [1.0]}), artifact, index=False)
@@ -832,7 +889,8 @@ def test_parent_sidecar_validation_is_exact_and_rejects_unknown_fields(tmp_path)
 def test_resealing_identical_lineage_preserves_exact_sidecar_bytes(tmp_path):
     root, panel, registry = _fixture(tmp_path)
     identity = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"seed": 1}
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     artifact = root / "predictions.parquet"
     atomic_write_parquet(pd.DataFrame({"value": [1.0]}), artifact, index=False)
@@ -861,8 +919,14 @@ def test_resealing_identical_lineage_preserves_exact_sidecar_bytes(tmp_path):
 
 def test_different_run_never_hits_existing_cache(tmp_path):
     root, panel, registry = _fixture(tmp_path)
-    one = resolve_run_identity(root=root, panel=panel, registry=registry, config={"seed": 1})
-    two = resolve_run_identity(root=root, panel=panel, registry=registry, config={"seed": 2})
+    one = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 1},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
+    )
+    two = resolve_run_identity(
+        root=root, panel=panel, registry=registry, config={"seed": 2},
+        input_closure_sha256=INPUT_CLOSURE_SHA256,
+    )
     artifact = root / "predictions.parquet"
     atomic_write_parquet(pd.DataFrame({"value": [1]}), artifact, index=False)
     seal_artifact(artifact, one, kind="predictions", schema="pred.v1")

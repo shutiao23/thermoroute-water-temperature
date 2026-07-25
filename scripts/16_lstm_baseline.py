@@ -142,6 +142,10 @@ from thermoroute import data as D
 from thermoroute import results as R
 from thermoroute.checkpoint import load_inference_bundle, save_inference_bundle
 from thermoroute.frozen_inference import lstm_factory_from_metadata
+from thermoroute.input_closure import (
+    compose_input_closure_digest,
+    resolve_development_input_closure,
+)
 from thermoroute.model_suite import (
     LSTM_VALIDATION_GRID,
     STAGE16_COMPLETION_RECEIPT_PATH,
@@ -298,6 +302,8 @@ def _read_member_bundle(directory: Path, identity, member: str):
         or metadata.get("registry_sha256") != identity.registry_sha256
         or metadata.get("config_sha256") != identity.config_sha256
         or metadata.get("runtime_sha256") != identity.runtime_sha256
+        or metadata.get("input_closure_sha256")
+        != identity.input_closure_sha256
         or set(weights) != {member}
     ):
         return None
@@ -337,6 +343,32 @@ def insample():
     runtime_policy = assert_formal_numerical_policy()
     parent_lineage = _verify_parent(PARENT)
     parent_sha256 = sha256_file(PARENT)
+    development_input_closure = resolve_development_input_closure(ROOT)
+    stage09_input_paths = {
+        "stage09_parent_prediction": PARENT,
+        "stage09_parent_sidecar": sidecar_path(PARENT),
+        "stage09_completion_receipt": ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
+        "stage09_components": STAGE9_POINTER,
+    }
+
+    def current_stage16_input_closure_sha256() -> str:
+        return compose_input_closure_digest({
+            "development": development_input_closure.binding_digest,
+            **{
+                name: sha256_file(path)
+                for name, path in stage09_input_paths.items()
+            },
+        })
+
+    input_closure_sha256 = current_stage16_input_closure_sha256()
+    development_input_closure.assert_unchanged()
+
+    def assert_stage16_publication_inputs() -> None:
+        assert_formal_numerical_policy()
+        development_input_closure.assert_unchanged()
+        if current_stage16_input_closure_sha256() != input_closure_sha256:
+            raise RuntimeError("Stage-16 input closure changed after resolution")
+
     run_config = {
         "stage": "16_lstm_baseline_insample",
         "role": "final_route_a_development_predictions",
@@ -356,12 +388,17 @@ def insample():
         "train_config": CFG,
         "training_device": "cpu",
         "formal_numerical_policy": runtime_policy,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": (
+            len(development_input_closure.inventory) + len(stage09_input_paths)
+        ),
     }
     identity = resolve_run_identity(
         root=ROOT,
         panel=R13.PANEL.resolve(),
         registry=R13.STATION_REGISTRY.resolve(),
         config=run_config,
+        input_closure_sha256=input_closure_sha256,
     )
     run_dir = initialise_run_directory(
         ROOT / "outputs" / "runs" / "16_lstm_baseline", identity, run_config,
@@ -369,7 +406,7 @@ def insample():
             "evidence_role": "prelabel_route_a_model_build_development_only",
             "training_device": "cpu",
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
     # Lock the exact content-addressed run before dataset materialisation or
     # any checkpoint/cache path can be reached.
@@ -407,7 +444,7 @@ def insample():
             run_id=identity.run_id,
             resolved_config={**run_config, "candidate_id": candidate_id,
                              "candidate": candidate},
-            artifact_publication_guard=assert_formal_numerical_policy,
+            artifact_publication_guard=assert_stage16_publication_inputs,
         )
         candidate_prediction = (
             run_dir / "selection" / f"candidate{candidate_id}.parquet"
@@ -415,7 +452,7 @@ def insample():
         R.write_predictions(
             result.pred,
             candidate_prediction,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage16_publication_inputs,
         )
         seal_artifact(
             candidate_prediction,
@@ -427,7 +464,7 @@ def insample():
                 "candidate": candidate,
                 "selection_split": "2016-2017 validation",
             },
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage16_publication_inputs,
         )
         selection_rows.append({
             "candidate_id": candidate_id, **candidate,
@@ -444,7 +481,7 @@ def insample():
     atomic_write_bytes(
         C.TABLES / "lstm_validation_selection.csv",
         pd.DataFrame(selection_rows).to_csv(index=False).encode("utf-8"),
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
     architecture_kwargs = {
         "n_vars": len(wd.var_names), "n_stations": len(stations),
@@ -468,7 +505,7 @@ def insample():
                 cached = None
         cached_weights = _read_member_bundle(bundle, identity, member)
         if cached is not None and cached_weights is not None:
-            assert_formal_numerical_policy()
+            assert_stage16_publication_inputs()
             preds.append(cached)
             ensemble_members[member] = cached_weights
             log(f"LSTM {member}: verified content cache")
@@ -483,17 +520,17 @@ def insample():
                       run_id=identity.run_id,
                       resolved_config={**run_config, "selected_candidate": selected,
                                        "arm": "LSTM", "seed": sd},
-                      artifact_publication_guard=assert_formal_numerical_policy)
+                      artifact_publication_guard=assert_stage16_publication_inputs)
         r.pred["seed"] = sd
         R.write_predictions(
             r.pred,
             f,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage16_publication_inputs,
         )
         seal_artifact(
             f, identity, kind="lstm_seed_predictions",
             schema=R.PREDICTION_SCHEMA_VERSION,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage16_publication_inputs,
         )
         (
             member_offsets,
@@ -516,10 +553,11 @@ def insample():
                 registry_sha256=identity.registry_sha256,
                 config_sha256=identity.config_sha256,
                 runtime_sha256=identity.runtime_sha256,
+                input_closure_sha256=identity.input_closure_sha256,
                 training_device="cpu",
                 development_prediction={},
             ), expected_member_count=1,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage16_publication_inputs,
         )
         ensemble_members[member] = {
             key: value.detach().cpu().contiguous()
@@ -528,7 +566,7 @@ def insample():
         preds.append(r.pred)
         log(f"LSTM seed{sd}: {r.epochs+1}ep {time.time()-te:.0f}s val_rmse={r.best_val:.4f}")
     # Reject any native-library thread drift before deriving canonical outputs.
-    assert_formal_numerical_policy()
+    assert_stage16_publication_inputs()
     lstm = pd.concat(preds, ignore_index=True)
 
     # Derive, never mutate, the final artifact.  The six-model registry is a
@@ -564,11 +602,11 @@ def insample():
             "Stage 16 common-key alignment changed or deleted a "
             "receipt-frozen non-LSTM row"
         )
-    assert_formal_numerical_policy()
+    assert_stage16_publication_inputs()
     R.write_predictions(
         allp,
         V2,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
     seal_artifact(
         V2,
@@ -584,7 +622,7 @@ def insample():
             "lstm_validation_rows": len(lv),
             "lstm_calibration_rows": len(lc),
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
     log(
         f"derived final v2: common={audit.common_unique}, "
@@ -611,22 +649,23 @@ def insample():
             registry_sha256=identity.registry_sha256,
             config_sha256=identity.config_sha256,
             runtime_sha256=identity.runtime_sha256,
+            input_closure_sha256=identity.input_closure_sha256,
             training_device="cpu",
             development_prediction=development_prediction_binding(
                 ROOT, V2, lstm_rows,
                 max_abs_difference=parity_atol, atol=parity_atol,
             ),
         ), expected_member_count=len(SEEDS),
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
     difference = verify_sequence_prediction_parity(
         bundle_directory, wd=wd, expected=lstm_rows,
         model_factory=lambda _member, metadata: lstm_factory_from_metadata(metadata),
         member_seeds={f"seed{seed}": seed for seed in SEEDS},
         atol=parity_atol, splits=("val", "calib", "test"),
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
-    assert_formal_numerical_policy()
+    assert_stage16_publication_inputs()
     update_torch_development_prediction(
         bundle_directory,
         development_prediction_binding(
@@ -649,15 +688,15 @@ def insample():
             directory=bundle_directory, member_count=5,
             raw_feature_order=wd.var_names,
         )
-        assert_formal_numerical_policy()
+        assert_stage16_publication_inputs()
         atomic_write_json(C.MODELS / "lstm_usgs_bundle.json", {
             "run_id": identity.run_id,
             "bundle_path": bundle_directory.relative_to(ROOT).as_posix(),
             "member_count": 5,
             "metadata_sha256": sha256_file(bundle_directory / "metadata.json"),
             "weights_sha256": sha256_file(bundle_directory / "weights.pt"),
-        }, publication_guard=assert_formal_numerical_policy)
-        assert_formal_numerical_policy()
+        }, publication_guard=assert_stage16_publication_inputs)
+        assert_stage16_publication_inputs()
         write_component_pointer(
             C.MODELS / "route_a_lstm_components.json",
             run_id=identity.run_id, cohort="temporal_lstm", entries=[entry],
@@ -667,7 +706,7 @@ def insample():
                 **file_binding(ROOT, V2),
                 "sidecar": file_binding(ROOT, sidecar_path(V2)),
             },
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage16_publication_inputs,
         )
         log("saved formal five-member LSTM bundle and component pointer")
     else:
@@ -703,20 +742,20 @@ def insample():
         stage09_receipt=ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
         selection=C.TABLES / "lstm_validation_selection.csv",
         components_pointer=components_pointer,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
     # This receipt is deliberately the transaction's final filesystem write.
     # Candidate validation happens before publication and the authoritative
     # bytes are re-opened and validated afterwards.
-    assert_formal_numerical_policy()
+    assert_stage16_publication_inputs()
     publish_stage16_completion_receipt(
         receipt_path,
         receipt,
         root=ROOT,
         components_pointer=components_pointer,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage16_publication_inputs,
     )
-    assert_formal_numerical_policy()
+    assert_stage16_publication_inputs()
     log(f"saved Stage-16 completion receipt: {receipt_path.relative_to(ROOT)}")
 
 

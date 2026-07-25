@@ -181,6 +181,10 @@ from thermoroute.lgb_shards import (
     save_lightgbm_shard,
     try_load_lightgbm_shard,
 )
+from thermoroute.input_closure import (
+    compose_input_closure_digest,
+    resolve_development_input_closure,
+)
 from thermoroute.repro import (
     assert_formal_numerical_policy,
     atomic_write_bytes,
@@ -563,6 +567,7 @@ def bundle_metadata(identity, wd, clim, imputer, thresholds, event_reference,
         "registry_sha256": identity.registry_sha256,
         "config_sha256": identity.config_sha256,
         "runtime_sha256": identity.runtime_sha256,
+        "input_closure_sha256": identity.input_closure_sha256,
         "training_device": str(training_device),
         "output_head_schema": neural_output_head_schema(),
         "development_prediction": dict(development_prediction or {}),
@@ -620,6 +625,8 @@ def read_member_bundle(directory, identity, member_name):
         and metadata.get("panel_sha256") == identity.panel_sha256
         and metadata.get("registry_sha256") == identity.registry_sha256
         and metadata.get("runtime_sha256") == identity.runtime_sha256
+        and metadata.get("input_closure_sha256")
+        == identity.input_closure_sha256
     )
     if not expected_identity or set(weights) != {member_name}:
         return None
@@ -1041,6 +1048,22 @@ def main():
         )
         if formal_configuration_complete else None
     )
+    development_input_closure = (
+        resolve_development_input_closure(ROOT)
+        if formal_configuration_complete else None
+    )
+    input_closure_sha256 = (
+        development_input_closure.binding_digest
+        if development_input_closure is not None
+        else compose_input_closure_digest({
+            "panel": sha256_file(panel_path),
+            "registry": sha256_file(registry_path),
+        })
+    )
+    input_closure_file_count = (
+        len(development_input_closure.inventory)
+        if development_input_closure is not None else 2
+    )
     protocol = f"route_a_strict_v1_{args.station_sampling}_delta{args.delta_scale:g}"
     run_config = {
         "stage": "09_usgs_experiment",
@@ -1074,13 +1097,23 @@ def main():
         "lightgbm_validation_grid": LGB_VALIDATION_GRID,
         "event_reference_fit_interval": ("2006-01-01", "2018-12-31"),
         "formal_numerical_policy": runtime_policy,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": input_closure_file_count,
     }
     identity = resolve_run_identity(
         root=ROOT,
         panel=panel_path,
         registry=registry_path,
         config=run_config,
+        input_closure_sha256=input_closure_sha256,
     )
+    if development_input_closure is not None:
+        development_input_closure.assert_unchanged()
+
+    def assert_stage09_publication_inputs() -> None:
+        assert_formal_numerical_policy()
+        if development_input_closure is not None:
+            development_input_closure.assert_unchanged()
     if formal_configuration_complete:
         # Establish canonical data/source eligibility before any canonical
         # result path can be selected or mutated.  A failed formal preflight is
@@ -1399,7 +1432,7 @@ def main():
 
     # Re-check the live native pools after every long-running fit and before
     # any canonical artifact can be published.
-    assert_formal_numerical_policy()
+    assert_stage09_publication_inputs()
     allp = pd.concat(chunks, ignore_index=True)
 
     # The primary registry is fixed by protocol.  It must never be inferred
@@ -1542,6 +1575,7 @@ def main():
             "registry_sha256": identity.registry_sha256,
             "config_sha256": identity.config_sha256,
             "runtime_sha256": identity.runtime_sha256,
+            "input_closure_sha256": identity.input_closure_sha256,
             "training_device": "cpu",
             "development_prediction": development_prediction_binding(
                 ROOT, output_predictions, allp[allp.model.eq("LightGBM")],
@@ -1752,10 +1786,11 @@ def main():
         atomic_write_bytes(
             report_path,
             report_payload,
-            publication_guard=assert_formal_numerical_policy,
+            publication_guard=assert_stage09_publication_inputs,
         )
 
     def validate_outputs() -> None:
+        assert_stage09_publication_inputs()
         validate_stage09_prepublication_outputs(
             root=ROOT,
             run_id=identity.run_id,
@@ -1773,7 +1808,7 @@ def main():
         receipt_path = ROOT / STAGE9_COMPLETION_RECEIPT_PATH
 
         def publish_pointers() -> None:
-            assert_formal_numerical_policy()
+            assert_stage09_publication_inputs()
             atomic_write_json(
                 thermoroute_pointer,
                 {
@@ -1787,7 +1822,7 @@ def main():
                         deployment_bundle / "weights.pt"
                     ),
                 },
-                publication_guard=assert_formal_numerical_policy,
+                publication_guard=assert_stage09_publication_inputs,
             )
             atomic_write_json(
                 lightgbm_pointer,
@@ -1796,7 +1831,7 @@ def main():
                     "manifest": file_binding(ROOT, lgb_manifest),
                     "member_count": len(C.USGS_SEEDS),
                 },
-                publication_guard=assert_formal_numerical_policy,
+                publication_guard=assert_stage09_publication_inputs,
             )
             write_component_pointer(
                 components_pointer,
@@ -1811,7 +1846,7 @@ def main():
                         ROOT, sidecar_path(output_predictions)
                     ),
                 },
-                publication_guard=assert_formal_numerical_policy,
+                publication_guard=assert_stage09_publication_inputs,
             )
 
         def publish_receipt() -> Path:
@@ -1827,17 +1862,17 @@ def main():
                 lightgbm_pointer=lightgbm_pointer,
                 components_pointer=components_pointer,
             )
-            assert_formal_numerical_policy()
+            assert_stage09_publication_inputs()
             publish_stage09_completion_receipt(
                 receipt_path,
                 document,
                 root=ROOT,
                 stage9_pointer=components_pointer,
-                publication_guard=assert_formal_numerical_policy,
+                publication_guard=assert_stage09_publication_inputs,
             )
             return receipt_path
 
-        assert_formal_numerical_policy()
+        assert_stage09_publication_inputs()
         complete_stage09_transaction(
             write_report=write_report,
             validate_outputs=validate_outputs,

@@ -65,6 +65,43 @@ def _repro_sha(value: dict[str, Any]) -> str:
     )
 
 
+def _compose_input_closure(components: dict[str, str]) -> str:
+    document = {
+        "format": "thermoroute.composed-input-closure.v1",
+        "components": [
+            {"name": name, "sha256": digest}
+            for name, digest in sorted(components.items())
+        ],
+    }
+    return _sha(
+        (json.dumps(
+            document,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ) + "\n").encode("utf-8")
+    )
+
+
+def _fixture_run_identity(
+    configuration: dict[str, Any],
+    *,
+    panel_sha256: str,
+    registry_sha256: str,
+    input_closure_sha256: str,
+) -> dict[str, Any]:
+    fields = {
+        "panel_sha256": panel_sha256,
+        "registry_sha256": registry_sha256,
+        "config_sha256": _repro_sha(configuration),
+        "source_sha256": "a" * 64,
+        "runtime_sha256": "b" * 64,
+        "input_closure_sha256": input_closure_sha256,
+        "schema_version": "thermoroute.run.v2",
+    }
+    return {"run_id": _repro_sha(fields)[:20], **fields}
+
+
 def _file_sha(root: Path, relative: str) -> str:
     return _sha((root / relative).read_bytes())
 
@@ -203,17 +240,43 @@ def _seed_stage16_completion(
     attack: str | None,
 ) -> dict[str, Any]:
     """Create a lightweight but byte-complete formal Stage-16 fixture."""
-    configuration = {"fixture": True, "training_device": "cpu"}
-    identity_fields = {
-        "panel_sha256": _file_sha(root, "data_usgs/panel_usgs_120v2.parquet"),
-        "registry_sha256": _file_sha(root, "data_usgs/station_registry_v1.csv"),
-        "config_sha256": _repro_sha(configuration),
-        "source_sha256": "a" * 64,
-        "runtime_sha256": "b" * 64,
-        "schema_version": "thermoroute.run.v1",
+    stage09_receipt = json.loads((root / stage09_path).read_text(encoding="utf-8"))
+    stage09_configuration = stage09_receipt["formal_configuration"]
+    input_closure_sha256 = _compose_input_closure({
+        "development": stage09_receipt["run_identity"][
+            "input_closure_sha256"
+        ],
+        "stage09_parent_prediction": _file_sha(
+            root, "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+        ),
+        "stage09_parent_sidecar": _file_sha(
+            root,
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json",
+        ),
+        "stage09_completion_receipt": _file_sha(root, stage09_path),
+        "stage09_components": _file_sha(
+            root, "outputs/models/route_a_stage9_components.json"
+        ),
+    })
+    configuration = {
+        "fixture": True,
+        "training_device": "cpu",
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": (
+            stage09_configuration["input_closure_file_count"] + 4
+        ),
     }
-    run_id = _repro_sha(identity_fields)[:20]
-    identity = {"run_id": run_id, **identity_fields}
+    identity = _fixture_run_identity(
+        configuration,
+        panel_sha256=_file_sha(
+            root, "data_usgs/panel_usgs_120v2.parquet"
+        ),
+        registry_sha256=_file_sha(
+            root, "data_usgs/station_registry_v1.csv"
+        ),
+        input_closure_sha256=input_closure_sha256,
+    )
+    run_id = identity["run_id"]
     run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
     run_manifest = f"{run_dir}/run.json"
     selection = "outputs/tables/lstm_validation_selection.csv"
@@ -527,11 +590,31 @@ def _seed_model_commit(
     bridge_path = "data_usgs/development_predictor_bridge_v1.json"
     _write(root, bridge_path, _json_bytes(bridge))
 
-    stage9_run_id = "stage09-fixture"
+    development_input_closure_sha256 = "c" * 64
+    stage9_configuration = {
+        "fixture": True,
+        "input_closure_sha256": development_input_closure_sha256,
+        "input_closure_file_count": 1,
+    }
+    stage9_identity = _fixture_run_identity(
+        stage9_configuration,
+        panel_sha256=_file_sha(
+            root, "data_usgs/panel_usgs_120v2.parquet"
+        ),
+        registry_sha256=_file_sha(
+            root, "data_usgs/station_registry_v1.csv"
+        ),
+        input_closure_sha256=development_input_closure_sha256,
+    )
+    stage9_run_id = stage9_identity["run_id"]
     stage9_run_manifest = (
         f"outputs/runs/09_usgs_experiment/{stage9_run_id}/run.json"
     )
-    _write(root, stage9_run_manifest, "{}\n")
+    _write(root, stage9_run_manifest, _json_bytes({
+        "schema_version": "thermoroute.run.v2",
+        "identity": stage9_identity,
+        "resolved_config": stage9_configuration,
+    }))
     for label, relative in STAGE09_ARTIFACT_PATHS.items():
         _write(root, relative, f"stage09 {label}\n")
     stage9 = {
@@ -539,8 +622,8 @@ def _seed_model_commit(
         "status": "PASS_FORMAL_STAGE09_COMPLETE",
         "stage": "09_usgs_experiment",
         "run_id": stage9_run_id,
-        "run_identity": {"run_id": stage9_run_id},
-        "formal_configuration": {"fixture": True},
+        "run_identity": stage9_identity,
+        "formal_configuration": stage9_configuration,
         "confirmation_outcomes_requested_or_read": False,
         "artifacts": {
             "run_manifest": _binding(root, stage9_run_manifest),
@@ -560,11 +643,30 @@ def _seed_model_commit(
         attack=stage16_attack,
     )
 
-    stage09b_run_id = "stage09b-fixture"
+    stage09b_configuration = {
+        "fixture": True,
+        "input_closure_sha256": development_input_closure_sha256,
+        "input_closure_file_count": 1,
+    }
+    stage09b_identity = _fixture_run_identity(
+        stage09b_configuration,
+        panel_sha256=_file_sha(
+            root, "data_usgs/panel_usgs_120v2.parquet"
+        ),
+        registry_sha256=_file_sha(
+            root, "data_usgs/station_registry_v1.csv"
+        ),
+        input_closure_sha256=development_input_closure_sha256,
+    )
+    stage09b_run_id = stage09b_identity["run_id"]
     stage09b_run_dir = (
         f"outputs/runs/09b_development_controls/{stage09b_run_id}"
     )
-    _write(root, f"{stage09b_run_dir}/run.json", "{}\n")
+    _write(root, f"{stage09b_run_dir}/run.json", _json_bytes({
+        "schema_version": "thermoroute.run.v2",
+        "identity": stage09b_identity,
+        "resolved_config": stage09b_configuration,
+    }))
     members = []
     semantic_members = []
     for arm_id, seed in STAGE09B_MEMBERS:
@@ -693,8 +795,8 @@ def _seed_model_commit(
         "status": "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "stage": "09b_development_controls",
         "run_id": stage09b_run_id,
-        "run_identity": {"run_id": stage09b_run_id},
-        "formal_configuration": {"fixture": True},
+        "run_identity": stage09b_identity,
+        "formal_configuration": stage09b_configuration,
         "evidence_scope": "best_model_state_prediction_replay",
         "best_model_state_prediction_replay_verified": True,
         "training_replay_verified": False,
@@ -719,7 +821,26 @@ def _seed_model_commit(
     stage09b_path = "outputs/models/route_a_stage09b_completion.json"
     _write(root, stage09b_path, _json_bytes(stage09b))
 
-    stage25_run_id = "a" * 20
+    stage25_input_closure_sha256 = _compose_input_closure({
+        "development": development_input_closure_sha256,
+    })
+    stage25_configuration = {
+        "fixture": True,
+        "input_closure_sha256": stage25_input_closure_sha256,
+        "input_closure_file_count": 1,
+        "input_closure_component_count": 1,
+    }
+    stage25_identity = _fixture_run_identity(
+        stage25_configuration,
+        panel_sha256=_file_sha(
+            root, "data_usgs/panel_usgs_120v2.parquet"
+        ),
+        registry_sha256=_file_sha(
+            root, "data_usgs/station_registry_v1.csv"
+        ),
+        input_closure_sha256=stage25_input_closure_sha256,
+    )
+    stage25_run_id = stage25_identity["run_id"]
     stage25_run_manifest = (
         f"outputs/runs/25_external_pooled/{stage25_run_id}/run.json"
     )
@@ -730,7 +851,11 @@ def _seed_model_commit(
     )
     stage25_prediction_sidecar = f"{stage25_predictions}.meta.json"
     for relative, payload in (
-        (stage25_run_manifest, "{}\n"),
+        (stage25_run_manifest, _json_bytes({
+            "schema_version": "thermoroute.run.v2",
+            "identity": stage25_identity,
+            "resolved_config": stage25_configuration,
+        })),
         (stage25_pointer, "{}\n"),
         (stage25_predictions, "stage25 development predictions\n"),
         (stage25_prediction_sidecar, "{}\n"),
@@ -764,8 +889,8 @@ def _seed_model_commit(
         "status": "COMPLETE",
         "stage": "25_train_external_pooled_suite",
         "run_id": stage25_run_id,
-        "run_identity": {"run_id": stage25_run_id},
-        "formal_configuration": {"fixture": True},
+        "run_identity": stage25_identity,
+        "formal_configuration": stage25_configuration,
         "training_device": "cpu",
         "confirmation_outcomes_requested_or_read": False,
         "artifacts": stage25_artifacts,

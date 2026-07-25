@@ -47,6 +47,7 @@ def identity() -> RunIdentity:
         config_sha256="3" * 64,
         source_sha256="4" * 64,
         runtime_sha256="5" * 64,
+        input_closure_sha256="6" * 64,
     )
 
 

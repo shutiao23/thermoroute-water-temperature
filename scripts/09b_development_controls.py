@@ -193,6 +193,7 @@ from thermoroute.model_suite import (  # noqa: E402
     ModelSuiteError,
     development_predictor_bridge_binding,
 )
+from thermoroute.input_closure import resolve_development_input_closure  # noqa: E402
 from thermoroute.predictor_bridge import (  # noqa: E402
     PredictorBridgeError,
     validate_development_bridge_manifest_offline,
@@ -1419,6 +1420,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) from exc
 
     arms = declared_arms()
+    development_input_closure = resolve_development_input_closure(ROOT)
+    development_input_closure.assert_unchanged()
+
+    def assert_stage09b_publication_inputs() -> None:
+        assert_formal_numerical_policy(require_hash_randomization=True)
+        development_input_closure.assert_unchanged()
+
     station_count = cast(int, evidence["station_count"])
     counts = assert_parameter_budgets(arms, n_stations=station_count)
     run_config = {
@@ -1455,12 +1463,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "development_predictor_bridge": predictor_bridge,
         "formal_numerical_policy": runtime_policy,
         "eval_batch_size": int(args.eval_batch_size),
+        "input_closure_sha256": development_input_closure.binding_digest,
+        "input_closure_file_count": len(development_input_closure.inventory),
     }
     identity = resolve_run_identity(
         root=ROOT,
         panel=panel_path,
         registry=registry_path,
         config=run_config,
+        input_closure_sha256=development_input_closure.binding_digest,
     )
     run_dir = initialise_run_directory(
         ROOT / "outputs" / "runs" / "09b_development_controls",
@@ -1472,7 +1483,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "suite_pointer_written": False,
             "training_device": "cpu",
         },
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage09b_publication_inputs,
     )
     parents = _parent_bindings(identity, predictor_bridge)
 
@@ -1565,7 +1576,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parents=parents,
                 eval_batch_size=args.eval_batch_size,
                 verbose=args.verbose,
-                publication_guard=assert_formal_numerical_policy,
+                publication_guard=assert_stage09b_publication_inputs,
             )
         )
         del wd, current_registry, current_train_registry
@@ -1592,7 +1603,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     # Training-time library code may alter a native pool.  Do not publish any
     # canonical matrix unless the effective policy still holds.
-    assert_formal_numerical_policy(require_hash_randomization=True)
+    assert_stage09b_publication_inputs()
     outputs = publish_final_artifacts(
         run_dir=run_dir,
         identity=identity,
@@ -1607,7 +1618,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         canonical_train_registry_sha256=window_registry_digest(
             canonical_train_registry
         ),
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage09b_publication_inputs,
     )
     predictions, architecture_budget, metric_summary, report, semantic_audit = outputs
     receipt_path = ROOT / STAGE09B_COMPLETION_RECEIPT_PATH
@@ -1630,12 +1641,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # This is deliberately the final write in the transaction.  Any missing
     # member, budget/report failure, sidecar drift, or common-key mismatch raises
     # before the stable receipt can be replaced.
-    assert_formal_numerical_policy(require_hash_randomization=True)
+    assert_stage09b_publication_inputs()
     publish_stage09b_completion_receipt(
         receipt_path,
         receipt,
         root=ROOT,
-        publication_guard=assert_formal_numerical_policy,
+        publication_guard=assert_stage09b_publication_inputs,
     )
     print(
         json.dumps(

@@ -51,6 +51,7 @@ def _identity() -> RunIdentity:
         config_sha256="3" * 64,
         source_sha256="4" * 64,
         runtime_sha256="5" * 64,
+        input_closure_sha256="6" * 64,
     )
 
 
@@ -112,8 +113,8 @@ def test_declared_registry_and_parameter_budgets_are_exact() -> None:
     assert all(arm.seeds == DC.C.USGS_SEEDS for arm in arms)
 
     counts = DC.assert_parameter_budgets(arms, n_stations=120)
-    assert counts["PlainMLP-7var"] == 38_545
-    assert counts["PlainCausalTCN-7var"] == 38_031
+    assert counts["PlainMLP-7var"] == 38_860
+    assert counts["PlainCausalTCN-7var"] == 38_346
     assert counts["ThermoRoute-ladder-07_plus_WDSP"] == 38_505
     assert abs(counts["PlainMLP-7var"] / 38_505 - 1) < 0.02
     assert abs(counts["PlainCausalTCN-7var"] / 38_505 - 1) < 0.02

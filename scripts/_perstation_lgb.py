@@ -58,6 +58,7 @@ from thermoroute.registry import (
     restrict_tabular_to_window_registry,
     targets_match_at_model_precision,
 )
+from thermoroute.input_closure import compose_input_closure_digest
 from thermoroute.repro import (
     cache_is_valid,
     resolve_run_identity,
@@ -103,6 +104,13 @@ def main() -> None:
     output_path = args.output.resolve()
     _verify_parent(input_path)
     parent_sha = sha256_file(input_path)
+    input_components = {
+        "panel": sha256_file(panel_path),
+        "registry": sha256_file(registry_path),
+        "parent_prediction": parent_sha,
+        "parent_prediction_sidecar": sha256_file(sidecar_path(input_path)),
+    }
+    input_closure_sha256 = compose_input_closure_digest(input_components)
     run_config = {
         "stage": "per_station_lightgbm",
         "role": "exploratory_derived",
@@ -111,9 +119,12 @@ def main() -> None:
         "horizons": C.HORIZONS,
         "missingness_features": True,
         "registry_alignment": "window_registry_all_splits_and_stage9_primary_test_keys",
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": len(input_components),
     }
     identity = resolve_run_identity(
         root=ROOT, panel=panel_path, registry=registry_path, config=run_config,
+        input_closure_sha256=input_closure_sha256,
     )
     if cache_is_valid(output_path, identity, schema=R.PREDICTION_SCHEMA_VERSION):
         print(f"verified cache: {output_path}")

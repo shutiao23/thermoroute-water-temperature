@@ -62,6 +62,24 @@ STAGE09 = _load_script("scripts/09_usgs_experiment.py", "stage09_completion_test
 STAGE24 = _load_script("scripts/24_freeze_model_suite.py", "stage24_receipt_test")
 
 
+class _FixtureDevelopmentInputClosure:
+    binding_digest = "f" * 64
+    inventory = (object(),)
+
+    @staticmethod
+    def assert_unchanged() -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _fixed_development_input_closure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "resolve_development_input_closure",
+        lambda _root: _FixtureDevelopmentInputClosure(),
+    )
+
+
 def _write_bytes(path: Path, value: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(value)
@@ -324,6 +342,8 @@ def _stage09_fixture(
         ],
         "event_reference_fit_interval": ["2006-01-01", "2018-12-31"],
         "formal_numerical_policy": {"status": "fixture-formal"},
+        "input_closure_sha256": "f" * 64,
+        "input_closure_file_count": 1,
     }
     identity_parts = {
         "schema_version": RUN_SCHEMA_VERSION,
@@ -332,6 +352,7 @@ def _stage09_fixture(
         "config_sha256": sha256_json(resolved_config),
         "source_sha256": source_tree_hash(root),
         "runtime_sha256": "e" * 64,
+        "input_closure_sha256": "f" * 64,
     }
     identity = RunIdentity(
         run_id=sha256_json(identity_parts)[:20],
@@ -347,7 +368,7 @@ def _stage09_fixture(
     )
     run_manifest.parent.mkdir(parents=True)
     run_manifest.write_text(json.dumps({
-        "schema_version": "thermoroute.run.v1",
+        "schema_version": RUN_SCHEMA_VERSION,
         "identity": identity.as_dict(),
         "provenance": {
             "evidence_role": "prelabel_route_a_model_build_development_only",
@@ -1121,8 +1142,9 @@ def test_stage09_manifest_rejects_reidentified_noncanonical_config(
         **{
             name: identity[name]
             for name in (
-                "panel_sha256", "registry_sha256", "config_sha256",
-                "source_sha256", "runtime_sha256",
+                    "panel_sha256", "registry_sha256", "config_sha256",
+                    "source_sha256", "runtime_sha256",
+                    "input_closure_sha256",
             )
         },
     }
@@ -1510,6 +1532,13 @@ def _stage16_fixture(
         "_verify_stage16_candidate_checkpoint",
         lambda **_kwargs: 0.0,
     )
+    input_closure_sha256 = MODEL_SUITE.compose_input_closure_digest({
+        "development": stage09["identity"].input_closure_sha256,
+        "stage09_parent_prediction": sha256_file(parent),
+        "stage09_parent_sidecar": sha256_file(MODEL_SUITE.sidecar_path(parent)),
+        "stage09_completion_receipt": sha256_file(stage09["receipt"]),
+        "stage09_components": sha256_file(stage09["components"]),
+    })
     configuration = {
         "stage": "16_lstm_baseline_insample",
         "role": "final_route_a_development_predictions",
@@ -1531,6 +1560,10 @@ def _stage16_fixture(
         "train_config": MODEL_SUITE.asdict(C.TrainConfig(batch_size=1536)),
         "training_device": "cpu",
         "formal_numerical_policy": {"worker_threads": 1},
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": (
+            stage09["configuration"]["input_closure_file_count"] + 4
+        ),
     }
     identity_fields = {
         "schema_version": RUN_SCHEMA_VERSION,
@@ -1539,6 +1572,7 @@ def _stage16_fixture(
         "config_sha256": sha256_json(configuration),
         "source_sha256": source_tree_hash(root),
         "runtime_sha256": sha256_json(runtime_contract),
+        "input_closure_sha256": input_closure_sha256,
     }
     identity = RunIdentity(
         run_id=sha256_json(identity_fields)[:20], **identity_fields

@@ -68,7 +68,11 @@ def _sealed_route_a_fixture(tmp_path: Path, *, site_id: str = "01234567"):
     path = root / "predictions.parquet"
     write_predictions(predictions, path)
     identity = resolve_run_identity(
-        root=root, panel=panel, registry=registry, config={"stage": "final"}
+        root=root,
+        panel=panel,
+        registry=registry,
+        config={"stage": "final"},
+        input_closure_sha256="f" * 64,
     )
     seal_artifact(
         path,

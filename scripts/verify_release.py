@@ -31,7 +31,7 @@ import subprocess
 import sys
 import tempfile
 import types
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 import unicodedata
 from urllib.parse import parse_qs, urlencode, urlparse
 import zipfile
@@ -244,6 +244,7 @@ AUTHORIZATION_TOP_LEVEL_FIELDS = frozenset({
     "prelabel_chronology",
     "inference_amendment",
     "probability_metric_erratum",
+    "model_matrix_amendment",
     "inference_gate",
     "outcome_qc_policy",
     "temporal_coverage_policy",
@@ -291,6 +292,25 @@ PROBABILITY_METRIC_ERRATUM_PATH = (
 )
 PROBABILITY_METRIC_ERRATUM_SEAL_PATH = (
     "protocols/route_a_probability_metric_erratum_seal_v1.json"
+)
+MODEL_MATRIX_AMENDMENT_PATH = (
+    "protocols/route_a_model_matrix_amendment_v1.json"
+)
+MODEL_MATRIX_AMENDMENT_SEAL_PATH = (
+    "protocols/route_a_model_matrix_amendment_seal_v1.json"
+)
+MODEL_MATRIX_AMENDMENT_FORMAT = (
+    "thermoroute.route-a-model-matrix-amendment.v1"
+)
+MODEL_MATRIX_AMENDMENT_SEAL_FORMAT = (
+    "thermoroute.route-a-model-matrix-amendment-seal.v1"
+)
+MODEL_MATRIX_AMENDMENT_ID = (
+    "route-a-prelabel-model-matrix-replication-017"
+)
+MODEL_MATRIX_AMENDMENT_STATUS = "FROZEN_PRELABEL_OUTCOME_FREE"
+MODEL_MATRIX_AMENDMENT_SEAL_STATUS = (
+    "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
 )
 LEGACY_THREE_SITE_NOTICE_PATH = (
     "protocols/legacy_three_site_semantics_notice_v1.md"
@@ -764,6 +784,616 @@ def _sha256_json(value: object) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+_RUN_IDENTITY_V2_FIELDS = {
+    "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+    "source_sha256", "runtime_sha256", "input_closure_sha256",
+    "schema_version",
+}
+_DEVELOPMENT_INPUT_CLOSURE_FORMAT = (
+    "thermoroute.development-input-closure.v1"
+)
+_COMPOSED_INPUT_CLOSURE_FORMAT = "thermoroute.composed-input-closure.v1"
+_DEVELOPMENT_FROZEN_SPEC = "data_usgs/frozen_panel_v1.json"
+_DEVELOPMENT_PANEL = "data_usgs/panel_usgs_120v2.parquet"
+_DEVELOPMENT_REGISTRY = "data_usgs/station_registry_v1.csv"
+_DEVELOPMENT_SOURCE_METADATA = "data_usgs/stations_meta_120v2.csv"
+_DEVELOPMENT_HUC_SOURCE = "data_usgs/huc_metadata_usgs_v1.csv"
+_DEVELOPMENT_HUC_PROVENANCE = (
+    "data_usgs/huc_metadata_usgs_v1.provenance.json"
+)
+_DEVELOPMENT_HUC_INDEX = (
+    "data_usgs/raw_snapshots/huc-v1/snapshot_index.json"
+)
+_DEVELOPMENT_BRIDGE = "data_usgs/development_predictor_bridge_v1.json"
+_DEVELOPMENT_BRIDGE_FROZEN = (
+    "data_usgs/development_predictor_bridge_v1/"
+    "frozen_panel_predictors_2018_2020.parquet"
+)
+_DEVELOPMENT_BRIDGE_REFRESHED = (
+    "data_usgs/development_predictor_bridge_v1/"
+    "refreshed_predictors_2018_2020.parquet"
+)
+_DEVELOPMENT_BRIDGE_REPORT = (
+    "data_usgs/development_predictor_bridge_v1/bridge_report_v1.json"
+)
+_DEVELOPMENT_BRIDGE_REQUEST_MAP = (
+    "data_usgs/development_predictor_bridge_v1/source_request_map_v1.json"
+)
+_DEVELOPMENT_BRIDGE_INDEXES = (
+    (
+        "daymet",
+        "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
+        "daymet-v1/snapshot_index_v2.json",
+        "ornl-daymet-single-pixel-route-a",
+        120,
+    ),
+    (
+        "gridmet",
+        "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
+        "gridmet-v1/snapshot_index_v2.json",
+        "gridmet-ncss-route-a",
+        120,
+    ),
+    (
+        "gridmet_schema",
+        "data_usgs/raw_snapshots/development-predictor-bridge-v1/"
+        "gridmet-schema-v1/snapshot_index_v2.json",
+        "gridmet-opendap-schema-route-a",
+        1,
+    ),
+)
+
+
+def _input_closure_canonical_json_bytes(value: object) -> bytes:
+    """Mirror ``thermoroute.provenance.canonical_json_bytes`` exactly."""
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _compose_input_closure_digest(components: Mapping[str, str]) -> str:
+    if not isinstance(components, Mapping) or not components:
+        raise ValueError("input-closure composition is empty")
+    records: list[dict[str, str]] = []
+    for name, digest in components.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or name != name.strip()
+            or "\\" in name
+            or "\x00" in name
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise ValueError("input-closure composition is malformed")
+        records.append({"name": name, "sha256": digest})
+    records.sort(key=lambda record: record["name"])
+    document = {
+        "format": _COMPOSED_INPUT_CLOSURE_FORMAT,
+        "components": records,
+    }
+    return hashlib.sha256(
+        _input_closure_canonical_json_bytes(document)
+    ).hexdigest()
+
+
+def _validate_run_identity_v2(
+    identity: object,
+    configuration: object,
+    *,
+    expected_input_closure_sha256: str,
+    expected_input_closure_file_count: int,
+    label: str,
+) -> Mapping[str, Any]:
+    """Independently mirror the exact content-addressed RunIdentity v2."""
+    if not isinstance(identity, Mapping) or not isinstance(configuration, Mapping):
+        raise ValueError(f"{label} RunIdentity v2 is malformed")
+    digest_fields = _RUN_IDENTITY_V2_FIELDS - {"run_id", "schema_version"}
+    run_id = identity.get("run_id")
+    if (
+        set(identity) != _RUN_IDENTITY_V2_FIELDS
+        or identity.get("schema_version") != "thermoroute.run.v2"
+        or not isinstance(run_id, str)
+        or re.fullmatch(r"[0-9a-f]{20}", run_id) is None
+        or any(
+            re.fullmatch(r"[0-9a-f]{64}", str(identity.get(field, "")))
+            is None
+            for field in digest_fields
+        )
+        or identity.get("config_sha256") != _sha256_json(configuration)
+        or identity.get("input_closure_sha256")
+        != expected_input_closure_sha256
+        or configuration.get("input_closure_sha256")
+        != expected_input_closure_sha256
+        or type(configuration.get("input_closure_file_count")) is not int
+        or configuration["input_closure_file_count"]
+        != expected_input_closure_file_count
+    ):
+        raise ValueError(f"{label} RunIdentity v2 is malformed")
+    stable = {
+        key: identity[key]
+        for key in _RUN_IDENTITY_V2_FIELDS - {"run_id"}
+    }
+    if _sha256_json(stable)[:20] != run_id:
+        raise ValueError(f"{label} run id is not content addressed")
+    return identity
+
+
+def _independent_development_input_closure(
+    reader: Callable[[str], bytes],
+) -> tuple[str, int, tuple[str, ...]]:
+    """Rebuild the fixed 2006--2020 byte inventory without archive imports."""
+    entries: dict[str, tuple[str, int]] = {}
+
+    def canonical_relative(value: object, *, label: str) -> str:
+        if (
+            not isinstance(value, str)
+            or not value
+            or "\\" in value
+            or "\x00" in value
+        ):
+            raise ValueError(f"{label} path is malformed")
+        path = PurePosixPath(value)
+        if (
+            path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path.as_posix() != value
+        ):
+            raise ValueError(f"{label} path is noncanonical")
+        return value
+
+    def digest(value: object, *, label: str) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        ):
+            raise ValueError(f"{label} is not a lowercase SHA-256")
+        return value
+
+    def add(
+        relative: str,
+        *,
+        expected_sha256: object | None = None,
+        label: str,
+        shared: bool = False,
+    ) -> bytes:
+        relative = canonical_relative(relative, label=label)
+        expected = (
+            digest(expected_sha256, label=f"{label} checksum")
+            if expected_sha256 is not None else None
+        )
+        payload = reader(relative)
+        actual = hashlib.sha256(payload).hexdigest()
+        if expected is not None and actual != expected:
+            raise ValueError(f"{label} raw checksum changed")
+        if relative in entries:
+            if not shared or entries[relative] != (actual, len(payload)):
+                raise ValueError(f"{label} duplicates or changes an input")
+        else:
+            entries[relative] = (actual, len(payload))
+        return payload
+
+    def json_object(payload: bytes, *, label: str) -> dict[str, Any]:
+        try:
+            value = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{label} is not UTF-8 JSON") from exc
+        if not isinstance(value, dict):
+            raise ValueError(f"{label} is not a JSON object")
+        return value
+
+    def fixed_binding(
+        value: object, *, expected_path: str, label: str,
+    ) -> tuple[str, str]:
+        if not isinstance(value, Mapping) or set(value) != {"path", "sha256"}:
+            raise ValueError(f"{label} binding is malformed")
+        relative = canonical_relative(value.get("path"), label=label)
+        if relative != expected_path:
+            raise ValueError(f"{label} is outside the fixed closure")
+        return relative, digest(value.get("sha256"), label=f"{label} checksum")
+
+    def collect_snapshot_index(
+        *,
+        index_path: str,
+        payload: bytes,
+        schema_version: int,
+        provider: str,
+        count: int,
+        label: str,
+    ) -> tuple[dict[str, Any], ...]:
+        index = json_object(payload, label=label)
+        records = index.get("records")
+        if (
+            set(index) != {"schema_version", "snapshot_count", "records"}
+            or index.get("schema_version") != schema_version
+            or type(index.get("snapshot_count")) is not int
+            or index.get("snapshot_count") != count
+            or not isinstance(records, list)
+            or len(records) != count
+        ):
+            raise ValueError(f"{label} contract changed")
+        base_fields = {
+            "provider", "request_sha256", "response_sha256",
+            "retrieved_at_utc", "byte_count", "request",
+            "metadata_path", "response_path",
+        }
+        expected_fields = (
+            base_fields | {"metadata_sha256", "metadata_byte_count"}
+            if schema_version == 2 else base_fields
+        )
+        base = PurePosixPath(index_path).parent
+        seen_requests: set[str] = set()
+        seen_paths: set[str] = set()
+        parsed: list[dict[str, Any]] = []
+        for position, raw in enumerate(records):
+            record_label = f"{label} record {position}"
+            if not isinstance(raw, Mapping) or set(raw) != expected_fields:
+                raise ValueError(f"{record_label} contract changed")
+            record = dict(raw)
+            request = record.get("request")
+            request_sha = digest(
+                record.get("request_sha256"),
+                label=f"{record_label} request checksum",
+            )
+            response_sha = digest(
+                record.get("response_sha256"),
+                label=f"{record_label} response checksum",
+            )
+            byte_count = record.get("byte_count")
+            if (
+                record.get("provider") != provider
+                or not isinstance(request, Mapping)
+                or set(request)
+                != {"schema_version", "provider", "method", "url", "headers"}
+                or request.get("schema_version") != 1
+                or request.get("provider") != provider
+                or request.get("method") != "GET"
+                or not isinstance(request.get("url"), str)
+                or not request.get("url")
+                or not isinstance(request.get("headers"), Mapping)
+                or any(
+                    not isinstance(key, str) or not isinstance(value, str)
+                    for key, value in request["headers"].items()
+                )
+                or hashlib.sha256(
+                    _input_closure_canonical_json_bytes(dict(request))
+                ).hexdigest() != request_sha
+                or request_sha in seen_requests
+                or type(byte_count) is not int
+                or byte_count < 1
+                or not isinstance(record.get("retrieved_at_utc"), str)
+                or not record["retrieved_at_utc"]
+            ):
+                raise ValueError(f"{record_label} identity changed")
+            seen_requests.add(request_sha)
+            expected_base = PurePosixPath(provider) / request_sha
+            metadata_relative = canonical_relative(
+                record.get("metadata_path"), label=f"{record_label} metadata"
+            )
+            response_relative = canonical_relative(
+                record.get("response_path"), label=f"{record_label} response"
+            )
+            if (
+                PurePosixPath(metadata_relative) != expected_base / "metadata.json"
+                or PurePosixPath(response_relative) != expected_base / "response.bin"
+            ):
+                raise ValueError(f"{record_label} paths are not content addressed")
+            for declared in (metadata_relative, response_relative):
+                if declared in seen_paths:
+                    raise ValueError(f"{record_label} path is duplicated")
+                seen_paths.add(declared)
+            metadata_path = (base / metadata_relative).as_posix()
+            response_path = (base / response_relative).as_posix()
+            metadata_payload = add(
+                metadata_path,
+                expected_sha256=(
+                    record.get("metadata_sha256")
+                    if schema_version == 2 else None
+                ),
+                label=f"{record_label} metadata",
+            )
+            if (
+                schema_version == 2
+                and record.get("metadata_byte_count") != len(metadata_payload)
+            ):
+                raise ValueError(f"{record_label} metadata byte count changed")
+            response_payload = add(
+                response_path,
+                expected_sha256=response_sha,
+                label=f"{record_label} response",
+            )
+            if len(response_payload) != byte_count:
+                raise ValueError(f"{record_label} response byte count changed")
+            metadata = json_object(
+                metadata_payload, label=f"{record_label} metadata"
+            )
+            if (
+                set(metadata)
+                != {
+                    "schema_version", "request", "request_sha256",
+                    "retrieved_at_utc", "http_status", "response_headers",
+                    "byte_count", "response_sha256", "response_file",
+                }
+                or metadata.get("schema_version") != 1
+                or metadata.get("request") != request
+                or metadata.get("request_sha256") != request_sha
+                or metadata.get("retrieved_at_utc")
+                != record.get("retrieved_at_utc")
+                or metadata.get("http_status") != 200
+                or not isinstance(metadata.get("response_headers"), Mapping)
+                or any(
+                    not isinstance(key, str) or not isinstance(value, str)
+                    for key, value in metadata["response_headers"].items()
+                )
+                or metadata.get("byte_count") != byte_count
+                or metadata.get("response_sha256") != response_sha
+                or metadata.get("response_file") != "response.bin"
+            ):
+                raise ValueError(f"{record_label} metadata changed")
+            parsed.append(record)
+        return tuple(parsed)
+
+    spec_payload = add(_DEVELOPMENT_FROZEN_SPEC, label="frozen panel spec")
+    spec = json_object(spec_payload, label="frozen panel spec")
+    panel = spec.get("panel")
+    registry = spec.get("station_registry")
+    if (
+        spec.get("schema_version") != 1
+        or spec.get("evidence_role") != "development_exploratory"
+        or not isinstance(panel, Mapping)
+        or not isinstance(registry, Mapping)
+        or panel.get("date_start") != "2006-01-01"
+        or panel.get("date_end") != "2020-12-31"
+        or panel.get("station_count") != 120
+    ):
+        raise ValueError("frozen development-panel contract changed")
+
+    def fixed_spec_child(value: object, expected: str, *, label: str) -> None:
+        child = canonical_relative(value, label=label)
+        observed = (PurePosixPath(_DEVELOPMENT_FROZEN_SPEC).parent / child).as_posix()
+        if observed != expected:
+            raise ValueError(f"{label} is outside the fixed closure")
+
+    fixed_spec_child(panel.get("path"), _DEVELOPMENT_PANEL, label="panel")
+    panel_sha = digest(panel.get("sha256"), label="panel checksum")
+    add(_DEVELOPMENT_PANEL, expected_sha256=panel_sha, label="panel")
+    fixed_spec_child(
+        registry.get("path"), _DEVELOPMENT_REGISTRY, label="station registry"
+    )
+    registry_sha = digest(
+        registry.get("sha256"), label="station registry checksum"
+    )
+    add(
+        _DEVELOPMENT_REGISTRY,
+        expected_sha256=registry_sha,
+        label="station registry",
+    )
+    fixed_spec_child(
+        registry.get("source_metadata_path"),
+        _DEVELOPMENT_SOURCE_METADATA,
+        label="station metadata",
+    )
+    source_metadata_sha = digest(
+        registry.get("source_metadata_sha256"),
+        label="station metadata checksum",
+    )
+    add(
+        _DEVELOPMENT_SOURCE_METADATA,
+        expected_sha256=source_metadata_sha,
+        label="station metadata",
+    )
+    huc = registry.get("huc_metadata")
+    if (
+        not isinstance(huc, Mapping)
+        or huc.get("runtime_dependency") is not True
+        or huc.get("status") != "COMPLETE_USGS_RAW_SNAPSHOT"
+        or huc.get("join_key") != "site_no"
+    ):
+        raise ValueError("frozen HUC metadata contract changed")
+    fixed_spec_child(
+        huc.get("source_path"), _DEVELOPMENT_HUC_SOURCE, label="HUC source"
+    )
+    huc_source_sha = digest(
+        huc.get("source_sha256"), label="HUC source checksum"
+    )
+    add(
+        _DEVELOPMENT_HUC_SOURCE,
+        expected_sha256=huc_source_sha,
+        label="HUC source",
+    )
+    fixed_spec_child(
+        huc.get("provenance_path"),
+        _DEVELOPMENT_HUC_PROVENANCE,
+        label="HUC provenance",
+    )
+    huc_provenance_sha = digest(
+        huc.get("provenance_sha256"), label="HUC provenance checksum"
+    )
+    huc_provenance_payload = add(
+        _DEVELOPMENT_HUC_PROVENANCE,
+        expected_sha256=huc_provenance_sha,
+        label="HUC provenance",
+    )
+    huc_provenance = json_object(
+        huc_provenance_payload, label="HUC provenance"
+    )
+    if (
+        huc_provenance.get("schema_version") != 1
+        or huc_provenance.get("outcome_data_requested") is not False
+        or huc_provenance.get("join_key") != "site_no"
+        or huc_provenance.get("site_count") != 120
+        or huc_provenance.get("development_panel_sha256") != panel_sha
+        or huc_provenance.get("development_metadata_sha256")
+        != source_metadata_sha
+        or huc_provenance.get("derived_csv_sha256") != huc_source_sha
+        or huc_provenance.get("raw_snapshot_index")
+        != _DEVELOPMENT_HUC_INDEX
+    ):
+        raise ValueError("HUC provenance is not development-only")
+    huc_index_payload = add(
+        _DEVELOPMENT_HUC_INDEX,
+        expected_sha256=huc_provenance.get("raw_snapshot_index_sha256"),
+        label="HUC raw index",
+    )
+    huc_records = collect_snapshot_index(
+        index_path=_DEVELOPMENT_HUC_INDEX,
+        payload=huc_index_payload,
+        schema_version=1,
+        provider="usgs-nwis-site-metadata",
+        count=1,
+        label="HUC raw index",
+    )
+    huc_record = huc_records[0]
+    if any(
+        huc_provenance.get(field) != huc_record[field]
+        for field in ("request_sha256", "response_sha256", "retrieved_at_utc")
+    ):
+        raise ValueError("HUC provenance/raw snapshot identity changed")
+
+    bridge_payload = add(
+        _DEVELOPMENT_BRIDGE, label="development predictor bridge"
+    )
+    bridge = json_object(bridge_payload, label="development predictor bridge")
+    if (
+        bridge.get("format") != "thermoroute.development-predictor-bridge.v1"
+        or bridge.get("status") != "PASS_EXACT_PRODUCT_BRIDGE"
+        or bridge.get("outcome_values_requested_or_read") is not False
+    ):
+        raise ValueError("development predictor bridge is not an exact PASS")
+    for value, expected, expected_sha, label in (
+        (bridge.get("panel"), _DEVELOPMENT_PANEL, panel_sha, "bridge panel"),
+        (
+            bridge.get("registry"), _DEVELOPMENT_REGISTRY,
+            registry_sha, "bridge registry",
+        ),
+    ):
+        relative, declared_sha = fixed_binding(
+            value, expected_path=expected, label=label
+        )
+        if declared_sha != expected_sha:
+            raise ValueError(f"{label} differs from the frozen panel")
+        add(
+            relative,
+            expected_sha256=declared_sha,
+            label=label,
+            shared=True,
+        )
+    normalized = bridge.get("normalized")
+    if not isinstance(normalized, Mapping) or set(normalized) != {
+        "frozen", "refreshed"
+    }:
+        raise ValueError("development bridge normalized registry changed")
+    for name, expected in (
+        ("frozen", _DEVELOPMENT_BRIDGE_FROZEN),
+        ("refreshed", _DEVELOPMENT_BRIDGE_REFRESHED),
+    ):
+        relative, declared_sha = fixed_binding(
+            normalized[name], expected_path=expected, label=f"bridge {name}"
+        )
+        add(
+            relative,
+            expected_sha256=declared_sha,
+            label=f"bridge {name}",
+        )
+    for name, expected in (
+        ("report", _DEVELOPMENT_BRIDGE_REPORT),
+        ("request_map", _DEVELOPMENT_BRIDGE_REQUEST_MAP),
+    ):
+        relative, declared_sha = fixed_binding(
+            bridge.get(name), expected_path=expected, label=f"bridge {name}"
+        )
+        add(
+            relative,
+            expected_sha256=declared_sha,
+            label=f"bridge {name}",
+        )
+    raw_indexes = bridge.get("raw_snapshot_indexes")
+    if not isinstance(raw_indexes, Mapping) or set(raw_indexes) != {
+        "daymet", "gridmet", "gridmet_schema"
+    }:
+        raise ValueError("development bridge raw-index registry changed")
+    for name, expected, provider, count in _DEVELOPMENT_BRIDGE_INDEXES:
+        relative, declared_sha = fixed_binding(
+            raw_indexes[name], expected_path=expected, label=f"bridge raw/{name}"
+        )
+        index_payload = add(
+            relative,
+            expected_sha256=declared_sha,
+            label=f"bridge raw/{name}",
+        )
+        collect_snapshot_index(
+            index_path=relative,
+            payload=index_payload,
+            schema_version=2,
+            provider=provider,
+            count=count,
+            label=f"bridge raw/{name}",
+        )
+    inventory = tuple(sorted(entries))
+    document = {
+        "format": _DEVELOPMENT_INPUT_CLOSURE_FORMAT,
+        "inventory": [
+            {"path": path, "raw_sha256": entries[path][0], "bytes": entries[path][1]}
+            for path in inventory
+        ],
+    }
+    binding_digest = hashlib.sha256(
+        _input_closure_canonical_json_bytes(document)
+    ).hexdigest()
+    return binding_digest, len(inventory), inventory
+
+
+def _filesystem_development_input_closure(
+    root: Path,
+) -> tuple[str, int, tuple[str, ...]]:
+    root = root.resolve()
+
+    def reader(relative: str) -> bytes:
+        raw = PurePosixPath(relative)
+        if raw.is_absolute() or any(part in {"", ".", ".."} for part in raw.parts):
+            raise ValueError("development input path is noncanonical")
+        path = root.joinpath(*raw.parts)
+        current = path
+        while current != root:
+            if current.is_symlink():
+                raise ValueError(f"development input uses a symlink: {relative}")
+            current = current.parent
+        try:
+            before = path.stat()
+            payload = path.read_bytes()
+            after = path.stat()
+        except OSError as exc:
+            raise ValueError(f"development input is absent: {relative}") from exc
+        fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns")
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or any(getattr(before, field) != getattr(after, field) for field in fields)
+            or len(payload) != after.st_size
+        ):
+            raise ValueError(f"development input changed while read: {relative}")
+        return payload
+
+    return _independent_development_input_closure(reader)
+
+
+def _git_development_input_closure(
+    bare: Path, commit: str,
+) -> tuple[str, int, tuple[str, ...]]:
+    return _independent_development_input_closure(
+        lambda relative: _git_blob_bytes(
+            bare, commit, relative, label=f"development input {relative}"
+        )
+    )
 
 
 def _lineage_canonical_json_bytes(value: object) -> bytes:
@@ -3422,6 +4052,116 @@ def _merge_categories(
         target.setdefault(category, set()).update(path.resolve() for path in paths)
 
 
+def _validate_model_matrix_amendment_binding(
+    root: Path,
+    authorization: Mapping[str, Any],
+) -> tuple[Path, Path, str]:
+    """Independently close authorization over the model-matrix seal bytes."""
+    binding = authorization.get("model_matrix_amendment")
+    binding_fields = {
+        "path", "sha256", "format", "status", "amendment_id", "seal",
+        "amendment_document_commit",
+    }
+    if (
+        not isinstance(binding, Mapping)
+        or set(binding) != binding_fields
+        or binding.get("path") != MODEL_MATRIX_AMENDMENT_PATH
+        or re.fullmatch(r"[0-9a-f]{64}", str(binding.get("sha256", ""))) is None
+        or binding.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
+        or binding.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
+        or binding.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or re.fullmatch(
+            r"[0-9a-f]{40}",
+            str(binding.get("amendment_document_commit", "")),
+        )
+        is None
+    ):
+        raise ValueError(
+            "authorization lacks the exact model-matrix amendment binding"
+        )
+    seal_binding = binding.get("seal")
+    if (
+        not isinstance(seal_binding, Mapping)
+        or set(seal_binding) != {"path", "sha256"}
+        or seal_binding.get("path") != MODEL_MATRIX_AMENDMENT_SEAL_PATH
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(seal_binding.get("sha256", ""))
+        )
+        is None
+    ):
+        raise ValueError(
+            "authorization model-matrix amendment seal binding changed"
+        )
+    amendment_path = _resolve_release_path(
+        root,
+        binding["path"],
+        label="authorized model-matrix amendment",
+        expected_sha256=str(binding["sha256"]),
+    )
+    seal_path = _resolve_release_path(
+        root,
+        seal_binding["path"],
+        label="authorized model-matrix amendment seal",
+        expected_sha256=str(seal_binding["sha256"]),
+    )
+    amendment = _load_json(
+        amendment_path, label="authorized model-matrix amendment"
+    )
+    seal = _load_json(
+        seal_path, label="authorized model-matrix amendment seal"
+    )
+    attestation = {
+        "post_2020_wtemp_requested_or_inspected": False,
+        "confirmation_outcomes_requested_or_inspected": False,
+        "confirmation_outcome_artifact_present": False,
+        "outcome_endpoint_called": False,
+        "outcome_independent": True,
+        "network_used": False,
+    }
+    history_contract = {
+        "governance_seal_commits_must_be_strict_ancestors": True,
+        "amendment_blob_must_match_document_commit": True,
+        "amendment_document_created_exactly_once": True,
+        "document_commit_must_precede_seal_commit": True,
+        "seal_created_exactly_once": True,
+        "amendment_and_seal_immutable_to_release_tip": True,
+    }
+    if (
+        amendment.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
+        or amendment.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
+        or amendment.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or amendment.get("prelabel_attestation") != attestation
+        or set(seal)
+        != {
+            "format", "status", "amendment_id", "amendment",
+            "amendment_document_commit", "governance_seals",
+            "history_contract", "prelabel_attestation",
+        }
+        or seal.get("format") != MODEL_MATRIX_AMENDMENT_SEAL_FORMAT
+        or seal.get("status") != MODEL_MATRIX_AMENDMENT_SEAL_STATUS
+        or seal.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or seal.get("amendment")
+        != {"path": MODEL_MATRIX_AMENDMENT_PATH, "sha256": binding["sha256"]}
+        or seal.get("amendment_document_commit")
+        != binding.get("amendment_document_commit")
+        or seal.get("history_contract") != history_contract
+        or seal.get("prelabel_attestation") != attestation
+        or not isinstance(seal.get("governance_seals"), Mapping)
+        or not seal["governance_seals"]
+        or any(
+            not isinstance(item, Mapping)
+            or set(item) != {"path", "sha256"}
+            or re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256", "")))
+            is None
+            for item in seal["governance_seals"].values()
+        )
+    ):
+        raise ValueError(
+            "authorized model-matrix amendment or seal semantics changed"
+        )
+    return amendment_path, seal_path, str(seal_binding["sha256"])
+
+
 def _validate_authorization_structure(
     root: Path, authorization_path: Path
 ) -> tuple[dict[str, Any], dict[str, str]]:
@@ -3601,6 +4341,7 @@ def _validate_authorization_structure(
         raise ValueError(
             "authorization lacks the canonical probability metric erratum seal"
         )
+    _validate_model_matrix_amendment_binding(root, authorization)
     inference_gate = authorization.get("inference_gate")
     if (
         not isinstance(inference_gate, Mapping)
@@ -3872,7 +4613,11 @@ def _stage09b_release_members() -> tuple[tuple[str, int], ...]:
 
 
 def _stage09b_formal_configuration(
-    value: object, *, expected_bridge: object,
+    value: object,
+    *,
+    expected_bridge: object,
+    input_closure_sha256: str,
+    input_closure_file_count: int,
 ) -> dict[str, Any]:
     """Validate every scientific configuration field without archive imports."""
     if not isinstance(value, Mapping):
@@ -3919,8 +4664,8 @@ def _stage09b_formal_configuration(
         "lambda_crossing": 1.0,
     }
     parameter_counts = {
-        "PlainMLP-7var": 38_545,
-        "PlainCausalTCN-7var": 38_031,
+        "PlainMLP-7var": 38_860,
+        "PlainCausalTCN-7var": 38_346,
         "ThermoRoute-ladder-01_WTEMP": 37_775,
         "ThermoRoute-ladder-02_plus_FLOW": 37_896,
         "ThermoRoute-ladder-03_plus_TEMP": 38_018,
@@ -3930,10 +4675,35 @@ def _stage09b_formal_configuration(
         "ThermoRoute-ladder-07_plus_WDSP": 38_505,
     }
     neural_common = {
-        "format_version": 2,
+        "format_version": 3,
         "module": "thermoroute.neural_baselines",
-        "future_keys_never_read": ["y", "clim_tgt", "damped_prior", "target_date"],
-        "input_keys_read": ["X", "Mask", "station"],
+        "future_keys_never_read": ["y", "target_date", "wlevelz"],
+        "input_keys_read": [
+            "X", "Mask", "station", "wtemp_t", "clim_t", "clim_tgt",
+            "damped_prior", "phys_std", "logflowz", "season", "gate",
+        ],
+        "input_keys_explicitly_excluded": ["y", "target_date", "wlevelz"],
+        "excluded_keys_may_be_present_but_are_never_read": True,
+        "information_contract": "stage09b_outcome_free_issue_time_v1",
+        "information_context_feature_order": [
+            "wtemp_t", "clim_t", "clim_tgt[horizons]",
+            "damped_prior[horizons]", "phys_std", "logflowz",
+            "season[sin_doy,cos_doy]", "gate",
+        ],
+        "common_anchor": "damped_prior",
+        "forecast_parameterization": (
+            "damped_prior_plus_unrestricted_additive_neural_residual"
+        ),
+        "uses_dynamic_lag_router": False,
+        "uses_learned_physics_prior": False,
+        "uses_mixture_of_experts": False,
+        "uses_bounded_residual": False,
+        "causal_interpretation_allowed": False,
+        "noncausal_boundary": (
+            "Development-only predictive architecture control; temporal "
+            "non-anticipation does not identify a causal effect or establish "
+            "causal necessity."
+        ),
         "output_keys": ["point", "q_lo", "q_med", "q_hi", "event_logit"],
         "point_objective": "mse_conditional_mean",
         "q50_is_independent_from_point": True,
@@ -3952,28 +4722,30 @@ def _stage09b_formal_configuration(
         if arm["family"] == "PlainMLP":
             templates[arm_id] = {
                 **neural_common,
-                "architecture_id": "plain_history_mlp_v2",
+                "architecture_id": "plain_information_matched_mlp_v1",
                 "class_name": "PlainMLPForecaster",
                 "constructor_kwargs": {
                     "n_vars": 7, "context_length": 32, "horizons": [1, 3, 7],
                     "n_stations": 120, "station_agnostic": False,
                     "station_embed_dim": 8, "hidden_dim": 70, "depth": 2,
                     "dropout": 0.15, "min_spread": 0.0001,
-                    "init_seed": "member_seed",
+                    "init_seed": "member_seed", "n_phys": 4, "gate_dim": 6,
+                    "use_information_matched_context": True,
                 },
                 "trainable_parameters": parameter_counts[arm_id],
             }
         elif arm["family"] == "PlainCausalTCN":
             templates[arm_id] = {
                 **neural_common,
-                "architecture_id": "plain_causal_tcn_v2",
+                "architecture_id": "plain_information_matched_causal_tcn_v1",
                 "class_name": "PlainCausalTCNForecaster",
                 "constructor_kwargs": {
                     "n_vars": 7, "context_length": 32, "horizons": [1, 3, 7],
                     "n_stations": 120, "station_agnostic": False,
                     "station_embed_dim": 8, "channels": 54, "blocks": 4,
                     "kernel_size": 3, "dropout": 0.15, "min_spread": 0.0001,
-                    "init_seed": "member_seed",
+                    "init_seed": "member_seed", "n_phys": 4, "gate_dim": 6,
+                    "use_information_matched_context": True,
                 },
                 "trainable_parameters": parameter_counts[arm_id],
             }
@@ -4059,6 +4831,8 @@ def _stage09b_formal_configuration(
         "development_predictor_bridge": expected_bridge,
         "formal_numerical_policy": formal_policy,
         "eval_batch_size": eval_batch_size,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": input_closure_file_count,
     }
     if dict(value) != expected:
         raise ValueError("Stage-09b formal architecture/training configuration changed")
@@ -4903,7 +5677,9 @@ def _stage09b_expected_report(
     ])
     budget_table = _stage09b_markdown_table(budget[[
         "arm_id", "variables", "seed_count", "trainable_parameters",
-        "parameter_ratio_to_full_thermoroute", "maximum_optimizer_steps_per_seed",
+        "parameter_ratio_to_full_thermoroute", "information_matched_context",
+        "common_forecast_anchor", "residual_parameterization",
+        "maximum_optimizer_steps_per_seed",
     ]])
     splits = audit["splits"]
     return f"""# Development-only neural controls and feature ladder
@@ -4923,15 +5699,25 @@ All models use the frozen 120-site 2006--2020 panel, 32 days of history,
 horizons 1/3/7 days, CPU-only deterministic execution, equal-station fixed-size
 bootstrap sampling, AdamW, the same declared maximum optimisation budget, and
 early-stopping rule. PlainMLP and PlainCausalTCN receive the seven declared
-history variables and masks. ThermoRoute additionally receives its declared
-train-fitted deviation reference and calendar-derived auxiliary inputs. The feature ladder adds one
-declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP, RHMEAN,
-DH, WDSP.
+history variables and masks plus the exact frozen outcome-free issue-time and
+derived context: station, current water temperature and climatology, target-date
+climatology, train-fitted damped-persistence anchor, physical forcing vector,
+standardised log flow, season, and regime-gate vector. They explicitly never
+read `y`, `target_date`, or `wlevelz`. Both controls predict an unrestricted
+additive residual from `damped_prior`; neither contains a learned physics prior,
+dynamic lag router, mixture of experts, or bounded residual. The feature ladder
+adds one declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP,
+RHMEAN, DH, WDSP.
 
 The two pure-neural controls are parameter-matched within 2% of the full
 ThermoRoute architecture. Each architecture has one fixed candidate here.
 This does not equalise ThermoRoute's historical tuning advantage, so
 `historical_tuning_budget_equalized` remains false.
+
+Information matching removes the named model-input access disadvantage only.
+It does not make the architectures causally comparable, equalise representation
+capacity or historical search effort, or support claims that any ThermoRoute
+component is causally necessary.
 
 Exact member count: {audit['expected_members']}. Common forecast keys per member:
 {audit['common_forecast_keys']}. Total prediction rows: {audit['prediction_rows']}.
@@ -5007,6 +5793,9 @@ def _stage09b_expected_final_extra(
 
 def _stage25_expected_formal_configuration(
     expected_bridge: object,
+    *,
+    input_closure_sha256: str,
+    input_closure_file_count: int,
 ) -> dict[str, Any]:
     """Mirror the source Stage-25 configuration without importing archive code."""
     hash_policy = "canonical-sort-identity-collections-independent-of-hash-secret"
@@ -5102,13 +5891,24 @@ def _stage25_expected_formal_configuration(
         "training_device": "cpu",
         "development_predictor_bridge": expected_bridge,
         "formal_numerical_policy": formal_policy,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": input_closure_file_count,
+        "input_closure_component_count": 1,
     }
 
 
 def _stage25_formal_configuration(
-    value: object, *, expected_bridge: object,
+    value: object,
+    *,
+    expected_bridge: object,
+    input_closure_sha256: str,
+    input_closure_file_count: int,
 ) -> dict[str, Any]:
-    expected = _stage25_expected_formal_configuration(expected_bridge)
+    expected = _stage25_expected_formal_configuration(
+        expected_bridge,
+        input_closure_sha256=input_closure_sha256,
+        input_closure_file_count=input_closure_file_count,
+    )
     if not isinstance(value, Mapping) or dict(value) != expected:
         raise ValueError("authorized Stage-25 formal configuration changed")
     return expected
@@ -5663,6 +6463,8 @@ def _validate_stage16_completion_gate(
     *,
     stage9_receipt: Mapping[str, Any],
     stage9_receipt_path: Path,
+    development_input_closure_sha256: str,
+    development_input_closure_file_count: int,
 ) -> None:
     """Independently verify the complete Stage-16 LSTM admission receipt."""
     gates = suite.get("preopening_gates")
@@ -5698,7 +6500,8 @@ def _validate_stage16_completion_gate(
     }
     identity_fields = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     artifacts = receipt.get("artifacts")
     identity = receipt.get("run_identity")
@@ -5750,14 +6553,29 @@ def _validate_stage16_completion_gate(
         artifacts["stage09_parent_prediction_sidecar"],
         label="Stage-16 Stage-9 parent prediction sidecar",
     )
+    stage9_components_path = add(
+        parent_artifacts["components_pointer"],
+        label="Stage-16 Stage-9 components pointer",
+    )
     parent_sha256 = sha256_file(parent_path)
+    expected_input_closure_sha256 = _compose_input_closure_digest({
+        "development": development_input_closure_sha256,
+        "stage09_parent_prediction": parent_sha256,
+        "stage09_parent_sidecar": sha256_file(parent_sidecar),
+        "stage09_completion_receipt": sha256_file(stage9_receipt_path),
+        "stage09_components": sha256_file(stage9_components_path),
+    })
+    expected_input_closure_file_count = (
+        development_input_closure_file_count + 4
+    )
     expected_configuration_keys = {
         "stage", "role", "parent_sha256", "models", "seeds", "variables",
         "horizons", "context_length", "station_embedding",
         "station_balanced", "selection_metric", "validation_grid",
         "validation_selection_seed", "validation_selection_split",
         "event_reference_fit_interval", "train_config", "training_device",
-        "formal_numerical_policy",
+        "formal_numerical_policy", "input_closure_sha256",
+        "input_closure_file_count",
     }
     feature_order = [
         "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
@@ -5788,25 +6606,26 @@ def _validate_stage16_completion_gate(
         or configuration.get("training_device") != "cpu"
         or not isinstance(configuration.get("formal_numerical_policy"), Mapping)
         or not configuration["formal_numerical_policy"]
+        or configuration.get("input_closure_sha256")
+        != expected_input_closure_sha256
+        or configuration.get("input_closure_file_count")
+        != expected_input_closure_file_count
     ):
         raise ValueError("authorized Stage-16 formal configuration changed")
-    identity_stable = {
-        "schema_version": identity.get("schema_version"),
-        "panel_sha256": identity.get("panel_sha256"),
-        "registry_sha256": identity.get("registry_sha256"),
-        "config_sha256": identity.get("config_sha256"),
-        "source_sha256": identity.get("source_sha256"),
-        "runtime_sha256": identity.get("runtime_sha256"),
-    }
+    _validate_run_identity_v2(
+        identity,
+        configuration,
+        expected_input_closure_sha256=expected_input_closure_sha256,
+        expected_input_closure_file_count=expected_input_closure_file_count,
+        label="authorized Stage-16",
+    )
     if (
         identity.get("run_id") != run_id
-        or identity.get("schema_version") != "thermoroute.run.v1"
         or identity.get("panel_sha256") != panel.get("sha256")
         or identity.get("registry_sha256") != registry.get("sha256")
         or identity.get("config_sha256") != _sha256_json(configuration)
         or identity.get("source_sha256") != development.get("source_sha256")
         or identity.get("runtime_sha256") != suite_runtime
-        or run_id != _sha256_json(identity_stable)[:20]
     ):
         raise ValueError("authorized Stage-16 run identity/configuration changed")
 
@@ -5894,7 +6713,7 @@ def _validate_stage16_completion_gate(
             "schema_version", "identity", "resolved_config", "created_utc",
             "environment", "git", "provenance",
         }
-        or run_manifest.get("schema_version") != "thermoroute.run.v1"
+        or run_manifest.get("schema_version") != "thermoroute.run.v2"
         or run_manifest.get("identity") != identity
         or run_manifest.get("resolved_config") != configuration
         or not isinstance(provenance, Mapping)
@@ -6270,6 +7089,9 @@ def _validate_stage25_completion_gate(
     suite: Mapping[str, Any],
     development: Mapping[str, Any],
     suite_runtime: str,
+    *,
+    development_input_closure_sha256: str,
+    development_input_closure_file_count: int,
 ) -> None:
     """Statically bind the standalone Stage-25 receipt before archive code runs."""
     gates = suite.get("preopening_gates")
@@ -6308,7 +7130,8 @@ def _validate_stage25_completion_gate(
     development_registry = development.get("registry")
     identity_fields = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     run_id = receipt.get("run_id")
     if (
@@ -6331,26 +7154,30 @@ def _validate_stage25_completion_gate(
     ):
         raise ValueError("authorized Stage-25 completion receipt is malformed")
     _validate_receipt_self_hash(receipt, label="Stage-25 receipt")
+    expected_input_closure_sha256 = _compose_input_closure_digest({
+        "development": development_input_closure_sha256,
+    })
     configuration = _stage25_formal_configuration(
-        configuration, expected_bridge=development.get("predictor_bridge")
+        configuration,
+        expected_bridge=development.get("predictor_bridge"),
+        input_closure_sha256=expected_input_closure_sha256,
+        input_closure_file_count=development_input_closure_file_count,
+    )
+    _validate_run_identity_v2(
+        identity,
+        configuration,
+        expected_input_closure_sha256=expected_input_closure_sha256,
+        expected_input_closure_file_count=development_input_closure_file_count,
+        label="authorized Stage-25",
     )
     if (
         identity.get("run_id") != run_id
-        or identity.get("schema_version") != "thermoroute.run.v1"
         or identity.get("panel_sha256") != development_panel.get("sha256")
         or identity.get("registry_sha256")
         != development_registry.get("sha256")
         or identity.get("source_sha256") != development.get("source_sha256")
         or identity.get("runtime_sha256") != suite_runtime
         or identity.get("config_sha256") != _sha256_json(configuration)
-        or run_id != _sha256_json({
-            "schema_version": identity["schema_version"],
-            "panel_sha256": identity["panel_sha256"],
-            "registry_sha256": identity["registry_sha256"],
-            "config_sha256": identity["config_sha256"],
-            "source_sha256": identity["source_sha256"],
-            "runtime_sha256": identity["runtime_sha256"],
-        })[:20]
     ):
         raise ValueError("authorized Stage-25 run identity/configuration changed")
 
@@ -6430,7 +7257,7 @@ def _validate_stage25_completion_gate(
     run_manifest = _load_json(run_manifest_path, label="Stage-25 run manifest")
     provenance = run_manifest.get("provenance")
     if (
-        run_manifest.get("schema_version") != "thermoroute.run.v1"
+        run_manifest.get("schema_version") != "thermoroute.run.v2"
         or run_manifest.get("identity") != identity
         or run_manifest.get("resolved_config") != configuration
         or not isinstance(provenance, Mapping)
@@ -6520,6 +7347,11 @@ def _validate_preopening_completion_gates(
         raise ValueError(
             "authorized model suite lacks Stage-9/09b/16/25 completion gates"
         )
+    (
+        development_input_closure_sha256,
+        development_input_closure_file_count,
+        _development_input_paths,
+    ) = _filesystem_development_input_closure(root)
 
     def add(binding: object, *, label: str) -> Path:
         return _add_binding(
@@ -6539,6 +7371,7 @@ def _validate_preopening_completion_gates(
         "components_pointer",
     }
     stage9_identity = stage9.get("run_identity")
+    stage9_config = stage9.get("formal_configuration")
     if (
         set(stage9) != stage9_keys
         or stage9.get("format") != "thermoroute.stage09-completion-receipt.v1"
@@ -6546,6 +7379,8 @@ def _validate_preopening_completion_gates(
         or stage9.get("stage") != "09_usgs_experiment"
         or stage9.get("confirmation_outcomes_requested_or_read") is not False
         or not isinstance(stage9_identity, Mapping)
+        or not isinstance(stage9_config, Mapping)
+        or stage9.get("run_id") != stage9_identity.get("run_id")
         or stage9_identity.get("panel_sha256") != development.get("panel", {}).get("sha256")
         or stage9_identity.get("registry_sha256")
         != development.get("registry", {}).get("sha256")
@@ -6553,12 +7388,30 @@ def _validate_preopening_completion_gates(
         or stage9_identity.get("runtime_sha256") != suite_runtime
     ):
         raise ValueError("authorized Stage-9 completion receipt is stale or malformed")
+    _validate_run_identity_v2(
+        stage9_identity,
+        stage9_config,
+        expected_input_closure_sha256=development_input_closure_sha256,
+        expected_input_closure_file_count=development_input_closure_file_count,
+        label="authorized Stage-9",
+    )
     _validate_receipt_self_hash(stage9, label="Stage-9 receipt")
     artifacts = stage9.get("artifacts")
     if not isinstance(artifacts, Mapping) or set(artifacts) != stage9_artifacts:
         raise ValueError("authorized Stage-9 completion artifact registry is incomplete")
-    for label, binding in artifacts.items():
-        add(binding, label=f"Stage-9 receipt {label}")
+    stage9_resolved = {
+        label: add(binding, label=f"Stage-9 receipt {label}")
+        for label, binding in artifacts.items()
+    }
+    stage9_run_manifest = _load_json(
+        stage9_resolved["run_manifest"], label="Stage-9 run manifest"
+    )
+    if (
+        stage9_run_manifest.get("schema_version") != "thermoroute.run.v2"
+        or stage9_run_manifest.get("identity") != stage9_identity
+        or stage9_run_manifest.get("resolved_config") != stage9_config
+    ):
+        raise ValueError("authorized Stage-9 run manifest changed")
 
     controls_path = add(
         gates["stage09b_development_controls"],
@@ -6604,32 +7457,20 @@ def _validate_preopening_completion_gates(
     ):
         raise ValueError("authorized Stage-09b completion receipt is stale or malformed")
     config = _stage09b_formal_configuration(
-        config, expected_bridge=development.get("predictor_bridge")
+        config,
+        expected_bridge=development.get("predictor_bridge"),
+        input_closure_sha256=development_input_closure_sha256,
+        input_closure_file_count=development_input_closure_file_count,
     )
     expected_members = _stage09b_release_members()
     expected_member_count = len(expected_members)
-    identity_fields = {
-        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
-    }
-    if (
-        set(identity) != identity_fields
-        or identity.get("schema_version") != "thermoroute.run.v1"
-        or identity.get("config_sha256") != _sha256_json(config)
-        or any(
-            not re.fullmatch(r"[0-9a-f]{64}", str(identity.get(field, "")))
-            for field in identity_fields - {"run_id", "schema_version"}
-        )
-        or identity.get("run_id") != _sha256_json({
-            "schema_version": identity["schema_version"],
-            "panel_sha256": identity["panel_sha256"],
-            "registry_sha256": identity["registry_sha256"],
-            "config_sha256": identity["config_sha256"],
-            "source_sha256": identity["source_sha256"],
-            "runtime_sha256": identity["runtime_sha256"],
-        })[:20]
-    ):
-        raise ValueError("authorized Stage-09b run identity is not content addressed")
+    _validate_run_identity_v2(
+        identity,
+        config,
+        expected_input_closure_sha256=development_input_closure_sha256,
+        expected_input_closure_file_count=development_input_closure_file_count,
+        label="authorized Stage-09b",
+    )
     _validate_receipt_self_hash(controls, label="Stage-09b receipt")
     artifacts = controls.get("artifacts")
     if not isinstance(artifacts, Mapping) or set(artifacts) != control_artifacts:
@@ -6764,7 +7605,7 @@ def _validate_preopening_completion_gates(
             "schema_version", "identity", "resolved_config", "created_utc",
             "environment", "git", "provenance",
         }
-        or run_manifest.get("schema_version") != "thermoroute.run.v1"
+        or run_manifest.get("schema_version") != "thermoroute.run.v2"
     ):
         raise ValueError("Stage-09b run manifest differs from its receipt")
 
@@ -7020,8 +7861,8 @@ def _validate_preopening_completion_gates(
         raise ValueError("authorized Stage-09b prediction semantics are unreadable") from exc
 
     expected_parameters = {
-        "PlainMLP-7var": 38_545,
-        "PlainCausalTCN-7var": 38_031,
+        "PlainMLP-7var": 38_860,
+        "PlainCausalTCN-7var": 38_346,
         "ThermoRoute-ladder-01_WTEMP": 37_775,
         "ThermoRoute-ladder-02_plus_FLOW": 37_896,
         "ThermoRoute-ladder-03_plus_TEMP": 38_018,
@@ -7038,9 +7879,14 @@ def _validate_preopening_completion_gates(
         "parameter_ratio_to_full_thermoroute", "matched_within_2pct_of_full_thermoroute",
         "context_length", "horizons", "optimizer", "learning_rate", "weight_decay",
         "batch_size", "max_epochs", "early_stopping_patience", "selection_metric",
-        "station_sampling", "train_examples_per_epoch",
-        "maximum_optimizer_steps_per_seed", "architecture_candidates_in_this_entrypoint",
-        "architecture_configuration", "mlp_hidden_dim", "mlp_depth", "tcn_channels",
+            "station_sampling", "train_examples_per_epoch",
+            "maximum_optimizer_steps_per_seed", "architecture_candidates_in_this_entrypoint",
+            "architecture_configuration", "information_matched_context",
+            "model_input_keys_read", "model_input_keys_explicitly_excluded",
+            "common_forecast_anchor", "residual_parameterization",
+            "uses_learned_physics_prior", "uses_dynamic_lag_router",
+            "uses_mixture_of_experts", "causal_interpretation_allowed",
+            "noncausal_boundary", "mlp_hidden_dim", "mlp_depth", "tcn_channels",
         "tcn_blocks", "tcn_kernel_size", "thermoroute_d_model",
         "historical_tuning_budget_equalized", "training_device", "evidence_role",
     )
@@ -7098,9 +7944,42 @@ def _validate_preopening_completion_gates(
             or int(row.get("maximum_optimizer_steps_per_seed", "-1"))
             != math.ceil(int(row["train_examples_per_epoch"]) / 1536) * 80
             or int(row.get("architecture_candidates_in_this_entrypoint", "-1")) != 1
-            or json.loads(row.get("architecture_configuration", "null"))
-            != config["architecture_templates"][row["arm_id"]]
-            or row.get("mlp_hidden_dim")
+                or json.loads(row.get("architecture_configuration", "null"))
+                != config["architecture_templates"][row["arm_id"]]
+                or row.get("information_matched_context")
+                != ("True" if row["arm_id"].startswith("Plain") else "False")
+                or row.get("model_input_keys_read")
+                != (
+                    "X,Mask,station,wtemp_t,clim_t,clim_tgt,damped_prior,"
+                    "phys_std,logflowz,season,gate"
+                    if row["arm_id"].startswith("Plain") else ""
+                )
+                or row.get("model_input_keys_explicitly_excluded")
+                != (
+                    "y,target_date,wlevelz"
+                    if row["arm_id"].startswith("Plain") else ""
+                )
+                or row.get("common_forecast_anchor") != "damped_prior"
+                or row.get("residual_parameterization")
+                != (
+                    "unrestricted_additive_neural_residual"
+                    if row["arm_id"].startswith("Plain")
+                    else "bounded_additive_neural_residual"
+                )
+                or row.get("uses_learned_physics_prior")
+                != ("False" if row["arm_id"].startswith("Plain") else "True")
+                or row.get("uses_dynamic_lag_router")
+                != ("False" if row["arm_id"].startswith("Plain") else "True")
+                or row.get("uses_mixture_of_experts")
+                != ("False" if row["arm_id"].startswith("Plain") else "True")
+                or row.get("causal_interpretation_allowed") != "False"
+                or row.get("noncausal_boundary")
+                != (
+                    "Development-only predictive architecture control; temporal "
+                    "non-anticipation does not identify a causal effect or establish "
+                    "causal necessity."
+                )
+                or row.get("mlp_hidden_dim")
             != ("70" if row["arm_id"] == "PlainMLP-7var" else "")
             or row.get("mlp_depth")
             != ("2" if row["arm_id"] == "PlainMLP-7var" else "")
@@ -7285,9 +8164,21 @@ def _validate_preopening_completion_gates(
         suite_runtime,
         stage9_receipt=stage9,
         stage9_receipt_path=stage9_path,
+        development_input_closure_sha256=development_input_closure_sha256,
+        development_input_closure_file_count=(
+            development_input_closure_file_count
+        ),
     )
     _validate_stage25_completion_gate(
-        root, categories, suite, development, suite_runtime
+        root,
+        categories,
+        suite,
+        development,
+        suite_runtime,
+        development_input_closure_sha256=development_input_closure_sha256,
+        development_input_closure_file_count=(
+            development_input_closure_file_count
+        ),
     )
     _walk_json_dependencies(root, categories, "model_suite", stage9_path)
     _walk_json_dependencies(root, categories, "model_suite", controls_path)
@@ -7943,12 +8834,16 @@ def _validate_release_work_order(
     fields = {
         "format", "opening_id", "authorization_path", "authorization_sha256",
         "source_tree_sha256", "runtime_sha256", "fixed_code_sha256",
+        "model_matrix_amendment_seal_sha256",
         "acquisition_plan", "state_paths", "site_registries",
         "work_order_self_sha256",
     }
     source = authorization.get("source")
     runtime = authorization.get("runtime")
     fixed_code = authorization.get("fixed_code")
+    _, _, model_matrix_amendment_seal_sha256 = (
+        _validate_model_matrix_amendment_binding(root, authorization)
+    )
     if (
         not isinstance(source, Mapping)
         or not isinstance(runtime, Mapping)
@@ -7964,6 +8859,8 @@ def _validate_release_work_order(
         != source.get("source_tree_sha256")
         or work_order.get("runtime_sha256") != runtime.get("runtime_sha256")
         or work_order.get("fixed_code_sha256") != fixed_code.get("sha256")
+        or work_order.get("model_matrix_amendment_seal_sha256")
+        != model_matrix_amendment_seal_sha256
         or work_order.get("state_paths") != dict(state)
     ):
         raise ValueError("acquisition work-order identity or exact schema changed")
@@ -9782,6 +10679,23 @@ def _gather_postopen_categories(
         root, state["work_order"], label="acquisition work order"
     )
     _add_path(root, categories, "authorization", work_order_path)
+    (
+        model_matrix_amendment_path,
+        model_matrix_amendment_seal_path,
+        _model_matrix_amendment_seal_sha256,
+    ) = _validate_model_matrix_amendment_binding(root, authorization)
+    _add_path(
+        root,
+        categories,
+        "authorization",
+        model_matrix_amendment_path,
+    )
+    _add_path(
+        root,
+        categories,
+        "authorization",
+        model_matrix_amendment_seal_path,
+    )
 
     protocol_binding = authorization.get("protocol")
     protocol = _add_binding(
@@ -10140,6 +11054,7 @@ def _gather_postopen_categories(
         "format", "status", "opening_id", "authorization_sha256",
         "preflight_attestation_sha256", "work_order_self_sha256",
         "work_order_file_sha256", "fixed_code_sha256", "runtime_sha256",
+        "model_matrix_amendment_seal_sha256",
         "maximum_openings", "retry_after_failure_allowed",
         "same_opening_transport_resume_allowed", "trusted_validator",
         "started_at_utc", "intent_self_sha256",
@@ -10156,6 +11071,10 @@ def _gather_postopen_categories(
         != authorization.get("fixed_code", {}).get("sha256")
         or intent.get("runtime_sha256")
         != authorization.get("runtime", {}).get("runtime_sha256")
+        or intent.get("model_matrix_amendment_seal_sha256")
+        != authorization.get("model_matrix_amendment", {}).get(
+            "seal", {}
+        ).get("sha256")
         or intent.get("maximum_openings") != 1
         or intent.get("retry_after_failure_allowed") is not False
         or intent.get("same_opening_transport_resume_allowed") is not True
@@ -10175,6 +11094,7 @@ def _gather_postopen_categories(
         raise ValueError("opening receipt self hash is inconsistent")
     receipt_fields = {
         "format", "status", "opening_id", "authorization_sha256",
+        "model_matrix_amendment_seal_sha256",
         "intent_sha256", "work_order_sha256", "preflight_attestation",
         "preflight_attestation_sha256", "trusted_validator", "fixed_code",
         "authorized_runtime", "completion_environment",
@@ -10192,6 +11112,10 @@ def _gather_postopen_categories(
         or receipt.get("status") != "OPENED_AND_SCORED_ONCE"
         or receipt.get("opening_id") != authorization["opening_id"]
         or receipt.get("authorization_sha256") != authorization_sha
+        or receipt.get("model_matrix_amendment_seal_sha256")
+        != authorization.get("model_matrix_amendment", {}).get(
+            "seal", {}
+        ).get("sha256")
         or receipt.get("intent_sha256") != sha256_file(intent_path)
         or receipt.get("opening_count") != 1
         or receipt.get("maximum_openings") != 1
@@ -10223,6 +11147,16 @@ def _gather_postopen_categories(
         or intent.get("preflight_attestation_sha256") != _sha256_json(preflight)
         or preflight.get("prelabel_chronology_sha256")
         != authorization.get("prelabel_chronology", {}).get("sha256")
+        or preflight.get("model_matrix_amendment_sha256")
+        != authorization.get("model_matrix_amendment", {}).get("sha256")
+        or preflight.get("model_matrix_amendment_seal_sha256")
+        != authorization.get("model_matrix_amendment", {}).get(
+            "seal", {}
+        ).get("sha256")
+        or preflight.get("model_matrix_amendment_id")
+        != MODEL_MATRIX_AMENDMENT_ID
+        or preflight.get("model_matrix_amendment_status")
+        != MODEL_MATRIX_AMENDMENT_STATUS
         or receipt.get("work_order_sha256") != sha256_file(
             _resolve_release_path(root, state["work_order"], label="acquisition work order")
         )
@@ -11256,6 +12190,7 @@ def _verify_authorized_compute_tree_from_bundle(
     expected_fixed = {
         "modules": {
             "thermoroute.opening": "src/thermoroute/opening.py",
+            "thermoroute.chronology": "src/thermoroute/chronology.py",
             "thermoroute.model_suite": "src/thermoroute/model_suite.py",
             "thermoroute.frozen_inference": "src/thermoroute/frozen_inference.py",
             "thermoroute.datasets": "src/thermoroute/datasets.py",
@@ -11263,6 +12198,12 @@ def _verify_authorized_compute_tree_from_bundle(
             "thermoroute.usgs": "src/thermoroute/usgs.py",
             "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
             "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
+            "thermoroute.probability_metric_erratum": (
+                "src/thermoroute/probability_metric_erratum.py"
+            ),
+            "thermoroute.model_matrix_amendment": (
+                "src/thermoroute/model_matrix_amendment.py"
+            ),
             "thermoroute.quantiles": "src/thermoroute/quantiles.py",
             "thermoroute.coverage_audit": (
                 "src/thermoroute/coverage_audit.py"
@@ -11407,6 +12348,60 @@ def _verify_authorized_compute_tree_from_bundle(
         relative=seal_relative,
         expected_sha256=str(seal_binding.get("sha256", "")),
         label="inference amendment seal",
+    )
+
+    model_matrix = authorization.get("model_matrix_amendment")
+    if not isinstance(model_matrix, Mapping):
+        raise ValueError("authorization lacks model-matrix amendment Git lineage")
+    model_matrix_relative = _git_declared_binding_path(
+        bare,
+        compute_commit,
+        model_matrix,
+        label="authorized model-matrix amendment",
+    )
+    model_matrix_seal = model_matrix.get("seal")
+    model_matrix_seal_relative = _git_declared_binding_path(
+        bare,
+        compute_commit,
+        model_matrix_seal,
+        label="authorized model-matrix amendment seal",
+    )
+    model_matrix_commit = str(
+        model_matrix.get("amendment_document_commit", "")
+    )
+    if (
+        model_matrix_relative != MODEL_MATRIX_AMENDMENT_PATH
+        or model_matrix_seal_relative != MODEL_MATRIX_AMENDMENT_SEAL_PATH
+        or re.fullmatch(r"[0-9a-f]{40}", model_matrix_commit) is None
+        or _run_git(
+            bare,
+            "merge-base",
+            "--is-ancestor",
+            model_matrix_commit,
+            compute_commit,
+        ).returncode
+    ):
+        raise ValueError("authorized model-matrix Git artifacts are noncanonical")
+    model_matrix_blob = _run_git(
+        bare,
+        "show",
+        f"{model_matrix_commit}:{model_matrix_relative}",
+    )
+    if (
+        model_matrix_blob.returncode
+        or hashlib.sha256(model_matrix_blob.stdout).hexdigest()
+        != model_matrix.get("sha256")
+    ):
+        raise ValueError("sealed model-matrix amendment Git blob changed")
+    if not isinstance(model_matrix_seal, Mapping):
+        raise ValueError("model-matrix amendment seal binding is malformed")
+    _verify_unique_immutable_path_creation(
+        bare,
+        tip=compute_commit,
+        predecessor=model_matrix_commit,
+        relative=model_matrix_seal_relative,
+        expected_sha256=str(model_matrix_seal.get("sha256", "")),
+        label="model-matrix amendment seal",
     )
 
 
@@ -11587,6 +12582,9 @@ def _git_stage25_dependency_paths(
     commit: str,
     suite: Mapping[str, Any],
     gate_binding: object,
+    *,
+    development_input_closure_sha256: str,
+    development_input_closure_file_count: int,
 ) -> set[str]:
     """Replay the exact Stage-25 receipt and 2+2+76 model closure from Git."""
     if not isinstance(gate_binding, Mapping) or set(gate_binding) != {
@@ -11619,7 +12617,8 @@ def _git_stage25_dependency_paths(
     }
     identity_fields = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     artifacts = receipt.get("artifacts")
     identity = receipt.get("run_identity")
@@ -11649,8 +12648,21 @@ def _git_stage25_dependency_paths(
         or self_hash != _sha256_json(stable_receipt)
     ):
         raise ValueError("Git Stage-25 completion receipt changed")
+    expected_input_closure_sha256 = _compose_input_closure_digest({
+        "development": development_input_closure_sha256,
+    })
     configuration = _stage25_formal_configuration(
-        configuration, expected_bridge=development.get("predictor_bridge")
+        configuration,
+        expected_bridge=development.get("predictor_bridge"),
+        input_closure_sha256=expected_input_closure_sha256,
+        input_closure_file_count=development_input_closure_file_count,
+    )
+    _validate_run_identity_v2(
+        identity,
+        configuration,
+        expected_input_closure_sha256=expected_input_closure_sha256,
+        expected_input_closure_file_count=development_input_closure_file_count,
+        label="Git Stage-25",
     )
     panel = development.get("panel")
     registry = development.get("registry")
@@ -11658,20 +12670,11 @@ def _git_stage25_dependency_paths(
         not isinstance(panel, Mapping)
         or not isinstance(registry, Mapping)
         or identity.get("run_id") != run_id
-        or identity.get("schema_version") != "thermoroute.run.v1"
         or identity.get("panel_sha256") != panel.get("sha256")
         or identity.get("registry_sha256") != registry.get("sha256")
         or identity.get("config_sha256") != _sha256_json(configuration)
         or identity.get("source_sha256") != development.get("source_sha256")
         or identity.get("runtime_sha256") != suite_runtime
-        or run_id != _sha256_json({
-            "schema_version": identity["schema_version"],
-            "panel_sha256": identity["panel_sha256"],
-            "registry_sha256": identity["registry_sha256"],
-            "config_sha256": identity["config_sha256"],
-            "source_sha256": identity["source_sha256"],
-            "runtime_sha256": identity["runtime_sha256"],
-        })[:20]
     ):
         raise ValueError("Git Stage-25 run identity/configuration changed")
 
@@ -11761,7 +12764,7 @@ def _git_stage25_dependency_paths(
             "schema_version", "identity", "resolved_config", "created_utc",
             "environment", "git", "provenance",
         }
-        or run_manifest.get("schema_version") != "thermoroute.run.v1"
+        or run_manifest.get("schema_version") != "thermoroute.run.v2"
         or run_manifest.get("identity") != identity
         or run_manifest.get("resolved_config") != configuration
         or not isinstance(run_manifest.get("environment"), Mapping)
@@ -11998,6 +13001,8 @@ def _git_stage16_dependency_paths(
     gate_binding: object,
     *,
     stage9_gate_binding: object,
+    development_input_closure_sha256: str,
+    development_input_closure_file_count: int,
 ) -> set[str]:
     """Replay the exact Stage-16 receipt and all authoritative bytes from Git."""
     if not isinstance(gate_binding, Mapping) or set(gate_binding) != {
@@ -12030,7 +13035,8 @@ def _git_stage16_dependency_paths(
     }
     identity_fields = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     stable = dict(receipt)
     self_hash = stable.pop("receipt_self_sha256", None)
@@ -12063,13 +13069,56 @@ def _git_stage16_dependency_paths(
     registry = development.get("registry")
     if not isinstance(panel, Mapping) or not isinstance(registry, Mapping):
         raise ValueError("Git Stage-16 development contract changed")
+    if artifacts.get("stage09_completion_receipt") != stage9_gate_binding:
+        raise ValueError("Git Stage-16 receipt binds another Stage-9 gate")
+    stage9_receipt_path = _git_declared_binding_path(
+        bare,
+        commit,
+        stage9_gate_binding,
+        label="Git Stage-16 Stage-9 receipt",
+    )
+    stage9 = _git_json_document(
+        bare,
+        commit,
+        stage9_receipt_path,
+        label="Git Stage-16 Stage-9 receipt",
+    )
+    stage9_artifacts = stage9.get("artifacts")
+    if not isinstance(stage9_artifacts, Mapping):
+        raise ValueError("Git Stage-16 Stage-9 receipt is malformed")
+    components_binding = stage9_artifacts.get("components_pointer")
+    parent_binding = artifacts.get("stage09_parent_predictions")
+    parent_sidecar_binding = artifacts.get("stage09_parent_prediction_sidecar")
+    if any(
+        not isinstance(binding, Mapping)
+        or re.fullmatch(r"[0-9a-f]{64}", str(binding.get("sha256", "")))
+        is None
+        for binding in (
+            components_binding,
+            parent_binding,
+            parent_sidecar_binding,
+            stage9_gate_binding,
+        )
+    ):
+        raise ValueError("Git Stage-16 parent closure is malformed")
+    expected_input_closure_sha256 = _compose_input_closure_digest({
+        "development": development_input_closure_sha256,
+        "stage09_parent_prediction": str(parent_binding["sha256"]),
+        "stage09_parent_sidecar": str(parent_sidecar_binding["sha256"]),
+        "stage09_completion_receipt": str(stage9_gate_binding["sha256"]),
+        "stage09_components": str(components_binding["sha256"]),
+    })
+    expected_input_closure_file_count = (
+        development_input_closure_file_count + 4
+    )
     expected_configuration_keys = {
         "stage", "role", "parent_sha256", "models", "seeds", "variables",
         "horizons", "context_length", "station_embedding",
         "station_balanced", "selection_metric", "validation_grid",
         "validation_selection_seed", "validation_selection_split",
         "event_reference_fit_interval", "train_config", "training_device",
-        "formal_numerical_policy",
+        "formal_numerical_policy", "input_closure_sha256",
+        "input_closure_file_count",
     }
     feature_order = [
         "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
@@ -12099,26 +13148,27 @@ def _git_stage16_dependency_paths(
         or configuration.get("training_device") != "cpu"
         or not isinstance(configuration.get("formal_numerical_policy"), Mapping)
         or not configuration["formal_numerical_policy"]
+        or configuration.get("input_closure_sha256")
+        != expected_input_closure_sha256
+        or configuration.get("input_closure_file_count")
+        != expected_input_closure_file_count
     ):
         raise ValueError("Git Stage-16 formal configuration changed")
-    identity_stable = {
-        "schema_version": identity.get("schema_version"),
-        "panel_sha256": identity.get("panel_sha256"),
-        "registry_sha256": identity.get("registry_sha256"),
-        "config_sha256": identity.get("config_sha256"),
-        "source_sha256": identity.get("source_sha256"),
-        "runtime_sha256": identity.get("runtime_sha256"),
-    }
+    _validate_run_identity_v2(
+        identity,
+        configuration,
+        expected_input_closure_sha256=expected_input_closure_sha256,
+        expected_input_closure_file_count=expected_input_closure_file_count,
+        label="Git Stage-16",
+    )
     if (
         identity.get("run_id") != run_id
-        or identity.get("schema_version") != "thermoroute.run.v1"
         or identity.get("panel_sha256") != panel.get("sha256")
         or identity.get("registry_sha256") != registry.get("sha256")
         or identity.get("config_sha256") != _sha256_json(configuration)
         or identity.get("source_sha256") != development.get("source_sha256")
         or identity.get("runtime_sha256")
         != suite.get("numerical_runtime_sha256")
-        or run_id != _sha256_json(identity_stable)[:20]
     ):
         raise ValueError("Git Stage-16 run identity/configuration changed")
 
@@ -12203,18 +13253,8 @@ def _git_stage16_dependency_paths(
             raise ValueError(f"Git Stage-16 {label} paths changed")
         output.update(observed)
 
-    if artifacts.get("stage09_completion_receipt") != stage9_gate_binding:
-        raise ValueError("Git Stage-16 receipt binds another Stage-9 gate")
-    stage9 = _git_json_document(
-        bare,
-        commit,
-        resolved["stage09_completion_receipt"],
-        label="Git Stage-16 Stage-9 receipt",
-    )
-    stage9_artifacts = stage9.get("artifacts")
     if (
-        not isinstance(stage9_artifacts, Mapping)
-        or receipt.get("parent_stage09_run_id") != stage9.get("run_id")
+        receipt.get("parent_stage09_run_id") != stage9.get("run_id")
         or artifacts.get("stage09_parent_predictions")
         != stage9_artifacts.get("predictions")
         or artifacts.get("stage09_parent_prediction_sidecar")
@@ -12233,7 +13273,7 @@ def _git_stage16_dependency_paths(
             "schema_version", "identity", "resolved_config", "created_utc",
             "environment", "git", "provenance",
         }
-        or manifest.get("schema_version") != "thermoroute.run.v1"
+        or manifest.get("schema_version") != "thermoroute.run.v2"
         or manifest.get("identity") != identity
         or manifest.get("resolved_config") != configuration
         or manifest.get("provenance")
@@ -12496,7 +13536,15 @@ def _git_preopening_gate_dependency_paths(
         raise ValueError(
             "Git model suite lacks exact Stage-09/09b/16/25 completion gates"
         )
-    output: set[str] = set()
+    development = suite.get("development_contract")
+    if not isinstance(development, Mapping):
+        raise ValueError("Git model suite lacks its development contract")
+    (
+        development_input_closure_sha256,
+        development_input_closure_file_count,
+        development_input_paths,
+    ) = _git_development_input_closure(bare, commit)
+    output: set[str] = set(development_input_paths)
     for gate_name, (
         expected_receipt_path, expected_format, expected_status,
     ) in expected_gates.items():
@@ -12525,6 +13573,35 @@ def _git_preopening_gate_dependency_paths(
         run_id = receipt.get("run_id")
         if not isinstance(run_id, str) or not run_id:
             raise ValueError(f"Git {gate_name} run identity changed")
+        identity = receipt.get("run_identity")
+        configuration = receipt.get("formal_configuration")
+        if gate_name == "stage09b_development_controls":
+            configuration = _stage09b_formal_configuration(
+                configuration,
+                expected_bridge=development.get("predictor_bridge"),
+                input_closure_sha256=development_input_closure_sha256,
+                input_closure_file_count=development_input_closure_file_count,
+            )
+        _validate_run_identity_v2(
+            identity,
+            configuration,
+            expected_input_closure_sha256=development_input_closure_sha256,
+            expected_input_closure_file_count=(
+                development_input_closure_file_count
+            ),
+            label=f"Git {gate_name}",
+        )
+        if (
+            identity.get("panel_sha256")
+            != development.get("panel", {}).get("sha256")
+            or identity.get("registry_sha256")
+            != development.get("registry", {}).get("sha256")
+            or identity.get("source_sha256")
+            != development.get("source_sha256")
+            or identity.get("runtime_sha256")
+            != suite.get("numerical_runtime_sha256")
+        ):
+            raise ValueError(f"Git {gate_name} lineage changed")
         if gate_name == "stage09_completion":
             expected_receipt_keys = {
                 "format", "status", "stage", "run_id", "run_identity",
@@ -12667,6 +13744,18 @@ def _git_preopening_gate_dependency_paths(
             }
         if resolved != expected_artifact_paths:
             raise ValueError(f"Git {gate_name} artifact paths are noncanonical")
+        manifest = _git_json_document(
+            bare,
+            commit,
+            resolved["run_manifest"],
+            label=f"Git {gate_name} run manifest",
+        )
+        if (
+            manifest.get("schema_version") != "thermoroute.run.v2"
+            or manifest.get("identity") != identity
+            or manifest.get("resolved_config") != configuration
+        ):
+            raise ValueError(f"Git {gate_name} run manifest changed")
         if gate_name != "stage09b_development_controls":
             continue
         members = receipt.get("member_registry")
@@ -12828,9 +13917,20 @@ def _git_preopening_gate_dependency_paths(
         suite,
         gates["stage16_lstm_completion"],
         stage9_gate_binding=gates["stage09_completion"],
+        development_input_closure_sha256=development_input_closure_sha256,
+        development_input_closure_file_count=(
+            development_input_closure_file_count
+        ),
     )
     output |= _git_stage25_dependency_paths(
-        bare, commit, suite, gates["stage25_external_completion"]
+        bare,
+        commit,
+        suite,
+        gates["stage25_external_completion"],
+        development_input_closure_sha256=development_input_closure_sha256,
+        development_input_closure_file_count=(
+            development_input_closure_file_count
+        ),
     )
     return output
 
@@ -14196,6 +15296,148 @@ def _verify_probability_metric_erratum_history_from_bundle(
             )
 
 
+def _verify_model_matrix_amendment_history_from_bundle(
+    *, root: Path, bare: Path, compute_commit: str
+) -> None:
+    """Prove the model-matrix document-before-seal Git lineage independently."""
+    amendment_path = _resolve_release_path(
+        root,
+        MODEL_MATRIX_AMENDMENT_PATH,
+        label="model-matrix amendment",
+    )
+    seal_path = _resolve_release_path(
+        root,
+        MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+        label="model-matrix amendment seal",
+    )
+    amendment_sha256 = sha256_file(amendment_path)
+    seal_sha256 = sha256_file(seal_path)
+    seal = _load_json(seal_path, label="model-matrix amendment seal")
+    synthetic_authorization = {
+        "model_matrix_amendment": {
+            "path": MODEL_MATRIX_AMENDMENT_PATH,
+            "sha256": amendment_sha256,
+            "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+            "seal": {
+                "path": MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+                "sha256": seal_sha256,
+            },
+            "amendment_document_commit": seal.get(
+                "amendment_document_commit"
+            ),
+        }
+    }
+    _validate_model_matrix_amendment_binding(root, synthetic_authorization)
+    document_commit = str(seal.get("amendment_document_commit", ""))
+    if re.fullmatch(r"[0-9a-f]{40}", document_commit) is None:
+        raise ValueError("model-matrix amendment document commit is malformed")
+    document_births = _git_path_creation_commits(
+        bare, compute_commit, MODEL_MATRIX_AMENDMENT_PATH
+    )
+    if document_births != [document_commit]:
+        raise ValueError(
+            "model-matrix amendment document was not created exactly once at "
+            "its declared commit"
+        )
+    if _git_path_exists(
+        bare, document_commit, MODEL_MATRIX_AMENDMENT_SEAL_PATH
+    ):
+        raise ValueError(
+            "model-matrix amendment and seal were committed together"
+        )
+    document_blob = _run_git(
+        bare, "show", f"{document_commit}:{MODEL_MATRIX_AMENDMENT_PATH}"
+    )
+    if (
+        document_blob.returncode
+        or document_blob.stdout != amendment_path.read_bytes()
+    ):
+        raise ValueError(
+            "model-matrix amendment differs from its document commit"
+        )
+    seal_births = _git_path_creation_commits(
+        bare, compute_commit, MODEL_MATRIX_AMENDMENT_SEAL_PATH
+    )
+    if len(seal_births) != 1 or seal_births[0] == document_commit:
+        raise ValueError(
+            "model-matrix amendment seal lacks one separate later creation"
+        )
+    seal_commit = seal_births[0]
+    for ancestor, descendant, label in (
+        (document_commit, seal_commit, "document-to-seal"),
+        (seal_commit, compute_commit, "seal-to-compute"),
+    ):
+        if _run_git(
+            bare, "merge-base", "--is-ancestor", ancestor, descendant
+        ).returncode:
+            raise ValueError(
+                f"model-matrix amendment Git chronology failed: {label}"
+            )
+    governance = seal.get("governance_seals")
+    if not isinstance(governance, Mapping) or not governance:
+        raise ValueError("model-matrix amendment lacks prior governance seals")
+    for name, binding in governance.items():
+        if not isinstance(binding, Mapping):
+            raise ValueError("model-matrix governance seal binding changed")
+        relative = str(binding.get("path", ""))
+        if (
+            not relative.startswith("protocols/")
+            or re.fullmatch(r"[0-9a-f]{64}", str(binding.get("sha256", "")))
+            is None
+        ):
+            raise ValueError("model-matrix governance seal binding changed")
+        blob = _run_git(bare, "show", f"{document_commit}:{relative}")
+        current = _resolve_release_path(
+            root,
+            relative,
+            label=f"model-matrix prior governance seal {name}",
+            expected_sha256=str(binding["sha256"]),
+        )
+        births = _git_path_creation_commits(bare, document_commit, relative)
+        if (
+            blob.returncode
+            or blob.stdout != current.read_bytes()
+            or len(births) != 1
+            or births[0] == document_commit
+            or _run_git(
+                bare,
+                "merge-base",
+                "--is-ancestor",
+                births[0],
+                document_commit,
+            ).returncode
+        ):
+            raise ValueError(
+                "model-matrix prior governance seal was not frozen first"
+            )
+    seal_blob = _run_git(
+        bare, "show", f"{seal_commit}:{MODEL_MATRIX_AMENDMENT_SEAL_PATH}"
+    )
+    if seal_blob.returncode or seal_blob.stdout != seal_path.read_bytes():
+        raise ValueError(
+            "model-matrix amendment seal differs from its creation commit"
+        )
+    for start, relative, label in (
+        (document_commit, MODEL_MATRIX_AMENDMENT_PATH, "document"),
+        (seal_commit, MODEL_MATRIX_AMENDMENT_SEAL_PATH, "seal"),
+    ):
+        touched = [
+            commit
+            for commit in _git_commits_between(bare, start, compute_commit)
+            if any(
+                path == relative
+                for _status, path in _git_commit_name_status(bare, commit)
+            )
+        ]
+        if touched:
+            raise ValueError(
+                f"model-matrix amendment {label} changed after freezing: "
+                f"{touched[:3]}"
+            )
+
+
 def _verify_git_history_evidence(
     root: Path, marker: Mapping[str, Any], profile: str
 ) -> None:
@@ -14287,6 +15529,9 @@ def _verify_git_history_evidence(
             root=root, bare=bare, compute_commit=commits[0]
         )
         _verify_probability_metric_erratum_history_from_bundle(
+            root=root, bare=bare, compute_commit=commits[0]
+        )
+        _verify_model_matrix_amendment_history_from_bundle(
             root=root, bare=bare, compute_commit=commits[0]
         )
         if profile == POSTOPEN_PROFILE:

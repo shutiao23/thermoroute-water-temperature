@@ -58,6 +58,12 @@ from .development_controls_gate import (
     DevelopmentControlsGateError,
     validate_stage09b_completion_receipt,
 )
+from .input_closure import (
+    InputClosure,
+    InputClosureError,
+    compose_input_closure_digest,
+    resolve_development_input_closure,
+)
 from .provenance import sha256_file
 from .quantiles import (
     LIGHTGBM_QUANTILE_REPAIR_METHOD,
@@ -270,6 +276,7 @@ STAGE9_FORMAL_CONFIG_FIELDS = frozenset({
     "development_predictor_bridge", "eval_batch_size",
     "lightgbm_validation_grid", "event_reference_fit_interval",
     "formal_numerical_policy",
+    "input_closure_sha256", "input_closure_file_count",
 })
 PRIMARY_MODELS = (
     "Persistence", "DampedPersistence", "Climatology",
@@ -766,7 +773,8 @@ def _validate_prediction_sidecar_snapshot(
     run = metadata.get("run")
     run_keys = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     if (
         not isinstance(run, Mapping)
@@ -778,7 +786,7 @@ def _validate_prediction_sidecar_snapshot(
             not _is_sha256(run.get(field))
             for field in (
                 "panel_sha256", "registry_sha256", "config_sha256",
-                "source_sha256", "runtime_sha256",
+                "source_sha256", "runtime_sha256", "input_closure_sha256",
             )
         )
     ):
@@ -1209,7 +1217,7 @@ def save_lightgbm_bundle(
         "conformal_policy", "conformal_offset_audit",
         "calibration_fit_contract",
         "source_sha256", "panel_sha256", "registry_sha256", "config_sha256",
-        "runtime_sha256", "training_device",
+        "runtime_sha256", "input_closure_sha256", "training_device",
         "development_prediction",
     }
     missing = required - set(metadata)
@@ -2332,6 +2340,7 @@ def validate_development_calibrated_head_gate(
         "config_sha256": metadata.get("config_sha256"),
         "source_sha256": metadata.get("source_sha256"),
         "runtime_sha256": metadata.get("runtime_sha256"),
+        "input_closure_sha256": metadata.get("input_closure_sha256"),
         "schema_version": RUN_SCHEMA_VERSION,
     }
     if snapshot.sidecar.get("run") != expected_run:
@@ -2641,6 +2650,7 @@ def sequence_bundle_metadata(
     registry_sha256: str,
     config_sha256: str,
     runtime_sha256: str,
+    input_closure_sha256: str,
     training_device: str,
     development_prediction: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -2680,6 +2690,7 @@ def sequence_bundle_metadata(
         "registry_sha256": str(registry_sha256),
         "config_sha256": str(config_sha256),
         "runtime_sha256": str(runtime_sha256),
+        "input_closure_sha256": str(input_closure_sha256),
         "training_device": "cpu",
         "output_head_schema": neural_output_head_schema(),
         "development_prediction": dict(development_prediction),
@@ -2849,6 +2860,8 @@ def _stage09_formal_configuration(run_manifest: Mapping[str, Any]) -> dict[str, 
         raise ModelSuiteError("Stage-9 run manifest lacks resolved configuration")
     bridge = resolved["development_predictor_bridge"]
     numerical_policy = resolved["formal_numerical_policy"]
+    input_closure_sha256 = resolved["input_closure_sha256"]
+    input_closure_file_count = resolved["input_closure_file_count"]
     if (
         resolved["stage"] != "09_usgs_experiment"
         or resolved["protocol"] != STAGE9_FORMAL_PROTOCOL
@@ -2887,6 +2900,14 @@ def _stage09_formal_configuration(run_manifest: Mapping[str, Any]) -> dict[str, 
         != ["2006-01-01", "2018-12-31"]
         or not isinstance(numerical_policy, Mapping)
         or not numerical_policy
+        or not isinstance(input_closure_sha256, str)
+        or len(input_closure_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in input_closure_sha256
+        )
+        or type(input_closure_file_count) is not int
+        or input_closure_file_count < 1
     ):
         raise ModelSuiteError(
             "Stage-9 run manifest has malformed formal configuration"
@@ -2963,11 +2984,12 @@ def _validated_content_addressed_run_identity(
     identity = run_manifest.get("identity")
     identity_keys = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256", "schema_version",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
+        "schema_version",
     }
     digest_fields = (
         "panel_sha256", "registry_sha256", "config_sha256",
-        "source_sha256", "runtime_sha256",
+        "source_sha256", "runtime_sha256", "input_closure_sha256",
     )
     if (
         not isinstance(resolved, Mapping)
@@ -2979,6 +3001,7 @@ def _validated_content_addressed_run_identity(
         or any(
             not isinstance(identity.get(field), str)
             or len(identity[field]) != 64
+            or any(character not in "0123456789abcdef" for character in identity[field])
             for field in digest_fields
         )
         or identity.get("config_sha256") != sha256_json(resolved)
@@ -2993,6 +3016,40 @@ def _validated_content_addressed_run_identity(
     return dict(identity), resolved
 
 
+def _verified_development_input_closure(
+    root: Path,
+    *,
+    identity: Mapping[str, Any],
+    configuration: Mapping[str, Any],
+    label: str,
+    composed: bool,
+) -> InputClosure:
+    """Resolve the fixed bytes independently of a receipt's own declarations."""
+    try:
+        closure = resolve_development_input_closure(root)
+        closure.assert_unchanged()
+        expected_digest = (
+            compose_input_closure_digest({
+                "development": closure.binding_digest,
+            })
+            if composed else closure.binding_digest
+        )
+    except InputClosureError as exc:
+        raise ModelSuiteError(
+            f"{label} fixed development input closure cannot be replayed"
+        ) from exc
+    if (
+        identity.get("input_closure_sha256") != expected_digest
+        or configuration.get("input_closure_sha256") != expected_digest
+        or configuration.get("input_closure_file_count")
+        != len(closure.inventory)
+    ):
+        raise ModelSuiteError(
+            f"{label} run identity differs from the fixed development input closure"
+        )
+    return closure
+
+
 def _validated_stage09_run_identity(
     run_manifest: Mapping[str, Any],
 ) -> tuple[dict[str, Any], Mapping[str, Any]]:
@@ -3005,7 +3062,7 @@ def _validated_stage09_run_identity(
 def _load_formal_stage09_manifest(
     path: Path, *, root: Path, run_id: str,
 ) -> tuple[
-    dict[str, Any], dict[str, Any], dict[str, Any]
+    dict[str, Any], dict[str, Any], dict[str, Any], InputClosure
 ]:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -3023,6 +3080,12 @@ def _load_formal_stage09_manifest(
             "Stage-9 completion receipt is stale for the run or current source"
         )
     configuration = _stage09_formal_configuration(manifest)
+    if configuration["input_closure_sha256"] != identity[
+        "input_closure_sha256"
+    ]:
+        raise ModelSuiteError(
+            "Stage-9 configuration and run identity bind different input closures"
+        )
     panel_path = root / "data_usgs" / "panel_usgs_120v2.parquet"
     registry_path = root / "data_usgs" / "station_registry_v1.csv"
     try:
@@ -3048,6 +3111,13 @@ def _load_formal_stage09_manifest(
         raise ModelSuiteError(
             "Stage-9 configuration binds another development predictor bridge"
         )
+    input_closure = _verified_development_input_closure(
+        root,
+        identity=identity,
+        configuration=configuration,
+        label="Stage-9",
+        composed=False,
+    )
     provenance = manifest.get("provenance")
     if (
         not isinstance(provenance, Mapping)
@@ -3056,7 +3126,7 @@ def _load_formal_stage09_manifest(
         or provenance.get("training_device") != "cpu"
     ):
         raise ModelSuiteError("Stage-9 receipt lacks development-only provenance")
-    return manifest, identity, configuration
+    return manifest, identity, configuration, input_closure
 
 
 def _validate_stage09_prediction_outputs(
@@ -3850,7 +3920,7 @@ def validate_stage09_prepublication_outputs(
     _require_canonical_stage09_paths(root, str(run_id), paths)
     for label, path in paths.items():
         file_binding(root, path)
-    _, identity, configuration = _load_formal_stage09_manifest(
+    _, identity, configuration, input_closure = _load_formal_stage09_manifest(
         paths["run_manifest"], root=root, run_id=str(run_id)
     )
     prediction_frame = _validate_stage09_prediction_outputs(
@@ -3863,6 +3933,7 @@ def validate_stage09_prepublication_outputs(
         prediction_frame=prediction_frame,
         configuration=configuration,
     )
+    input_closure.assert_unchanged()
 
 
 def build_stage09_completion_receipt(
@@ -3892,22 +3963,18 @@ def build_stage09_completion_receipt(
     }
     paths["prediction_sidecar"] = sidecar_path(paths["predictions"]).resolve()
     _require_canonical_stage09_paths(root, str(run_id), paths)
-    try:
-        manifest = json.loads(paths["run_manifest"].read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ModelSuiteError("Stage-9 run manifest is absent or malformed") from exc
-    if not isinstance(manifest, Mapping):
-        raise ModelSuiteError("Stage-9 run manifest is absent or malformed")
-    identity, _ = _validated_stage09_run_identity(manifest)
-    if str(identity.get("run_id")) != str(run_id):
-        raise ModelSuiteError("Stage-9 receipt run id differs from run manifest")
+    _manifest, identity, configuration, input_closure = (
+        _load_formal_stage09_manifest(
+            paths["run_manifest"], root=root, run_id=str(run_id)
+        )
+    )
     document: dict[str, Any] = {
         "format": STAGE9_COMPLETION_FORMAT,
         "status": STAGE9_COMPLETION_STATUS,
         "stage": "09_usgs_experiment",
         "run_id": str(run_id),
         "run_identity": identity,
-        "formal_configuration": _stage09_formal_configuration(manifest),
+        "formal_configuration": configuration,
         "confirmation_outcomes_requested_or_read": False,
         "artifacts": {
             label: file_binding(root, paths[label])
@@ -3915,6 +3982,7 @@ def build_stage09_completion_receipt(
         },
     }
     document["receipt_self_sha256"] = sha256_json(document)
+    input_closure.assert_unchanged()
     return document
 
 
@@ -4008,7 +4076,7 @@ def validate_stage09_completion_receipt(
         for label in STAGE9_COMPLETION_ARTIFACTS
     }
 
-    _, identity, configuration = _load_formal_stage09_manifest(
+    _, identity, configuration, input_closure = _load_formal_stage09_manifest(
         paths["run_manifest"], root=root, run_id=run_id
     )
     if identity != receipt.get("run_identity"):
@@ -4140,6 +4208,7 @@ def validate_stage09_completion_receipt(
             "Stage-9 LightGBM quantile audit registry is incomplete"
         )
     _validate_lightgbm_quantile_metadata(lightgbm_manifest)
+    input_closure.assert_unchanged()
     if publication_guard is not None:
         publication_guard()
     return receipt
@@ -4485,9 +4554,12 @@ def _stage16_formal_configuration(
         "station_balanced", "selection_metric", "validation_grid",
         "validation_selection_seed", "validation_selection_split",
         "event_reference_fit_interval", "train_config", "training_device",
-        "formal_numerical_policy",
+        "formal_numerical_policy", "input_closure_sha256",
+        "input_closure_file_count",
     }
     numerical_policy = resolved.get("formal_numerical_policy")
+    input_closure_sha256 = resolved.get("input_closure_sha256")
+    input_closure_file_count = resolved.get("input_closure_file_count")
     if (
         set(resolved) != expected_fields
         or resolved.get("stage") != "16_lstm_baseline_insample"
@@ -4512,6 +4584,14 @@ def _stage16_formal_configuration(
         or resolved.get("training_device") != "cpu"
         or not isinstance(numerical_policy, Mapping)
         or not numerical_policy
+        or not isinstance(input_closure_sha256, str)
+        or len(input_closure_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in input_closure_sha256
+        )
+        or type(input_closure_file_count) is not int
+        or input_closure_file_count < 5
     ):
         raise ModelSuiteError(
             "Stage-16 run manifest has malformed formal configuration"
@@ -4579,6 +4659,12 @@ def _load_formal_stage16_manifest(
     configuration = _stage16_formal_configuration(
         resolved, parent_sha256=parent_sha256
     )
+    if configuration["input_closure_sha256"] != identity[
+        "input_closure_sha256"
+    ]:
+        raise ModelSuiteError(
+            "Stage-16 configuration and run identity bind different input closures"
+        )
     provenance = manifest.get("provenance")
     if (
         not isinstance(provenance, Mapping)
@@ -5217,6 +5303,37 @@ def _stage16_expected_artifacts(
             "Stage-16 parent is not the receipt-validated Stage-9 prediction"
         )
     parent_sha256 = sha256_file(parent_path)
+    stage09_identity = stage09_receipt.get("run_identity")
+    stage09_configuration = stage09_receipt.get("formal_configuration")
+    if (
+        not isinstance(stage09_identity, Mapping)
+        or not isinstance(stage09_configuration, Mapping)
+        or not isinstance(
+            stage09_identity.get("input_closure_sha256"), str
+        )
+        or type(stage09_configuration.get("input_closure_file_count")) is not int
+    ):
+        raise ModelSuiteError(
+            "Stage-16 Stage-9 parent lacks an input-closure contract"
+        )
+    expected_input_closure_sha256 = compose_input_closure_digest({
+        "development": str(stage09_identity["input_closure_sha256"]),
+        "stage09_parent_prediction": parent_sha256,
+        "stage09_parent_sidecar": sha256_file(parent_sidecar),
+        "stage09_completion_receipt": sha256_file(stage09_receipt_path),
+        "stage09_components": sha256_file(stage09_pointer),
+    })
+    if (
+        identity.get("input_closure_sha256")
+        != expected_input_closure_sha256
+        or configuration.get("input_closure_sha256")
+        != expected_input_closure_sha256
+        or configuration.get("input_closure_file_count")
+        != int(stage09_configuration["input_closure_file_count"]) + 4
+    ):
+        raise ModelSuiteError(
+            "Stage-16 run identity does not bind its complete Stage-9 input closure"
+        )
     if publication_guard is not None:
         publication_guard()
     selection_records, selected_candidate = _read_stage16_selection(selection_path)
@@ -5770,6 +5887,8 @@ def _stage16_expected_artifacts(
         or metadata.get("registry_sha256") != identity.get("registry_sha256")
         or metadata.get("config_sha256") != identity.get("config_sha256")
         or metadata.get("runtime_sha256") != identity.get("runtime_sha256")
+        or metadata.get("input_closure_sha256")
+        != identity.get("input_closure_sha256")
         or metadata.get("training_device") != "cpu"
         or tuple(metadata.get("members", ()))
         != tuple(f"seed{seed}" for seed in C.USGS_SEEDS)
@@ -6209,9 +6328,12 @@ def _stage25_formal_configuration(
         "event_reference_fit_interval", "event_threshold_estimator",
         "post_2020_data_read", "training_device",
         "development_predictor_bridge", "formal_numerical_policy",
+        "input_closure_sha256", "input_closure_file_count",
+        "input_closure_component_count",
     }
     bridge = resolved.get("development_predictor_bridge")
     numerical_policy = resolved.get("formal_numerical_policy")
+    input_closure_sha256 = resolved.get("input_closure_sha256")
     expected_threshold = {
         "method": "pooled_training_empirical_quantile_v1",
         "quantile": 0.90,
@@ -6246,6 +6368,15 @@ def _stage25_formal_configuration(
         or set(bridge) != {"path", "sha256"}
         or not isinstance(numerical_policy, Mapping)
         or not numerical_policy
+        or not isinstance(input_closure_sha256, str)
+        or len(input_closure_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in input_closure_sha256
+        )
+        or type(resolved.get("input_closure_file_count")) is not int
+        or resolved["input_closure_file_count"] < 1
+        or resolved.get("input_closure_component_count") != 1
     ):
         raise ModelSuiteError(
             "Stage-25 run manifest has malformed formal configuration"
@@ -6272,7 +6403,7 @@ def _load_formal_stage25_manifest(
     root: Path,
     run_id: str,
     enforce_current_runtime: bool,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], InputClosure]:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -6325,6 +6456,19 @@ def _load_formal_stage25_manifest(
             "Stage-25 identity differs from the current numerical runtime"
         )
     configuration = _stage25_formal_configuration(resolved, root=root)
+    if configuration["input_closure_sha256"] != identity[
+        "input_closure_sha256"
+    ]:
+        raise ModelSuiteError(
+            "Stage-25 configuration and run identity bind different input closures"
+        )
+    input_closure = _verified_development_input_closure(
+        root,
+        identity=identity,
+        configuration=configuration,
+        label="Stage-25",
+        composed=True,
+    )
     provenance = manifest.get("provenance")
     if (
         not isinstance(provenance, Mapping)
@@ -6335,7 +6479,7 @@ def _load_formal_stage25_manifest(
         raise ModelSuiteError(
             "Stage-25 run manifest lacks development-only provenance"
         )
-    return manifest, identity, configuration
+    return manifest, identity, configuration, input_closure
 
 
 def _stage25_model_file_closure(
@@ -6407,6 +6551,8 @@ def _stage25_model_file_closure(
             or metadata.get("registry_sha256") != identity.get("registry_sha256")
             or metadata.get("config_sha256") != identity.get("config_sha256")
             or metadata.get("runtime_sha256") != identity.get("runtime_sha256")
+            or metadata.get("input_closure_sha256")
+            != identity.get("input_closure_sha256")
             or metadata.get("training_device") != "cpu"
         ):
             raise ModelSuiteError(
@@ -6642,7 +6788,7 @@ def build_stage25_completion_receipt(
         or _relative(root, components_pointer) != canonical["components_pointer"]
     ):
         raise ModelSuiteError("Stage-25 top-level artifact path is not canonical")
-    _, identity, configuration = _load_formal_stage25_manifest(
+    _, identity, configuration, input_closure = _load_formal_stage25_manifest(
         run_manifest,
         root=root,
         run_id=str(run_id),
@@ -6670,6 +6816,7 @@ def build_stage25_completion_receipt(
         "artifact_closure_sha256": sha256_json(artifacts),
     }
     document["receipt_self_sha256"] = sha256_json(document)
+    input_closure.assert_unchanged()
     return document
 
 
@@ -6773,7 +6920,7 @@ def validate_stage25_completion_receipt(
         components_pointer
     ).resolve():
         raise ModelSuiteError("Stage-25 receipt binds another component pointer")
-    _, identity, configuration = _load_formal_stage25_manifest(
+    _, identity, configuration, input_closure = _load_formal_stage25_manifest(
         run_manifest,
         root=root,
         run_id=run_id,
@@ -6794,6 +6941,7 @@ def validate_stage25_completion_receipt(
     )
     if dict(artifacts) != expected_artifacts:
         raise ModelSuiteError("Stage-25 exact artifact closure changed")
+    input_closure.assert_unchanged()
     return receipt
 
 
@@ -6876,7 +7024,7 @@ def _entry_artifact_valid(
             raise ModelSuiteError("LightGBM member count differs from suite entry")
         for field in (
             "source_sha256", "panel_sha256", "registry_sha256", "config_sha256",
-            "runtime_sha256", "training_device",
+            "runtime_sha256", "input_closure_sha256", "training_device",
         ):
             if not metadata.get(field):
                 raise ModelSuiteError(f"LightGBM bundle lacks {field}")
@@ -6921,7 +7069,7 @@ def _entry_artifact_valid(
         raise ModelSuiteError(f"{model_id} station-identity contract differs from cohort")
     required_lineage = {
         "source_sha256", "panel_sha256", "registry_sha256", "config_sha256",
-        "runtime_sha256", "training_device",
+        "runtime_sha256", "input_closure_sha256", "training_device",
         "development_prediction",
     }
     missing = required_lineage - set(metadata)
@@ -7167,6 +7315,13 @@ def validate_model_suite_document(
             runtime_digest = str(metadata.get("runtime_sha256", ""))
             if len(runtime_digest) != 64:
                 raise ModelSuiteError(f"{name}/{model_id} lacks a runtime SHA-256")
+            input_closure_digest = str(
+                metadata.get("input_closure_sha256", "")
+            )
+            if not _is_sha256(input_closure_digest):
+                raise ModelSuiteError(
+                    f"{name}/{model_id} lacks an input-closure SHA-256"
+                )
             if metadata.get("training_device") != "cpu":
                 raise ModelSuiteError(f"{name}/{model_id} is not CPU-trained")
             suite_runtime_digests.add(runtime_digest)

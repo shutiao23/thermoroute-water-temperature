@@ -24,10 +24,16 @@ MANIFEST_SCRIPT = ROOT / "scripts" / "14_manifest.py"
 VERIFY_SCRIPT = ROOT / "scripts" / "verify_release.py"
 ZIP_SCRIPT = ROOT / "scripts" / "deterministic_zip.py"
 MAKE_RELEASE_SCRIPT = ROOT / "scripts" / "make_release_archive.sh"
+FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256 = "6" * 64
+FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT = 1
 
 
 def _stage09b_fixture_config(
-    expected_bridge: dict[str, str], *, eval_batch_size: int = 2,
+    expected_bridge: dict[str, str],
+    *,
+    eval_batch_size: int = 2,
+    input_closure_sha256: str = FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+    input_closure_file_count: int = FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT,
 ) -> dict[str, object]:
     """Build the real formal Stage-09b configuration for release fixtures."""
     sys.path.insert(0, str(ROOT / "src"))
@@ -113,6 +119,8 @@ def _stage09b_fixture_config(
         "development_predictor_bridge": expected_bridge,
         "formal_numerical_policy": formal_policy,
         "eval_batch_size": eval_batch_size,
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": input_closure_file_count,
     }
 
 
@@ -303,6 +311,28 @@ def _write_development_panel_fixture(root: Path) -> tuple[str, str, str]:
         json.dumps(specification, sort_keys=True).encode("utf-8") + b"\n",
     )
     return panel_relative, registry_relative, spec_relative
+
+
+def _fixture_run_identity(
+    verifier,
+    configuration: dict[str, object],
+    *,
+    panel_sha256: str,
+    registry_sha256: str,
+    source_sha256: str,
+    runtime_sha256: str,
+    input_closure_sha256: str,
+) -> dict[str, str]:
+    stable = {
+        "schema_version": "thermoroute.run.v2",
+        "panel_sha256": panel_sha256,
+        "registry_sha256": registry_sha256,
+        "config_sha256": verifier._sha256_json(configuration),
+        "source_sha256": source_sha256,
+        "runtime_sha256": runtime_sha256,
+        "input_closure_sha256": input_closure_sha256,
+    }
+    return {"run_id": verifier._sha256_json(stable)[:20], **stable}
 
 
 def _write_development_model_fixtures(
@@ -592,19 +622,24 @@ def _write_stage25_gate_fixture(
     runtime_sha256: str,
 ) -> tuple[dict[str, str], set[str]]:
     """Create the exact canonical Stage-25 2+2+76 closure for release tests."""
+    input_closure_sha256 = verifier._compose_input_closure_digest({
+        "development": FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+    })
     configuration = verifier._stage25_expected_formal_configuration(
-        development_contract["predictor_bridge"]
+        development_contract["predictor_bridge"],
+        input_closure_sha256=input_closure_sha256,
+        input_closure_file_count=FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT,
     )
-    identity_stable = {
-        "schema_version": "thermoroute.run.v1",
-        "panel_sha256": development_contract["panel"]["sha256"],
-        "registry_sha256": development_contract["registry"]["sha256"],
-        "config_sha256": verifier._sha256_json(configuration),
-        "source_sha256": source_sha256,
-        "runtime_sha256": runtime_sha256,
-    }
-    run_id = verifier._sha256_json(identity_stable)[:20]
-    identity = {"run_id": run_id, **identity_stable}
+    identity = _fixture_run_identity(
+        verifier,
+        configuration,
+        panel_sha256=development_contract["panel"]["sha256"],
+        registry_sha256=development_contract["registry"]["sha256"],
+        source_sha256=source_sha256,
+        runtime_sha256=runtime_sha256,
+        input_closure_sha256=input_closure_sha256,
+    )
+    run_id = identity["run_id"]
     feature_order = ["WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"]
     created: set[str] = set()
 
@@ -754,7 +789,7 @@ def _write_stage25_gate_fixture(
     })
     run_manifest = f"outputs/runs/25_external_pooled/{run_id}/run.json"
     _write_canonical_json(verifier, root, run_manifest, {
-        "schema_version": "thermoroute.run.v1",
+        "schema_version": "thermoroute.run.v2",
         "identity": identity,
         "resolved_config": configuration,
         "created_utc": "2026-07-22T00:00:00+00:00",
@@ -848,6 +883,18 @@ def _write_stage16_gate_fixture(
     })
     _write_canonical_json(verifier, root, stage9_path, stage9_receipt)
 
+    input_closure_sha256 = verifier._compose_input_closure_digest({
+        "development": stage9_receipt["run_identity"][
+            "input_closure_sha256"
+        ],
+        "stage09_parent_prediction": verifier.sha256_file(parent_path),
+        "stage09_parent_sidecar": verifier.sha256_file(root / parent_sidecar),
+        "stage09_completion_receipt": verifier.sha256_file(root / stage9_path),
+        "stage09_components": stage9_receipt["artifacts"][
+            "components_pointer"
+        ]["sha256"],
+    })
+
     configuration = {
         "stage": "16_lstm_baseline_insample",
         "role": "final_route_a_development_predictions",
@@ -870,21 +917,27 @@ def _write_stage16_gate_fixture(
         "train_config": verifier._stage16_train_config(),
         "training_device": "cpu",
         "formal_numerical_policy": {"worker_threads": 1},
+        "input_closure_sha256": input_closure_sha256,
+        "input_closure_file_count": (
+            stage9_receipt["formal_configuration"][
+                "input_closure_file_count"
+            ] + 4
+        ),
     }
-    stable_identity = {
-        "schema_version": "thermoroute.run.v1",
-        "panel_sha256": development_contract["panel"]["sha256"],
-        "registry_sha256": development_contract["registry"]["sha256"],
-        "config_sha256": verifier._sha256_json(configuration),
-        "source_sha256": source_sha256,
-        "runtime_sha256": runtime_sha256,
-    }
-    run_id = verifier._sha256_json(stable_identity)[:20]
-    identity = {"run_id": run_id, **stable_identity}
+    identity = _fixture_run_identity(
+        verifier,
+        configuration,
+        panel_sha256=development_contract["panel"]["sha256"],
+        registry_sha256=development_contract["registry"]["sha256"],
+        source_sha256=source_sha256,
+        runtime_sha256=runtime_sha256,
+        input_closure_sha256=input_closure_sha256,
+    )
+    run_id = identity["run_id"]
     run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
     run_manifest = f"{run_dir}/run.json"
     _write_canonical_json(verifier, root, run_manifest, {
-        "schema_version": "thermoroute.run.v1",
+        "schema_version": "thermoroute.run.v2",
         "identity": identity,
         "resolved_config": configuration,
         "created_utc": "2026-07-25T00:00:00+00:00",
@@ -1085,9 +1138,10 @@ def _write_stage16_gate_fixture(
         **old_metadata,
         "run_id": run_id,
         "source_sha256": source_sha256,
-        "panel_sha256": stable_identity["panel_sha256"],
-        "registry_sha256": stable_identity["registry_sha256"],
-        "config_sha256": stable_identity["config_sha256"],
+        "panel_sha256": identity["panel_sha256"],
+        "registry_sha256": identity["registry_sha256"],
+        "config_sha256": identity["config_sha256"],
+        "input_closure_sha256": identity["input_closure_sha256"],
         "members": [f"seed{seed}" for seed in range(5)],
         "development_prediction": development_prediction,
     }
@@ -2811,6 +2865,11 @@ def _materialize_claim_fixture(verifier, stage: Path, profile: str) -> None:
 
 
 def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]:
+    verifier._filesystem_development_input_closure = lambda _root: (
+        FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+        FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT,
+        ("fixture-development-input",),
+    )
     _minimal_canonical_release(verifier, root)
     _write_bytes(
         root,
@@ -2834,11 +2893,19 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     for relative in (
         "src/thermoroute/outcome_qc.py",
         "src/thermoroute/probability_metric_erratum.py",
+        "src/thermoroute/model_matrix_amendment.py",
         "src/thermoroute/coverage_audit.py",
         "src/thermoroute/coverage_bridge.py",
         "src/thermoroute/provenance.py",
         "src/thermoroute/repro.py",
         "src/thermoroute/usgs.py",
+    ):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
+    for relative in (
+        "protocols/route_a_model_matrix_amendment_v1.json",
+        "protocols/route_a_model_matrix_amendment_seal_v1.json",
     ):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2979,6 +3046,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         root,
         verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
         json.dumps(erratum_seal).encode(),
+    )
+    model_matrix_amendment = json.loads(
+        (root / verifier.MODEL_MATRIX_AMENDMENT_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    model_matrix_amendment_seal = json.loads(
+        (root / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH).read_text(
+            encoding="utf-8"
+        )
     )
 
     runtime_sha256 = "c" * 64
@@ -3151,18 +3228,15 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         controls_config = _stage09b_fixture_config(
             _binding(verifier, root, bridge_path), eval_batch_size=2,
         )
-        identity_without_run = {
-            "panel_sha256": bridge["panel"]["sha256"],
-            "registry_sha256": bridge["registry"]["sha256"],
-            "config_sha256": verifier._sha256_json(controls_config),
-            "source_sha256": source_sha256,
-            "runtime_sha256": runtime_sha256,
-            "schema_version": "thermoroute.run.v1",
-        }
-        identity = {
-            "run_id": verifier._sha256_json(identity_without_run)[:20],
-            **identity_without_run,
-        }
+        identity = _fixture_run_identity(
+            verifier,
+            controls_config,
+            panel_sha256=bridge["panel"]["sha256"],
+            registry_sha256=bridge["registry"]["sha256"],
+            source_sha256=source_sha256,
+            runtime_sha256=runtime_sha256,
+            input_closure_sha256=FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+        )
         run_dir = (
             f"outputs/runs/09b_development_controls/{identity['run_id']}"
         )
@@ -3175,7 +3249,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         }
         run_manifest_path = f"{run_dir}/run.json"
         _write_bytes(root, run_manifest_path, json.dumps({
-            "schema_version": "thermoroute.run.v1",
+            "schema_version": "thermoroute.run.v2",
             "identity": identity,
             "resolved_config": controls_config,
             "created_utc": "2026-07-22T00:00:00+00:00",
@@ -3581,23 +3655,60 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         controls_path = "outputs/models/route_a_stage09b_completion.json"
         _write_bytes(root, controls_path, json.dumps(controls).encode())
 
-        stage9_artifacts = {}
+        stage9_config = {
+            "stage": "09_usgs_experiment",
+            "input_closure_sha256": (
+                FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256
+            ),
+            "input_closure_file_count": (
+                FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT
+            ),
+        }
+        stage9_identity = _fixture_run_identity(
+            verifier,
+            stage9_config,
+            panel_sha256=bridge["panel"]["sha256"],
+            registry_sha256=bridge["registry"]["sha256"],
+            source_sha256=source_sha256,
+            runtime_sha256=runtime_sha256,
+            input_closure_sha256=FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+        )
+        stage9_run_manifest = (
+            "outputs/runs/09_usgs_experiment/"
+            f"{stage9_identity['run_id']}/run.json"
+        )
+        _write_canonical_json(verifier, root, stage9_run_manifest, {
+            "schema_version": "thermoroute.run.v2",
+            "identity": stage9_identity,
+            "resolved_config": stage9_config,
+            "created_utc": "2026-07-22T00:00:00+00:00",
+            "environment": {},
+            "git": {},
+            "provenance": {
+                "confirmation_outcomes_requested_or_read": False,
+            },
+        })
+        stage9_artifacts = {
+            "run_manifest": _binding(verifier, root, stage9_run_manifest),
+        }
         for name in (
-            "run_manifest", "predictions", "prediction_sidecar", "scores",
-            "report", "lightgbm_selection", "thermoroute_pointer",
+            "predictions", "prediction_sidecar", "scores", "report",
+            "lightgbm_selection", "thermoroute_pointer",
             "lightgbm_pointer", "components_pointer",
         ):
-            relative = f"outputs/runs/stage9-fixture/{name}.json"
+            relative = (
+                "outputs/runs/09_usgs_experiment/"
+                f"{stage9_identity['run_id']}/{name}.json"
+            )
             _write_bytes(root, relative, b"{}\n")
             stage9_artifacts[name] = _binding(verifier, root, relative)
-        stage9_identity = {**identity, "run_id": "stage9-fixture"}
         stage9 = {
             "format": "thermoroute.stage09-completion-receipt.v1",
             "status": "PASS_FORMAL_STAGE09_COMPLETE",
             "stage": "09_usgs_experiment",
             "run_id": stage9_identity["run_id"],
             "run_identity": stage9_identity,
-            "formal_configuration": {"stage": "09_usgs_experiment"},
+            "formal_configuration": stage9_config,
             "confirmation_outcomes_requested_or_read": False,
             "artifacts": stage9_artifacts,
         }
@@ -3933,6 +4044,20 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
                 "erratum_document_commit"
             ],
         },
+        "model_matrix_amendment": {
+            **_binding(
+                verifier, root, verifier.MODEL_MATRIX_AMENDMENT_PATH
+            ),
+            "format": model_matrix_amendment["format"],
+            "status": model_matrix_amendment["status"],
+            "amendment_id": model_matrix_amendment["amendment_id"],
+            "seal": _binding(
+                verifier, root, verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+            ),
+            "amendment_document_commit": model_matrix_amendment_seal[
+                "amendment_document_commit"
+            ],
+        },
         "inference_gate": {
             **_binding(verifier, root, gate_path),
             "format": inference_gate["format"],
@@ -4056,6 +4181,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "source_tree_sha256": authorization["source"]["source_tree_sha256"],
         "runtime_sha256": authorization["runtime"]["runtime_sha256"],
         "fixed_code_sha256": authorization["fixed_code"]["sha256"],
+        "model_matrix_amendment_seal_sha256": authorization[
+            "model_matrix_amendment"
+        ]["seal"]["sha256"],
         "acquisition_plan": authorization["acquisition_plan"],
         "state_paths": state,
         "site_registries": {
@@ -4081,6 +4209,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "prelabel_chronology_sha256": authorization["prelabel_chronology"][
             "sha256"
         ],
+        "model_matrix_amendment_sha256": authorization[
+            "model_matrix_amendment"
+        ]["sha256"],
+        "model_matrix_amendment_seal_sha256": authorization[
+            "model_matrix_amendment"
+        ]["seal"]["sha256"],
+        "model_matrix_amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+        "model_matrix_amendment_status": (
+            verifier.MODEL_MATRIX_AMENDMENT_STATUS
+        ),
     }
     intent = {
         "format": verifier.INTENT_FORMAT,
@@ -4092,6 +4230,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "work_order_file_sha256": verifier.sha256_file(root / state["work_order"]),
         "fixed_code_sha256": authorization["fixed_code"]["sha256"],
         "runtime_sha256": authorization["runtime"]["runtime_sha256"],
+        "model_matrix_amendment_seal_sha256": authorization[
+            "model_matrix_amendment"
+        ]["seal"]["sha256"],
         "maximum_openings": 1,
         "retry_after_failure_allowed": False,
         "same_opening_transport_resume_allowed": True,
@@ -4711,6 +4852,9 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "status": "OPENED_AND_SCORED_ONCE",
         "opening_id": authorization["opening_id"],
         "authorization_sha256": authorization_sha,
+        "model_matrix_amendment_seal_sha256": authorization[
+            "model_matrix_amendment"
+        ]["seal"]["sha256"],
         "intent_sha256": verifier.sha256_file(root / state["intent"]),
         "work_order_sha256": verifier.sha256_file(root / state["work_order"]),
         "preflight_attestation": preflight,
@@ -7358,6 +7502,12 @@ def test_stage16_release_and_git_reject_three_view_winner_disagreement(
         suite,
         baseline_gates["stage16_lstm_completion"],
         stage9_gate_binding=baseline_gates["stage09_completion"],
+        development_input_closure_sha256=(
+            FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256
+        ),
+        development_input_closure_file_count=(
+            FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT
+        ),
     )
     gate = suite["preopening_gates"]["stage16_lstm_completion"]
     receipt = json.loads((source / gate["path"]).read_text(encoding="utf-8"))
@@ -7388,6 +7538,12 @@ def test_stage16_release_and_git_reject_three_view_winner_disagreement(
             tampered_suite,
             gates["stage16_lstm_completion"],
             stage9_gate_binding=gates["stage09_completion"],
+            development_input_closure_sha256=(
+                FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256
+            ),
+            development_input_closure_file_count=(
+                FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT
+            ),
         )
 
 
@@ -7426,6 +7582,12 @@ def test_stage16_release_and_git_reject_invalid_checkpoint_payload(
             tampered_suite,
             gates["stage16_lstm_completion"],
             stage9_gate_binding=gates["stage09_completion"],
+            development_input_closure_sha256=(
+                FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256
+            ),
+            development_input_closure_file_count=(
+                FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT
+            ),
         )
 
 
@@ -8139,6 +8301,66 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         },
     )
     _commit_git_fixture(source, "separate probability metric erratum seal")
+    model_matrix_attestation = {
+        "post_2020_wtemp_requested_or_inspected": False,
+        "confirmation_outcomes_requested_or_inspected": False,
+        "confirmation_outcome_artifact_present": False,
+        "outcome_endpoint_called": False,
+        "outcome_independent": True,
+        "network_used": False,
+    }
+    model_matrix_path = _write_canonical_json(
+        verifier,
+        source,
+        verifier.MODEL_MATRIX_AMENDMENT_PATH,
+        {
+            "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+            "prelabel_attestation": model_matrix_attestation,
+            "fixture": "outcome-free model matrix",
+        },
+    )
+    model_matrix_document_commit = _commit_git_fixture(
+        source, "outcome-free model-matrix amendment"
+    )
+    model_matrix_seal_path = _write_canonical_json(
+        verifier,
+        source,
+        verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+        {
+            "format": verifier.MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+            "status": verifier.MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+            "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+            "amendment": _binding(
+                verifier, source, verifier.MODEL_MATRIX_AMENDMENT_PATH
+            ),
+            "amendment_document_commit": model_matrix_document_commit,
+            "governance_seals": {
+                "base_protocol_seal": _binding(
+                    verifier, source, verifier.PROTOCOL_SEAL_PATH
+                ),
+                "inference_amendment_seal_v2": _binding(
+                    verifier, source, verifier.INFERENCE_AMENDMENT_SEAL_PATH
+                ),
+                "probability_metric_erratum_seal_v1": _binding(
+                    verifier,
+                    source,
+                    verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+                ),
+            },
+            "history_contract": {
+                "governance_seal_commits_must_be_strict_ancestors": True,
+                "amendment_blob_must_match_document_commit": True,
+                "amendment_document_created_exactly_once": True,
+                "document_commit_must_precede_seal_commit": True,
+                "seal_created_exactly_once": True,
+                "amendment_and_seal_immutable_to_release_tip": True,
+            },
+            "prelabel_attestation": model_matrix_attestation,
+        },
+    )
+    _commit_git_fixture(source, "separate model-matrix amendment seal")
     compute_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=source, text=True,
         capture_output=True, check=True,
@@ -8169,9 +8391,14 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         (seal_path, verifier.PROTOCOL_SEAL_PATH),
         (amendment_path, verifier.INFERENCE_AMENDMENT_PATH),
         (amendment_seal_path, verifier.INFERENCE_AMENDMENT_SEAL_PATH),
-        (erratum_path, verifier.PROBABILITY_METRIC_ERRATUM_PATH),
-        (erratum_seal_path, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH),
-    ):
+            (erratum_path, verifier.PROBABILITY_METRIC_ERRATUM_PATH),
+            (erratum_seal_path, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH),
+            (model_matrix_path, verifier.MODEL_MATRIX_AMENDMENT_PATH),
+            (
+                model_matrix_seal_path,
+                verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            ),
+        ):
         destination = stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination)
@@ -8291,9 +8518,14 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         (seal_path, verifier.PROTOCOL_SEAL_PATH),
         (amendment_path, verifier.INFERENCE_AMENDMENT_PATH),
         (amendment_seal_path, verifier.INFERENCE_AMENDMENT_SEAL_PATH),
-        (erratum_path, verifier.PROBABILITY_METRIC_ERRATUM_PATH),
-        (erratum_seal_path, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH),
-    ):
+            (erratum_path, verifier.PROBABILITY_METRIC_ERRATUM_PATH),
+            (erratum_seal_path, verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH),
+            (model_matrix_path, verifier.MODEL_MATRIX_AMENDMENT_PATH),
+            (
+                model_matrix_seal_path,
+                verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            ),
+        ):
         destination = hidden_stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination)
@@ -8380,6 +8612,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
 ):
     verifier = _load_script(
         VERIFY_SCRIPT, "thermoroute_verify_real_chronology_git_evidence_test"
+    )
+    # This test isolates immutable Git chronology.  The full development-input
+    # closure is exercised by dedicated fixtures; retain one deterministic
+    # synthetic closure here so the chronology graph stays tractable.
+    verifier._git_development_input_closure = lambda _bare, _commit: (
+        FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+        FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT,
+        tuple(),
     )
     source = tmp_path / "chronology-source"
     source.mkdir()
@@ -8521,6 +8761,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     fixed_modules = {
         "thermoroute.opening": "src/thermoroute/opening.py",
+        "thermoroute.chronology": "src/thermoroute/chronology.py",
         "thermoroute.model_suite": "src/thermoroute/model_suite.py",
         "thermoroute.frozen_inference": "src/thermoroute/frozen_inference.py",
         "thermoroute.datasets": "src/thermoroute/datasets.py",
@@ -8528,6 +8769,12 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "thermoroute.usgs": "src/thermoroute/usgs.py",
         "thermoroute.inference_gate": "src/thermoroute/inference_gate.py",
         "thermoroute.outcome_qc": "src/thermoroute/outcome_qc.py",
+        "thermoroute.probability_metric_erratum": (
+            "src/thermoroute/probability_metric_erratum.py"
+        ),
+        "thermoroute.model_matrix_amendment": (
+            "src/thermoroute/model_matrix_amendment.py"
+        ),
         "thermoroute.quantiles": "src/thermoroute/quantiles.py",
         "thermoroute.coverage_audit": "src/thermoroute/coverage_audit.py",
         "thermoroute.coverage_bridge": "src/thermoroute/coverage_bridge.py",
@@ -8644,6 +8891,61 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         probability_erratum_seal,
     )
     erratum_seal_commit = commit("seal probability metric erratum")
+    model_matrix_attestation = {
+        "post_2020_wtemp_requested_or_inspected": False,
+        "confirmation_outcomes_requested_or_inspected": False,
+        "confirmation_outcome_artifact_present": False,
+        "outcome_endpoint_called": False,
+        "outcome_independent": True,
+        "network_used": False,
+    }
+    model_matrix_amendment = {
+        "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
+        "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
+        "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+        "prelabel_attestation": model_matrix_attestation,
+        "fixture": "outcome-free model matrix",
+    }
+    write_json(verifier.MODEL_MATRIX_AMENDMENT_PATH, model_matrix_amendment)
+    model_matrix_document_commit = commit(
+        "freeze outcome-free model-matrix amendment"
+    )
+    model_matrix_amendment_seal = {
+        "format": verifier.MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+        "status": verifier.MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+        "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+        "amendment": _binding(
+            verifier, source, verifier.MODEL_MATRIX_AMENDMENT_PATH
+        ),
+        "amendment_document_commit": model_matrix_document_commit,
+        "governance_seals": {
+            "base_protocol_seal": _binding(
+                verifier, source, verifier.PROTOCOL_SEAL_PATH
+            ),
+            "inference_amendment_seal_v2": _binding(
+                verifier, source, inference_amendment_seal_path
+            ),
+            "probability_metric_erratum_seal_v1": _binding(
+                verifier,
+                source,
+                verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+            ),
+        },
+        "history_contract": {
+            "governance_seal_commits_must_be_strict_ancestors": True,
+            "amendment_blob_must_match_document_commit": True,
+            "amendment_document_created_exactly_once": True,
+            "document_commit_must_precede_seal_commit": True,
+            "seal_created_exactly_once": True,
+            "amendment_and_seal_immutable_to_release_tip": True,
+        },
+        "prelabel_attestation": model_matrix_attestation,
+    }
+    write_json(
+        verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+        model_matrix_amendment_seal,
+    )
+    model_matrix_seal_commit = commit("seal outcome-free model-matrix amendment")
     write_json(inference_gate_path, {"fixture": "fail-closed inference gate"})
     frozen_source_inventory = {
         relative: verifier.sha256_file(source / relative)
@@ -8722,7 +9024,27 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     }
     write_json(bridge_path, bridge)
 
-    stage09_run_id = "stage09-fixture"
+    stage09_config = {
+        "stage": "09_usgs_experiment",
+        "input_closure_sha256": FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+        "input_closure_file_count": (
+            FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT
+        ),
+    }
+    stage09_identity = _fixture_run_identity(
+        verifier,
+        stage09_config,
+        panel_sha256=verifier.sha256_file(
+            source / development_paths["panel"]
+        ),
+        registry_sha256=verifier.sha256_file(
+            source / development_paths["registry"]
+        ),
+        source_sha256=frozen_source_sha,
+        runtime_sha256=runtime_sha256,
+        input_closure_sha256=FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+    )
+    stage09_run_id = stage09_identity["run_id"]
     stage09_artifacts = {
         "run_manifest": (
             f"outputs/runs/09_usgs_experiment/{stage09_run_id}/run.json"
@@ -8741,15 +9063,29 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "components_pointer": "outputs/models/route_a_stage9_components.json",
     }
     for label, relative in stage09_artifacts.items():
+        if label == "run_manifest":
+            continue
         _write_bytes(source, relative, f"stage09 {label}\n".encode())
+    write_json(
+        stage09_artifacts["run_manifest"],
+        {
+            "schema_version": "thermoroute.run.v2",
+            "identity": stage09_identity,
+            "resolved_config": stage09_config,
+            "created_utc": "2026-07-22T00:00:00+00:00",
+            "environment": {},
+            "git": {},
+            "provenance": {},
+        },
+    )
     stage09_receipt_path = "outputs/models/route_a_stage09_completion.json"
     stage09_receipt = {
         "format": "thermoroute.stage09-completion-receipt.v1",
         "status": "PASS_FORMAL_STAGE09_COMPLETE",
         "stage": "09_usgs_experiment",
         "run_id": stage09_run_id,
-        "run_identity": {"run_id": stage09_run_id},
-        "formal_configuration": {"fixture": True},
+        "run_identity": stage09_identity,
+        "formal_configuration": stage09_config,
         "confirmation_outcomes_requested_or_read": False,
         "artifacts": {
             label: _binding(verifier, source, relative)
@@ -8761,7 +9097,23 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     )
     write_json(stage09_receipt_path, stage09_receipt)
 
-    stage09b_run_id = "stage09b-fixture"
+    stage09b_config = _stage09b_fixture_config(
+        _binding(verifier, source, bridge_path),
+    )
+    stage09b_identity = _fixture_run_identity(
+        verifier,
+        stage09b_config,
+        panel_sha256=verifier.sha256_file(
+            source / development_paths["panel"]
+        ),
+        registry_sha256=verifier.sha256_file(
+            source / development_paths["registry"]
+        ),
+        source_sha256=frozen_source_sha,
+        runtime_sha256=runtime_sha256,
+        input_closure_sha256=FIXTURE_DEVELOPMENT_INPUT_CLOSURE_SHA256,
+    )
+    stage09b_run_id = stage09b_identity["run_id"]
     stage09b_run_dir = (
         f"outputs/runs/09b_development_controls/{stage09b_run_id}"
     )
@@ -8795,10 +9147,22 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     for label, relative in stage09b_artifacts.items():
         if label in {
             "frozen_panel_spec", "panel", "registry", "predictor_bridge",
-            "semantic_audit", "semantic_audit_sidecar",
+            "run_manifest", "semantic_audit", "semantic_audit_sidecar",
         }:
             continue
         _write_bytes(source, relative, f"stage09b {label}\n".encode())
+    write_json(
+        stage09b_artifacts["run_manifest"],
+        {
+            "schema_version": "thermoroute.run.v2",
+            "identity": stage09b_identity,
+            "resolved_config": stage09b_config,
+            "created_utc": "2026-07-22T00:00:00+00:00",
+            "environment": {},
+            "git": {},
+            "provenance": {},
+        },
+    )
     stage09b_members = []
     semantic_members = []
     stage09b_member_paths: set[str] = set()
@@ -8954,8 +9318,8 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "status": "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         "stage": "09b_development_controls",
         "run_id": stage09b_run_id,
-        "run_identity": {"run_id": stage09b_run_id},
-        "formal_configuration": {"fixture": True},
+        "run_identity": stage09b_identity,
+        "formal_configuration": stage09b_config,
         "evidence_scope": "best_model_state_prediction_replay",
         "training_replay_verified": False,
         "best_model_state_prediction_replay_verified": True,
@@ -9367,6 +9731,20 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             ),
             "erratum_document_commit": erratum_document_commit,
         },
+        "model_matrix_amendment": {
+            **_binding(
+                verifier, source, verifier.MODEL_MATRIX_AMENDMENT_PATH
+            ),
+            "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+            "seal": _binding(
+                verifier,
+                source,
+                verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            ),
+            "amendment_document_commit": model_matrix_document_commit,
+        },
         "inference_gate": _binding(verifier, source, inference_gate_path),
         "runtime": {
             "requirements_lock": _binding(
@@ -9418,12 +9796,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         seal_commit,
         erratum_document_commit,
         erratum_seal_commit,
+        model_matrix_document_commit,
+        model_matrix_seal_commit,
         model_commit,
         input_commit,
         receipt_base_commit,
         compute_commit,
         manuscript_commit,
-    }) == 11
+    }) == 13
 
     stage = tmp_path / "chronology-stage"
     shutil.copytree(source, stage, ignore=shutil.ignore_patterns(".git"))
