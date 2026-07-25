@@ -1,9 +1,10 @@
 """Conformalised quantile regression (Romano et al., 2019).
 
-The model's raw quantiles are under-calibrated (the baselines showed PICP≈0.80
-for a nominal 90% band). CQR widens the interval using calibration-set
-conformity scores, done per (station × horizon) — a Mondrian split that respects
-the heteroscedasticity we expect across stations and lead times.
+CQR adjusts the model's raw quantile interval using calibration-set conformity
+scores, done per (station × horizon) — a Mondrian split that respects the
+heteroscedasticity we expect across stations and lead times.  Any empirical
+coverage value must come from the current lineage-bound experiment outputs;
+this method description deliberately contains no withdrawn result.
 
 Route A uses a conservative, versioned deployment policy.  The ordinary CQR
 order statistic is a *signed* number and can be negative when the nominal band

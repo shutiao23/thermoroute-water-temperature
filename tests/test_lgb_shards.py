@@ -22,6 +22,22 @@ from thermoroute.lgb_shards import (
 from thermoroute.repro import RunIdentity
 
 
+def _reject_publication() -> None:
+    raise RuntimeError("publication guard rejected artifact")
+
+
+def _reject_publication_on_call(target: int):
+    calls = 0
+
+    def guard() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == target:
+            _reject_publication()
+
+    return guard
+
+
 @pytest.fixture
 def identity() -> RunIdentity:
     return RunIdentity(
@@ -95,6 +111,107 @@ def _save_all_heads(
             root, lineage=lineage, model=booster, parity_input=probe
         )
     return lineages
+
+
+def test_shard_guard_failure_publishes_no_object_or_manifest(
+    tmp_path, identity, booster, design,
+):
+    probe = design.iloc[:8].copy()
+    lineage = _lineage(identity, "point")
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        save_lightgbm_shard(
+            tmp_path,
+            lineage=lineage,
+            model=booster,
+            parity_input=probe,
+            publication_guard=_reject_publication,
+        )
+
+    assert not shard_manifest_path(tmp_path, lineage).exists()
+    assert not list(tmp_path.glob("objects/*.txt"))
+    assert not list(tmp_path.rglob("*.staging"))
+
+
+def test_shard_manifest_boundary_failure_leaves_only_retryable_object(
+    tmp_path, identity, booster, design,
+):
+    probe = design.iloc[:8].copy()
+    lineage = _lineage(identity, "point")
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        save_lightgbm_shard(
+            tmp_path,
+            lineage=lineage,
+            model=booster,
+            parity_input=probe,
+            publication_guard=_reject_publication_on_call(2),
+        )
+
+    objects = list(tmp_path.glob("objects/*.txt"))
+    assert len(objects) == 1
+    assert not shard_manifest_path(tmp_path, lineage).exists()
+    assert not list(tmp_path.rglob("*.staging"))
+
+    save_lightgbm_shard(
+        tmp_path,
+        lineage=lineage,
+        model=booster,
+        parity_input=probe,
+        publication_guard=lambda: None,
+    )
+    assert shard_manifest_path(tmp_path, lineage).is_file()
+    assert list(tmp_path.glob("objects/*.txt")) == objects
+
+
+def test_shard_cache_acceptance_guard_failure_preserves_existing_artifacts(
+    tmp_path, identity, booster, design,
+):
+    probe = design.iloc[:8].copy()
+    lineage = _lineage(identity, "q05")
+    save_lightgbm_shard(
+        tmp_path, lineage=lineage, model=booster, parity_input=probe
+    )
+    manifest_path = shard_manifest_path(tmp_path, lineage)
+    manifest_before = manifest_path.read_bytes()
+    objects_before = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in (tmp_path / "objects").glob("*.txt")
+    }
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        save_lightgbm_shard(
+            tmp_path,
+            lineage=lineage,
+            model=booster,
+            parity_input=probe,
+            publication_guard=_reject_publication,
+        )
+
+    assert manifest_path.read_bytes() == manifest_before
+    assert {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in (tmp_path / "objects").glob("*.txt")
+    } == objects_before
+    assert not list(tmp_path.rglob("*.staging"))
+
+
+def test_shard_set_guard_failure_does_not_publish_set_manifest(
+    tmp_path, identity, booster, design,
+):
+    probe = design.iloc[:8].copy()
+    lineages = _save_all_heads(tmp_path, identity, booster, probe)
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        finalize_shard_set(
+            tmp_path,
+            lineages=lineages,
+            parity_inputs={1: probe},
+            publication_guard=_reject_publication,
+        )
+
+    assert not list(tmp_path.glob("sets/**/*.json"))
+    assert not list(tmp_path.rglob("*.staging"))
 
 
 def test_partial_run_resumes_valid_shards_and_finalizes_only_when_complete(

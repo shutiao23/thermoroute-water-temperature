@@ -447,6 +447,7 @@ def test_immutable_prediction_cache_rejects_corrupt_or_stale_bytes(tmp_path: Pat
         eval_batch_size=2,
         parents=_parents(),
         training_summary=summary,
+        publication_guard=lambda: None,
     )
     loaded = DC.read_arm_prediction(
         path,
@@ -471,6 +472,7 @@ def test_immutable_prediction_cache_rejects_corrupt_or_stale_bytes(tmp_path: Pat
             eval_batch_size=2,
             parents=_parents(),
             training_summary=summary,
+            publication_guard=lambda: None,
         )
 
     with path.open("ab") as handle:
@@ -510,7 +512,11 @@ def test_combined_publication_streams_without_pandas_full_table_reads(
                 AssertionError("streaming publication must not use pandas.read_parquet")
             ),
         )
-        DC._stream_combined_predictions(members, destination)
+        DC._stream_combined_predictions(
+            members,
+            destination,
+            publication_guard=lambda: None,
+        )
     combined = pd.read_parquet(destination)
     assert len(combined) == expected_rows
     assert list(combined.columns) == R.PRED_COLS
@@ -570,6 +576,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
                 parents=_parents(),
                 eval_batch_size=2,
                 verbose=False,
+                publication_guard=lambda: None,
                 fit_function=fake_fit,
             )
         )
@@ -599,6 +606,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         parents=_parents(),
         eval_batch_size=2,
         verbose=False,
+        publication_guard=lambda: None,
         fit_function=forbidden_fit,
     )
     assert orphan in recovered
@@ -624,6 +632,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
             parents=_parents(),
             eval_batch_size=2,
             verbose=False,
+            publication_guard=lambda: None,
             fit_function=forbidden_fit,
         )
     attacked_orphan.write_bytes(original_prediction)
@@ -657,6 +666,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
             train_examples=3,
             canonical_registry_sha256="0" * 64,
             canonical_train_registry_sha256="1" * 64,
+            publication_guard=lambda: None,
         )
     assert not blocked_dir.exists()
 
@@ -673,6 +683,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         train_examples=3,
         canonical_registry_sha256="0" * 64,
         canonical_train_registry_sha256="1" * 64,
+        publication_guard=lambda: None,
     ))
     combined_frame = pd.read_parquet(combined)
     assert len(combined_frame) == 31 * 9
@@ -716,6 +727,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         train_examples=3,
         canonical_registry_sha256="0" * 64,
         canonical_train_registry_sha256="1" * 64,
+        publication_guard=lambda: None,
     )
     assert recovered_outputs[0] == combined
     assert hashlib.sha256(combined.read_bytes()).hexdigest() == combined_digest
@@ -736,6 +748,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         train_examples=3,
         canonical_registry_sha256="0" * 64,
         canonical_train_registry_sha256="1" * 64,
+        publication_guard=lambda: None,
     )
     assert sidecar_path(summary_path).is_file()
 
@@ -758,6 +771,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
             train_examples=3,
             canonical_registry_sha256="0" * 64,
             canonical_train_registry_sha256="1" * 64,
+            publication_guard=lambda: None,
         )
 
     cached_paths = []
@@ -774,6 +788,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
                 parents=_parents(),
                 eval_batch_size=2,
                 verbose=False,
+                publication_guard=lambda: None,
                 fit_function=forbidden_fit,
             )
         )
@@ -795,6 +810,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
             parents=_parents(),
             eval_batch_size=2,
             verbose=False,
+            publication_guard=lambda: None,
             fit_function=forbidden_fit,
         )
 

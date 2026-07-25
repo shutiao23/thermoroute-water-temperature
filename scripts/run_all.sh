@@ -139,6 +139,7 @@ echo "[26/27] freeze the complete Route-A model suite"
 "$THERMOROUTE_PYTHON" scripts/24_freeze_model_suite.py \
     --stage9-receipt outputs/models/route_a_stage09_completion.json \
     --stage09b-receipt outputs/models/route_a_stage09b_completion.json \
+    --lstm-receipt outputs/models/route_a_stage16_completion.json \
     --external-receipt outputs/models/route_a_stage25_completion.json
 echo "[27/27] isolated full-model replay and final artifact manifest"
 if [[ -f outputs/model_replay/route_a_development_replay_v1.json ]]; then

@@ -133,6 +133,99 @@ def test_initialise_locks_before_run_metadata_and_contender_fails_closed(
         release_run_directory_lock(run_directory)
 
 
+def test_initialise_guard_failure_after_staging_releases_lock_and_allows_retry(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(repro, "environment_fingerprint", lambda: {"fixture": True})
+    monkeypatch.setattr(
+        repro,
+        "git_state",
+        lambda _root: {"available": False, "commit": None, "dirty": None},
+    )
+    identity = _identity("guarded-new-run")
+    runs = tmp_path / "runs"
+    run_directory = runs / identity.run_id
+    metadata_path = run_directory / "run.json"
+    staged_payloads: list[dict[str, object]] = []
+
+    def reject_publication() -> None:
+        staged = list(run_directory.glob(f".{metadata_path.name}.*.tmp"))
+        assert len(staged) == 1
+        staged_payloads.append(json.loads(staged[0].read_text(encoding="utf-8")))
+        raise RuntimeError("injected live-policy drift")
+
+    with pytest.raises(RuntimeError, match="live-policy drift"):
+        initialise_run_directory(
+            runs,
+            identity,
+            {"stage": "fixture"},
+            publication_guard=reject_publication,
+        )
+
+    assert staged_payloads[0]["identity"] == identity.as_dict()
+    assert not metadata_path.exists()
+    assert not list(run_directory.glob(f".{metadata_path.name}.*.tmp"))
+    released = json.loads(
+        run_directory_lock_path(run_directory).read_text(encoding="utf-8")
+    )
+    assert released["state"] == "released"
+
+    retried = initialise_run_directory(
+        runs,
+        identity,
+        {"stage": "fixture"},
+        publication_guard=lambda: None,
+    )
+    try:
+        assert retried == run_directory
+        assert metadata_path.is_file()
+    finally:
+        release_run_directory_lock(retried)
+
+
+def test_initialise_existing_manifest_acceptance_is_guarded_and_byte_preserving(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(repro, "environment_fingerprint", lambda: {"fixture": True})
+    monkeypatch.setattr(
+        repro,
+        "git_state",
+        lambda _root: {"available": False, "commit": None, "dirty": None},
+    )
+    identity = _identity("guarded-existing-run")
+    runs = tmp_path / "runs"
+    run_directory = initialise_run_directory(
+        runs,
+        identity,
+        {"stage": "fixture"},
+        publication_guard=lambda: None,
+    )
+    release_run_directory_lock(run_directory)
+    metadata_path = run_directory / "run.json"
+    original_bytes = metadata_path.read_bytes()
+    observed_bytes: list[bytes] = []
+
+    def reject_acceptance() -> None:
+        observed_bytes.append(metadata_path.read_bytes())
+        assert not list(run_directory.glob(f".{metadata_path.name}.*.tmp"))
+        raise RuntimeError("injected cache-acceptance drift")
+
+    with pytest.raises(RuntimeError, match="cache-acceptance drift"):
+        initialise_run_directory(
+            runs,
+            identity,
+            {"stage": "fixture"},
+            publication_guard=reject_acceptance,
+        )
+
+    assert observed_bytes == [original_bytes]
+    assert metadata_path.read_bytes() == original_bytes
+    released = json.loads(
+        run_directory_lock_path(run_directory).read_text(encoding="utf-8")
+    )
+    assert released["state"] == "released"
+
+
 def test_sigkill_releases_os_lock_even_when_diagnostic_record_is_stale(tmp_path):
     run_directory = tmp_path / "runs" / "crash-run"
     process = _holder(run_directory, "crash-run")

@@ -38,6 +38,20 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def test_native_engineering_notices_are_frozen_claim_documents() -> None:
+    registry = json.loads(PRODUCTION_REGISTRY.read_text(encoding="utf-8"))
+    notices = {
+        "protocols/route_a_native_thread_enforcement_notice_v1.md",
+        "protocols/route_a_native_artifact_publication_notice_v1.md",
+    }
+    assert notices <= set(registry["documents"])
+    assert notices <= set(registry["required_documents"])
+    for relative in notices:
+        assert registry["preopen_document_sha256"][relative] == _sha256(
+            ROOT / relative
+        )
+
+
 def _v1_registry(path: Path, *, status: str = "PENDING_SINGLE_OPENING") -> Path:
     path.write_text(
         json.dumps(

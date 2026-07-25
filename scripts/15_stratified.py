@@ -10,6 +10,7 @@ Reads the v2 predictions; no retraining.
 
 Run:  PYTHONPATH=src python3 scripts/15_stratified.py
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
 import sys
@@ -25,9 +26,15 @@ import pandas as pd
 
 from thermoroute import config as C
 from thermoroute import results as R
+from thermoroute.model_suite import (
+    STAGE16_COMPLETION_RECEIPT_PATH,
+    validate_stage16_completion_receipt,
+)
+from thermoroute.repro import advisory_file_lock
 from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
 PRED = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+STAGE16_RECEIPT = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
 PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 
@@ -41,7 +48,7 @@ def per_station(pred, model, h, ensemble=False):
             for s, g in sub.groupby("site_id")}
 
 
-def main():
+def _run():
     pred = R.load_route_a_predictions(
         PRED, root=ROOT, panel_path=PANEL, registry_path=REGISTRY
     )
@@ -102,6 +109,14 @@ def main():
     out.write_text("\n".join(L))
     print("\n".join(L))
     print(f"\nwrote {out}")
+
+
+def main():
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        validate_stage16_completion_receipt(
+            STAGE16_RECEIPT, root=ROOT, replay_bundle=False,
+        )
+        _run()
 
 
 if __name__ == "__main__":

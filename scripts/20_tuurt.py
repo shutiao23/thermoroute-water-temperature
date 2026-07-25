@@ -17,6 +17,7 @@ Writes outputs/reports/tuurt.md.
 
 Run:  PYTHONPATH=src python3 scripts/20_tuurt.py
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
 import sys
@@ -32,8 +33,14 @@ import pandas as pd
 
 from thermoroute import config as C
 from thermoroute import results as R
+from thermoroute.model_suite import (
+    STAGE16_COMPLETION_RECEIPT_PATH,
+    validate_stage16_completion_receipt,
+)
+from thermoroute.repro import advisory_file_lock
 
 V2 = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+STAGE16_RECEIPT = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
 PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 
@@ -90,7 +97,7 @@ def temporal_arm():
     return out
 
 
-def main():
+def _run():
     temporal = temporal_arm()
     unseen = pd.read_csv(
         C.TABLES / "claim2_kfold_lgo.csv", float_precision="round_trip"
@@ -143,6 +150,14 @@ def main():
     (C.REPORTS / "tuurt.md").write_text("\n".join(L))
     print("\n".join(L))
     print(f"\nwrote {C.REPORTS/'tuurt.md'}")
+
+
+def main():
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        validate_stage16_completion_receipt(
+            STAGE16_RECEIPT, root=ROOT, replay_bundle=False,
+        )
+        _run()
 
 
 if __name__ == "__main__":

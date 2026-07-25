@@ -4,6 +4,11 @@ Status: pre-label corrective engineering record.  No 2021--2023 target
 temperature was requested, acquired, inspected, scored, or inferred before this
 notice and its implementation were written.
 
+Evidence boundary: this is a repository-internal honest-owner attestation backed
+by the recorded local files and Git history.  It has no independent custodian,
+external timestamp, or write-once proof, so it must not be represented as
+independent evidence that no person accessed the target outcomes.
+
 ## Discovery
 
 On 2026-07-24, after the sealed development rerun had started but before it

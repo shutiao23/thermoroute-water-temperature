@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import subprocess
 import sys
 import zipfile
@@ -15,6 +16,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -784,6 +786,521 @@ def _write_stage25_gate_fixture(
         receipt_path,
     })
     return _binding(verifier, root, receipt_path), created
+
+
+def _write_stage16_gate_fixture(
+    verifier,
+    root: Path,
+    *,
+    model_entries: dict[str, list[dict[str, object]]],
+    development_contract: dict[str, object],
+    stage9_receipt: dict[str, object],
+    stage9_path: str,
+    source_sha256: str,
+    runtime_sha256: str,
+) -> tuple[dict[str, str], set[str]]:
+    """Create the canonical Stage-16 receipt and its exact 24-file closure."""
+    feature_order = [
+        "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+    ]
+    parent = "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+    parent_sidecar = parent + ".meta.json"
+    old_lstm_entry = next(
+        entry for entry in model_entries["temporal"]
+        if entry["model_id"] == "LSTM"
+    )
+    old_metadata_path = root / str(old_lstm_entry["artifact"]["path"]) / "metadata.json"
+    old_metadata = json.loads(old_metadata_path.read_text(encoding="utf-8"))
+    source_prediction = root / old_metadata["development_prediction"]["artifact"]["path"]
+    parent_path = root / parent
+    parent_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_prediction, parent_path)
+    _write_canonical_json(verifier, root, parent_sidecar, {
+        "artifact_sha256": verifier.sha256_file(parent_path),
+    })
+    stage9_receipt["artifacts"]["predictions"] = _binding(
+        verifier, root, parent
+    )
+    stage9_receipt["artifacts"]["prediction_sidecar"] = _binding(
+        verifier, root, parent_sidecar
+    )
+    stage9_receipt["receipt_self_sha256"] = verifier._sha256_json({
+        key: value for key, value in stage9_receipt.items()
+        if key != "receipt_self_sha256"
+    })
+    _write_canonical_json(verifier, root, stage9_path, stage9_receipt)
+
+    configuration = {
+        "stage": "16_lstm_baseline_insample",
+        "role": "final_route_a_development_predictions",
+        "parent_sha256": verifier.sha256_file(parent_path),
+        "models": [
+            "Persistence", "DampedPersistence", "Climatology",
+            "LightGBM", "LSTM", "ThermoRoute",
+        ],
+        "seeds": [0, 1, 2, 3, 4],
+        "variables": feature_order,
+        "horizons": [1, 3, 7],
+        "context_length": 32,
+        "station_embedding": True,
+        "station_balanced": True,
+        "selection_metric": "station_macro",
+        "validation_grid": verifier._stage16_validation_grid(),
+        "validation_selection_seed": 0,
+        "validation_selection_split": "2016-2017 only",
+        "event_reference_fit_interval": ["2006-01-01", "2018-12-31"],
+        "train_config": verifier._stage16_train_config(),
+        "training_device": "cpu",
+        "formal_numerical_policy": {"worker_threads": 1},
+    }
+    stable_identity = {
+        "schema_version": "thermoroute.run.v1",
+        "panel_sha256": development_contract["panel"]["sha256"],
+        "registry_sha256": development_contract["registry"]["sha256"],
+        "config_sha256": verifier._sha256_json(configuration),
+        "source_sha256": source_sha256,
+        "runtime_sha256": runtime_sha256,
+    }
+    run_id = verifier._sha256_json(stable_identity)[:20]
+    identity = {"run_id": run_id, **stable_identity}
+    run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
+    run_manifest = f"{run_dir}/run.json"
+    _write_canonical_json(verifier, root, run_manifest, {
+        "schema_version": "thermoroute.run.v1",
+        "identity": identity,
+        "resolved_config": configuration,
+        "created_utc": "2026-07-25T00:00:00+00:00",
+        "environment": {},
+        "git": {},
+        "provenance": {
+            "evidence_role": "prelabel_route_a_model_build_development_only",
+            "training_device": "cpu",
+        },
+    })
+
+    selection = "outputs/tables/lstm_validation_selection.csv"
+    # Candidate 1 wins, but candidate 0 sits just outside the frozen 1e-5
+    # band so adversarial tests can move another metric view inside the band.
+    metrics = [0.200011, 0.20, 0.40]
+    header = (
+        "candidate_id,d,layers,dropout,station_embed_dim,"
+        "use_derived_context,anchor,val_station_macro_rmse,selected,"
+        "selection_split\n"
+    )
+    rows = []
+    for candidate_id, candidate in enumerate(verifier._stage16_validation_grid()):
+        rows.append(
+            f"{candidate_id},{candidate['d']},{candidate['layers']},"
+            f"{candidate['dropout']},{candidate['station_embed_dim']},"
+            f"{candidate['use_derived_context']},{candidate['anchor']},"
+            f"{metrics[candidate_id]},{candidate_id == 1},"
+            "2016-2017 validation\n"
+        )
+    _write_bytes(root, selection, (header + "".join(rows)).encode("utf-8"))
+
+    created: set[str] = {parent, parent_sidecar, run_manifest, selection}
+
+    def sidecar_document(
+        artifact_relative: str,
+        *,
+        kind: str,
+        extra: dict[str, object],
+        parents: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        artifact = root / artifact_relative
+        return {
+            "schema_version": "thermoroute.artifact.v1",
+            "kind": kind,
+            "artifact": artifact.name,
+            "artifact_sha256": verifier.sha256_file(artifact),
+            "artifact_bytes": artifact.stat().st_size,
+            "content_schema": "thermoroute.predictions.v1",
+            "run": identity,
+            "parents": parents or {},
+            "extra": extra,
+            "created_utc": "2026-07-25T00:00:00+00:00",
+        }
+
+    seed_files: list[dict[str, str]] = []
+    for seed in range(5):
+        prediction = f"{run_dir}/predictions/seed{seed}.parquet"
+        sidecar = prediction + ".meta.json"
+        shutil.copy2(source_prediction, _write_bytes(root, prediction, b""))
+        _write_canonical_json(
+            verifier,
+            root,
+            sidecar,
+            sidecar_document(
+                prediction, kind="lstm_seed_predictions", extra={}
+            ),
+        )
+        seed_files.extend((
+            _binding(verifier, root, prediction),
+            _binding(verifier, root, sidecar),
+        ))
+        created.update({prediction, sidecar})
+
+    candidate_files: list[dict[str, str]] = []
+    for candidate_id, candidate in enumerate(verifier._stage16_validation_grid()):
+        prediction = f"{run_dir}/selection/candidate{candidate_id}.parquet"
+        prediction_sidecar = prediction + ".meta.json"
+        checkpoint = f"{run_dir}/selection/candidate{candidate_id}.pt"
+        checkpoint_sidecar = checkpoint + ".meta.json"
+        shutil.copy2(source_prediction, _write_bytes(root, prediction, b""))
+        _write_canonical_json(
+            verifier,
+            root,
+            prediction_sidecar,
+            sidecar_document(
+                prediction,
+                kind="lstm_validation_candidate_predictions",
+                extra={
+                    "candidate_id": candidate_id,
+                    "candidate": candidate,
+                    "selection_split": "2016-2017 validation",
+                },
+            ),
+        )
+        checkpoint_config = {
+            **configuration,
+            "candidate_id": candidate_id,
+            "candidate": candidate,
+        }
+        checkpoint_path = _write_bytes(root, checkpoint, b"")
+        checkpoint_config_json = json.dumps(
+            checkpoint_config,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        checkpoint_extra = {
+            "bad_epochs": 0,
+            "train_rng_state": np.random.default_rng(candidate_id).bit_generator.state,
+        }
+        checkpoint_extra_json = json.dumps(
+            checkpoint_extra,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        torch.save({
+            "format": "thermoroute.training-checkpoint.v3",
+            "run_id": run_id,
+            "resolved_config_json": checkpoint_config_json,
+            "resolved_config_sha256": verifier._sha256_json(checkpoint_config),
+            "extra_json": checkpoint_extra_json,
+            "extra_sha256": verifier._sha256_json(checkpoint_extra),
+            "epoch": 79,
+            "best_epoch": 1,
+            "best_metric": float(metrics[candidate_id]),
+            "model_class": "thermoroute.train.LSTMForecaster",
+            "optimizer_class": "torch.optim.adamw.AdamW",
+            "scheduler_class": (
+                "torch.optim.lr_scheduler.ReduceLROnPlateau"
+            ),
+            "model_state": {"fixture": torch.tensor([candidate_id])},
+            "best_model_state": {"fixture": torch.tensor([candidate_id])},
+            "optimizer_state": {"state": {}, "param_groups": []},
+            "scheduler_present": True,
+            "scheduler_state": {"best": float(metrics[candidate_id])},
+            "rng_state": {},
+        }, checkpoint_path)
+        _write_canonical_json(verifier, root, checkpoint_sidecar, {
+            "format": "thermoroute.training-checkpoint-metadata.v2",
+            "checkpoint_format": "thermoroute.training-checkpoint.v3",
+            "run_id": run_id,
+            "epoch": 79,
+            "checkpoint_bytes": checkpoint_path.stat().st_size,
+            "checkpoint_sha256": verifier.sha256_file(checkpoint_path),
+            "resolved_config_sha256": verifier._sha256_json(checkpoint_config),
+            "extra_sha256": verifier._sha256_json(checkpoint_extra),
+            "model_class": "thermoroute.train.LSTMForecaster",
+            "optimizer_class": "torch.optim.adamw.AdamW",
+            "scheduler_class": "torch.optim.lr_scheduler.ReduceLROnPlateau",
+            "scheduler_present": True,
+        })
+        candidate_files.extend(
+            _binding(verifier, root, relative)
+            for relative in (
+                prediction, prediction_sidecar, checkpoint, checkpoint_sidecar
+            )
+        )
+        created.update({
+            prediction, prediction_sidecar, checkpoint, checkpoint_sidecar
+        })
+
+    final_prediction = "outputs/predictions/usgs_predictions_v2.parquet"
+    shutil.copy2(source_prediction, _write_bytes(root, final_prediction, b""))
+    final_sidecar = final_prediction + ".meta.json"
+    final_extra = {
+        "parent_run_id": stage9_receipt["run_id"],
+        "primary_models": configuration["models"],
+        "primary_common_test_keys": 6,
+        "dropped_primary_rows": 0,
+        "lstm_validation_rows": 6,
+        "lstm_calibration_rows": 300,
+    }
+    _write_canonical_json(
+        verifier,
+        root,
+        final_sidecar,
+        sidecar_document(
+            final_prediction,
+            kind="final_route_a_development_predictions",
+            parents={PurePosixPath(parent).name: verifier.sha256_file(parent_path)},
+            extra=final_extra,
+        ),
+    )
+    created.update({final_prediction, final_sidecar})
+
+    bundle_dir = f"outputs/models/lstm_usgs_bundle_{run_id}"
+    metadata_path = f"{bundle_dir}/metadata.json"
+    weights_path = f"{bundle_dir}/weights.pt"
+    old_weights = root / str(old_lstm_entry["artifact"]["path"]) / "weights.pt"
+    shutil.copy2(old_weights, _write_bytes(root, weights_path, b""))
+    development_prediction = dict(old_metadata["development_prediction"])
+    development_prediction["artifact"] = {
+        **_binding(verifier, root, final_prediction),
+        "sidecar": _binding(verifier, root, final_sidecar),
+    }
+    metadata = {
+        **old_metadata,
+        "run_id": run_id,
+        "source_sha256": source_sha256,
+        "panel_sha256": stable_identity["panel_sha256"],
+        "registry_sha256": stable_identity["registry_sha256"],
+        "config_sha256": stable_identity["config_sha256"],
+        "members": [f"seed{seed}" for seed in range(5)],
+        "development_prediction": development_prediction,
+    }
+    _write_canonical_json(verifier, root, metadata_path, metadata)
+    created.update({metadata_path, weights_path})
+    entry = {
+        "model_id": "LSTM",
+        "executor": "lstm_bundle",
+        "raw_feature_order": feature_order,
+        "member_count": 5,
+        "artifact": {
+            "path": bundle_dir,
+            "metadata_sha256": verifier.sha256_file(root / metadata_path),
+            "weights_sha256": verifier.sha256_file(root / weights_path),
+        },
+    }
+    old_lstm_entry.clear()
+    old_lstm_entry.update(entry)
+    pointer = "outputs/models/route_a_lstm_components.json"
+    prediction_binding = {
+        **_binding(verifier, root, final_prediction),
+        "sidecar": _binding(verifier, root, final_sidecar),
+    }
+    _write_canonical_json(verifier, root, pointer, {
+        "format": "thermoroute.route-a-model-components.v1",
+        "status": "COMPLETE",
+        "training_device": "cpu",
+        "run_id": run_id,
+        "cohort": "temporal_lstm",
+        "raw_feature_order": feature_order,
+        "models": [entry],
+        "development_contract": development_contract,
+        "development_prediction_artifact": prediction_binding,
+    })
+    shortcut = "outputs/models/lstm_usgs_bundle.json"
+    _write_canonical_json(verifier, root, shortcut, {
+        "run_id": run_id,
+        "bundle_path": bundle_dir,
+        "member_count": 5,
+        "metadata_sha256": entry["artifact"]["metadata_sha256"],
+        "weights_sha256": entry["artifact"]["weights_sha256"],
+    })
+    created.update({pointer, shortcut})
+
+    model_files = [
+        _binding(verifier, root, metadata_path),
+        _binding(verifier, root, weights_path),
+    ]
+    artifacts = {
+        "run_manifest": _binding(verifier, root, run_manifest),
+        "stage09_completion_receipt": _binding(verifier, root, stage9_path),
+        "stage09_parent_predictions": _binding(verifier, root, parent),
+        "stage09_parent_prediction_sidecar": _binding(
+            verifier, root, parent_sidecar
+        ),
+        "lstm_validation_selection": _binding(verifier, root, selection),
+        "development_predictions": _binding(
+            verifier, root, final_prediction
+        ),
+        "development_prediction_sidecar": _binding(
+            verifier, root, final_sidecar
+        ),
+        "model_files": model_files,
+        "lstm_seed_prediction_files": seed_files,
+        "selection_candidate_files": candidate_files,
+        "shortcut_pointer": _binding(verifier, root, shortcut),
+        "components_pointer": _binding(verifier, root, pointer),
+    }
+    threshold_registry = {"01073319": 10.0}
+    threshold_contract = {
+        "target": "WTEMP",
+        "fit_split": "canonical development train mask",
+        "scope": "station-specific",
+        "estimator": "pandas Series.quantile(q=0.90, interpolation=linear)",
+        "quantile": 0.90,
+        "registry": threshold_registry,
+        "registry_sha256": verifier._sha256_json(threshold_registry),
+    }
+    selection_inputs = {
+        "run_manifest": artifacts["run_manifest"],
+        "panel": development_contract["panel"],
+        "frozen_panel_spec": development_contract["frozen_panel_spec"],
+        "station_registry": development_contract["registry"],
+        "selection": artifacts["lstm_validation_selection"],
+        "candidate_files": candidate_files,
+        "event_threshold_contract": threshold_contract,
+    }
+    selection_audit = {
+        "format": "thermoroute.stage16-selection-audit.v1",
+        "status": "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY",
+        "metric": "mean_station_rmse_across_all_horizons",
+        "selection_split": "2016-2017 validation",
+        "metric_atol": 1e-5,
+        "replay_atol": 1e-5,
+        "winner_candidate_id": 1,
+        "candidates": [
+            {
+                "candidate_id": candidate_id,
+                "recomputed_val_station_macro_rmse": metric,
+                "reported_val_station_macro_rmse": metric,
+                "checkpoint_best_metric": metric,
+                "best_state_max_abs_difference": 0.0,
+                "selected": candidate_id == 1,
+            }
+            for candidate_id, metric in enumerate(metrics)
+        ],
+        "input_closure": selection_inputs,
+        "input_closure_sha256": verifier._sha256_json(selection_inputs),
+    }
+    parity_inputs = {
+        "panel": development_contract["panel"],
+        "frozen_panel_spec": development_contract["frozen_panel_spec"],
+        "station_registry": development_contract["registry"],
+        "bundle_metadata": model_files[0],
+        "bundle_weights": model_files[1],
+        "development_prediction": development_prediction,
+    }
+    parity = {
+        "format": "thermoroute.stage16-bundle-parity.v1",
+        "status": "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY",
+        "members": [f"seed{seed}" for seed in range(5)],
+        "splits": ["val", "calib", "test"],
+        "atol": 1e-5,
+        "max_abs_difference": 0.0,
+        "input_closure": parity_inputs,
+        "input_closure_sha256": verifier._sha256_json(parity_inputs),
+    }
+    receipt = {
+        "format": "thermoroute.stage16-completion-receipt.v1",
+        "status": "PASS_FORMAL_STAGE16_COMPLETE",
+        "stage": "16_lstm_baseline_insample",
+        "run_id": run_id,
+        "parent_stage09_run_id": stage9_receipt["run_id"],
+        "run_identity": identity,
+        "formal_configuration": configuration,
+        "training_device": "cpu",
+        "confirmation_outcomes_requested_or_read": False,
+        "selection_audit": selection_audit,
+        "bundle_prediction_parity": parity,
+        "artifacts": artifacts,
+        "artifact_closure_sha256": verifier._sha256_json(artifacts),
+    }
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    receipt_path = "outputs/models/route_a_stage16_completion.json"
+    _write_canonical_json(verifier, root, receipt_path, receipt)
+    created.add(receipt_path)
+    return _binding(verifier, root, receipt_path), created
+
+
+def _bind_stage16_receipt_fixture(
+    verifier,
+    root: Path,
+    suite: dict[str, object],
+    receipt: dict[str, object],
+) -> dict[str, object]:
+    """Re-seal a deliberately mutated Stage-16 fixture and its suite binding."""
+    receipt.pop("receipt_self_sha256", None)
+    receipt["artifact_closure_sha256"] = verifier._sha256_json(
+        receipt["artifacts"]
+    )
+    receipt["receipt_self_sha256"] = verifier._sha256_json(receipt)
+    relative = str(
+        suite["preopening_gates"]["stage16_lstm_completion"]["path"]
+    )
+    _write_canonical_json(verifier, root, relative, receipt)
+    rebound = json.loads(json.dumps(suite))
+    rebound["preopening_gates"]["stage16_lstm_completion"] = _binding(
+        verifier, root, relative
+    )
+    return rebound
+
+
+def _mutate_stage16_checkpoint_fixture(
+    verifier,
+    root: Path,
+    suite: dict[str, object],
+    *,
+    candidate_id: int,
+    mode: str,
+) -> dict[str, object]:
+    """Mutate one checkpoint while consistently re-binding all evidence bytes."""
+    gate = suite["preopening_gates"]["stage16_lstm_completion"]
+    receipt_path = root / str(gate["path"])
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    candidate_files = receipt["artifacts"]["selection_candidate_files"]
+    offset = 4 * candidate_id
+    checkpoint_relative = str(candidate_files[offset + 2]["path"])
+    sidecar_relative = str(candidate_files[offset + 3]["path"])
+    checkpoint_path = root / checkpoint_relative
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    if mode == "missing_scheduler_state":
+        payload.pop("scheduler_state")
+    elif mode == "nonterminal":
+        payload["epoch"] = 1
+        payload["best_epoch"] = 1
+        extra = json.loads(payload["extra_json"])
+        extra["bad_epochs"] = 0
+        payload["extra_json"] = json.dumps(
+            extra,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        payload["extra_sha256"] = verifier._sha256_json(extra)
+    else:  # pragma: no cover - fixture misuse
+        raise AssertionError(mode)
+    torch.save(payload, checkpoint_path)
+    sidecar_path = root / sidecar_relative
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    sidecar["epoch"] = payload["epoch"]
+    sidecar["checkpoint_bytes"] = checkpoint_path.stat().st_size
+    sidecar["checkpoint_sha256"] = verifier.sha256_file(checkpoint_path)
+    sidecar["extra_sha256"] = payload["extra_sha256"]
+    _write_canonical_json(verifier, root, sidecar_relative, sidecar)
+    candidate_files[offset + 2] = _binding(
+        verifier, root, checkpoint_relative
+    )
+    candidate_files[offset + 3] = _binding(verifier, root, sidecar_relative)
+    selection_audit = receipt["selection_audit"]
+    selection_audit["input_closure"]["candidate_files"] = candidate_files
+    selection_audit["input_closure_sha256"] = verifier._sha256_json(
+        selection_audit["input_closure"]
+    )
+    return _bind_stage16_receipt_fixture(verifier, root, suite, receipt)
+
+
+def _commit_all_fixture_files(root: Path, message: str) -> str:
+    """Commit fixture outputs even when the repository template ignores them."""
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-f", "-A"], cwd=root, check=True)
+    return _commit_git_fixture(root, message)
 
 
 def _development_model_metadata(
@@ -3072,6 +3589,16 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "predictor_bridge": _binding(verifier, root, bridge_path),
             "source_sha256": source_sha256,
         }
+        stage16_gate, _stage16_paths = _write_stage16_gate_fixture(
+            verifier,
+            root,
+            model_entries=model_entries,
+            development_contract=stage25_development,
+            stage9_receipt=stage9,
+            stage9_path=stage9_path,
+            source_sha256=source_sha256,
+            runtime_sha256=runtime_sha256,
+        )
         stage25_gate, _stage25_paths = _write_stage25_gate_fixture(
             verifier,
             root,
@@ -3085,6 +3612,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "stage09b_development_controls": _binding(
                 verifier, root, controls_path
             ),
+            "stage16_lstm_completion": stage16_gate,
             "stage25_external_completion": stage25_gate,
         }
 
@@ -4222,6 +4750,11 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         state["receipt_sha256"],
         f"{receipt_sha}  opening_receipt_v1.json\n".encode(),
     )
+    temporal_lstm_bundle = next(
+        entry["artifact"]["path"]
+        for entry in suite["cohorts"]["temporal"]["models"]
+        if entry["model_id"] == "LSTM"
+    )
     representatives = {
         "canonical_development": "data_usgs/panel_usgs_120v2.parquet",
         "authorization": "protocols/route_a_confirmatory_v1.json",
@@ -4229,7 +4762,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "registries": "data_usgs/external.csv",
         "candidate_evidence": "data_usgs/candidates.csv",
         "model_suite": "data_usgs/confirmatory_model_suite_v1.json",
-        "model_bundles": "outputs/models/temporal/lstm/weights.pt",
+        "model_bundles": f"{temporal_lstm_bundle}/weights.pt",
         "prelabel_chronology": verifier.CHRONOLOGY_PATH,
         "prelabel_inputs": "data_usgs/prelabel/temporal.parquet",
         "raw_meteorology": "data_usgs/raw_snapshots/met-0/response.bin",
@@ -4705,12 +5238,20 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
     )
     verifier.validate_members(complete)
     assert verifier.LEGACY_THREE_SITE_NOTICE_PATH in verifier.REQUIRED_MEMBERS
+    native_notices = {
+        verifier.NATIVE_THREAD_ENFORCEMENT_NOTICE_PATH,
+        verifier.NATIVE_ARTIFACT_PUBLICATION_NOTICE_PATH,
+    }
+    assert native_notices <= set(verifier.REQUIRED_MEMBERS)
     with pytest.raises(ValueError, match="missing required members"):
         verifier.validate_members(complete - {"data/b1.csv"})
     with pytest.raises(ValueError, match="missing required members"):
         verifier.validate_members(
             complete - {verifier.LEGACY_THREE_SITE_NOTICE_PATH}
         )
+    for notice in native_notices:
+        with pytest.raises(ValueError, match="missing required members"):
+            verifier.validate_members(complete - {notice})
     for missing_paper in verifier.REQUIRED_PAPER_MEMBERS:
         with pytest.raises(
             ValueError, match="missing registered manuscript sources"
@@ -4750,10 +5291,11 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
             verifier.validate_members(complete | {unsafe_alias})
 
     shell = MAKE_RELEASE_SCRIPT.read_text(encoding="utf-8")
+    assert "ALLOW_DIRTY_RELEASE" not in shell
     assert verifier.LEGACY_THREE_SITE_NOTICE_PATH in shell
-    assert (
-        f"copy_path {verifier.LEGACY_THREE_SITE_NOTICE_PATH}" in shell
-    )
+    assert shell.count(verifier.LEGACY_THREE_SITE_NOTICE_PATH) == 1
+    for notice in native_notices:
+        assert notice in shell
     paper_block = shell.split("paper_paths=(", 1)[1].split("\n)", 1)[0]
     shell_paper_paths = {
         line.strip() for line in paper_block.splitlines() if line.strip()
@@ -4773,6 +5315,53 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
     with zipfile.ZipFile(alias_archive_path) as archive:
         with pytest.raises(ValueError, match="prohibited character"):
             verifier.normalised_members(archive)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "LICENSE",
+        "data_usgs/frozen_panel_v1.json",
+        (
+            "data_usgs/raw_snapshots/huc-v1/usgs-nwis-site-metadata/"
+            "request/response.bin"
+        ),
+    ),
+)
+def test_canonical_archive_data_and_license_are_bound_to_compute_git_blob(
+    tmp_path: Path, relative: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_git_bound_archive_data_test"
+    )
+    source = tmp_path / "source"
+    archive = tmp_path / "archive"
+    source.mkdir()
+    archive.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    fixtures = {
+        "LICENSE": b"fixture license\n",
+        "data/b1.csv": b"date,value\n2000-01-01,1\n",
+        "data/b2.csv": b"not-bound\n",
+        "data_usgs/frozen_panel_v1.json": b'{"schema_version":1}\n',
+        (
+            "data_usgs/raw_snapshots/huc-v1/usgs-nwis-site-metadata/"
+            "request/response.bin"
+        ): b"raw provider response\n",
+    }
+    for path, payload in fixtures.items():
+        _write_bytes(source, path, payload)
+        _write_bytes(archive, path, payload)
+    commit = _commit_git_fixture(source, "canonical archive fixture")
+
+    verifier._verify_canonical_archive_blobs_from_bundle(
+        root=archive, bare=source, compute_commit=commit
+    )
+    (archive / relative).write_bytes(b"self-consistently replaced archive bytes\n")
+    with pytest.raises(ValueError, match="differs from compute Git blob"):
+        verifier._verify_canonical_archive_blobs_from_bundle(
+            root=archive, bare=source, compute_commit=commit
+        )
 
 
 def test_v2_seal_history_and_manuscript_git_blobs_fail_closed(tmp_path):
@@ -6375,7 +6964,7 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(
         )
     missing_stage25 = json.loads(json.dumps(suite))
     missing_stage25["preopening_gates"].pop("stage25_external_completion")
-    with pytest.raises(ValueError, match="Stage-9/09b/25"):
+    with pytest.raises(ValueError, match="Stage-9/09b/16/25"):
         verifier._validate_preopening_completion_gates(
             source,
             {},
@@ -6383,6 +6972,44 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(
             development,
             suite["numerical_runtime_sha256"],
         )
+    missing_stage16 = json.loads(json.dumps(suite))
+    missing_stage16["preopening_gates"].pop("stage16_lstm_completion")
+    with pytest.raises(ValueError, match="Stage-9/09b/16/25"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            missing_stage16,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+
+    stage16_binding = suite["preopening_gates"]["stage16_lstm_completion"]
+    stage16_path = source / stage16_binding["path"]
+    original_stage16 = stage16_path.read_bytes()
+    tampered_stage16 = json.loads(original_stage16)
+    tampered_stage16["selection_audit"]["candidates"][1][
+        "best_state_max_abs_difference"
+    ] = 1.0
+    tampered_stage16.pop("receipt_self_sha256")
+    tampered_stage16["receipt_self_sha256"] = verifier._sha256_json(
+        tampered_stage16
+    )
+    _write_canonical_json(
+        verifier, source, stage16_binding["path"], tampered_stage16
+    )
+    tampered_stage16_suite = json.loads(json.dumps(suite))
+    tampered_stage16_suite["preopening_gates"][
+        "stage16_lstm_completion"
+    ] = _binding(verifier, source, stage16_binding["path"])
+    with pytest.raises(ValueError, match="candidate replay audit changed"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            tampered_stage16_suite,
+            development,
+            suite["numerical_runtime_sha256"],
+        )
+    stage16_path.write_bytes(original_stage16)
 
     stage25_binding = suite["preopening_gates"]["stage25_external_completion"]
     stage25_path = source / stage25_binding["path"]
@@ -6505,6 +7132,97 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(
     with pytest.raises(ValueError, match="matrix audit|31 members"):
         verifier._validate_preopening_completion_gates(
             source, {}, suite, development, suite["numerical_runtime_sha256"]
+        )
+
+
+def test_stage16_release_and_git_reject_three_view_winner_disagreement(
+    tmp_path,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_stage16_three_view_winner_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    suite_path = source / authorization["model_suite"]["path"]
+    suite = json.loads(suite_path.read_text(encoding="utf-8"))
+    baseline_commit = _commit_all_fixture_files(source, "valid Stage-16 fixture")
+    baseline_gates = suite["preopening_gates"]
+    verifier._git_stage16_dependency_paths(
+        source,
+        baseline_commit,
+        suite,
+        baseline_gates["stage16_lstm_completion"],
+        stage9_gate_binding=baseline_gates["stage09_completion"],
+    )
+    gate = suite["preopening_gates"]["stage16_lstm_completion"]
+    receipt = json.loads((source / gate["path"]).read_text(encoding="utf-8"))
+    candidates = receipt["selection_audit"]["candidates"]
+    # Each change remains within 1e-5 of the reported CSV metric, but the
+    # recomputed view now selects candidate 0 while the other views select 1.
+    candidates[0]["recomputed_val_station_macro_rmse"] = 0.200009
+    candidates[1]["recomputed_val_station_macro_rmse"] = 0.200001
+    tampered_suite = _bind_stage16_receipt_fixture(
+        verifier, source, suite, receipt
+    )
+    with pytest.raises(ValueError, match="three-view validation winner changed"):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            tampered_suite,
+            tampered_suite["development_contract"],
+            tampered_suite["numerical_runtime_sha256"],
+        )
+
+    subprocess.run(["git", "add", "-f", "-A"], cwd=source, check=True)
+    commit = _commit_git_fixture(source, "three-view winner mismatch")
+    gates = tampered_suite["preopening_gates"]
+    with pytest.raises(ValueError, match="three-view validation winner changed"):
+        verifier._git_stage16_dependency_paths(
+            source,
+            commit,
+            tampered_suite,
+            gates["stage16_lstm_completion"],
+            stage9_gate_binding=gates["stage09_completion"],
+        )
+
+
+@pytest.mark.parametrize("mode", ("missing_scheduler_state", "nonterminal"))
+def test_stage16_release_and_git_reject_invalid_checkpoint_payload(
+    tmp_path, mode: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_stage16_checkpoint_{mode}_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, source)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    suite_path = source / authorization["model_suite"]["path"]
+    suite = json.loads(suite_path.read_text(encoding="utf-8"))
+    tampered_suite = _mutate_stage16_checkpoint_fixture(
+        verifier, source, suite, candidate_id=0, mode=mode
+    )
+    error = "top-level fields changed|structure or terminal state changed"
+    with pytest.raises(ValueError, match=error):
+        verifier._validate_preopening_completion_gates(
+            source,
+            {},
+            tampered_suite,
+            tampered_suite["development_contract"],
+            tampered_suite["numerical_runtime_sha256"],
+        )
+
+    commit = _commit_all_fixture_files(source, f"invalid checkpoint {mode}")
+    gates = tampered_suite["preopening_gates"]
+    with pytest.raises(ValueError, match=error):
+        verifier._git_stage16_dependency_paths(
+            source,
+            commit,
+            tampered_suite,
+            gates["stage16_lstm_completion"],
+            stage9_gate_binding=gates["stage09_completion"],
         )
 
 
@@ -6703,6 +7421,15 @@ def test_deterministic_zip_normalises_order_timestamp_modes_and_manifest_time(tm
     stage = tmp_path / "stage"
     _write_bytes(stage, "scripts/tool.py", b"print('x')\n")
     _write_bytes(stage, "data/value.txt", b"value\n")
+    opened_root = (
+        "outputs/confirmatory/route_a_" + "a" * 24
+    )
+    opened_receipt = _write_bytes(
+        stage, f"{opened_root}/opening_receipt_v1.json", b"{}\n"
+    )
+    opened_statistic = _write_bytes(
+        stage, f"{opened_root}/trusted/statistics_v1.json", b"{}\n"
+    )
     manifest = _write_bytes(
         stage,
         "outputs/manifest.json",
@@ -6736,6 +7463,9 @@ def test_deterministic_zip_normalises_order_timestamp_modes_and_manifest_time(tm
 
     os.chmod(stage / "scripts/tool.py", 0o600)
     os.chmod(stage / "data/value.txt", 0o777)
+    os.chmod(opened_receipt, 0o777)
+    os.chmod(opened_statistic, 0o600)
+    os.chmod(stage / opened_root / "trusted", 0o777)
     os.utime(stage / "data/value.txt", (2_000_000_000, 2_000_000_000))
     document = json.loads(manifest.read_text(encoding="utf-8"))
     document["generated_utc"] = "2100-01-01T00:00:00+00:00"
@@ -6749,10 +7479,14 @@ def test_deterministic_zip_normalises_order_timestamp_modes_and_manifest_time(tm
         assert all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist())
         modes = {
             info.filename: (info.external_attr >> 16) & 0o777
-            for info in archive.infolist() if not info.is_dir()
+            for info in archive.infolist()
         }
         assert modes["thermoroute/scripts/tool.py"] == 0o755
         assert modes["thermoroute/data/value.txt"] == 0o644
+        assert modes[f"thermoroute/{opened_root}/"] == 0o555
+        assert modes[f"thermoroute/{opened_root}/trusted/"] == 0o555
+        assert modes[f"thermoroute/{opened_root}/opening_receipt_v1.json"] == 0o444
+        assert modes[f"thermoroute/{opened_root}/trusted/statistics_v1.json"] == 0o444
         archived_manifest = json.loads(
             archive.read("thermoroute/outputs/manifest.json")
         )
@@ -6763,6 +7497,251 @@ def test_deterministic_zip_normalises_order_timestamp_modes_and_manifest_time(tm
             "git_history_evidence": history_evidence,
             "reproducibility_lock": lock_binding,
         }
+
+
+@pytest.mark.parametrize(
+    ("target_suffix", "attacked_mode", "error"),
+    (
+        (
+            "/trusted/statistics_v1.json",
+            stat.S_IFREG | 0o644,
+            "non-canonical mode",
+        ),
+        ("/trusted/", stat.S_IFDIR | 0o755, "non-canonical mode"),
+        (
+            "/trusted/statistics_v1.json",
+            stat.S_IFLNK | 0o777,
+            "symbolic links",
+        ),
+    ),
+)
+def test_archive_rejects_writable_or_linked_opened_namespace_metadata(
+    tmp_path, target_suffix: str, attacked_mode: int, error: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_opened_mode_attack_test"
+    )
+    zipper = _load_script(
+        ZIP_SCRIPT, "thermoroute_deterministic_opened_mode_attack_test"
+    )
+    stage = tmp_path / "stage"
+    opened_root = "outputs/confirmatory/route_a_" + "b" * 24
+    _write_bytes(
+        stage, f"{opened_root}/trusted/statistics_v1.json", b"{}\n"
+    )
+    good = tmp_path / "good.zip"
+    attacked = tmp_path / "attacked.zip"
+    zipper.create_deterministic_zip(stage, good)
+    with zipfile.ZipFile(good) as source, zipfile.ZipFile(
+        attacked, "w"
+    ) as destination:
+        matched = False
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename.endswith(target_suffix):
+                info.external_attr = attacked_mode << 16
+                matched = True
+            destination.writestr(info, payload)
+    assert matched
+    extraction = tmp_path / "extraction"
+    extraction.mkdir()
+    with zipfile.ZipFile(attacked) as archive:
+        with pytest.raises(ValueError, match=error):
+            verifier._extract_archive_safely(archive, extraction)
+    assert not any(extraction.iterdir())
+
+
+def test_postopen_archive_modes_satisfy_real_immutable_directory_validators(
+    tmp_path,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_opened_mode_integration_test"
+    )
+    zipper = _load_script(
+        ZIP_SCRIPT, "thermoroute_deterministic_opened_mode_integration_test"
+    )
+    stage = tmp_path / "stage"
+    run_relative = "outputs/confirmatory/route_a_" + "c" * 24
+    acquisition_names = {
+        "acquisition_request_map": "source_request_map_v1.json",
+        "temporal_outcomes": "temporal_outcomes_v1.parquet",
+        "external_outcomes": "external_outcomes_v1.parquet",
+        "acquisition_manifest": "acquisition_manifest_v1.json",
+    }
+    trusted_names = {
+        "availability_registry": "availability_registry_v1.csv",
+        "outcome_quality_audit": "outcome_quality_audit_v1.json",
+        "outcome_qc_gate": "outcome_qc_gate_v1.json",
+        "approved_target_sensitivity": "approved_target_sensitivity_v1.json",
+        "spatial_sensitivity": "spatial_sensitivity_v1.json",
+        "probabilistic_evaluation": "probabilistic_evaluation_v2.json",
+        "temporal_predictions": "temporal_predictions_v1.parquet",
+        "external_predictions": "external_predictions_v1.parquet",
+        "statistics": "statistics_v1.json",
+        "temporal_coverage_audit": "temporal_coverage_audit_v1.json",
+        "report": "report_v1.md",
+    }
+    for name in acquisition_names.values():
+        _write_bytes(stage, f"{run_relative}/acquisition/{name}")
+    for name in trusted_names.values():
+        _write_bytes(stage, f"{run_relative}/trusted/{name}")
+    _write_bytes(stage, "data/ordinary.txt")
+
+    archive_path = tmp_path / "opened.zip"
+    zipper.create_deterministic_zip(stage, archive_path)
+    extraction = tmp_path / "extraction"
+    extraction.mkdir()
+    with zipfile.ZipFile(archive_path) as archive:
+        verifier._extract_archive_safely(archive, extraction)
+    root = extraction / "thermoroute"
+    run = root / run_relative
+    assert stat.S_IMODE(run.stat().st_mode) == 0o555
+    assert stat.S_IMODE((run / "acquisition").stat().st_mode) == 0o555
+    assert stat.S_IMODE((run / "trusted").stat().st_mode) == 0o555
+    assert stat.S_IMODE((root / "data").stat().st_mode) == 0o755
+    assert stat.S_IMODE((root / "data/ordinary.txt").stat().st_mode) == 0o644
+
+    state = {
+        "run_directory": run,
+        **{
+            key: run / "acquisition" / name
+            for key, name in acquisition_names.items()
+        },
+        **{
+            key: run / "trusted" / name
+            for key, name in trusted_names.items()
+        },
+    }
+    for key in (*acquisition_names, *trusted_names):
+        metadata = state[key].stat()
+        assert stat.S_IMODE(metadata.st_mode) == 0o444
+        assert metadata.st_nlink == 1
+
+    def snapshot() -> dict[str, tuple[int, int, str | None]]:
+        observed: dict[str, tuple[int, int, str | None]] = {}
+        for path in sorted(run.rglob("*")):
+            metadata = path.lstat()
+            observed[path.relative_to(run).as_posix()] = (
+                stat.S_IMODE(metadata.st_mode),
+                metadata.st_nlink,
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                if path.is_file()
+                else None,
+            )
+        return observed
+
+    before = snapshot()
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from thermoroute import opening, outcome_acquisition
+
+        opening._assert_exact_trusted_directory(run / "trusted", state)
+        outcome_acquisition._assert_exact_acquisition_directory(
+            run / "acquisition", state
+        )
+    finally:
+        sys.path.pop(0)
+    assert snapshot() == before
+
+
+def _write_exact_archive_member_fixture(verifier, stage: Path) -> dict[str, object]:
+    """Create the smallest tree accepted by the exact member-set helper."""
+    fixed = set(verifier.REQUIRED_MEMBERS) | set(verifier.ALLOWED_PAPER_MEMBERS)
+    fixed.add(".gitignore")
+    for relative in sorted(fixed):
+        _write_bytes(stage, relative, f"fixture:{relative}\n".encode())
+    marker = {
+        "format": "thermoroute.release-profile.v1",
+        "profile": verifier.PREOPEN_PROFILE,
+        "artifact_closure": {},
+    }
+    _write_bytes(
+        stage,
+        verifier.PROFILE_MARKER,
+        json.dumps(marker, sort_keys=True).encode() + b"\n",
+    )
+    _write_bytes(
+        stage,
+        "outputs/manifest.json",
+        json.dumps({"generated_utc": "2099-01-01T00:00:00+00:00"}).encode(),
+    )
+    return marker
+
+
+@pytest.mark.parametrize(
+    ("extra", "forge_manifest"),
+    (
+        ("evidence/evil.bin", True),
+        ("notes/unsupported_results.txt", False),
+        ("data/secret_confirmation_labels.csv", False),
+        ("unsupported_results.txt", False),
+    ),
+)
+def test_exact_archive_layout_rejects_unregistered_files_even_with_new_manifest(
+    tmp_path, extra: str, forge_manifest: bool,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_exact_archive_file_test"
+    )
+    zipper = _load_script(
+        ZIP_SCRIPT, "thermoroute_deterministic_exact_archive_file_test"
+    )
+    stage = tmp_path / "stage"
+    marker = _write_exact_archive_member_fixture(verifier, stage)
+    baseline = tmp_path / "baseline.zip"
+    zipper.create_deterministic_zip(stage, baseline)
+    with zipfile.ZipFile(baseline) as archive:
+        members, directories = verifier._normalised_archive_layout(archive)
+    verifier.validate_members(members)
+    verifier._validate_exact_release_member_layout(
+        stage, marker, members, directories
+    )
+
+    extra_path = _write_bytes(stage, extra, b"unregistered evidence\n")
+    if forge_manifest:
+        _write_bytes(
+            stage,
+            "outputs/manifest.json",
+            json.dumps({
+                "generated_utc": "2099-01-01T00:00:00+00:00",
+                "forged_public_inventory": {
+                    extra: hashlib.sha256(extra_path.read_bytes()).hexdigest()
+                },
+            }).encode(),
+        )
+    attacked = tmp_path / "attacked.zip"
+    zipper.create_deterministic_zip(stage, attacked)
+    with zipfile.ZipFile(attacked) as archive:
+        members, directories = verifier._normalised_archive_layout(archive)
+    # The old broad boundary accepted every one of these canonical ZIP paths.
+    verifier.validate_members(members)
+    with pytest.raises(ValueError, match="exact authorized set"):
+        verifier._validate_exact_release_member_layout(
+            stage, marker, members, directories
+        )
+
+
+def test_exact_archive_layout_rejects_unregistered_empty_directory(
+    tmp_path,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_exact_archive_directory_test"
+    )
+    zipper = _load_script(
+        ZIP_SCRIPT, "thermoroute_deterministic_exact_archive_directory_test"
+    )
+    stage = tmp_path / "stage"
+    marker = _write_exact_archive_member_fixture(verifier, stage)
+    (stage / "notes/empty").mkdir(parents=True)
+    attacked = tmp_path / "empty-directory.zip"
+    zipper.create_deterministic_zip(stage, attacked)
+    with zipfile.ZipFile(attacked) as archive:
+        members, directories = verifier._normalised_archive_layout(archive)
+    verifier.validate_members(members)
+    with pytest.raises(ValueError, match="exact file parents"):
+        verifier._validate_exact_release_member_layout(
+            stage, marker, members, directories
+        )
 
 
 def test_git_bundle_replays_sealed_protocol_after_release_relocation(
@@ -7792,6 +8771,16 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "predictor_bridge": _binding(verifier, source, bridge_path),
         "source_sha256": frozen_source_sha,
     }
+    stage16_gate, stage16_paths = _write_stage16_gate_fixture(
+        verifier,
+        source,
+        model_entries=model_entries,
+        development_contract=development_contract,
+        stage9_receipt=stage09_receipt,
+        stage9_path=stage09_receipt_path,
+        source_sha256=frozen_source_sha,
+        runtime_sha256=runtime_sha256,
+    )
     stage25_gate, stage25_paths = _write_stage25_gate_fixture(
         verifier,
         source,
@@ -7813,6 +8802,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "stage09b_development_controls": _binding(
                 verifier, source, stage09b_receipt_path
             ),
+            "stage16_lstm_completion": stage16_gate,
             "stage25_external_completion": stage25_gate,
         },
         "cohorts": {
@@ -7838,6 +8828,8 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         relative
         for relative in development_model_artifact_paths
         if not relative.startswith("outputs/models/external/")
+        and not relative.startswith("outputs/models/temporal/lstm/")
+        and not relative.startswith("outputs/development/temporal_lstm.")
     }
     model_artifact_paths = {
         model_suite_path,
@@ -7854,6 +8846,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         stage09b_receipt_path,
         *stage09b_artifacts.values(),
         *stage09b_member_paths,
+        *stage16_paths,
         *stage25_paths,
     }
     model_commit = commit("freeze executable models and chronology gate")

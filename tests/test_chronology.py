@@ -195,6 +195,207 @@ def _snapshot(
     )
 
 
+def _seed_stage16_completion(
+    root: Path,
+    *,
+    stage09_path: str,
+    stage09_run_id: str,
+    attack: str | None,
+) -> dict[str, Any]:
+    """Create a lightweight but byte-complete formal Stage-16 fixture."""
+    configuration = {"fixture": True, "training_device": "cpu"}
+    identity_fields = {
+        "panel_sha256": _file_sha(root, "data_usgs/panel_usgs_120v2.parquet"),
+        "registry_sha256": _file_sha(root, "data_usgs/station_registry_v1.csv"),
+        "config_sha256": _repro_sha(configuration),
+        "source_sha256": "a" * 64,
+        "runtime_sha256": "b" * 64,
+        "schema_version": "thermoroute.run.v1",
+    }
+    run_id = _repro_sha(identity_fields)[:20]
+    identity = {"run_id": run_id, **identity_fields}
+    run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
+    run_manifest = f"{run_dir}/run.json"
+    selection = "outputs/tables/lstm_validation_selection.csv"
+    development = "outputs/predictions/usgs_predictions_v2.parquet"
+    development_sidecar = f"{development}.meta.json"
+    bundle = f"outputs/models/lstm_usgs_bundle_{run_id}"
+    bundle_metadata = f"{bundle}/metadata.json"
+    bundle_weights = f"{bundle}/weights.pt"
+    shortcut = "outputs/models/lstm_usgs_bundle.json"
+    components = "outputs/models/route_a_lstm_components.json"
+    for relative, payload in (
+        (run_manifest, "{}\n"),
+        (selection, "candidate_id,val_station_macro_rmse,selected\n1,0.2,true\n"),
+        (development, "stage16 development predictions\n"),
+        (development_sidecar, "{}\n"),
+        (bundle_metadata, "{}\n"),
+        (bundle_weights, "five-member weights\n"),
+        (shortcut, "{}\n"),
+        (components, "{}\n"),
+    ):
+        _write(root, relative, payload)
+
+    seed_paths = [
+        path
+        for seed in range(5)
+        for path in (
+            f"{run_dir}/predictions/seed{seed}.parquet",
+            f"{run_dir}/predictions/seed{seed}.parquet.meta.json",
+        )
+    ]
+    candidate_paths = [
+        path
+        for candidate_id in range(3)
+        for path in (
+            f"{run_dir}/selection/candidate{candidate_id}.parquet",
+            f"{run_dir}/selection/candidate{candidate_id}.parquet.meta.json",
+            f"{run_dir}/selection/candidate{candidate_id}.pt",
+            f"{run_dir}/selection/candidate{candidate_id}.pt.meta.json",
+        )
+    ]
+    for relative in seed_paths + candidate_paths:
+        _write(root, relative, f"fixture:{relative}\n")
+
+    artifacts: dict[str, Any] = {
+        "run_manifest": _binding(root, run_manifest),
+        "stage09_completion_receipt": _binding(root, stage09_path),
+        "stage09_parent_predictions": _binding(
+            root, "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+        ),
+        "stage09_parent_prediction_sidecar": _binding(
+            root,
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json",
+        ),
+        "lstm_validation_selection": _binding(root, selection),
+        "development_predictions": _binding(root, development),
+        "development_prediction_sidecar": _binding(root, development_sidecar),
+        "model_files": [
+            _binding(root, bundle_metadata),
+            _binding(root, bundle_weights),
+        ],
+        "lstm_seed_prediction_files": [
+            _binding(root, relative) for relative in seed_paths
+        ],
+        "selection_candidate_files": [
+            _binding(root, relative) for relative in candidate_paths
+        ],
+        "shortcut_pointer": _binding(root, shortcut),
+        "components_pointer": _binding(root, components),
+    }
+    threshold_registry = {"fixture-monitoring-site": 1.0}
+    threshold_contract = {
+        "target": "WTEMP",
+        "fit_split": "canonical development train mask",
+        "scope": "station-specific",
+        "estimator": "pandas Series.quantile(q=0.90, interpolation=linear)",
+        "quantile": 0.90,
+        "registry": threshold_registry,
+        "registry_sha256": _repro_sha(threshold_registry),
+    }
+    selection_input_closure = {
+        "run_manifest": artifacts["run_manifest"],
+        "panel": _binding(root, "data_usgs/panel_usgs_120v2.parquet"),
+        "frozen_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
+        "station_registry": _binding(root, "data_usgs/station_registry_v1.csv"),
+        "selection": artifacts["lstm_validation_selection"],
+        "candidate_files": artifacts["selection_candidate_files"],
+        "event_threshold_contract": threshold_contract,
+    }
+    metrics = (0.30, 0.20, 0.40)
+    selection_audit = {
+        "format": "thermoroute.stage16-selection-audit.v1",
+        "status": "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY",
+        "metric": "mean_station_rmse_across_all_horizons",
+        "selection_split": "2016-2017 validation",
+        "metric_atol": 1e-5,
+        "replay_atol": 1e-5,
+        "winner_candidate_id": 1,
+        "candidates": [
+            {
+                "candidate_id": candidate_id,
+                "recomputed_val_station_macro_rmse": metric,
+                "reported_val_station_macro_rmse": metric,
+                "checkpoint_best_metric": metric,
+                "best_state_max_abs_difference": 0.0,
+                "selected": candidate_id == 1,
+            }
+            for candidate_id, metric in enumerate(metrics)
+        ],
+        "input_closure": selection_input_closure,
+        "input_closure_sha256": _repro_sha(selection_input_closure),
+    }
+    development_prediction = {
+        "artifact": {
+            **artifacts["development_predictions"],
+            "sidecar": artifacts["development_prediction_sidecar"],
+        },
+        "rows": 1,
+        "selection": {"model": "LSTM", "seeds": list(range(5))},
+        "forecast_key_columns": [
+            "site_id", "horizon", "issue_date", "target_date",
+        ],
+        "prediction_columns": ["model", "site_id", "y_true", "y_pred"],
+        "forecast_key_registry_sha256": "c" * 64,
+        "prediction_sha256": "d" * 64,
+        "max_abs_difference": 0.0,
+        "atol": 1e-5,
+    }
+    parity_input_closure = {
+        "panel": _binding(root, "data_usgs/panel_usgs_120v2.parquet"),
+        "frozen_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
+        "station_registry": _binding(root, "data_usgs/station_registry_v1.csv"),
+        "bundle_metadata": artifacts["model_files"][0],
+        "bundle_weights": artifacts["model_files"][1],
+        "development_prediction": development_prediction,
+    }
+    parity_audit = {
+        "format": "thermoroute.stage16-bundle-parity.v1",
+        "status": "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY",
+        "members": [f"seed{seed}" for seed in range(5)],
+        "splits": ["val", "calib", "test"],
+        "atol": 1e-5,
+        "max_abs_difference": 0.0,
+        "input_closure": parity_input_closure,
+        "input_closure_sha256": _repro_sha(parity_input_closure),
+    }
+    if attack == "missing_seed_binding":
+        artifacts["lstm_seed_prediction_files"].pop()
+    elif attack == "tampered_selection_audit":
+        selection_audit["candidates"][1]["best_state_max_abs_difference"] = 0.5
+    elif attack == "three_view_winner_disagreement":
+        selection_audit["winner_candidate_id"] = 0
+        reported = (0.300000, 0.299991, 0.400000)
+        replayed = (0.300002, 0.299990, 0.400000)
+        for candidate_id, candidate in enumerate(selection_audit["candidates"]):
+            candidate["reported_val_station_macro_rmse"] = reported[candidate_id]
+            candidate["recomputed_val_station_macro_rmse"] = replayed[candidate_id]
+            candidate["checkpoint_best_metric"] = replayed[candidate_id]
+            candidate["selected"] = candidate_id == 0
+    elif attack not in {None, "missing_gate"}:
+        raise AssertionError(f"unknown Stage-16 fixture attack: {attack}")
+
+    receipt = {
+        "format": "thermoroute.stage16-completion-receipt.v1",
+        "status": "PASS_FORMAL_STAGE16_COMPLETE",
+        "stage": "16_lstm_baseline_insample",
+        "run_id": run_id,
+        "parent_stage09_run_id": stage09_run_id,
+        "run_identity": identity,
+        "formal_configuration": configuration,
+        "training_device": "cpu",
+        "confirmation_outcomes_requested_or_read": False,
+        "selection_audit": selection_audit,
+        "bundle_prediction_parity": parity_audit,
+        "artifacts": artifacts,
+        "artifact_closure_sha256": _repro_sha(artifacts),
+    }
+    receipt["receipt_self_sha256"] = _repro_sha(receipt)
+    receipt_path = "outputs/models/route_a_stage16_completion.json"
+    _write(root, receipt_path, _json_bytes(receipt))
+    return {"path": receipt_path, "run_id": run_id, "artifacts": artifacts}
+
+
 def _seed_model_commit(
     root: Path,
     *,
@@ -202,6 +403,7 @@ def _seed_model_commit(
     final_commit: str,
     leak_before_model: bool,
     lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
+    stage16_attack: str | None = None,
 ) -> str:
     original_markdown = subprocess.run(
         [
@@ -351,6 +553,12 @@ def _seed_model_commit(
     stage9["receipt_self_sha256"] = _repro_sha(stage9)
     stage9_path = "outputs/models/route_a_stage09_completion.json"
     _write(root, stage9_path, _json_bytes(stage9))
+    stage16 = _seed_stage16_completion(
+        root,
+        stage09_path=stage9_path,
+        stage09_run_id=stage9_run_id,
+        attack=stage16_attack,
+    )
 
     stage09b_run_id = "stage09b-fixture"
     stage09b_run_dir = (
@@ -584,6 +792,11 @@ def _seed_model_commit(
         },
         "preopening_gates": {
             "stage09_completion": _binding(root, stage9_path),
+            **(
+                {}
+                if stage16_attack == "missing_gate"
+                else {"stage16_lstm_completion": _binding(root, stage16["path"])}
+            ),
             "stage09b_development_controls": _binding(root, stage09b_path),
             "stage25_external_completion": _binding(root, stage25_path),
         },
@@ -729,6 +942,7 @@ def _repository(
     source_change: bool = False,
     creation_base: bool = True,
     lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
+    stage16_attack: str | None = None,
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
     root.mkdir()
@@ -746,6 +960,7 @@ def _repository(
         final_commit=final,
         leak_before_model=leak_before_model,
         lightgbm_bundle_format=lightgbm_bundle_format,
+        stage16_attack=stage16_attack,
     )
     evidence = _seed_evidence_commit(
         root, candidate_already_exists=leak_before_model
@@ -791,9 +1006,45 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     assert len(document["model_freeze_artifacts"]) >= 10
     assert len(document["input_evidence_artifacts"]) >= 15
     assert document["external_timestamp_or_public_preregistration"] is False
+    stage16 = json.loads(
+        (state["root"] / "outputs/models/route_a_stage16_completion.json")
+        .read_text(encoding="utf-8")
+    )
+    stage16_paths = {
+        str(binding["path"])
+        for value in stage16["artifacts"].values()
+        for binding in (value if isinstance(value, list) else [value])
+    }
+    chronology_paths = {
+        str(binding["path"]) for binding in document["model_freeze_artifacts"]
+    }
+    assert stage16_paths <= chronology_paths
+    assert len(stage16["artifacts"]["model_files"]) == 2
+    assert len(stage16["artifacts"]["lstm_seed_prediction_files"]) == 10
+    assert len(stage16["artifacts"]["selection_candidate_files"]) == 12
     assert validate_prelabel_chronology(
         state["receipt"], root=state["root"]
     ) == document
+
+
+@pytest.mark.parametrize(
+    ("attack", "message"),
+    (
+        ("missing_gate", "exact Stage-09/09b/16/25 completion gates"),
+        ("missing_seed_binding", "wrong cardinality"),
+        ("tampered_selection_audit", "candidate best-state replay changed"),
+        (
+            "three_view_winner_disagreement",
+            "three validation metric views do not select the same",
+        ),
+    ),
+)
+def test_chronology_rejects_missing_or_resealed_stage16_gate(
+    tmp_path, attack, message,
+):
+    state = _repository(tmp_path, stage16_attack=attack)
+    with pytest.raises(ChronologyError, match=message):
+        _freeze(state)
 
 
 def test_chronology_requires_post_evidence_outcome_free_creation_base(tmp_path):

@@ -4,8 +4,10 @@
 The 2019--2020 results are exploratory. This script mirrors the later frozen
 estimand registry without retroactively calling this period blind or formal.
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
+from io import BytesIO
 import sys
 from pathlib import Path
 
@@ -21,9 +23,18 @@ import pandas as pd
 
 from thermoroute import config as C
 from thermoroute import results as R
+from thermoroute.model_suite import (
+    STAGE16_COMPLETION_RECEIPT_PATH,
+    validate_stage16_completion_receipt,
+)
 from thermoroute.probability import ensemble_prediction_frame
 from thermoroute.registry import ROUTE_A_PRIMARY_MODELS, enforce_common_forecast_keys
-from thermoroute.repro import atomic_write_bytes, sha256_file, source_tree_hash
+from thermoroute.repro import (
+    advisory_file_lock,
+    atomic_write_bytes,
+    sha256_file,
+    source_tree_hash,
+)
 from thermoroute.spatial import huc2_cluster_map, load_station_registry
 from thermoroute.significance import (
     cluster_bootstrap_paired_effect,
@@ -36,6 +47,7 @@ from thermoroute.significance import (
 
 
 PREDICTIONS = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+STAGE16_RECEIPT = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
 PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 MODELS = ("ThermoRoute", "DampedPersistence", "LightGBM")
@@ -69,6 +81,7 @@ DEVELOPMENT_IDENTITY_COLUMNS = (
     "canonical_registry_models",
     "summarized_models",
     "source_prediction_sha256",
+    "stage16_completion_receipt_sha256",
     "source_tree_sha256",
 )
 
@@ -78,6 +91,7 @@ def _development_row_identity(
     horizon: int,
     reference: str,
     source_prediction_sha256: str,
+    stage16_completion_receipt_sha256: str,
     source_tree_sha256: str,
 ) -> dict[str, object]:
     """Return the non-negotiable exploratory identity for one output row."""
@@ -87,6 +101,7 @@ def _development_row_identity(
         raise ValueError("development mirror comparison is outside the fixed registry")
     for label, digest in (
         ("source prediction", source_prediction_sha256),
+        ("Stage-16 completion receipt", stage16_completion_receipt_sha256),
         ("source tree", source_tree_sha256),
     ):
         if len(digest) != 64 or any(
@@ -116,6 +131,9 @@ def _development_row_identity(
         "canonical_registry_models": "|".join(ROUTE_A_PRIMARY_MODELS),
         "summarized_models": "|".join(MODELS),
         "source_prediction_sha256": source_prediction_sha256,
+        "stage16_completion_receipt_sha256": (
+            stage16_completion_receipt_sha256
+        ),
         "source_tree_sha256": source_tree_sha256,
     }
 
@@ -227,7 +245,7 @@ def _retain_reportable_station_rmse(
     return retained.sort_values(["horizon", "site_id", "model"]).reset_index(drop=True)
 
 
-def main() -> None:
+def _run(*, stage16_completion_receipt_sha256: str) -> None:
     common = _common_predictions()
     per_station = _retain_reportable_station_rmse(_station_rmse(common))
     prediction_sha256 = sha256_file(PREDICTIONS)
@@ -252,6 +270,9 @@ def main() -> None:
                 horizon=horizon,
                 reference=reference,
                 source_prediction_sha256=prediction_sha256,
+                stage16_completion_receipt_sha256=(
+                    stage16_completion_receipt_sha256
+                ),
                 source_tree_sha256=code_sha256,
             )
             effect = (wide.ThermoRoute - wide[reference]).to_numpy(float)
@@ -373,6 +394,8 @@ def main() -> None:
         "persistence, and LightGBM; their counts are asserted identical before "
         "scoring. The h=1 LightGBM comparison and every equivalence diagnostic are "
         "exploratory and excluded from the frozen five-test family.\n",
+        "The exact final Stage-16 completion receipt SHA-256 for every row and "
+        f"rendered artifact is `{stage16_completion_receipt_sha256}`.\n",
         "| h | reference | n | clusters | median difference [95% CI] | win rate | "
         "margin | frozen-family Holm mirror (development only) | equivalence "
         "diagnostic (exploratory) | CI below numerical margin (exploratory) |",
@@ -437,13 +460,37 @@ def main() -> None:
         axis.grid(alpha=0.2)
     axes[0].set_ylabel("ThermoRoute RMSE")
     fig.suptitle("Development-period station RMSE on common forecast keys")
+    figure_payload = BytesIO()
     fig.savefig(
-        C.FIGURES / "development_route_a_estimand_mirror.png",
+        figure_payload,
+        format="png",
         dpi=300,
         bbox_inches="tight",
+        metadata={
+            "Stage16CompletionReceiptSHA256": stage16_completion_receipt_sha256,
+        },
     )
     plt.close(fig)
+    atomic_write_bytes(
+        C.FIGURES / "development_route_a_estimand_mirror.png",
+        figure_payload.getvalue(),
+    )
     print("\n".join(lines))
+
+
+def main() -> None:
+    # Stage 16 takes this path exclusively while replacing the V2 prediction,
+    # bundle, pointers, and receipt.  Keep the shared lock from gate validation
+    # through every table/report/figure publication to prevent mixed generations.
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        validate_stage16_completion_receipt(
+            STAGE16_RECEIPT,
+            root=ROOT,
+            replay_bundle=False,
+        )
+        _run(
+            stage16_completion_receipt_sha256=sha256_file(STAGE16_RECEIPT),
+        )
 
 
 if __name__ == "__main__":

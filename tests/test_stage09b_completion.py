@@ -471,6 +471,7 @@ def _build_fixture(root: Path) -> dict[str, Any]:
                     "selected_epoch": 2,
                     "checkpoint_final_epoch": 4,
                 },
+                publication_guard=lambda: None,
             )
             members[(arm.arm_id, seed)] = path
     frames = {
@@ -496,6 +497,7 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         train_examples=contract.train_examples,
         canonical_registry_sha256=contract.registry_sha256,
         canonical_train_registry_sha256=contract.train_registry_sha256,
+        publication_guard=lambda: None,
     ))
     receipt_path = root / "outputs" / "models" / "route_a_stage09b_completion.json"
     receipt = build_stage09b_completion_receipt(
@@ -514,7 +516,12 @@ def _build_fixture(root: Path) -> dict[str, Any]:
         semantic_audit=semantic_audit,
         matrix_audit=asdict(audit),
     )
-    publish_stage09b_completion_receipt(receipt_path, receipt, root=root)
+    publish_stage09b_completion_receipt(
+        receipt_path,
+        receipt,
+        root=root,
+        publication_guard=lambda: None,
+    )
     return {
         "root": root,
         "receipt": receipt_path,
@@ -686,15 +693,55 @@ def test_stage09b_receipt_requires_exact_31_member_closure(fixture) -> None:
         )
 
 
+def test_stage09b_validator_rejects_canonical_receipt_symlink(fixture) -> None:
+    alias = fixture["receipt"].with_name("stage09b-receipt-alias.json")
+    alias.write_bytes(fixture["receipt"].read_bytes())
+    fixture["receipt"].unlink()
+    fixture["receipt"].symlink_to(alias)
+    with pytest.raises(DevelopmentControlsGateError, match="uses a symlink"):
+        validate_stage09b_completion_receipt(
+            fixture["receipt"], root=fixture["root"]
+        )
+
+
 def test_failure_before_last_write_never_publishes_receipt(fixture) -> None:
     candidate = fixture["document"]
     fixture["receipt"].unlink()
     fixture["report"].write_text("injected report failure\n", encoding="utf-8")
     with pytest.raises(DevelopmentControlsGateError, match="checksum|canonical path"):
         publish_stage09b_completion_receipt(
-            fixture["receipt"], candidate, root=fixture["root"]
+            fixture["receipt"],
+            candidate,
+            root=fixture["root"],
+            publication_guard=lambda: None,
         )
     assert not fixture["receipt"].exists()
+
+
+def test_stage09b_receipt_writer_guard_failure_preserves_authoritative_bytes(
+    fixture,
+) -> None:
+    before = fixture["receipt"].read_bytes()
+    calls = 0
+
+    def reject_at_atomic_boundary() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected receipt publication drift")
+
+    with pytest.raises(RuntimeError, match="receipt publication drift"):
+        publish_stage09b_completion_receipt(
+            fixture["receipt"],
+            fixture["document"],
+            root=fixture["root"],
+            publication_guard=reject_at_atomic_boundary,
+        )
+    assert calls == 2
+    assert fixture["receipt"].read_bytes() == before
+    assert not list(
+        fixture["receipt"].parent.glob(f".{fixture['receipt'].name}.*.tmp")
+    )
 
 
 def test_semantically_forged_budget_fails_closed(fixture) -> None:

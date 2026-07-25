@@ -23,12 +23,26 @@ EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 FIXED_MANIFEST_UTC = "1980-01-01T00:00:00+00:00"
 
 
+def _is_canonical_opened_state_member(relative: PurePosixPath) -> bool:
+    """Identify the exact content-addressed Route-A opened-state subtree."""
+    parts = relative.parts
+    if len(parts) < 3 or parts[:2] != ("outputs", "confirmatory"):
+        return False
+    namespace = parts[2]
+    return (
+        namespace.startswith("route_a_")
+        and len(namespace) == len("route_a_") + 24
+        and all(character in "0123456789abcdef" for character in namespace[8:])
+    )
+
+
 def _archive_mode(relative: PurePosixPath, *, directory: bool) -> int:
+    if _is_canonical_opened_state_member(relative):
+        return stat.S_IFDIR | 0o555 if directory else stat.S_IFREG | 0o444
     if directory:
         return stat.S_IFDIR | 0o755
     executable = (
-        len(relative.parts) > 1
-        and relative.parts[1] == "scripts"
+        relative.parts[:1] == ("scripts",)
         and relative.suffix in {".py", ".sh"}
     )
     return stat.S_IFREG | (0o755 if executable else 0o644)
@@ -134,7 +148,10 @@ def create_deterministic_zip(
                 name = relative.as_posix() + ("/" if directory else "")
                 info = zipfile.ZipInfo(name, date_time=FIXED_ZIP_TIMESTAMP)
                 info.create_system = 3
-                info.external_attr = _archive_mode(relative, directory=directory) << 16
+                source_relative = PurePosixPath(*relative.parts[1:])
+                info.external_attr = (
+                    _archive_mode(source_relative, directory=directory) << 16
+                )
                 info.compress_type = zipfile.ZIP_STORED if directory else zipfile.ZIP_DEFLATED
                 info.flag_bits |= 0x800
                 payload = b"" if directory else path.read_bytes()  # type: ignore[union-attr]

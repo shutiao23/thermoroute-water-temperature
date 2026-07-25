@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from thermoroute import config as C  # noqa: E402
 from thermoroute import model_suite as MODEL_SUITE  # noqa: E402
 from thermoroute import results as R  # noqa: E402
+from thermoroute.checkpoint import save_training_checkpoint  # noqa: E402
 from thermoroute.model_suite import (  # noqa: E402
     ABLATION_INTERVENTIONS,
     MANDATORY_ABLATIONS,
@@ -42,6 +45,7 @@ from thermoroute.quantiles import (  # noqa: E402
     RAW_QUANTILE_CROSSING_AUDIT_FORMAT,
     lightgbm_quantile_repair_contract,
 )
+from thermoroute.train import LSTMForecaster  # noqa: E402
 
 
 def _load_script(relative: str, name: str):
@@ -739,8 +743,38 @@ def test_semantic_validation_failure_does_not_replace_completion_receipt(tmp_pat
             document,
             root=tmp_path,
             stage9_pointer=fixture["components"],
+            publication_guard=lambda: None,
         )
     assert fixture["receipt"].read_bytes() == before
+
+
+def test_stage09_receipt_writer_guard_failure_preserves_authoritative_bytes(
+    tmp_path,
+):
+    fixture = _stage09_fixture(tmp_path)
+    before = fixture["receipt"].read_bytes()
+    document = json.loads(before)
+    calls = 0
+
+    def reject_at_atomic_boundary() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected receipt publication drift")
+
+    with pytest.raises(RuntimeError, match="receipt publication drift"):
+        publish_stage09_completion_receipt(
+            fixture["receipt"],
+            document,
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+            publication_guard=reject_at_atomic_boundary,
+        )
+    assert calls == 2
+    assert fixture["receipt"].read_bytes() == before
+    assert not list(
+        fixture["receipt"].parent.glob(f".{fixture['receipt'].name}.*.tmp")
+    )
 
 
 def test_stage09_receipt_rejects_old_ensemble_vs_single_seed_ablation_report(
@@ -771,6 +805,7 @@ def test_stage09_receipt_rejects_old_ensemble_vs_single_seed_ablation_report(
             document,
             root=tmp_path,
             stage9_pointer=fixture["components"],
+            publication_guard=lambda: None,
         )
     assert fixture["receipt"].read_bytes() == before
 
@@ -1152,7 +1187,7 @@ def test_stage09_receipt_requires_full_prediction_sidecar_identity(tmp_path):
         )
 
 
-def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
+def test_suite_identity_and_frozen_document_bind_all_four_completion_receipts(
     tmp_path, monkeypatch,
 ):
     receipt = _write_bytes(tmp_path / "outputs" / "receipt.json", b"receipt\n")
@@ -1161,6 +1196,10 @@ def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
         tmp_path / "outputs" / "controls-receipt.json", b"controls receipt\n"
     )
     controls_gate = file_binding(tmp_path, controls_receipt)
+    stage16_receipt = _write_bytes(
+        tmp_path / "outputs" / "stage16-receipt.json", b"stage16 receipt\n"
+    )
+    stage16_gate = file_binding(tmp_path, stage16_receipt)
     stage25_receipt = _write_bytes(
         tmp_path / "outputs" / "stage25-receipt.json", b"stage25 receipt\n"
     )
@@ -1176,12 +1215,14 @@ def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
         **common,
         stage09_completion=gate,
         stage09b_completion=controls_gate,
+        stage16_completion=stage16_gate,
         stage25_completion=stage25_gate,
     )
     second_id = STAGE24._model_suite_id(
         **common,
         stage09_completion={**gate, "sha256": "f" * 64},
         stage09b_completion=controls_gate,
+        stage16_completion=stage16_gate,
         stage25_completion=stage25_gate,
     )
     assert first_id != second_id
@@ -1189,6 +1230,7 @@ def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
         **common,
         stage09_completion=gate,
         stage09b_completion={**controls_gate, "sha256": "e" * 64},
+        stage16_completion=stage16_gate,
         stage25_completion=stage25_gate,
     )
     assert first_id != third_id
@@ -1196,17 +1238,26 @@ def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
         **common,
         stage09_completion=gate,
         stage09b_completion=controls_gate,
-        stage25_completion={**stage25_gate, "sha256": "d" * 64},
+        stage16_completion={**stage16_gate, "sha256": "d" * 64},
+        stage25_completion=stage25_gate,
     )
     assert first_id != fourth_id
+    fifth_id = STAGE24._model_suite_id(
+        **common,
+        stage09_completion=gate,
+        stage09b_completion=controls_gate,
+        stage16_completion=stage16_gate,
+        stage25_completion={**stage25_gate, "sha256": "d" * 64},
+    )
+    assert first_id != fifth_id
 
     monkeypatch.setattr(
         MODEL_SUITE, "_learned_metadata_runtime_sha256",
-        lambda _root, _entries: "b" * 64,
+        lambda _root, _entries, *, publication_guard=None: "b" * 64,
     )
     monkeypatch.setattr(
         MODEL_SUITE, "validate_model_suite_document",
-        lambda _document, *, root: None,
+        lambda _document, *, root, publication_guard=None: None,
     )
     destination = tmp_path / "outputs" / "suite.json"
     MODEL_SUITE.freeze_model_suite(
@@ -1220,12 +1271,15 @@ def test_suite_identity_and_frozen_document_bind_both_completion_receipts(
         development_contract={},
         stage09_completion=gate,
         stage09b_completion=controls_gate,
+        stage16_completion=stage16_gate,
         stage25_completion=stage25_gate,
+        publication_guard=lambda: None,
     )
     frozen = json.loads(destination.read_text(encoding="utf-8"))
     assert frozen["preopening_gates"] == {
         "stage09_completion": gate,
         "stage09b_development_controls": controls_gate,
+        "stage16_lstm_completion": stage16_gate,
         "stage25_external_completion": stage25_gate,
     }
 
@@ -1287,3 +1341,883 @@ def test_stage24_rejects_changed_or_substituted_stage09_pointer(tmp_path):
         STAGE24._load_verified_stage9(
             fixture["components"], fixture["receipt"], root=tmp_path
         )
+
+
+@pytest.mark.parametrize("attack", ("sibling_symlink", "hardlink_alias"))
+def test_stage09_validator_rejects_receipt_link_aliases(tmp_path, attack):
+    fixture = _stage09_fixture(tmp_path)
+    alias = fixture["receipt"].with_name(f"stage09-{attack}.json")
+    if attack == "sibling_symlink":
+        alias.write_bytes(fixture["receipt"].read_bytes())
+        fixture["receipt"].unlink()
+        fixture["receipt"].symlink_to(alias)
+    else:
+        os.link(fixture["receipt"], alias)
+        assert fixture["receipt"].stat().st_nlink == 2
+    with pytest.raises(ModelSuiteError, match="symlink|single-link"):
+        validate_stage09_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+        )
+
+
+def test_stage24_rejects_noncanonical_protocol_before_loading_or_publication(
+    tmp_path, monkeypatch,
+):
+    alternate = _write_bytes(tmp_path / "alternate-protocol.json", b"{}\n")
+    monkeypatch.setattr(STAGE24, "_assert_stage24_policy", lambda: object())
+    monkeypatch.setattr(
+        STAGE24,
+        "_load_verified_stage9",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Stage 24 loaded model authority before rejecting protocol"
+        ),
+    )
+    monkeypatch.setattr(
+        STAGE24,
+        "freeze_model_suite",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Stage 24 published a suite for a noncanonical protocol"
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["24_freeze_model_suite.py", "--protocol", str(alternate)],
+    )
+    with pytest.raises(ModelSuiteError, match="protocol path is not canonical"):
+        STAGE24._run()
+
+
+def _stage16_fixture(
+    root: Path, monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, Any]:
+    """Create a byte-real Stage09→Stage16 closure without expensive inference."""
+    stage09 = _stage09_fixture(root)
+    parent = stage09["predictions"]
+    parent_frame = pd.read_parquet(parent)
+    sites = tuple(sorted(parent_frame["site_id"].astype(str).unique()))
+    monkeypatch.setattr(MODEL_SUITE.C, "STATIONS", sites)
+    runtime_contract = {"fixture_numerical_runtime": "cpu-single-thread"}
+    monkeypatch.setattr(
+        MODEL_SUITE, "numerical_runtime_contract", lambda: runtime_contract
+    )
+    fixture_thresholds = {site: 1.0 for site in C.STATIONS}
+    fixture_threshold_registry = {
+        site: fixture_thresholds[site] for site in sorted(fixture_thresholds)
+    }
+    fixture_threshold_contract = {
+        "target": "WTEMP",
+        "fit_split": "canonical development train mask",
+        "scope": "station-specific",
+        "estimator": "pandas Series.quantile(q=0.90, interpolation=linear)",
+        "quantile": 0.90,
+        "registry": fixture_threshold_registry,
+        "registry_sha256": sha256_json(fixture_threshold_registry),
+    }
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_stage16_replay_inputs",
+        lambda _root, *, build_windows: (
+            object() if build_windows else None,
+            dict(fixture_thresholds),
+            dict(fixture_threshold_contract),
+        ),
+    )
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_verify_stage16_candidate_checkpoint",
+        lambda **_kwargs: 0.0,
+    )
+    configuration = {
+        "stage": "16_lstm_baseline_insample",
+        "role": "final_route_a_development_predictions",
+        "parent_sha256": sha256_file(parent),
+        "models": list(MODEL_SUITE.ROUTE_A_PRIMARY_MODELS),
+        "seeds": list(C.USGS_SEEDS),
+        "variables": list(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+        "horizons": list(C.HORIZONS),
+        "context_length": C.CONTEXT_LENGTH,
+        "station_embedding": True,
+        "station_balanced": True,
+        "selection_metric": "station_macro",
+        "validation_grid": [
+            dict(value) for value in MODEL_SUITE.LSTM_VALIDATION_GRID
+        ],
+        "validation_selection_seed": C.USGS_SEEDS[0],
+        "validation_selection_split": "2016-2017 only",
+        "event_reference_fit_interval": ["2006-01-01", "2018-12-31"],
+        "train_config": MODEL_SUITE.asdict(C.TrainConfig(batch_size=1536)),
+        "training_device": "cpu",
+        "formal_numerical_policy": {"worker_threads": 1},
+    }
+    identity_fields = {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "panel_sha256": sha256_file(stage09["panel"]),
+        "registry_sha256": sha256_file(stage09["registry"]),
+        "config_sha256": sha256_json(configuration),
+        "source_sha256": source_tree_hash(root),
+        "runtime_sha256": sha256_json(runtime_contract),
+    }
+    identity = RunIdentity(
+        run_id=sha256_json(identity_fields)[:20], **identity_fields
+    )
+    run_manifest = (
+        root / "outputs" / "runs" / "16_lstm_baseline"
+        / identity.run_id / "run.json"
+    )
+    run_manifest.parent.mkdir(parents=True)
+    run_manifest.write_text(json.dumps({
+        "schema_version": RUN_SCHEMA_VERSION,
+        "identity": identity.as_dict(),
+        "resolved_config": configuration,
+        "created_utc": "2026-07-25T00:00:00+00:00",
+        "environment": {},
+        "git": {},
+        "provenance": {
+            "evidence_role": "prelabel_route_a_model_build_development_only",
+            "training_device": "cpu",
+        },
+    }), encoding="utf-8")
+
+    raw_frames: list[pd.DataFrame] = []
+    for seed_index, seed in enumerate(C.USGS_SEEDS):
+        rows: list[dict[str, Any]] = []
+        for split, issue in (
+            ("val", pd.Timestamp("2017-06-01")),
+            ("calib", pd.Timestamp("2018-06-01")),
+            ("test", pd.Timestamp("2020-06-01")),
+        ):
+            for site in sites:
+                for horizon in C.HORIZONS:
+                    y_true = 0.0
+                    point = 0.25 + 0.01 * seed_index
+                    rows.append({
+                        "model": "LSTM",
+                        "scope": "joint_usgs",
+                        "feature_set": "USGS",
+                        "seed": seed,
+                        "site_id": site,
+                        "horizon": horizon,
+                        "split": split,
+                        "issue_date": issue,
+                        "target_date": issue + pd.Timedelta(days=horizon),
+                        "y_true": y_true,
+                        "y_pred": point,
+                        "q05": point - 0.5,
+                        "q50": point,
+                        "q95": point + 0.5,
+                        "p_exceed": 0.2,
+                    })
+        frame = pd.DataFrame(rows, columns=R.PRED_COLS)
+        path = (
+            run_manifest.parent / "predictions" / f"seed{seed}.parquet"
+        )
+        R.write_predictions(frame, path)
+        seal_artifact(
+            path,
+            identity,
+            kind="lstm_seed_predictions",
+            schema=R.PREDICTION_SCHEMA_VERSION,
+        )
+        raw_frames.append(frame)
+
+    raw_lstm = pd.concat(raw_frames, ignore_index=True)
+    candidate = pd.concat([parent_frame, raw_lstm], ignore_index=True)
+    final, audit = MODEL_SUITE.enforce_common_forecast_keys(
+        candidate, MODEL_SUITE.ROUTE_A_PRIMARY_MODELS, split="test"
+    )
+    prediction = root / MODEL_SUITE.STAGE16_DEVELOPMENT_PREDICTION_PATH
+    R.write_predictions(final, prediction)
+    seal_artifact(
+        prediction,
+        identity,
+        kind="final_route_a_development_predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+        parents={parent.name: sha256_file(parent)},
+        extra={
+            "parent_run_id": stage09["run_id"],
+            "primary_models": MODEL_SUITE.ROUTE_A_PRIMARY_MODELS,
+            "primary_common_test_keys": audit.common_unique,
+            "dropped_primary_rows": audit.dropped_rows,
+            "lstm_validation_rows": int(raw_lstm["split"].eq("val").sum()),
+            "lstm_calibration_rows": int(
+                raw_lstm["split"].eq("calib").sum()
+            ),
+        },
+    )
+
+    selection_rows: list[dict[str, Any]] = []
+    metrics = (0.30, 0.20, 0.40)
+    for candidate_id, candidate_config in enumerate(
+        MODEL_SUITE.LSTM_VALIDATION_GRID
+    ):
+        selection_rows.append({
+            "candidate_id": candidate_id,
+            **candidate_config,
+            "val_station_macro_rmse": metrics[candidate_id],
+            "selected": candidate_id == 1,
+            "selection_split": "2016-2017 validation",
+        })
+    selection = root / MODEL_SUITE.STAGE16_SELECTION_PATH
+    selection.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(selection_rows).to_csv(selection, index=False)
+    for candidate_id, candidate_config in enumerate(
+        MODEL_SUITE.LSTM_VALIDATION_GRID
+    ):
+        metric = metrics[candidate_id]
+        candidate_rows: list[dict[str, Any]] = []
+        issue = pd.Timestamp("2017-06-01")
+        for site in sites:
+            for horizon in C.HORIZONS:
+                candidate_rows.append({
+                    "model": f"LSTM-grid-{candidate_id}",
+                    "scope": "validation_selection",
+                    "feature_set": "USGS",
+                    "seed": C.USGS_SEEDS[0],
+                    "site_id": site,
+                    "horizon": horizon,
+                    "split": "val",
+                    "issue_date": issue,
+                    "target_date": issue + pd.Timedelta(days=horizon),
+                    "y_true": 0.0,
+                    "y_pred": metric,
+                    "q05": metric - 0.5,
+                    "q50": metric,
+                    "q95": metric + 0.5,
+                    "p_exceed": 0.2,
+                })
+        candidate_frame = pd.DataFrame(candidate_rows, columns=R.PRED_COLS)
+        candidate_path = (
+            run_manifest.parent / "selection"
+            / f"candidate{candidate_id}.parquet"
+        )
+        R.write_predictions(candidate_frame, candidate_path)
+        seal_artifact(
+            candidate_path,
+            identity,
+            kind="lstm_validation_candidate_predictions",
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            extra={
+                "candidate_id": candidate_id,
+                "candidate": candidate_config,
+                "selection_split": "2016-2017 validation",
+            },
+        )
+        checkpoint_config = {
+            **configuration,
+            "candidate_id": candidate_id,
+            "candidate": dict(candidate_config),
+        }
+        checkpoint = (
+            run_manifest.parent / "selection" / f"candidate{candidate_id}.pt"
+        )
+        model = LSTMForecaster(
+            n_vars=len(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+            n_stations=len(sites),
+            context=C.CONTEXT_LENGTH,
+            station_agnostic=False,
+            **dict(candidate_config),
+        )
+        train_config = C.TrainConfig(batch_size=1536)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=train_config.lr,
+            weight_decay=train_config.weight_decay,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, factor=0.5, patience=4
+        )
+        scheduler.step(float(metric))
+        training_rng = np.random.default_rng(C.USGS_SEEDS[0])
+        save_training_checkpoint(
+            checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epoch=train_config.max_epochs - 1,
+            best_epoch=0,
+            best_metric=float(metric),
+            best_model_state=model.state_dict(),
+            run_id=identity.run_id,
+            resolved_config=checkpoint_config,
+            extra={
+                "bad_epochs": 0,
+                "train_rng_state": training_rng.bit_generator.state,
+            },
+        )
+
+    stage09_pointer = MODEL_SUITE.load_component_pointer(stage09["components"])
+    development_contract = stage09_pointer["development_contract"]
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "canonical_development_contract",
+        lambda *_args, **_kwargs: dict(development_contract),
+    )
+    selected = dict(MODEL_SUITE.LSTM_VALIDATION_GRID[1])
+    lstm_rows = final[final["model"].eq("LSTM")]
+    metadata: dict[str, Any] = {
+        **identity.as_dict(),
+        "training_device": "cpu",
+        "members": [f"seed{seed}" for seed in C.USGS_SEEDS],
+        "architecture": {
+            "class": "thermoroute.train.LSTMForecaster",
+            "kwargs": {
+                "n_vars": len(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+                "n_stations": len(sites),
+                "context": C.CONTEXT_LENGTH,
+                "station_agnostic": False,
+                **selected,
+            },
+            "train_config": MODEL_SUITE.asdict(
+                C.TrainConfig(batch_size=1536)
+            ),
+        },
+        "station_to_index": {
+            site: index for index, site in enumerate(sites)
+        },
+        "development_prediction": MODEL_SUITE.development_prediction_binding(
+            root,
+            prediction,
+            lstm_rows,
+            max_abs_difference=0.0,
+            atol=1e-5,
+        ),
+    }
+    bundle = (
+        root / "outputs" / "models" / f"lstm_usgs_bundle_{identity.run_id}"
+    )
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        json.dumps(metadata, sort_keys=True), encoding="utf-8"
+    )
+    (bundle / "weights.pt").write_bytes(b"five-member-weights")
+
+    def fake_entry_validator(
+        checked_root: Path,
+        entry: dict[str, Any],
+        feature_order: tuple[str, ...],
+        *,
+        external: bool,
+        publication_guard=None,
+    ) -> dict[str, Any]:
+        assert checked_root == root
+        assert entry["model_id"] == "LSTM"
+        assert feature_order == MODEL_SUITE.STAGE9_USGS_VARIABLES
+        assert external is False
+        if publication_guard is not None:
+            publication_guard()
+        return dict(metadata)
+
+    monkeypatch.setattr(
+        MODEL_SUITE, "_entry_artifact_valid", fake_entry_validator
+    )
+    def fake_parity(**kwargs) -> dict[str, Any]:
+        input_closure = MODEL_SUITE._stage16_parity_input_closure(
+            root=kwargs["root"],
+            bundle=kwargs["bundle"],
+            metadata=kwargs["metadata"],
+        )
+        return {
+            "format": MODEL_SUITE.STAGE16_PARITY_AUDIT_FORMAT,
+            "status": "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY",
+            "members": [f"seed{seed}" for seed in C.USGS_SEEDS],
+            "splits": ["val", "calib", "test"],
+            "atol": 1e-5,
+            "max_abs_difference": 0.0,
+            "input_closure": input_closure,
+            "input_closure_sha256": sha256_json(input_closure),
+        }
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_verify_stage16_final_bundle_parity",
+        fake_parity,
+    )
+    entry = {
+        "model_id": "LSTM",
+        "executor": "lstm_bundle",
+        "raw_feature_order": list(MODEL_SUITE.STAGE9_USGS_VARIABLES),
+        "member_count": 5,
+        "artifact": MODEL_SUITE.directory_binding(root, bundle),
+    }
+    components = root / MODEL_SUITE.STAGE16_COMPONENT_POINTER_PATH
+    write_component_pointer(
+        components,
+        run_id=identity.run_id,
+        cohort="temporal_lstm",
+        entries=[entry],
+        raw_feature_order=MODEL_SUITE.STAGE9_USGS_VARIABLES,
+        development_contract=development_contract,
+        development_prediction_artifact={
+            **file_binding(root, prediction),
+            "sidecar": file_binding(root, MODEL_SUITE.sidecar_path(prediction)),
+        },
+    )
+    shortcut = root / MODEL_SUITE.STAGE16_SHORTCUT_POINTER_PATH
+    atomic_write_json(shortcut, {
+        "run_id": identity.run_id,
+        "bundle_path": bundle.relative_to(root).as_posix(),
+        "member_count": 5,
+        "metadata_sha256": sha256_file(bundle / "metadata.json"),
+        "weights_sha256": sha256_file(bundle / "weights.pt"),
+    })
+    receipt_path = root / MODEL_SUITE.STAGE16_COMPLETION_RECEIPT_PATH
+    document = MODEL_SUITE.build_stage16_completion_receipt(
+        root=root,
+        run_id=identity.run_id,
+        run_manifest=run_manifest,
+        stage09_receipt=stage09["receipt"],
+        selection=selection,
+        components_pointer=components,
+        publication_guard=lambda: None,
+    )
+    return {
+        "stage09": stage09,
+        "identity": identity,
+        "run_manifest": run_manifest,
+        "selection": selection,
+        "prediction": prediction,
+        "bundle": bundle,
+        "components": components,
+        "shortcut": shortcut,
+        "receipt": receipt_path,
+        "document": document,
+        "metadata": metadata,
+    }
+
+
+def _rehash_stage16(document: dict[str, Any]) -> None:
+    document["artifact_closure_sha256"] = sha256_json(document["artifacts"])
+    _rehash_receipt(document)
+
+
+def test_stage16_validation_winner_is_tolerance_aware_for_near_ties():
+    assert MODEL_SUITE.stage16_validation_winner(
+        [0.200005, 0.200000, 0.40]
+    ) == 0
+    assert MODEL_SUITE.stage16_validation_winner(
+        [0.20002, 0.200000, 0.40]
+    ) == 1
+    with pytest.raises(ModelSuiteError, match="validation winners differ"):
+        MODEL_SUITE._stage16_consistent_validation_winner(
+            [0.200019, 0.200000, 0.40],
+            [0.2000095, 0.2000095, 0.40],
+            [0.2000095, 0.2000095, 0.40],
+        )
+
+
+def test_stage16_receipt_closes_parent_grid_v2_bundle_and_pointers(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    document = fixture["document"]
+    assert document["status"] == MODEL_SUITE.STAGE16_COMPLETION_STATUS
+    assert document["parent_stage09_run_id"] == fixture["stage09"]["run_id"]
+    assert len(document["artifacts"]["model_files"]) == 2
+    assert len(document["artifacts"]["lstm_seed_prediction_files"]) == 10
+    assert len(document["artifacts"]["selection_candidate_files"]) == 12
+    assert document["selection_audit"]["status"] == (
+        "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY"
+    )
+    threshold_contract = document["selection_audit"]["input_closure"][
+        "event_threshold_contract"
+    ]
+    assert threshold_contract["registry_sha256"] == sha256_json(
+        threshold_contract["registry"]
+    )
+    MODEL_SUITE.publish_stage16_completion_receipt(
+        fixture["receipt"],
+        document,
+        root=tmp_path,
+        components_pointer=fixture["components"],
+        publication_guard=lambda: None,
+    )
+    validated = MODEL_SUITE.validate_stage16_completion_receipt(
+        fixture["receipt"],
+        root=tmp_path,
+        components_pointer=fixture["components"],
+        publication_guard=lambda: None,
+    )
+    assert validated == document
+    assert MODEL_SUITE.stage16_completion_gate_binding(
+        fixture["receipt"],
+        root=tmp_path,
+        components_pointer=fixture["components"],
+        publication_guard=lambda: None,
+    ) == file_binding(tmp_path, fixture["receipt"])
+
+
+@pytest.mark.parametrize("mutation", ("alternate_grid", "selection_tamper"))
+def test_stage16_receipt_rejects_grid_and_selection_tampering(
+    tmp_path, monkeypatch, mutation,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    frame = pd.read_csv(fixture["selection"])
+    if mutation == "alternate_grid":
+        frame.loc[0, "d"] = 65
+    else:
+        frame["selected"] = [True, False, False]
+    frame.to_csv(fixture["selection"], index=False)
+    document = json.loads(json.dumps(fixture["document"]))
+    document["artifacts"]["lstm_validation_selection"] = file_binding(
+        tmp_path, fixture["selection"]
+    )
+    _rehash_stage16(document)
+    with pytest.raises(
+        ModelSuiteError, match="frozen grid|winner is not deterministic"
+    ):
+        MODEL_SUITE.validate_stage16_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            components_pointer=fixture["components"],
+            document=document,
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_receipt_rejects_crafted_component_pointer(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    pointer = json.loads(fixture["components"].read_text(encoding="utf-8"))
+    pointer["models"][0]["member_count"] = 4
+    atomic_write_json(fixture["components"], pointer)
+    document = json.loads(json.dumps(fixture["document"]))
+    document["artifacts"]["components_pointer"] = file_binding(
+        tmp_path, fixture["components"]
+    )
+    _rehash_stage16(document)
+    with pytest.raises(ModelSuiteError, match="component entry is malformed"):
+        MODEL_SUITE.validate_stage16_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            components_pointer=fixture["components"],
+            document=document,
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_receipt_rejects_permuted_station_embedding_index(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    sites = list(fixture["metadata"]["station_to_index"])
+    assert len(sites) >= 2
+    fixture["metadata"]["station_to_index"] = {
+        sites[0]: 1,
+        sites[1]: 0,
+        **{
+            site: index for index, site in enumerate(sites[2:], start=2)
+        },
+    }
+    with pytest.raises(ModelSuiteError, match="bundle metadata differs"):
+        MODEL_SUITE.build_stage16_completion_receipt(
+            root=tmp_path,
+            run_id=fixture["identity"].run_id,
+            run_manifest=fixture["run_manifest"],
+            stage09_receipt=fixture["stage09"]["receipt"],
+            selection=fixture["selection"],
+            components_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_receipt_rejects_numeric_strings_in_prediction_parquet(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    candidate_binding = fixture["document"]["artifacts"][
+        "selection_candidate_files"
+    ][0]
+    candidate = tmp_path / candidate_binding["path"]
+    frame = pd.read_parquet(candidate)
+    frame["y_pred"] = frame["y_pred"].map(lambda value: format(value, ".17g"))
+    frame.to_parquet(candidate, index=False)
+    seal_artifact(
+        candidate,
+        fixture["identity"],
+        kind="lstm_validation_candidate_predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+        parents={},
+        extra={
+            "candidate_id": 0,
+            "candidate": dict(MODEL_SUITE.LSTM_VALIDATION_GRID[0]),
+            "selection_split": "2016-2017 validation",
+        },
+    )
+    with pytest.raises(ModelSuiteError, match="y_pred Arrow type changed"):
+        MODEL_SUITE.build_stage16_completion_receipt(
+            root=tmp_path,
+            run_id=fixture["identity"].run_id,
+            run_manifest=fixture["run_manifest"],
+            stage09_receipt=fixture["stage09"]["receipt"],
+            selection=fixture["selection"],
+            components_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_receipt_rejects_modified_non_lstm_v2_row(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    frame = pd.read_parquet(fixture["prediction"])
+    row = frame.index[frame["model"].eq("Persistence")][0]
+    frame.loc[row, "y_pred"] += 1.0
+    R.write_predictions(frame, fixture["prediction"])
+    seal_artifact(
+        fixture["prediction"],
+        fixture["identity"],
+        kind="final_route_a_development_predictions",
+        schema=R.PREDICTION_SCHEMA_VERSION,
+        parents={
+            fixture["stage09"]["predictions"].name:
+            sha256_file(fixture["stage09"]["predictions"])
+        },
+        extra={
+            "parent_run_id": fixture["stage09"]["run_id"],
+            "primary_models": MODEL_SUITE.ROUTE_A_PRIMARY_MODELS,
+            "primary_common_test_keys": 6,
+            "dropped_primary_rows": 0,
+            "lstm_validation_rows": 30,
+            "lstm_calibration_rows": 30,
+        },
+    )
+    # A crafted attacker can update every shallow binding.  The independent
+    # Stage09 + seed-cache derivation must still reject the changed value.
+    with pytest.raises(ModelSuiteError, match="exact Stage-9-plus-LSTM derivation"):
+        MODEL_SUITE.build_stage16_completion_receipt(
+            root=tmp_path,
+            run_id=fixture["identity"].run_id,
+            run_manifest=fixture["run_manifest"],
+            stage09_receipt=fixture["stage09"]["receipt"],
+            selection=fixture["selection"],
+            components_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_receipt_rejects_crafted_best_state_replay_claim(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    document = json.loads(json.dumps(fixture["document"]))
+    document["selection_audit"]["candidates"][1][
+        "best_state_max_abs_difference"
+    ] = 2e-5
+    _rehash_stage16(document)
+    with pytest.raises(
+        ModelSuiteError,
+        match="validation-selection candidate audit changed",
+    ):
+        MODEL_SUITE.validate_stage16_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            components_pointer=fixture["components"],
+            document=document,
+            publication_guard=lambda: None,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ("optimizer_class", "nonterminal", "training_rng")
+)
+def test_stage16_rejects_malformed_candidate_checkpoint_payload(
+    tmp_path, monkeypatch, mutation,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    binding = fixture["document"]["artifacts"]["selection_candidate_files"][2]
+    checkpoint = tmp_path / binding["path"]
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    if mutation == "optimizer_class":
+        payload["optimizer_class"] = "torch.optim.adam.Adam"
+    elif mutation == "nonterminal":
+        payload["epoch"] = 1
+        payload["best_epoch"] = 0
+    else:
+        extra = json.loads(payload["extra_json"])
+        extra["train_rng_state"] = {}
+        payload["extra_json"] = MODEL_SUITE.canonical_json(extra)
+        payload["extra_sha256"] = sha256_json(extra)
+    with pytest.raises(ModelSuiteError, match="checkpoint payload is invalid"):
+        MODEL_SUITE._validate_stage16_candidate_checkpoint_payload(
+            candidate_id=0,
+            candidate_config=MODEL_SUITE.LSTM_VALIDATION_GRID[0],
+            checkpoint_payload=payload,
+            run_id=fixture["identity"].run_id,
+            expected_config_json=payload["resolved_config_json"],
+        )
+
+
+@pytest.mark.parametrize("attack", ("shortcut_symlink", "bundle_symlink_dir"))
+def test_stage16_receipt_rejects_symlink_aliases(
+    tmp_path, monkeypatch, attack,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    if attack == "shortcut_symlink":
+        alias = fixture["shortcut"].with_name("shortcut-alias.json")
+        alias.write_bytes(fixture["shortcut"].read_bytes())
+        fixture["shortcut"].unlink()
+        fixture["shortcut"].symlink_to(alias)
+        message = "shortcut pointer is a symlink"
+    else:
+        (fixture["bundle"] / "extra-directory").symlink_to(
+            tmp_path / "data_usgs", target_is_directory=True
+        )
+        message = "bundle file closure changed"
+    with pytest.raises(ModelSuiteError, match=message):
+        MODEL_SUITE.build_stage16_completion_receipt(
+            root=tmp_path,
+            run_id=fixture["identity"].run_id,
+            run_manifest=fixture["run_manifest"],
+            stage09_receipt=fixture["stage09"]["receipt"],
+            selection=fixture["selection"],
+            components_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_receipt_rejects_hardlink_alias_of_authority_file(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    alias = fixture["shortcut"].with_name("shortcut-hardlink-alias.json")
+    os.link(fixture["shortcut"], alias)
+    assert fixture["shortcut"].stat().st_nlink == 2
+    with pytest.raises(ModelSuiteError, match="canonical single-link file"):
+        MODEL_SUITE.build_stage16_completion_receipt(
+            root=tmp_path,
+            run_id=fixture["identity"].run_id,
+            run_manifest=fixture["run_manifest"],
+            stage09_receipt=fixture["stage09"]["receipt"],
+            selection=fixture["selection"],
+            components_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage16_snapshot_rejects_atomic_replace_during_read(
+    tmp_path, monkeypatch,
+):
+    path = _write_bytes(tmp_path / "candidate.pt", b"A" * (2 << 20))
+    replacement = _write_bytes(tmp_path / "replacement.pt", b"B" * (2 << 20))
+    real_read = os.read
+    replaced = False
+
+    def racing_read(descriptor: int, count: int) -> bytes:
+        nonlocal replaced
+        chunk = real_read(descriptor, count)
+        if chunk and not replaced:
+            replaced = True
+            os.replace(replacement, path)
+        return chunk
+
+    monkeypatch.setattr(MODEL_SUITE.os, "read", racing_read)
+    with pytest.raises(ModelSuiteError, match="changed while read"):
+        MODEL_SUITE._stage16_file_snapshot(path, label="race fixture")
+    assert replaced
+
+
+def test_stage16_validator_rejects_canonical_receipt_symlink(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    MODEL_SUITE.publish_stage16_completion_receipt(
+        fixture["receipt"],
+        fixture["document"],
+        root=tmp_path,
+        components_pointer=fixture["components"],
+        publication_guard=lambda: None,
+    )
+    alias = fixture["receipt"].with_name("stage16-receipt-alias.json")
+    alias.write_bytes(fixture["receipt"].read_bytes())
+    fixture["receipt"].unlink()
+    fixture["receipt"].symlink_to(alias)
+    with pytest.raises(ModelSuiteError, match="completion receipt path uses a symlink"):
+        MODEL_SUITE.validate_stage16_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            components_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_stage24_replays_resealed_stage16_candidate_best_state(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+    MODEL_SUITE.publish_stage16_completion_receipt(
+        fixture["receipt"],
+        fixture["document"],
+        root=tmp_path,
+        components_pointer=fixture["components"],
+        publication_guard=lambda: None,
+    )
+    document = json.loads(fixture["receipt"].read_text(encoding="utf-8"))
+    candidate_files = document["artifacts"]["selection_candidate_files"]
+    checkpoint = tmp_path / candidate_files[2]["path"]
+    checkpoint_sidecar = tmp_path / candidate_files[3]["path"]
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    mutated_key = next(iter(payload["best_model_state"]))
+    mutated_tensor = payload["best_model_state"][mutated_key].clone()
+    if mutated_tensor.is_floating_point():
+        mutated_tensor.reshape(-1)[0] += 1.0
+    else:
+        mutated_tensor.reshape(-1)[0] += 1
+    payload["best_model_state"][mutated_key] = mutated_tensor
+    torch.save(payload, checkpoint)
+    metadata = json.loads(checkpoint_sidecar.read_text(encoding="utf-8"))
+    metadata["checkpoint_sha256"] = sha256_file(checkpoint)
+    metadata["checkpoint_bytes"] = checkpoint.stat().st_size
+    atomic_write_json(checkpoint_sidecar, metadata)
+    candidate_files[2] = file_binding(tmp_path, checkpoint)
+    candidate_files[3] = file_binding(tmp_path, checkpoint_sidecar)
+    selection_inputs = document["selection_audit"]["input_closure"]
+    selection_inputs["candidate_files"] = candidate_files
+    document["selection_audit"]["input_closure_sha256"] = sha256_json(
+        selection_inputs
+    )
+    _rehash_stage16(document)
+    atomic_write_json(fixture["receipt"], document)
+
+    replayed: list[int] = []
+
+    def reject_resealed_state(**kwargs) -> float:
+        replayed.append(int(kwargs["candidate_id"]))
+        observed = kwargs["checkpoint_payload"]["best_model_state"][mutated_key]
+        if torch.equal(observed, mutated_tensor):
+            raise ModelSuiteError("resealed candidate best state does not replay")
+        return 0.0
+
+    monkeypatch.setattr(
+        MODEL_SUITE, "_verify_stage16_candidate_checkpoint", reject_resealed_state
+    )
+    monkeypatch.setattr(STAGE24, "_assert_stage24_policy", lambda: object())
+    with pytest.raises(ModelSuiteError, match="best state does not replay"):
+        STAGE24._load_verified_stage16(
+            fixture["components"], fixture["receipt"], root=tmp_path
+        )
+    assert replayed == [0]
+
+
+def test_stage16_receipt_atomic_guard_failure_leaves_no_authority(
+    tmp_path, monkeypatch,
+):
+    fixture = _stage16_fixture(tmp_path, monkeypatch)
+
+    def reject_at_atomic_boundary() -> None:
+        raise RuntimeError("injected Stage-16 receipt publication drift")
+
+    with pytest.raises(RuntimeError, match="publication drift"):
+        MODEL_SUITE.write_stage16_completion_receipt(
+            fixture["receipt"],
+            fixture["document"],
+            publication_guard=reject_at_atomic_boundary,
+        )
+    assert not fixture["receipt"].exists()
+    assert not list(
+        fixture["receipt"].parent.glob(
+            f".{fixture['receipt'].name}.*.tmp"
+        )
+    )

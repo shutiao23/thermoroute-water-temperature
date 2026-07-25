@@ -22,10 +22,11 @@ Current Route-A evidence is authoritative only when all of the following agree:
 
 1. a content-addressed development run and its validated Stage-09 receipt;
 2. the separate matched-control Stage-09b completion receipt;
-3. the pooled external Stage-25 exact-closure completion receipt;
-4. the frozen model-suite and isolated development-replay receipts;
-5. the pre-label chronology, inference, outcome-QC, and authorization gates; and
-6. after the single raw-label acquisition, a fully validated canonical
+3. the same-station LSTM Stage-16 exact-closure completion receipt;
+4. the pooled external Stage-25 exact-closure completion receipt;
+5. the frozen model-suite and isolated development-replay receipts;
+6. the pre-label chronology, inference, outcome-QC, and authorization gates; and
+7. after the single raw-label acquisition, a fully validated canonical
    `outputs/confirmatory/route_a_*/opening_receipt_v1.json` and its bound trusted
    artifacts.
 

@@ -18,7 +18,7 @@ result is assumed before the experiment runs.
 
   --insample   train LSTM × USGS_SEEDS on the full 120-station panel; derive
                final usgs_predictions_v2.parquet from the immutable
-               usgs_predictions_with_perstation_v2.parquet parent
+               receipt-validated usgs_predictions_stage9_v2.parquet parent
   --transfer   train one LSTM per leave-HUC2-region-out fold; checkpoint held-out
                predictions to predictions/region_ckpt/lstm_ctx32_fold{i}.parquet
   --report     3-way (ThermoRoute vs LightGBM vs LSTM) region-transfer table +
@@ -43,6 +43,7 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ.setdefault("WORKER_THREADS", "1")
 
 import argparse
+import gc
 import importlib.util
 import secrets
 import subprocess
@@ -121,14 +122,22 @@ from thermoroute import results as R
 from thermoroute.checkpoint import load_inference_bundle, save_inference_bundle
 from thermoroute.frozen_inference import lstm_factory_from_metadata
 from thermoroute.model_suite import (
-    ModelSuiteError,
     LSTM_VALIDATION_GRID,
+    STAGE16_COMPLETION_RECEIPT_PATH,
+    STAGE9_COMPLETION_RECEIPT_PATH,
+    ModelSuiteError,
+    build_stage16_completion_receipt,
+    canonical_frame_digest,
     canonical_development_contract,
     development_prediction_binding,
     file_binding,
+    publish_stage16_completion_receipt,
     sequence_bundle_metadata,
+    stage16_validation_winner,
     torch_entry,
     update_torch_development_prediction,
+    validate_stage16_completion_receipt,
+    validate_stage09_completion_receipt,
     verify_sequence_prediction_parity,
     write_component_pointer,
 )
@@ -141,8 +150,11 @@ from thermoroute.registry import (
     enforce_common_forecast_keys,
 )
 from thermoroute.repro import (
+    advisory_file_lock,
     assert_formal_numerical_policy,
+    atomic_write_bytes,
     atomic_write_json,
+    atomic_write_parquet,
     cache_is_valid,
     configure_deterministic_runtime,
     initialise_run_directory,
@@ -173,7 +185,8 @@ CFG = C.TrainConfig(batch_size=1536)
 SEEDS = C.USGS_SEEDS
 CKPT = C.PREDICTIONS / "lstm_ckpt_route_a_v2_ctx32_stationembed"
 REGION_CKPT = R13.CKPT
-PARENT = C.PREDICTIONS / "usgs_predictions_with_perstation_v2.parquet"
+PARENT = C.PREDICTIONS / "usgs_predictions_stage9_v2.parquet"
+STAGE9_POINTER = C.MODELS / "route_a_stage9_components.json"
 V2 = C.PREDICTIONS / "usgs_predictions_v2.parquet"
 _t0 = time.time()
 
@@ -182,15 +195,31 @@ def log(m): print(f"[{time.time()-_t0:6.0f}s] {m}", flush=True)
 
 
 def _verify_parent(path: Path) -> dict:
-    """Verify the exact immutable parent before producing the final derivative."""
+    """Admit only the receipt-validated canonical Stage-9 prediction parent."""
+    if path.resolve() != PARENT.resolve():
+        raise FileNotFoundError("Stage 16 accepts only the canonical Stage-9 parent")
     try:
         metadata = validate_artifact_sidecar(
-            path, schema=R.PREDICTION_SCHEMA_VERSION
+            path,
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            kind="canonical_stage9_usgs_predictions",
         )
-    except ValueError as exc:
+        receipt = validate_stage09_completion_receipt(
+            ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
+            root=ROOT,
+            stage9_pointer=STAGE9_POINTER,
+            publication_guard=assert_formal_numerical_policy,
+        )
+    except (ModelSuiteError, ValueError) as exc:
         raise FileNotFoundError(
-            f"derived Stage-9 predictions and lineage sidecar are required: {path}"
+            f"receipt-validated Stage-9 predictions are required: {path}"
         ) from exc
+    prediction_binding = receipt.get("artifacts", {}).get("predictions")
+    if prediction_binding != file_binding(ROOT, path):
+        raise FileNotFoundError(
+            "Stage-9 receipt does not bind the exact Stage-16 parent"
+        )
+    assert_formal_numerical_policy()
     return metadata
 
 
@@ -232,7 +261,11 @@ def _calibration_artifacts(predictions: pd.DataFrame, thresholds: dict[str, floa
 
 def _read_member_bundle(directory: Path, identity, member: str):
     try:
-        weights, metadata = load_inference_bundle(directory, expected_member_count=1)
+        weights, metadata = load_inference_bundle(
+            directory,
+            expected_member_count=1,
+            publication_guard=assert_formal_numerical_policy,
+        )
     except (FileNotFoundError, ValueError, RuntimeError):
         return None
     if (
@@ -246,6 +279,32 @@ def _read_member_bundle(directory: Path, identity, member: str):
     ):
         return None
     return weights[member]
+
+
+def _ensemble_station_rmse(frame: pd.DataFrame, model: str, horizon: int):
+    """Return per-station RMSE after equal-weight seed aggregation."""
+    selected = frame[
+        frame.model.eq(model)
+        & frame.split.eq("test")
+        & frame.horizon.eq(horizon)
+    ]
+    selected = selected.groupby(["site_id", "issue_date"]).agg(
+        y_pred=("y_pred", "mean"), y_true=("y_true", "first")
+    ).reset_index()
+    return {
+        station: float(np.sqrt(((group.y_pred - group.y_true) ** 2).mean()))
+        for station, group in selected.groupby("site_id")
+    }
+
+
+def _safe_wilcoxon_pvalue(left: np.ndarray, right: np.ndarray) -> float:
+    """Return the exact null p-value when every paired difference is zero."""
+    difference = np.asarray(left, dtype=float) - np.asarray(right, dtype=float)
+    if difference.size == 0:
+        return float("nan")
+    if np.all(difference == 0.0):
+        return 1.0
+    return float(wilcoxon(left, right).pvalue)
 
 
 # --------------------------------------------------------------------------- #
@@ -287,6 +346,7 @@ def insample():
             "evidence_role": "prelabel_route_a_model_build_development_only",
             "training_device": "cpu",
         },
+        publication_guard=assert_formal_numerical_policy,
     )
     # Lock the exact content-addressed run before dataset materialisation or
     # any checkpoint/cache path can be reached.
@@ -308,8 +368,10 @@ def insample():
     selection_rows = []
     candidates = []
     for candidate_id, candidate in enumerate(LSTM_VALIDATION_GRID):
-        factory = lambda candidate=candidate: LSTMForecaster(
-            n_vars=len(wd.var_names), n_stations=len(stations),
+        factory = lambda candidate=candidate, n_vars=len(
+            wd.var_names
+        ), n_stations=len(stations): LSTMForecaster(
+            n_vars=n_vars, n_stations=n_stations,
             context=C.CONTEXT_LENGTH, station_agnostic=False, **candidate,
         )
         result = fit_model(
@@ -322,6 +384,27 @@ def insample():
             run_id=identity.run_id,
             resolved_config={**run_config, "candidate_id": candidate_id,
                              "candidate": candidate},
+            artifact_publication_guard=assert_formal_numerical_policy,
+        )
+        candidate_prediction = (
+            run_dir / "selection" / f"candidate{candidate_id}.parquet"
+        )
+        R.write_predictions(
+            result.pred,
+            candidate_prediction,
+            publication_guard=assert_formal_numerical_policy,
+        )
+        seal_artifact(
+            candidate_prediction,
+            identity,
+            kind="lstm_validation_candidate_predictions",
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            extra={
+                "candidate_id": candidate_id,
+                "candidate": candidate,
+                "selection_split": "2016-2017 validation",
+            },
+            publication_guard=assert_formal_numerical_policy,
         )
         selection_rows.append({
             "candidate_id": candidate_id, **candidate,
@@ -329,19 +412,26 @@ def insample():
             "selected": False, "selection_split": "2016-2017 validation",
         })
         candidates.append((result.best_val, candidate_id, candidate))
-    _, selected_id, selected = min(candidates, key=lambda value: (value[0], value[1]))
+    selected_id = stage16_validation_winner(
+        [float(row[0]) for row in candidates]
+    )
+    selected = dict(LSTM_VALIDATION_GRID[selected_id])
     selection_rows[selected_id]["selected"] = True
     C.TABLES.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(selection_rows).to_csv(
-        C.TABLES / "lstm_validation_selection.csv", index=False
+    atomic_write_bytes(
+        C.TABLES / "lstm_validation_selection.csv",
+        pd.DataFrame(selection_rows).to_csv(index=False).encode("utf-8"),
+        publication_guard=assert_formal_numerical_policy,
     )
     architecture_kwargs = {
         "n_vars": len(wd.var_names), "n_stations": len(stations),
         "context": C.CONTEXT_LENGTH, "station_agnostic": False, **selected,
     }
+    del result, candidates, selection_rows
 
     preds = []
     ensemble_members = {}
+    r = None
     for sd in SEEDS:
         member = f"seed{sd}"
         f = run_dir / "predictions" / f"{member}.parquet"
@@ -355,6 +445,7 @@ def insample():
                 cached = None
         cached_weights = _read_member_bundle(bundle, identity, member)
         if cached is not None and cached_weights is not None:
+            assert_formal_numerical_policy()
             preds.append(cached)
             ensemble_members[member] = cached_weights
             log(f"LSTM {member}: verified content cache")
@@ -368,12 +459,18 @@ def insample():
                       checkpoint_path=run_dir / "checkpoints" / f"{member}.pt",
                       run_id=identity.run_id,
                       resolved_config={**run_config, "selected_candidate": selected,
-                                       "arm": "LSTM", "seed": sd})
+                                       "arm": "LSTM", "seed": sd},
+                      artifact_publication_guard=assert_formal_numerical_policy)
         r.pred["seed"] = sd
-        R.write_predictions(r.pred, f)
+        R.write_predictions(
+            r.pred,
+            f,
+            publication_guard=assert_formal_numerical_policy,
+        )
         seal_artifact(
             f, identity, kind="lstm_seed_predictions",
             schema=R.PREDICTION_SCHEMA_VERSION,
+            publication_guard=assert_formal_numerical_policy,
         )
         (
             member_offsets,
@@ -399,6 +496,7 @@ def insample():
                 training_device="cpu",
                 development_prediction={},
             ), expected_member_count=1,
+            publication_guard=assert_formal_numerical_policy,
         )
         ensemble_members[member] = {
             key: value.detach().cpu().contiguous()
@@ -412,18 +510,43 @@ def insample():
 
     # Derive, never mutate, the final artifact.  The six-model registry is a
     # protocol constant; optional exploratory rows from the parent cannot alter
-    # which examples enter the primary comparison.  Calibration rows remain
-    # available for the predeclared post-hoc wrappers.
+    # which examples enter the primary comparison.  Validation and calibration
+    # rows remain available for model-selection replay and the predeclared
+    # post-hoc wrappers; only the test rows enter common-key restriction.
     allp = pd.read_parquet(PARENT)
     R.validate_predictions(allp)
-    allp = allp[allp.model != "LSTM"]
+    parent_non_lstm = allp[allp.model != "LSTM"].copy()
+    lv = lstm[lstm.split == "val"].copy()             # selection replay
     lt = lstm[lstm.split == "test"].copy()
     lc = lstm[lstm.split == "calib"].copy()          # for the conformal wrapper
-    allp = pd.concat([allp, lt, lc], ignore_index=True)
+    if any(frame.empty for frame in (lv, lc, lt)):
+        raise RuntimeError(
+            "formal LSTM artifact requires val, calib, and test predictions"
+        )
+    allp = pd.concat([parent_non_lstm, lv, lc, lt], ignore_index=True)
     allp, audit = enforce_common_forecast_keys(
         allp, ROUTE_A_PRIMARY_MODELS, split="test"
     )
-    R.write_predictions(allp, V2)
+    # Fail before the first canonical V2 byte is published.  A common-key
+    # restriction is allowed only when it retains every receipt-frozen Stage-9
+    # row; the completion receipt is a second-line verifier, not a repair step.
+    final_non_lstm = allp[allp.model != "LSTM"]
+    if (
+        audit.dropped_rows != 0
+        or len(final_non_lstm) != len(parent_non_lstm)
+        or canonical_frame_digest(final_non_lstm, R.PRED_COLS)
+        != canonical_frame_digest(parent_non_lstm, R.PRED_COLS)
+    ):
+        raise RuntimeError(
+            "Stage 16 common-key alignment changed or deleted a "
+            "receipt-frozen non-LSTM row"
+        )
+    assert_formal_numerical_policy()
+    R.write_predictions(
+        allp,
+        V2,
+        publication_guard=assert_formal_numerical_policy,
+    )
     seal_artifact(
         V2,
         identity,
@@ -435,11 +558,16 @@ def insample():
             "primary_models": ROUTE_A_PRIMARY_MODELS,
             "primary_common_test_keys": audit.common_unique,
             "dropped_primary_rows": audit.dropped_rows,
+            "lstm_validation_rows": len(lv),
             "lstm_calibration_rows": len(lc),
         },
+        publication_guard=assert_formal_numerical_policy,
     )
-    log(f"derived final v2: common={audit.common_unique}, "
-        f"dropped={audit.dropped_rows}; {len(lc)} calib rows retained")
+    log(
+        f"derived final v2: common={audit.common_unique}, "
+        f"dropped={audit.dropped_rows}; {len(lv)} val and "
+        f"{len(lc)} calib rows retained"
+    )
 
     lstm_rows = allp[allp.model.eq("LSTM")]
     offsets, offset_audit, calibrators = _calibration_artifacts(lstm, thr)
@@ -466,13 +594,16 @@ def insample():
                 max_abs_difference=parity_atol, atol=parity_atol,
             ),
         ), expected_member_count=len(SEEDS),
+        publication_guard=assert_formal_numerical_policy,
     )
     difference = verify_sequence_prediction_parity(
         bundle_directory, wd=wd, expected=lstm_rows,
         model_factory=lambda _member, metadata: lstm_factory_from_metadata(metadata),
         member_seeds={f"seed{seed}": seed for seed in SEEDS},
-        atol=parity_atol, splits=("calib", "test"),
+        atol=parity_atol, splits=("val", "calib", "test"),
+        publication_guard=assert_formal_numerical_policy,
     )
+    assert_formal_numerical_policy()
     update_torch_development_prediction(
         bundle_directory,
         development_prediction_binding(
@@ -502,7 +633,8 @@ def insample():
             "member_count": 5,
             "metadata_sha256": sha256_file(bundle_directory / "metadata.json"),
             "weights_sha256": sha256_file(bundle_directory / "weights.pt"),
-        })
+        }, publication_guard=assert_formal_numerical_policy)
+        assert_formal_numerical_policy()
         write_component_pointer(
             C.MODELS / "route_a_lstm_components.json",
             run_id=identity.run_id, cohort="temporal_lstm", entries=[entry],
@@ -512,26 +644,57 @@ def insample():
                 **file_binding(ROOT, V2),
                 "sidecar": file_binding(ROOT, sidecar_path(V2)),
             },
+            publication_guard=assert_formal_numerical_policy,
         )
         log("saved formal five-member LSTM bundle and component pointer")
     else:
         log("saved diagnostic LSTM bundle; formal component pointer unchanged")
 
     # headline: 5-seed ensemble median per-station RMSE vs ThermoRoute
-    def ens_rmse(model, h):
-        s = allp[(allp.model == model) & (allp.split == "test") & (allp.horizon == h)]
-        s = s.groupby(["site_id", "issue_date"]).agg(
-            y_pred=("y_pred", "mean"), y_true=("y_true", "first")).reset_index()
-        return {st: float(np.sqrt(((g.y_pred - g.y_true) ** 2).mean()))
-                for st, g in s.groupby("site_id")}
     for h in C.HORIZONS:
-        lp, tp = ens_rmse("LSTM", h), ens_rmse("ThermoRoute", h)
+        lp = _ensemble_station_rmse(allp, "LSTM", h)
+        tp = _ensemble_station_rmse(allp, "ThermoRoute", h)
         comm = [s for s in lp if s in tp]
         a = np.array([tp[s] for s in comm]); b = np.array([lp[s] for s in comm])
-        p = wilcoxon(a, b).pvalue
+        p = _safe_wilcoxon_pvalue(a, b)
         log(f"  h{h}: LSTM median RMSE {np.median(list(lp.values())):.3f} vs "
             f"TR {np.median(list(tp.values())):.3f} | TR-vs-LSTM paired p={p:.2g} "
-            f"| TR wins {100*np.mean(a < b):.0f}%")
+              f"| TR wins {100*np.mean(a < b):.0f}%")
+    # Receipt construction independently re-opens canonical artifacts and
+    # rebuilds windows for checkpoint/bundle replay.  Release training-time
+    # frames and state dictionaries so the two generations do not overlap at
+    # peak memory.
+    del (
+        preds, ensemble_members, lstm, allp, lstm_rows, lv, lc, lt,
+        panel, panel_imp, masks, clim, thr, wd, stations, imputer,
+        event_reference, offsets, offset_audit, calibrators, r, cached,
+        cached_weights,
+    )
+    gc.collect()
+    components_pointer = C.MODELS / "route_a_lstm_components.json"
+    receipt_path = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
+    receipt = build_stage16_completion_receipt(
+        root=ROOT,
+        run_id=identity.run_id,
+        run_manifest=run_dir / "run.json",
+        stage09_receipt=ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
+        selection=C.TABLES / "lstm_validation_selection.csv",
+        components_pointer=components_pointer,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    # This receipt is deliberately the transaction's final filesystem write.
+    # Candidate validation happens before publication and the authoritative
+    # bytes are re-opened and validated afterwards.
+    assert_formal_numerical_policy()
+    publish_stage16_completion_receipt(
+        receipt_path,
+        receipt,
+        root=ROOT,
+        components_pointer=components_pointer,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    assert_formal_numerical_policy()
+    log(f"saved Stage-16 completion receipt: {receipt_path.relative_to(ROOT)}")
 
 
 # --------------------------------------------------------------------------- #
@@ -545,6 +708,7 @@ def transfer(fold=None):
     for fi in todo:
         f = REGION_CKPT / f"lstm_ctx32_fold{fi}.parquet"
         if f.exists():
+            assert_formal_numerical_policy()
             log(f"LSTM fold{fi}: already done"); continue
         _, _, _, thr, wd, stations, train_st, hold = R13.prep_fold(fi)
         te = time.time()
@@ -555,10 +719,16 @@ def transfer(fold=None):
         r = fit_model(factory, wd, thr, cfg=CFG, seed=0, scope="region_lgo",
                       feature_set="USGS", train_stations=train_st,
                       device="cpu",
-                      station_balanced=True, selection_metric="station_macro")
+                      station_balanced=True, selection_metric="station_macro",
+                      artifact_publication_guard=assert_formal_numerical_policy)
         pred = r.pred[(r.pred.split == "test") & (r.pred.site_id.isin(hold))].copy()
         pred["model"] = "LSTM-regionLGO"
-        pred.to_parquet(f)
+        atomic_write_parquet(
+            pred,
+            f,
+            index=False,
+            publication_guard=assert_formal_numerical_policy,
+        )
         log(f"LSTM fold{fi}: DONE {r.epochs+1}ep {time.time()-te:.0f}s -> {f.name}")
 
 
@@ -614,8 +784,8 @@ def report():
         a = np.array([tr_r[(s, h)] for s in sts])
         b = np.array([lgb_r[(s, h)] for s in sts])
         c = np.array([lstm_r[(s, h)] for s in sts])
-        p_tl = wilcoxon(a, c).pvalue if len(sts) > 5 else float("nan")
-        p_gl = wilcoxon(b, c).pvalue if len(sts) > 5 else float("nan")
+        p_tl = _safe_wilcoxon_pvalue(a, c) if len(sts) > 5 else float("nan")
+        p_gl = _safe_wilcoxon_pvalue(b, c) if len(sts) > 5 else float("nan")
         meds = {"TR": np.median(a), "LGB": np.median(b), "LSTM": np.median(c)}
         best = min(meds, key=meds.get)
         L.append(f"| {h} | {len(sts)} | {np.median(a):.3f} | {np.median(b):.3f} | "
@@ -636,13 +806,17 @@ def report():
         ls = ens_rmse("LSTM", h); tr = ens_rmse("ThermoRoute", h)
         comm = sorted(s for s in ls if s in tr)
         a = np.array([tr[s] for s in comm]); c = np.array([ls[s] for s in comm])
-        p = wilcoxon(a, c).pvalue
+        p = _safe_wilcoxon_pvalue(a, c)
         L.append(f"| {h} | {np.median(list(pe.values())):.3f} | "
                  f"{np.median(list(lg.values())):.3f} | {np.median(list(ls.values())):.3f} | "
                  f"{np.median(list(tr.values())):.3f} | {p:.2g} | {100*np.mean(a<c):.0f}% |")
 
     out = C.REPORTS / "lstm_baseline.md"
-    out.write_text("\n".join(L))
+    atomic_write_bytes(
+        out,
+        "\n".join(L).encode("utf-8"),
+        publication_guard=assert_formal_numerical_policy,
+    )
     print("\n".join(L))
     log(f"wrote {out}")
 
@@ -655,10 +829,21 @@ if __name__ == "__main__":
     ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
     if a.insample:
-        insample()
+        with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=True):
+            insample()
     elif a.transfer:
         transfer(a.fold)
     elif a.report:
-        report()
+        with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+            validate_stage16_completion_receipt(
+                ROOT / STAGE16_COMPLETION_RECEIPT_PATH,
+                root=ROOT,
+                components_pointer=(
+                    C.MODELS / "route_a_lstm_components.json"
+                ),
+                publication_guard=assert_formal_numerical_policy,
+            )
+            assert_formal_numerical_policy()
+            report()
     else:
         print(__doc__)

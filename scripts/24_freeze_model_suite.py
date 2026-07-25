@@ -3,10 +3,10 @@
 
 The current pointer is written only when Stage 9, Stage 16 and the pooled
 external training stage have all produced complete, checksum-valid components.
-Stage 9, the separate Stage-09b matched-control matrix and Stage 25 are accepted
-only with their final content-bound completion receipts.  A missing report,
+Stage 9, Stage 16, the separate Stage-09b matched-control matrix and Stage 25
+are accepted only with their final content-bound completion receipts.  A missing report,
 incomplete 31-member matrix or external model closure, key/budget drift,
-interrupted transaction or stale receipt fails closed.  All three accepted
+interrupted transaction or stale receipt fails closed.  All four accepted
 receipt paths and checksums become part of the frozen suite identity.
 This command performs no fitting and has no network or post-2020 input path.
 """
@@ -17,10 +17,18 @@ import argparse
 import os
 from pathlib import Path
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
 
+
+for _thread_variable in (
+    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_variable] = "1"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 ROOT = Path(__file__).resolve().parents[1]
 _WORKER_ARGUMENT = "--_thermoroute-stage24-worker"
@@ -89,6 +97,7 @@ from thermoroute.model_suite import (  # noqa: E402
     EXTERNAL_MODELS,
     MANDATORY_ABLATIONS,
     PRIMARY_MODELS,
+    STAGE16_COMPLETION_RECEIPT_PATH,
     STAGE9_COMPLETION_RECEIPT_PATH,
     STAGE25_COMPLETION_RECEIPT_PATH,
     ModelSuiteError,
@@ -96,18 +105,58 @@ from thermoroute.model_suite import (  # noqa: E402
     file_binding,
     freeze_model_suite,
     load_component_pointer,
+    validate_stage16_completion_receipt,
     validate_stage09_completion_receipt,
     validate_stage25_completion_receipt,
 )
 from thermoroute.repro import (  # noqa: E402
     advisory_file_lock,
+    assert_formal_numerical_policy,
+    configure_deterministic_runtime,
     sha256_file,
     sha256_json,
 )
 
 
+configure_deterministic_runtime()
+
+
+def _assert_stage24_policy() -> object:
+    return assert_formal_numerical_policy(require_hash_randomization=True)
+
+
 def _entries(pointer: dict) -> dict[str, dict]:
     return {str(entry["model_id"]): entry for entry in pointer["models"]}
+
+
+def _canonical_stage24_path(
+    path: Path,
+    expected: Path,
+    *,
+    label: str,
+    require_regular_file: bool,
+) -> Path:
+    """Keep authority inputs/outputs at one lexical, non-aliased location."""
+    raw = path if path.is_absolute() else Path.cwd() / path
+    lexical = Path(os.path.abspath(raw))
+    canonical = Path(os.path.abspath(expected))
+    if lexical != canonical:
+        raise ModelSuiteError(f"Stage 24 {label} path is not canonical")
+    current = lexical
+    while current != ROOT:
+        if current.is_symlink():
+            raise ModelSuiteError(f"Stage 24 {label} path uses a symlink")
+        current = current.parent
+    if require_regular_file or lexical.exists():
+        try:
+            metadata = lexical.lstat()
+        except OSError as exc:
+            raise ModelSuiteError(f"Stage 24 {label} is absent") from exc
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ModelSuiteError(
+                f"Stage 24 {label} is not a single-link regular file"
+            )
+    return lexical
 
 
 def _load_verified_stage9(
@@ -115,8 +164,12 @@ def _load_verified_stage9(
 ) -> tuple[dict, dict[str, str]]:
     """Require the last-transaction receipt before accepting Stage-9 pointers."""
     receipt = validate_stage09_completion_receipt(
-        receipt_path, root=root, stage9_pointer=stage9_path
+        receipt_path,
+        root=root,
+        stage9_pointer=stage9_path,
+        publication_guard=_assert_stage24_policy,
     )
+    _assert_stage24_policy()
     stage9 = load_component_pointer(stage9_path)
     if receipt.get("run_id") != stage9.get("run_id"):
         raise ModelSuiteError("Stage-9 receipt and component pointer run ids differ")
@@ -128,10 +181,41 @@ def _load_verified_stage09b(
 ) -> tuple[dict, dict[str, str]]:
     """Require the exact 31-member control closure before suite freezing."""
     try:
-        receipt = validate_stage09b_completion_receipt(receipt_path, root=root)
+        receipt = validate_stage09b_completion_receipt(
+            receipt_path,
+            root=root,
+            publication_guard=_assert_stage24_policy,
+        )
     except DevelopmentControlsGateError as exc:
         raise ModelSuiteError("Stage-09b development-controls gate failed") from exc
     return receipt, file_binding(root, receipt_path)
+
+
+def _load_verified_stage16(
+    pointer_path: Path, receipt_path: Path, *, root: Path = ROOT,
+) -> tuple[dict, dict[str, str]]:
+    """Require Stage 16's final content-bound LSTM completion receipt."""
+    receipt = validate_stage16_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=pointer_path,
+        replay_selection=True,
+        replay_bundle=True,
+        publication_guard=_assert_stage24_policy,
+    )
+    _assert_stage24_policy()
+    components = load_component_pointer(pointer_path)
+    artifacts = receipt.get("artifacts")
+    if (
+        receipt.get("run_id") != components.get("run_id")
+        or not isinstance(artifacts, dict)
+        or artifacts.get("components_pointer")
+        != file_binding(root, pointer_path)
+    ):
+        raise ModelSuiteError(
+            "Stage-16 receipt and component pointer differ after validation"
+        )
+    return components, file_binding(root, receipt_path)
 
 
 def _load_verified_stage25(
@@ -143,6 +227,7 @@ def _load_verified_stage25(
         root=root,
         components_pointer=pointer_path,
     )
+    _assert_stage24_policy()
     components = load_component_pointer(pointer_path)
     artifacts = receipt.get("artifacts")
     if (
@@ -163,17 +248,19 @@ def _model_suite_id(
     stage9: dict,
     stage09_completion: dict[str, str],
     stage09b_completion: dict[str, str],
+    stage16_completion: dict[str, str],
     stage25_completion: dict[str, str],
     lstm: dict,
     external: dict,
     features: tuple[str, ...],
 ) -> str:
-    """Content-address the suite, including all three completion receipts."""
+    """Content-address the suite, including all four completion receipts."""
     return sha256_json({
         "protocol_sha256": protocol_sha256,
         "stage9": stage9,
         "stage09_completion": stage09_completion,
         "stage09b_completion": stage09b_completion,
+        "stage16_completion": stage16_completion,
         "stage25_completion": stage25_completion,
         "lstm": lstm,
         "external": external,
@@ -182,6 +269,7 @@ def _model_suite_id(
 
 
 def _run() -> None:
+    _assert_stage24_policy()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--protocol", type=Path,
@@ -205,6 +293,10 @@ def _run() -> None:
         default=C.MODELS / "route_a_lstm_components.json",
     )
     parser.add_argument(
+        "--lstm-receipt", type=Path,
+        default=ROOT / STAGE16_COMPLETION_RECEIPT_PATH,
+    )
+    parser.add_argument(
         "--external", type=Path,
         default=C.MODELS / "route_a_external_components.json",
     )
@@ -223,13 +315,34 @@ def _run() -> None:
     )
     args = parser.parse_args()
 
+    args.protocol = _canonical_stage24_path(
+        args.protocol,
+        ROOT / "protocols" / "route_a_confirmatory_v1.json",
+        label="protocol",
+        require_regular_file=True,
+    )
+    args.current = _canonical_stage24_path(
+        args.current,
+        C.MODELS / "route_a_model_suite_current.json",
+        label="current pointer",
+        require_regular_file=False,
+    )
+    args.destination = _canonical_stage24_path(
+        args.destination,
+        ROOT / "data_usgs" / "confirmatory_model_suite_v1.json",
+        label="opening registry",
+        require_regular_file=False,
+    )
+
     stage9, stage09_completion = _load_verified_stage9(
         args.stage9, args.stage9_receipt
     )
     controls_receipt, stage09b_completion = _load_verified_stage09b(
         args.stage09b_receipt
     )
-    lstm = load_component_pointer(args.lstm)
+    lstm, stage16_completion = _load_verified_stage16(
+        args.lstm, args.lstm_receipt
+    )
     external, stage25_completion = _load_verified_stage25(
         args.external, args.external_receipt
     )
@@ -302,12 +415,18 @@ def _run() -> None:
         stage9=stage9,
         stage09_completion=stage09_completion,
         stage09b_completion=stage09b_completion,
+        stage16_completion=stage16_completion,
         stage25_completion=stage25_completion,
         lstm=lstm,
         external=external,
         features=feature_order,
     )
-    versioned = C.MODELS / f"route_a_model_suite_{suite_id}.json"
+    versioned = _canonical_stage24_path(
+        C.MODELS / f"route_a_model_suite_{suite_id}.json",
+        C.MODELS / f"route_a_model_suite_{suite_id}.json",
+        label="versioned suite",
+        require_regular_file=False,
+    )
     freeze_model_suite(
         versioned, args.current,
         root=ROOT, protocol_sha256=protocol_sha,
@@ -316,19 +435,24 @@ def _run() -> None:
         development_contract=contracts[0],
         stage09_completion=stage09_completion,
         stage09b_completion=stage09b_completion,
+        stage16_completion=stage16_completion,
         stage25_completion=stage25_completion,
         registry_alias=args.destination,
+        publication_guard=_assert_stage24_policy,
     )
+    _assert_stage24_policy()
     print(f"frozen content-addressed Route-A model suite: {versioned}")
     print(f"frozen opening registry: {args.destination}")
     print(f"published current pointer: {args.current}")
 
 
 def main() -> None:
-    # Hold one shared Stage-25 transaction snapshot while validating the
-    # receipt, reading every external component, and freezing the suite.
-    with advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False):
-        _run()
+    # Hold shared Stage-16 and Stage-25 transaction snapshots while validating
+    # both receipts, reading their components, and freezing one generation.
+    _assert_stage24_policy()
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        with advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False):
+            _run()
 
 
 if __name__ == "__main__":

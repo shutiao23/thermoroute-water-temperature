@@ -277,17 +277,22 @@ def _run(args: argparse.Namespace) -> None:
             "outcome_status": "NO_POST_2020_DATA_READ",
             "training_device": "cpu",
         },
+        publication_guard=assert_formal_numerical_policy,
     )
     # Invalidate any earlier success marker immediately after taking the run
     # lock.  A crash from this point until the final atomic receipt publication
     # therefore leaves a document that --check must reject.
-    atomic_write_json(receipt_path, {
-        "format": STAGE25_COMPLETION_FORMAT,
-        "status": "INCOMPLETE",
-        "stage": "25_train_external_pooled_suite",
-        "run_id": identity.run_id,
-        "confirmation_outcomes_requested_or_read": False,
-    })
+    atomic_write_json(
+        receipt_path,
+        {
+            "format": STAGE25_COMPLETION_FORMAT,
+            "status": "INCOMPLETE",
+            "stage": "25_train_external_pooled_suite",
+            "run_id": identity.run_id,
+            "confirmation_outcomes_requested_or_read": False,
+        },
+        publication_guard=assert_formal_numerical_policy,
+    )
     # Lock before pooled preprocessing materialises arrays and before any
     # checkpoint or external shard-cache path can be reached.
     prepared = D.prepare_dataset_from_panel(str(PANEL))
@@ -335,6 +340,7 @@ def _run(args: argparse.Namespace) -> None:
             run_id=identity.run_id,
             resolved_config={**run_config, "candidate_id": candidate_id,
                              "candidate": candidate},
+            artifact_publication_guard=assert_formal_numerical_policy,
         )
         candidates.append((result.best_val, candidate_id, candidate))
     _, selected_id, selected = min(candidates, key=lambda value: (value[0], value[1]))
@@ -365,6 +371,7 @@ def _run(args: argparse.Namespace) -> None:
             checkpoint_path=run_dir / "checkpoints" / f"thermoroute_{member}.pt",
             run_id=identity.run_id,
             resolved_config={**run_config, "arm": "ThermoRoute", "seed": seed},
+            artifact_publication_guard=assert_formal_numerical_policy,
         )
         tr.pred["seed"] = seed
         tr_models[member] = tr.model
@@ -379,6 +386,7 @@ def _run(args: argparse.Namespace) -> None:
             run_id=identity.run_id,
             resolved_config={**run_config, "arm": "LSTM", "seed": seed,
                              "selected_candidate": selected},
+            artifact_publication_guard=assert_formal_numerical_policy,
         )
         lstm.pred["seed"] = seed
         lstm_models[member] = lstm.model
@@ -403,11 +411,16 @@ def _run(args: argparse.Namespace) -> None:
     )
     canonicalize_prediction_truth_inplace(predictions)
     prediction_path = C.PREDICTIONS / f"external_pooled_development_{identity.run_id}.parquet"
-    R.write_predictions(predictions, prediction_path)
+    R.write_predictions(
+        predictions,
+        prediction_path,
+        publication_guard=assert_formal_numerical_policy,
+    )
     seal_artifact(
         prediction_path, identity, kind="external_pooled_development_predictions",
         schema=R.PREDICTION_SCHEMA_VERSION,
         extra={"common_test_keys": audit.common_unique, "post_2020_data_read": False},
+        publication_guard=assert_formal_numerical_policy,
     )
 
     parity_atol = 1e-5
@@ -439,13 +452,16 @@ def _run(args: argparse.Namespace) -> None:
                     max_abs_difference=parity_atol, atol=parity_atol,
                 ),
             ), expected_member_count=5,
+            publication_guard=assert_formal_numerical_policy,
         )
         difference = verify_sequence_prediction_parity(
             directory, wd=wd, expected=rows,
             model_factory=lambda _member, metadata, factory=factory: factory(metadata),
             member_seeds={f"seed{seed}": seed for seed in SEEDS},
             atol=parity_atol,
+            publication_guard=assert_formal_numerical_policy,
         )
+        assert_formal_numerical_policy()
         update_torch_development_prediction(
             directory,
             development_prediction_binding(
@@ -509,12 +525,15 @@ def _run(args: argparse.Namespace) -> None:
                 max_abs_difference=1e-12, atol=1e-12,
             ),
         },
+        publication_guard=assert_formal_numerical_policy,
     )
     lgb_difference = verify_lightgbm_prediction_parity(
         lgb_manifest, evaluation_design=lgb_evaluation_design,
         expected=lgb_rows,
         member_seeds={f"seed{seed}": seed for seed in SEEDS}, atol=1e-12,
+        publication_guard=assert_formal_numerical_policy,
     )
+    assert_formal_numerical_policy()
     update_lightgbm_development_prediction(
         lgb_manifest,
         development_prediction_binding(
@@ -551,6 +570,7 @@ def _run(args: argparse.Namespace) -> None:
             **file_binding(ROOT, prediction_path),
             "sidecar": file_binding(ROOT, sidecar_path(prediction_path)),
         },
+        publication_guard=assert_formal_numerical_policy,
     )
     receipt = build_stage25_completion_receipt(
         root=ROOT,
@@ -567,6 +587,7 @@ def _run(args: argparse.Namespace) -> None:
         receipt,
         root=ROOT,
         components_pointer=components_pointer,
+        publication_guard=assert_formal_numerical_policy,
     )
     log("saved complete external pooled components: TR5 + LSTM5 + LGB5")
     log(f"saved Stage-25 completion receipt: {receipt_path.relative_to(ROOT)}")
@@ -596,6 +617,7 @@ def main() -> None:
                 root=ROOT,
                 components_pointer=components_pointer,
             )
+        assert_formal_numerical_policy()
         print(
             f"Stage-25 COMPLETE: run_id={receipt['run_id']} "
             f"receipt={receipt_path.relative_to(ROOT)}"

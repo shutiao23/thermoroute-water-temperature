@@ -10,13 +10,15 @@ Each member prediction is also regenerated from the safely loaded checkpoint
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
 import json
 import math
+import os
 from pathlib import Path
 import re
+import stat
 from typing import Any
 
 import numpy as np
@@ -228,6 +230,41 @@ def _validated_binding(root: Path, value: object, *, label: str) -> Path:
     ):
         raise DevelopmentControlsGateError(f"{label} checksum or canonical path changed")
     return path
+
+
+def _canonical_receipt_path(
+    root: Path,
+    receipt_path: str | Path,
+    *,
+    document_supplied: bool,
+) -> Path:
+    """Preserve the Stage-09b receipt's lexical single-link identity."""
+    raw = Path(receipt_path)
+    if not raw.is_absolute():
+        raw = root / raw
+    lexical = Path(os.path.abspath(raw))
+    expected = root / STAGE09B_COMPLETION_RECEIPT_PATH
+    if lexical != expected:
+        raise DevelopmentControlsGateError("Stage-09b receipt path is noncanonical")
+    current = lexical
+    while current != root:
+        if current.is_symlink():
+            raise DevelopmentControlsGateError(
+                "Stage-09b receipt path uses a symlink"
+            )
+        current = current.parent
+    if not document_supplied or lexical.exists() or lexical.is_symlink():
+        try:
+            metadata = lexical.lstat()
+        except OSError as exc:
+            raise DevelopmentControlsGateError(
+                "Stage-09b receipt is absent or malformed"
+            ) from exc
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise DevelopmentControlsGateError(
+                "Stage-09b receipt is not a single-link regular file"
+            )
+    return lexical
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:
@@ -658,6 +695,7 @@ def _replay_member_best_state(
     *, checkpoint: Path, arm: ArmSpec, seed: int, wd: DS.WindowedData,
     thresholds: dict[str, float], identity: Mapping[str, Any],
     config: Mapping[str, Any], contract: CanonicalWindowContract,
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Safely reproduce one member from checkpoint ``best_model_state``."""
     model = build_arm_model(arm, seed=seed, n_stations=len(contract.stations)).to("cpu")
@@ -682,6 +720,7 @@ def _replay_member_best_state(
             expected_run_id=str(identity["run_id"]),
             expected_resolved_config=arm_config, map_location="cpu",
             recover_missing_sidecar=False,
+            publication_guard=publication_guard,
         )
         if resumed.best_model_state is None:
             raise ValueError("checkpoint lacks best_model_state")
@@ -701,6 +740,8 @@ def _replay_member_best_state(
             frame, arm=arm, seed=seed, allowed_sites=set(contract.stations),
             canonical_registry=contract.registry,
         )
+        if publication_guard is not None:
+            publication_guard()
     except Exception as exc:
         raise DevelopmentControlsGateError(
             f"Stage-09b {arm.arm_id}/seed{seed} best-state replay failed"
@@ -745,6 +786,7 @@ def _validate_member_predictions(
     identity: Mapping[str, Any], expected_parents: Mapping[str, str],
     contract: CanonicalWindowContract, config: Mapping[str, Any],
     panel_path: Path, frozen_spec_path: Path,
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[
     dict[tuple[str, int], int],
     dict[tuple[str, int], str],
@@ -848,6 +890,7 @@ def _validate_member_predictions(
             checkpoint=checkpoint, arm=arms[arm_id], seed=seed,
             wd=active_windows, thresholds=thresholds, identity=identity,
             config=config, contract=contract,
+            publication_guard=publication_guard,
         )
         if dict(extra["training_summary"]) != replay_summary:
             raise DevelopmentControlsGateError(
@@ -1144,11 +1187,14 @@ def build_stage09b_completion_receipt(
 def validate_stage09b_completion_receipt(
     receipt_path: str | Path, *, root: str | Path,
     document: Mapping[str, Any] | None = None,
+    publication_guard: Callable[[], object] | None = None,
 ) -> dict[str, Any]:
+    if publication_guard is not None:
+        publication_guard()
     root = Path(root).resolve()
-    receipt_path = Path(receipt_path).resolve()
-    if receipt_path != (root / STAGE09B_COMPLETION_RECEIPT_PATH).resolve():
-        raise DevelopmentControlsGateError("Stage-09b receipt path is noncanonical")
+    receipt_path = _canonical_receipt_path(
+        root, receipt_path, document_supplied=document is not None
+    )
     receipt = _load_json(receipt_path, label="Stage-09b receipt") if document is None else dict(document)
     expected_keys = {
         "format", "status", "stage", "run_id", "run_identity",
@@ -1226,6 +1272,7 @@ def validate_stage09b_completion_receipt(
         root=root, member_registry=members, identity=identity,
         expected_parents=parents, contract=contract, config=config,
         panel_path=paths["panel"], frozen_spec_path=paths["frozen_panel_spec"],
+        publication_guard=publication_guard,
     )
     audit = receipt.get("matrix_audit")
     expected_members = expected_stage09b_members()
@@ -1318,24 +1365,54 @@ def validate_stage09b_completion_receipt(
     semantic = _load_json(paths["semantic_audit"], label="Stage-09b semantic audit")
     if semantic != expected_semantic:
         raise DevelopmentControlsGateError("Stage-09b semantic audit is stale or forged")
+    if publication_guard is not None:
+        publication_guard()
     return receipt
 
 
-def write_stage09b_completion_receipt(path: str | Path, document: Mapping[str, Any]) -> Path:
+def write_stage09b_completion_receipt(
+    path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> Path:
     stable = {key: value for key, value in document.items() if key != "receipt_self_sha256"}
     if document.get("receipt_self_sha256") != sha256_json(stable):
         raise DevelopmentControlsGateError("Stage-09b receipt self hash is invalid")
     destination = Path(path)
-    atomic_write_json(destination, dict(document))
+    atomic_write_json(
+        destination,
+        dict(document),
+        publication_guard=publication_guard,
+    )
     return destination
 
 
 def publish_stage09b_completion_receipt(
-    receipt_path: str | Path, document: Mapping[str, Any], *, root: str | Path,
+    receipt_path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    root: str | Path,
+    publication_guard: Callable[[], object],
 ) -> Path:
-    validate_stage09b_completion_receipt(receipt_path, root=root, document=document)
-    destination = write_stage09b_completion_receipt(receipt_path, document)
-    validate_stage09b_completion_receipt(destination, root=root)
+    validate_stage09b_completion_receipt(
+        receipt_path,
+        root=root,
+        document=document,
+        publication_guard=publication_guard,
+    )
+    publication_guard()
+    destination = write_stage09b_completion_receipt(
+        receipt_path,
+        document,
+        publication_guard=publication_guard,
+    )
+    validate_stage09b_completion_receipt(
+        destination,
+        root=root,
+        publication_guard=publication_guard,
+    )
+    publication_guard()
     return destination
 
 

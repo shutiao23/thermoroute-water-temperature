@@ -17,22 +17,32 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import tempfile
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import torch
 
 from . import config as C
 from . import data as D
+from . import datasets as DS
 from . import features as F
 from . import probability as P
 from . import results as R
 from .checkpoint import (
+    CHECKPOINT_METADATA_VERSION,
+    CHECKPOINT_VERSION,
+    _CHECKPOINT_FIELDS,
+    _CHECKPOINT_METADATA_FIELDS,
+    _validate_checkpoint_payload,
+    checkpoint_sidecar_path,
     instantiate_inference_ensemble,
     load_inference_bundle,
     neural_output_head_schema,
@@ -63,13 +73,19 @@ from .repro import (
     RUN_SCHEMA_VERSION,
     atomic_write_bytes,
     atomic_write_json,
+    canonical_json,
     numerical_runtime_contract,
     sha256_json,
     sidecar_path,
     source_tree_hash,
     validate_artifact_sidecar,
 )
-from .registry import FORECAST_KEY, targets_match_at_model_precision
+from .registry import (
+    FORECAST_KEY,
+    ROUTE_A_PRIMARY_MODELS,
+    enforce_common_forecast_keys,
+    targets_match_at_model_precision,
+)
 from .weighting import (
     ROW_EQUAL_WEIGHTING,
     STATION_EQUAL_WEIGHTING,
@@ -86,6 +102,28 @@ STAGE9_COMPLETION_STATUS = "PASS_FORMAL_STAGE09_COMPLETE"
 STAGE9_COMPLETION_RECEIPT_PATH = (
     "outputs/models/route_a_stage09_completion.json"
 )
+STAGE9_COMPONENT_POINTER_PATH = (
+    "outputs/models/route_a_stage9_components.json"
+)
+STAGE16_COMPLETION_FORMAT = "thermoroute.stage16-completion-receipt.v1"
+STAGE16_COMPLETION_STATUS = "PASS_FORMAL_STAGE16_COMPLETE"
+STAGE16_COMPLETION_RECEIPT_PATH = (
+    "outputs/models/route_a_stage16_completion.json"
+)
+STAGE16_COMPONENT_POINTER_PATH = (
+    "outputs/models/route_a_lstm_components.json"
+)
+STAGE16_SHORTCUT_POINTER_PATH = "outputs/models/lstm_usgs_bundle.json"
+STAGE16_SELECTION_PATH = "outputs/tables/lstm_validation_selection.csv"
+STAGE16_PARENT_PREDICTION_PATH = (
+    "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+)
+STAGE16_DEVELOPMENT_PREDICTION_PATH = (
+    "outputs/predictions/usgs_predictions_v2.parquet"
+)
+STAGE16_PARITY_AUDIT_FORMAT = "thermoroute.stage16-bundle-parity.v1"
+STAGE16_SELECTION_AUDIT_FORMAT = "thermoroute.stage16-selection-audit.v1"
+STAGE16_SELECTION_METRIC_ATOL = 1e-5
 STAGE25_COMPLETION_FORMAT = "thermoroute.stage25-completion-receipt.v1"
 STAGE25_COMPLETION_STATUS = "COMPLETE"
 STAGE25_COMPLETION_RECEIPT_PATH = (
@@ -164,6 +202,46 @@ LSTM_VALIDATION_GRID = (
     {"d": 64, "layers": 2, "dropout": 0.10, "station_embed_dim": 8,
      "use_derived_context": True, "anchor": "damped"},
 )
+STAGE16_LSTM_SELECTION_COLUMNS = (
+    "candidate_id", "d", "layers", "dropout", "station_embed_dim",
+    "use_derived_context", "anchor", "val_station_macro_rmse", "selected",
+    "selection_split",
+)
+
+
+def stage16_validation_winner(metrics: Sequence[float]) -> int:
+    """Choose the lowest-ID candidate within the predeclared metric tolerance."""
+    values = [float(value) for value in metrics]
+    if len(values) != len(LSTM_VALIDATION_GRID) or any(
+        not np.isfinite(value) or value < 0.0 for value in values
+    ):
+        raise ModelSuiteError("Stage-16 validation metrics are malformed")
+    best = min(values)
+    return min(
+        candidate_id
+        for candidate_id, value in enumerate(values)
+        if value <= best + STAGE16_SELECTION_METRIC_ATOL
+    )
+
+
+def _stage16_consistent_validation_winner(
+    reported: Sequence[float],
+    recomputed: Sequence[float],
+    checkpoint: Sequence[float],
+) -> int:
+    """Require all three tolerated metric views to select the same candidate."""
+    winners = {
+        stage16_validation_winner(reported),
+        stage16_validation_winner(recomputed),
+        stage16_validation_winner(checkpoint),
+    }
+    if len(winners) != 1:
+        raise ModelSuiteError(
+            "Stage-16 reported, recomputed, and checkpoint validation winners differ"
+        )
+    return winners.pop()
+
+
 STAGE9_LIGHTGBM_SELECTION_COLUMNS = (
     "horizon", "candidate_id", "num_leaves", "min_child_samples",
     "learning_rate", "val_station_macro_rmse", "best_iteration", "selected",
@@ -502,6 +580,7 @@ def verify_sequence_prediction_parity(
     atol: float = 1e-5,
     batch_size: int = 4096,
     splits: tuple[str, ...] = ("val", "calib", "test"),
+    publication_guard: Callable[[], object] | None = None,
 ) -> float:
     """Replay every sequence member and compare all five prediction heads."""
     models, metadata = instantiate_inference_ensemble(
@@ -509,6 +588,7 @@ def verify_sequence_prediction_parity(
         model_factory=lambda member, bundle: model_factory(member, bundle),
         expected_member_count=len(member_seeds),
         device="cpu",
+        publication_guard=publication_guard,
     )
     if set(models) != set(member_seeds):
         raise ModelSuiteError("sequence parity member registry differs from bundle")
@@ -517,6 +597,12 @@ def verify_sequence_prediction_parity(
     keys = ["seed", "site_id", "horizon", "split", "issue_date", "target_date"]
     values = ["y_true", "y_pred", "q05", "q50", "q95", "p_exceed"]
     reference = expected.copy()
+    for column in ("model", "scope", "feature_set"):
+        unique_values = reference[column].astype(str).unique()
+        if len(unique_values) != 1 or not str(unique_values[0]):
+            raise ModelSuiteError(
+                f"sequence parity expected rows mix {column} values"
+            )
     reference["issue_date"] = pd.to_datetime(reference["issue_date"])
     reference["target_date"] = pd.to_datetime(reference["target_date"])
     maximum = 0.0
@@ -529,6 +615,8 @@ def verify_sequence_prediction_parity(
             model, wd, {}, torch.device("cpu"), model_name, scope, feature_set,
             seed, batch_size=batch_size, splits=splits,
         )
+        if publication_guard is not None:
+            publication_guard()
         expected_member = reference[reference["seed"].astype(int).eq(seed)]
         paired = expected_member[keys + values].merge(
             replay[keys + values], on=keys, how="outer", suffixes=("_reference", "_bundle"),
@@ -547,6 +635,8 @@ def verify_sequence_prediction_parity(
         raise ModelSuiteError(
             f"sequence development prediction parity failed: {maximum} > {atol}"
         )
+    if publication_guard is not None:
+        publication_guard()
     return maximum
 
 
@@ -1097,6 +1187,7 @@ def save_lightgbm_bundle(
     ],
     parity_inputs: Mapping[int | str, Any] | None = None,
     parity_atol: float = 1e-12,
+    publication_guard: Callable[[], object] | None = None,
 ) -> Path:
     """Save point/quantile/event boosters and prove native-text round-trip parity.
 
@@ -1272,8 +1363,12 @@ def save_lightgbm_bundle(
                 raise FileExistsError(
                     f"refusing to replace non-identical LightGBM bundle: {destination}"
                 )
+            if publication_guard is not None:
+                publication_guard()
             shutil.rmtree(directory)
             return destination / "manifest.json"
+        if publication_guard is not None:
+            publication_guard()
         os.rename(directory, destination)
         descriptor = os.open(destination.parent, os.O_RDONLY)
         try:
@@ -1298,8 +1393,17 @@ def _directory_bytes_equal(left: Path, right: Path) -> bool:
 
 def load_lightgbm_bundle(
     manifest_or_directory: str | Path,
+    *,
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[dict[str, dict[int, dict[str, lgb.Booster]]], dict[str, Any]]:
-    """Reconstruct every native-text booster after strict checksum validation."""
+    """Reconstruct every native-text booster after strict checksum validation.
+
+    Formal authority-bearing callers pass ``publication_guard`` so a live
+    native-thread drift cannot be hidden inside an otherwise valid bundle
+    acceptance.
+    """
+    if publication_guard is not None:
+        publication_guard()
     value = Path(manifest_or_directory)
     manifest_path = value / "manifest.json" if value.is_dir() else value
     try:
@@ -1373,6 +1477,8 @@ def load_lightgbm_bundle(
                         f"LightGBM {member}/h{horizon}/{head} checksum mismatch"
                     )
                 output[member][horizon][head] = lgb.Booster(model_file=str(path))
+                if publication_guard is not None:
+                    publication_guard()
     points = manifest.get("point_models")
     if not isinstance(points, Mapping) or set(points) != {str(h) for h in horizons}:
         raise ModelSuiteError("LightGBM point-model index is incomplete")
@@ -1382,6 +1488,8 @@ def load_lightgbm_bundle(
         }
         if points[str(horizon)] != expected:
             raise ModelSuiteError("LightGBM point-model index disagrees with head registry")
+    if publication_guard is not None:
+        publication_guard()
     return output, manifest
 
 
@@ -1403,9 +1511,13 @@ def verify_lightgbm_prediction_parity(
     expected: pd.DataFrame,
     member_seeds: Mapping[str, int],
     atol: float = 1e-12,
+    publication_guard: Callable[[], object] | None = None,
 ) -> float:
     """Replay all five native boosters against the Stage-9 development rows."""
-    models, metadata = load_lightgbm_bundle(manifest_path)
+    models, metadata = load_lightgbm_bundle(
+        manifest_path,
+        publication_guard=publication_guard,
+    )
     if set(models) != set(member_seeds):
         raise ModelSuiteError("LightGBM parity member registry differs from bundle")
     measured_crossing_audit = _build_lightgbm_raw_crossing_audit(
@@ -1418,6 +1530,8 @@ def verify_lightgbm_prediction_parity(
         raise ModelSuiteError(
             "LightGBM raw crossing audit differs from native-model replay"
         )
+    if publication_guard is not None:
+        publication_guard()
     keys = ["seed", "site_id", "horizon", "split", "issue_date", "target_date"]
     values = ["y_true", "y_pred", "q05", "q50", "q95", "p_exceed"]
     reference = expected.copy()
@@ -1480,10 +1594,14 @@ def verify_lightgbm_prediction_parity(
                 if np.any(~np.isfinite(difference)):
                     raise ModelSuiteError(f"LightGBM parity has non-finite {value}")
                 maximum = max(maximum, float(difference.max(initial=0.0)))
+            if publication_guard is not None:
+                publication_guard()
     if maximum > float(atol):
         raise ModelSuiteError(
             f"LightGBM development prediction parity failed: {maximum} > {atol}"
         )
+    if publication_guard is not None:
+        publication_guard()
     return maximum
 
 
@@ -2629,6 +2747,7 @@ def write_component_pointer(
     raw_feature_order: Sequence[str],
     development_contract: Mapping[str, Any] | None = None,
     development_prediction_artifact: Mapping[str, Any] | None = None,
+    publication_guard: Callable[[], object] | None = None,
 ) -> Path:
     """Publish a component pointer only after every referenced artifact verifies."""
     if cohort not in {"temporal_stage9", "temporal_lstm", "external"}:
@@ -2651,7 +2770,11 @@ def write_component_pointer(
         document["development_prediction_artifact"] = dict(
             development_prediction_artifact
         )
-    atomic_write_json(destination, document)
+    atomic_write_json(
+        destination,
+        document,
+        publication_guard=publication_guard,
+    )
     return Path(destination)
 
 
@@ -2772,10 +2895,60 @@ def _validated_file_binding(
 ) -> Path:
     if not isinstance(value, Mapping) or set(value) != {"path", "sha256"}:
         raise ModelSuiteError(f"{label} binding is malformed")
-    path = _resolve_inside(root, value.get("path"))
+    raw = value.get("path")
+    if not isinstance(raw, str) or Path(raw).is_absolute():
+        raise ModelSuiteError(f"{label} binding is malformed")
+    root = root.resolve()
+    path = Path(os.path.abspath(root / raw))
+    if path != root and root not in path.parents:
+        raise ModelSuiteError(f"{label} path escapes repository")
+    current = path
+    while current != root:
+        if current.is_symlink():
+            raise ModelSuiteError(f"{label} path uses a symlink")
+        current = current.parent
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ModelSuiteError(f"{label} artifact is absent") from exc
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ModelSuiteError(f"{label} is not a single-link regular file")
     if dict(value) != file_binding(root, path):
         raise ModelSuiteError(f"{label} checksum or canonical path changed")
     return path
+
+
+def _canonical_completion_receipt_path(
+    root: Path,
+    receipt_path: str | Path,
+    *,
+    relative: str,
+    label: str,
+    document_supplied: bool,
+) -> Path:
+    """Preserve a completion receipt's lexical identity before dereferencing."""
+    raw = Path(receipt_path)
+    if not raw.is_absolute():
+        raw = root / raw
+    lexical = Path(os.path.abspath(raw))
+    expected = root / relative
+    if lexical != expected:
+        raise ModelSuiteError(f"{label} is not at its exact canonical path")
+    current = lexical
+    while current != root:
+        if current.is_symlink():
+            raise ModelSuiteError(f"{label} path uses a symlink")
+        current = current.parent
+    if not document_supplied or lexical.exists() or lexical.is_symlink():
+        try:
+            metadata = lexical.lstat()
+        except OSError as exc:
+            raise ModelSuiteError(f"{label} is absent or invalid") from exc
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ModelSuiteError(
+                f"{label} is not a single-link regular file"
+            )
+    return lexical
 
 
 def _validated_content_addressed_run_identity(
@@ -2827,7 +3000,9 @@ def _validated_stage09_run_identity(
 
 def _load_formal_stage09_manifest(
     path: Path, *, root: Path, run_id: str,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+) -> tuple[
+    dict[str, Any], dict[str, Any], dict[str, Any]
+]:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -3730,7 +3905,10 @@ def build_stage09_completion_receipt(
 
 
 def write_stage09_completion_receipt(
-    path: str | Path, document: Mapping[str, Any],
+    path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
 ) -> Path:
     """Atomically publish the Stage-9 receipt as the transaction's last write."""
     stable = {
@@ -3740,7 +3918,11 @@ def write_stage09_completion_receipt(
     if document.get("receipt_self_sha256") != sha256_json(stable):
         raise ModelSuiteError("Stage-9 completion receipt self hash is invalid")
     destination = Path(path)
-    atomic_write_json(destination, dict(document))
+    atomic_write_json(
+        destination,
+        dict(document),
+        publication_guard=publication_guard,
+    )
     return destination
 
 
@@ -3750,16 +3932,19 @@ def validate_stage09_completion_receipt(
     root: str | Path,
     stage9_pointer: str | Path,
     document: Mapping[str, Any] | None = None,
+    publication_guard: Callable[[], object] | None = None,
 ) -> dict[str, Any]:
     """Validate a candidate document or the canonically published receipt."""
+    if publication_guard is not None:
+        publication_guard()
     root = Path(root).resolve()
-    receipt_path = Path(receipt_path).resolve()
-    if receipt_path != root and root not in receipt_path.parents:
-        raise ModelSuiteError("Stage-9 completion receipt escapes repository")
-    if _relative(root, receipt_path) != STAGE9_COMPLETION_RECEIPT_PATH:
-        raise ModelSuiteError(
-            "Stage-9 completion receipt is not at its exact canonical path"
-        )
+    receipt_path = _canonical_completion_receipt_path(
+        root,
+        receipt_path,
+        relative=STAGE9_COMPLETION_RECEIPT_PATH,
+        label="Stage-9 completion receipt",
+        document_supplied=document is not None,
+    )
     if document is None:
         try:
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -3940,6 +4125,8 @@ def validate_stage09_completion_receipt(
             "Stage-9 LightGBM quantile audit registry is incomplete"
         )
     _validate_lightgbm_quantile_metadata(lightgbm_manifest)
+    if publication_guard is not None:
+        publication_guard()
     return receipt
 
 
@@ -3948,10 +4135,14 @@ def stage09_completion_gate_binding(
     *,
     root: str | Path,
     stage9_pointer: str | Path,
+    publication_guard: Callable[[], object] | None = None,
 ) -> dict[str, str]:
     """Validate Stage 9 and return the exact receipt binding frozen downstream."""
     validate_stage09_completion_receipt(
-        receipt_path, root=root, stage9_pointer=stage9_pointer
+        receipt_path,
+        root=root,
+        stage9_pointer=stage9_pointer,
+        publication_guard=publication_guard,
     )
     return file_binding(root, receipt_path)
 
@@ -3962,6 +4153,7 @@ def publish_stage09_completion_receipt(
     *,
     root: str | Path,
     stage9_pointer: str | Path,
+    publication_guard: Callable[[], object],
 ) -> Path:
     """Validate the full closure before atomically publishing its PASS marker."""
     validate_stage09_completion_receipt(
@@ -3969,8 +4161,1997 @@ def publish_stage09_completion_receipt(
         root=root,
         stage9_pointer=stage9_pointer,
         document=document,
+        publication_guard=publication_guard,
     )
-    return write_stage09_completion_receipt(receipt_path, document)
+    publication_guard()
+    destination = write_stage09_completion_receipt(
+        receipt_path,
+        document,
+        publication_guard=publication_guard,
+    )
+    validate_stage09_completion_receipt(
+        destination,
+        root=root,
+        stage9_pointer=stage9_pointer,
+        publication_guard=publication_guard,
+    )
+    publication_guard()
+    return destination
+
+
+def canonical_stage16_artifact_paths(run_id: str) -> dict[str, str]:
+    """Return the only paths admitted to a formal Stage-16 completion."""
+    if not isinstance(run_id, str) or not run_id:
+        raise ModelSuiteError("Stage-16 canonical paths require a run id")
+    bundle = f"outputs/models/lstm_usgs_bundle_{run_id}"
+    return {
+        "run_manifest": f"outputs/runs/16_lstm_baseline/{run_id}/run.json",
+        "stage09_completion_receipt": STAGE9_COMPLETION_RECEIPT_PATH,
+        "stage09_parent_predictions": STAGE16_PARENT_PREDICTION_PATH,
+        "stage09_parent_prediction_sidecar": (
+            f"{STAGE16_PARENT_PREDICTION_PATH}.meta.json"
+        ),
+        "lstm_validation_selection": STAGE16_SELECTION_PATH,
+        "development_predictions": STAGE16_DEVELOPMENT_PREDICTION_PATH,
+        "development_prediction_sidecar": (
+            f"{STAGE16_DEVELOPMENT_PREDICTION_PATH}.meta.json"
+        ),
+        "bundle": bundle,
+        "bundle_metadata": f"{bundle}/metadata.json",
+        "bundle_weights": f"{bundle}/weights.pt",
+        "shortcut_pointer": STAGE16_SHORTCUT_POINTER_PATH,
+        "components_pointer": STAGE16_COMPONENT_POINTER_PATH,
+        **{
+            f"seed{seed}_predictions": (
+                f"outputs/runs/16_lstm_baseline/{run_id}/predictions/"
+                f"seed{seed}.parquet"
+            )
+            for seed in C.USGS_SEEDS
+        },
+        **{
+            f"seed{seed}_prediction_sidecar": (
+                f"outputs/runs/16_lstm_baseline/{run_id}/predictions/"
+                f"seed{seed}.parquet.meta.json"
+            )
+            for seed in C.USGS_SEEDS
+        },
+        **{
+            f"candidate{candidate_id}_predictions": (
+                f"outputs/runs/16_lstm_baseline/{run_id}/selection/"
+                f"candidate{candidate_id}.parquet"
+            )
+            for candidate_id in range(len(LSTM_VALIDATION_GRID))
+        },
+        **{
+            f"candidate{candidate_id}_prediction_sidecar": (
+                f"outputs/runs/16_lstm_baseline/{run_id}/selection/"
+                f"candidate{candidate_id}.parquet.meta.json"
+            )
+            for candidate_id in range(len(LSTM_VALIDATION_GRID))
+        },
+        **{
+            f"candidate{candidate_id}_checkpoint": (
+                f"outputs/runs/16_lstm_baseline/{run_id}/selection/"
+                f"candidate{candidate_id}.pt"
+            )
+            for candidate_id in range(len(LSTM_VALIDATION_GRID))
+        },
+        **{
+            f"candidate{candidate_id}_checkpoint_sidecar": (
+                f"outputs/runs/16_lstm_baseline/{run_id}/selection/"
+                f"candidate{candidate_id}.pt.meta.json"
+            )
+            for candidate_id in range(len(LSTM_VALIDATION_GRID))
+        },
+    }
+
+
+def _stage16_exact_file(root: Path, relative: str, *, label: str) -> Path:
+    """Resolve one exact, single-link regular file without accepting aliases."""
+    lexical = root / relative
+    current = lexical
+    while current != root:
+        if current.is_symlink():
+            raise ModelSuiteError(f"Stage-16 {label} is a symlink")
+        current = current.parent
+    try:
+        lexical_stat = lexical.lstat()
+        resolved = lexical.resolve(strict=True)
+    except OSError as exc:
+        raise ModelSuiteError(f"Stage-16 {label} is absent or unreadable") from exc
+    if (
+        not stat.S_ISREG(lexical_stat.st_mode)
+        or lexical_stat.st_nlink != 1
+        or not resolved.is_file()
+        or _relative(root, resolved) != relative
+        or resolved.is_symlink()
+    ):
+        raise ModelSuiteError(
+            f"Stage-16 {label} path is not a canonical single-link file"
+        )
+    return resolved
+
+
+def _stage16_exact_directory(root: Path, relative: str, *, label: str) -> Path:
+    """Resolve one exact directory closure without accepting symlink aliases."""
+    lexical = root / relative
+    current = lexical
+    while current != root:
+        if current.is_symlink():
+            raise ModelSuiteError(f"Stage-16 {label} is a symlink")
+        current = current.parent
+    resolved = lexical.resolve()
+    if not resolved.is_dir() or _relative(root, resolved) != relative:
+        raise ModelSuiteError(f"Stage-16 {label} path is not canonical")
+    return resolved
+
+
+@dataclass(frozen=True)
+class _Stage16FileSnapshot:
+    path: Path
+    payload: bytes
+    sha256: str
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+
+
+def _stage16_file_snapshot(path: Path, *, label: str) -> _Stage16FileSnapshot:
+    """Read one no-follow file descriptor and bind its exact inode and bytes."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ModelSuiteError(f"Stage-16 {label} cannot be opened safely") from exc
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ModelSuiteError(
+                f"Stage-16 {label} is not a single-link regular file"
+            )
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    identity_before = (
+        before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns,
+        before.st_nlink,
+    )
+    identity_after = (
+        after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns,
+        after.st_nlink,
+    )
+    try:
+        lexical = path.lstat()
+    except OSError as exc:
+        raise ModelSuiteError(f"Stage-16 {label} changed while read") from exc
+    identity_lexical = (
+        lexical.st_dev, lexical.st_ino, lexical.st_size, lexical.st_mtime_ns,
+        lexical.st_nlink,
+    )
+    if identity_before != identity_after or identity_after != identity_lexical:
+        raise ModelSuiteError(f"Stage-16 {label} changed while read")
+    payload = b"".join(chunks)
+    if len(payload) != after.st_size:
+        raise ModelSuiteError(f"Stage-16 {label} byte count changed while read")
+    return _Stage16FileSnapshot(
+        path=path,
+        payload=payload,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        device=int(after.st_dev),
+        inode=int(after.st_ino),
+        size=int(after.st_size),
+        mtime_ns=int(after.st_mtime_ns),
+    )
+
+
+def _stage16_snapshot_binding(
+    root: Path, snapshot: _Stage16FileSnapshot,
+) -> dict[str, str]:
+    return {"path": _relative(root, snapshot.path), "sha256": snapshot.sha256}
+
+
+def _stage16_assert_snapshot_current(
+    snapshot: _Stage16FileSnapshot, *, label: str,
+) -> None:
+    observed = _stage16_file_snapshot(snapshot.path, label=label)
+    if (
+        observed.device,
+        observed.inode,
+        observed.size,
+        observed.mtime_ns,
+        observed.sha256,
+    ) != (
+        snapshot.device,
+        snapshot.inode,
+        snapshot.size,
+        snapshot.mtime_ns,
+        snapshot.sha256,
+    ):
+        raise ModelSuiteError(f"Stage-16 {label} changed during validation")
+
+
+def _stage16_read_prediction_frame(
+    path: Path, *, label: str, payload: bytes | None = None,
+) -> pd.DataFrame:
+    """Read one prediction Parquet without admitting physical-type aliases."""
+    source: Path | BytesIO = path if payload is None else BytesIO(payload)
+    try:
+        schema = pq.ParquetFile(source).schema_arrow
+    except (OSError, ValueError, TypeError) as exc:
+        raise ModelSuiteError(f"Stage-16 {label} Parquet schema is unreadable") from exc
+    if schema.names != list(R.PRED_COLS):
+        raise ModelSuiteError(f"Stage-16 {label} column order changed")
+    text_columns = {"model", "scope", "feature_set", "site_id", "split"}
+    integer_columns = {"seed", "horizon"}
+    date_columns = {"issue_date", "target_date"}
+    float_columns = {"y_true", "y_pred", "q05", "q50", "q95", "p_exceed"}
+    for field in schema:
+        if field.name in text_columns and not pa.types.is_string(field.type):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {field.name} Arrow type changed"
+            )
+        if field.name in integer_columns and not pa.types.is_integer(field.type):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {field.name} Arrow type changed"
+            )
+        if field.name in date_columns and not (
+            pa.types.is_timestamp(field.type)
+            and field.type.unit == "ns"
+            and field.type.tz is None
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {field.name} Arrow type changed"
+            )
+        if field.name in float_columns and not pa.types.is_floating(field.type):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {field.name} Arrow type changed"
+            )
+    try:
+        frame = pd.read_parquet(path if payload is None else BytesIO(payload))
+    except (OSError, ValueError, ImportError) as exc:
+        raise ModelSuiteError(f"Stage-16 {label} Parquet is unreadable") from exc
+    if tuple(frame.columns) != tuple(R.PRED_COLS) or frame.empty:
+        raise ModelSuiteError(f"Stage-16 {label} logical schema changed")
+    for column in text_columns:
+        if not _string_column_is_canonical(frame, column):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {column} is not canonical text"
+            )
+    for column in integer_columns:
+        values = frame[column]
+        if (
+            pd.api.types.is_bool_dtype(values.dtype)
+            or not pd.api.types.is_integer_dtype(values.dtype)
+            or values.isna().any()
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {column} is not a non-null integer"
+            )
+    for column in date_columns:
+        values = frame[column]
+        if (
+            str(values.dtype) != "datetime64[ns]"
+            or values.isna().any()
+            or not values.equals(values.dt.normalize())
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {column} is not a canonical day"
+            )
+    for column in float_columns:
+        values = frame[column]
+        if (
+            pd.api.types.is_bool_dtype(values.dtype)
+            or not pd.api.types.is_float_dtype(values.dtype)
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 {label} {column} is not floating point"
+            )
+    try:
+        R.validate_predictions(frame)
+    except (ValueError, RuntimeError, TypeError) as exc:
+        raise ModelSuiteError(f"Stage-16 {label} values are invalid") from exc
+    return frame
+
+
+def _stage16_formal_configuration(
+    resolved: Mapping[str, Any], *, parent_sha256: str,
+) -> dict[str, Any]:
+    """Validate the exact same-station LSTM configuration frozen by Stage 16."""
+    expected_fields = {
+        "stage", "role", "parent_sha256", "models", "seeds", "variables",
+        "horizons", "context_length", "station_embedding",
+        "station_balanced", "selection_metric", "validation_grid",
+        "validation_selection_seed", "validation_selection_split",
+        "event_reference_fit_interval", "train_config", "training_device",
+        "formal_numerical_policy",
+    }
+    numerical_policy = resolved.get("formal_numerical_policy")
+    if (
+        set(resolved) != expected_fields
+        or resolved.get("stage") != "16_lstm_baseline_insample"
+        or resolved.get("role") != "final_route_a_development_predictions"
+        or resolved.get("parent_sha256") != parent_sha256
+        or tuple(resolved.get("models", ())) != tuple(ROUTE_A_PRIMARY_MODELS)
+        or tuple(resolved.get("seeds", ())) != tuple(C.USGS_SEEDS)
+        or tuple(resolved.get("variables", ())) != STAGE9_USGS_VARIABLES
+        or tuple(resolved.get("horizons", ())) != tuple(C.HORIZONS)
+        or resolved.get("context_length") != C.CONTEXT_LENGTH
+        or resolved.get("station_embedding") is not True
+        or resolved.get("station_balanced") is not True
+        or resolved.get("selection_metric") != "station_macro"
+        or resolved.get("validation_grid")
+        != [dict(value) for value in LSTM_VALIDATION_GRID]
+        or resolved.get("validation_selection_seed") != C.USGS_SEEDS[0]
+        or resolved.get("validation_selection_split") != "2016-2017 only"
+        or resolved.get("event_reference_fit_interval")
+        != ["2006-01-01", "2018-12-31"]
+        or resolved.get("train_config")
+        != asdict(C.TrainConfig(batch_size=1536))
+        or resolved.get("training_device") != "cpu"
+        or not isinstance(numerical_policy, Mapping)
+        or not numerical_policy
+    ):
+        raise ModelSuiteError(
+            "Stage-16 run manifest has malformed formal configuration"
+        )
+    return json.loads(json.dumps(resolved, sort_keys=True))
+
+
+def _load_formal_stage16_manifest(
+    path: Path,
+    *,
+    root: Path,
+    run_id: str,
+    parent_sha256: str,
+    enforce_current_runtime: bool,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Load one content-addressed, CPU-only, development-only Stage-16 run."""
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError(
+            "Stage-16 receipt binds a malformed run manifest"
+        ) from exc
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest) != {
+            "schema_version", "identity", "resolved_config", "created_utc",
+            "environment", "git", "provenance",
+        }
+        or manifest.get("schema_version") != RUN_SCHEMA_VERSION
+    ):
+        raise ModelSuiteError("Stage-16 run manifest schema is not exact")
+    identity, resolved = _validated_content_addressed_run_identity(
+        manifest, label="Stage-16"
+    )
+    if (
+        identity["run_id"] != run_id
+        or identity["source_sha256"] != source_tree_hash(root)
+        or identity["config_sha256"] != sha256_json(resolved)
+    ):
+        raise ModelSuiteError(
+            "Stage-16 completion receipt is stale for the run or current source"
+        )
+    panel = root / "data_usgs" / "panel_usgs_120v2.parquet"
+    registry = root / "data_usgs" / "station_registry_v1.csv"
+    try:
+        panel_sha256 = sha256_file(panel)
+        registry_sha256 = sha256_file(registry)
+    except OSError as exc:
+        raise ModelSuiteError(
+            "Stage-16 canonical panel or station registry is absent"
+        ) from exc
+    if (
+        identity["panel_sha256"] != panel_sha256
+        or identity["registry_sha256"] != registry_sha256
+    ):
+        raise ModelSuiteError(
+            "Stage-16 identity differs from the canonical development data"
+        )
+    if enforce_current_runtime and identity["runtime_sha256"] != sha256_json(
+        numerical_runtime_contract()
+    ):
+        raise ModelSuiteError(
+            "Stage-16 identity differs from the current numerical runtime"
+        )
+    configuration = _stage16_formal_configuration(
+        resolved, parent_sha256=parent_sha256
+    )
+    provenance = manifest.get("provenance")
+    if (
+        not isinstance(provenance, Mapping)
+        or set(provenance) != {"evidence_role", "training_device"}
+        or provenance.get("evidence_role")
+        != "prelabel_route_a_model_build_development_only"
+        or provenance.get("training_device") != "cpu"
+    ):
+        raise ModelSuiteError(
+            "Stage-16 run manifest lacks development-only provenance"
+        )
+    return manifest, identity, configuration
+
+
+def _read_stage16_selection(
+    path: Path,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Validate the frozen grid and return its deterministic validation winner."""
+    try:
+        frame = pd.read_csv(path)
+    except (
+        OSError, UnicodeDecodeError, pd.errors.ParserError,
+        pd.errors.EmptyDataError,
+    ) as exc:
+        raise ModelSuiteError(
+            "Stage-16 LSTM validation selection is unreadable"
+        ) from exc
+    if tuple(frame.columns) != STAGE16_LSTM_SELECTION_COLUMNS:
+        raise ModelSuiteError(
+            "Stage-16 LSTM validation selection schema changed"
+        )
+    if len(frame) != len(LSTM_VALIDATION_GRID):
+        raise ModelSuiteError(
+            "Stage-16 LSTM validation grid is incomplete"
+        )
+    records: list[dict[str, Any]] = []
+    for expected_id, expected in enumerate(LSTM_VALIDATION_GRID):
+        row = frame.iloc[expected_id]
+        raw_id = row["candidate_id"]
+        raw_selected = row["selected"]
+        raw_metric = row["val_station_macro_rmse"]
+        integer_fields = ("d", "layers", "station_embed_dim")
+        if (
+            isinstance(raw_id, (bool, np.bool_))
+            or not isinstance(raw_id, (int, np.integer))
+            or int(raw_id) != expected_id
+            or not isinstance(raw_selected, (bool, np.bool_))
+            or isinstance(raw_metric, (bool, np.bool_))
+            or not isinstance(raw_metric, (float, np.floating))
+            or any(
+                isinstance(row[field], (bool, np.bool_))
+                or not isinstance(row[field], (int, np.integer))
+                for field in integer_fields
+            )
+            or isinstance(row["dropout"], (bool, np.bool_))
+            or not isinstance(row["dropout"], (float, np.floating))
+            or not isinstance(row["use_derived_context"], (bool, np.bool_))
+            or not isinstance(row["anchor"], str)
+            or not isinstance(row["selection_split"], str)
+        ):
+            raise ModelSuiteError(
+                "Stage-16 LSTM validation selection row is malformed"
+            )
+        try:
+            metric = float(raw_metric)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ModelSuiteError(
+                "Stage-16 LSTM validation metric is malformed"
+            ) from exc
+        candidate = {
+            "d": int(row["d"]),
+            "layers": int(row["layers"]),
+            "dropout": float(row["dropout"]),
+            "station_embed_dim": int(row["station_embed_dim"]),
+            "use_derived_context": bool(row["use_derived_context"]),
+            "anchor": str(row["anchor"]),
+        }
+        if (
+            candidate != dict(expected)
+            or not np.isfinite(metric)
+            or metric < 0.0
+            or str(row["selection_split"])
+            != "2016-2017 validation"
+        ):
+            raise ModelSuiteError(
+                "Stage-16 LSTM validation selection differs from the frozen grid"
+            )
+        records.append({
+            "candidate_id": expected_id,
+            **candidate,
+            "val_station_macro_rmse": metric,
+            "selected": bool(raw_selected),
+            "selection_split": "2016-2017 validation",
+        })
+    selected = [record for record in records if record["selected"]]
+    winner = records[stage16_validation_winner([
+        float(record["val_station_macro_rmse"]) for record in records
+    ])]
+    if len(selected) != 1 or selected[0] != winner:
+        raise ModelSuiteError(
+            "Stage-16 LSTM validation winner is not deterministic"
+        )
+    return records, {
+        key: winner[key]
+        for key in LSTM_VALIDATION_GRID[int(winner["candidate_id"])]
+    }
+
+
+def _stage16_replay_inputs(
+    root: Path, *, build_windows: bool,
+) -> tuple[Any | None, dict[str, float], dict[str, Any]]:
+    """Rebuild canonical windows and the exact train-q90 threshold registry."""
+    prepared = D.prepare_dataset_from_panel(
+        str(root / "data_usgs" / "panel_usgs_120v2.parquet"),
+        frozen_spec=root / "data_usgs" / "frozen_panel_v1.json",
+    )
+    panel_raw = cast(pd.DataFrame, prepared["panel_raw"])
+    panel = cast(pd.DataFrame, prepared["panel"])
+    masks = cast(D.SplitMasks, prepared["masks"])
+    prepared_stations = cast(Sequence[object], prepared["stations"])
+    stations = tuple(str(value) for value in prepared_stations)
+    thresholds = {
+        site: float(
+            panel_raw.loc[
+                masks.train & panel_raw["site_id"].astype(str).eq(site),
+                "WTEMP",
+            ].quantile(0.90)
+        )
+        for site in stations
+    }
+    if (
+        stations != tuple(C.STATIONS)
+        or set(thresholds) != set(C.STATIONS)
+        or not np.isfinite(np.asarray(list(thresholds.values()), dtype=float)).all()
+    ):
+        raise ModelSuiteError("Stage-16 train-q90 threshold registry changed")
+    sorted_thresholds = {
+        site: thresholds[site] for site in sorted(thresholds)
+    }
+    threshold_contract = {
+        "target": "WTEMP",
+        "fit_split": "canonical development train mask",
+        "scope": "station-specific",
+        "estimator": "pandas Series.quantile(q=0.90, interpolation=linear)",
+        "quantile": 0.90,
+        "registry": sorted_thresholds,
+        "registry_sha256": sha256_json(sorted_thresholds),
+    }
+    if not build_windows:
+        return None, thresholds, threshold_contract
+    climatology = F.HarmonicClimatology.fit(panel_raw, masks.train)
+    return (
+        DS.build_windows(
+            panel,
+            masks,
+            climatology,
+            variables=STAGE9_USGS_VARIABLES,
+            require_observed_target=True,
+        ),
+        thresholds,
+        threshold_contract,
+    )
+
+
+def _validate_stage16_candidate_checkpoint_payload(
+    *,
+    candidate_id: int,
+    candidate_config: Mapping[str, Any],
+    checkpoint_payload: object,
+    run_id: str,
+    expected_config_json: str,
+) -> None:
+    """Apply the production checkpoint schema to one frozen selection member."""
+    from .train import LSTMForecaster
+
+    train_config = C.TrainConfig(batch_size=1536)
+    try:
+        model = LSTMForecaster(
+            n_vars=len(STAGE9_USGS_VARIABLES),
+            n_stations=len(C.STATIONS),
+            context=C.CONTEXT_LENGTH,
+            station_agnostic=False,
+            **dict(candidate_config),
+        ).to("cpu")
+        optimizer = torch.optim.AdamW(
+            [parameter for parameter in model.parameters() if parameter.requires_grad],
+            lr=train_config.lr,
+            weight_decay=train_config.weight_decay,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, factor=0.5, patience=4
+        )
+        _, extra = _validate_checkpoint_payload(
+            checkpoint_payload,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            expected_run_id=run_id,
+            expected_config_json=expected_config_json,
+        )
+        if not isinstance(checkpoint_payload, Mapping):  # pragma: no cover
+            raise TypeError("checkpoint payload is not a mapping")
+        bad_epochs = extra.get("bad_epochs")
+        train_rng_state = extra.get("train_rng_state")
+        epoch = checkpoint_payload.get("epoch")
+        if (
+            set(extra) != {"bad_epochs", "train_rng_state"}
+            or type(bad_epochs) is not int
+            or type(epoch) is not int
+            or not isinstance(train_rng_state, Mapping)
+            or bad_epochs < 0
+            or bad_epochs > epoch + 1
+            or not (
+                epoch == train_config.max_epochs - 1
+                or bad_epochs >= train_config.patience
+            )
+        ):
+            raise ValueError("checkpoint does not prove terminal formal training")
+        # Assignment applies NumPy's full bit-generator schema validation
+        # without mutating any process-global RNG state.
+        probe_rng = np.random.default_rng(C.USGS_SEEDS[0])
+        probe_rng.bit_generator.state = dict(train_rng_state)
+    except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+        raise ModelSuiteError(
+            f"Stage-16 candidate{candidate_id} checkpoint payload is invalid"
+        ) from exc
+
+
+def _verify_stage16_candidate_checkpoint(
+    *,
+    candidate_id: int,
+    candidate_config: Mapping[str, Any],
+    checkpoint_payload: Mapping[str, Any],
+    expected: pd.DataFrame,
+    wd: Any,
+    thresholds: Mapping[str, float],
+    publication_guard: Callable[[], object] | None,
+) -> float:
+    """Replay one validation candidate from its frozen best model state."""
+    from .train import LSTMForecaster, export_predictions
+
+    if publication_guard is not None:
+        publication_guard()
+    state = checkpoint_payload.get("best_model_state")
+    if not isinstance(state, Mapping) or not state:
+        raise ModelSuiteError(
+            f"Stage-16 candidate{candidate_id} lacks a best model state"
+        )
+    try:
+        model = LSTMForecaster(
+            n_vars=len(STAGE9_USGS_VARIABLES),
+            n_stations=len(C.STATIONS),
+            context=C.CONTEXT_LENGTH,
+            station_agnostic=False,
+            **dict(candidate_config),
+        ).to("cpu")
+        model.load_state_dict(state, strict=True)
+        replay = export_predictions(
+            model,
+            wd,
+            dict(thresholds),
+            torch.device("cpu"),
+            f"LSTM-grid-{candidate_id}",
+            "validation_selection",
+            "USGS",
+            C.USGS_SEEDS[0],
+            batch_size=max(C.TrainConfig(batch_size=1536).batch_size, 2048),
+            splits=("val",),
+        )
+        R.validate_predictions(replay)
+    except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+        raise ModelSuiteError(
+            f"Stage-16 candidate{candidate_id} best-state replay failed"
+        ) from exc
+    keys = [
+        "model", "scope", "feature_set", "seed", "site_id", "horizon",
+        "split", "issue_date", "target_date",
+    ]
+    values = ["y_true", "y_pred", "q05", "q50", "q95", "p_exceed"]
+    left = expected.loc[:, keys + values].copy()
+    right = replay.loc[:, keys + values].copy()
+    for frame in (left, right):
+        frame["issue_date"] = pd.to_datetime(frame["issue_date"])
+        frame["target_date"] = pd.to_datetime(frame["target_date"])
+    try:
+        paired = left.merge(
+            right,
+            on=keys,
+            how="outer",
+            suffixes=("_reference", "_checkpoint"),
+            indicator=True,
+            validate="one_to_one",
+        )
+    except pd.errors.MergeError as exc:
+        raise ModelSuiteError(
+            f"Stage-16 candidate{candidate_id} replay keys are not unique"
+        ) from exc
+    if not paired["_merge"].eq("both").all():
+        raise ModelSuiteError(
+            f"Stage-16 candidate{candidate_id} replay keys changed"
+        )
+    maximum = 0.0
+    for column in values:
+        difference = np.abs(
+            paired[f"{column}_reference"].to_numpy(float)
+            - paired[f"{column}_checkpoint"].to_numpy(float)
+        )
+        if np.any(~np.isfinite(difference)):
+            raise ModelSuiteError(
+                f"Stage-16 candidate{candidate_id} replay has non-finite values"
+            )
+        maximum = max(maximum, float(difference.max(initial=0.0)))
+    if maximum > STAGE16_SELECTION_METRIC_ATOL:
+        raise ModelSuiteError(
+            f"Stage-16 candidate{candidate_id} best-state replay differs: "
+            f"{maximum} > {STAGE16_SELECTION_METRIC_ATOL}"
+        )
+    if publication_guard is not None:
+        publication_guard()
+    return maximum
+
+
+def _stage16_selection_input_closure(
+    *,
+    root: Path,
+    run_manifest: Path,
+    selection_path: Path,
+    candidate_files: Sequence[Mapping[str, str]],
+    threshold_contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind selection replay to every data, grid, and checkpoint byte."""
+    return {
+        "run_manifest": file_binding(root, run_manifest),
+        "panel": file_binding(
+            root, root / "data_usgs" / "panel_usgs_120v2.parquet"
+        ),
+        "frozen_panel_spec": file_binding(
+            root, root / "data_usgs" / "frozen_panel_v1.json"
+        ),
+        "station_registry": file_binding(
+            root, root / "data_usgs" / "station_registry_v1.csv"
+        ),
+        "selection": file_binding(root, selection_path),
+        "candidate_files": [dict(value) for value in candidate_files],
+        "event_threshold_contract": dict(threshold_contract),
+    }
+
+
+def _make_stage16_selection_audit(
+    *,
+    selection_records: Sequence[Mapping[str, Any]],
+    recomputed_metrics: Sequence[float],
+    checkpoint_metrics: Sequence[float],
+    replay_differences: Sequence[float],
+    winner_candidate_id: int,
+    input_closure: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the content-bound three-candidate best-state replay audit."""
+    return {
+        "format": STAGE16_SELECTION_AUDIT_FORMAT,
+        "status": "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY",
+        "metric": "mean_station_rmse_across_all_horizons",
+        "selection_split": "2016-2017 validation",
+        "metric_atol": STAGE16_SELECTION_METRIC_ATOL,
+        "replay_atol": STAGE16_SELECTION_METRIC_ATOL,
+        "winner_candidate_id": winner_candidate_id,
+        "candidates": [
+            {
+                "candidate_id": candidate_id,
+                "recomputed_val_station_macro_rmse": float(
+                    recomputed_metrics[candidate_id]
+                ),
+                "reported_val_station_macro_rmse": float(
+                    selection_records[candidate_id]["val_station_macro_rmse"]
+                ),
+                "checkpoint_best_metric": float(
+                    checkpoint_metrics[candidate_id]
+                ),
+                "best_state_max_abs_difference": float(
+                    replay_differences[candidate_id]
+                ),
+                "selected": candidate_id == winner_candidate_id,
+            }
+            for candidate_id in range(len(recomputed_metrics))
+        ],
+        "input_closure": dict(input_closure),
+        "input_closure_sha256": sha256_json(input_closure),
+    }
+
+
+def _validate_stage16_selection_audit(
+    value: object,
+    *,
+    selection_records: Sequence[Mapping[str, Any]],
+    recomputed_metrics: Sequence[float],
+    checkpoint_metrics: Sequence[float],
+    winner_candidate_id: int,
+    input_closure: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Statically verify a content-bound candidate best-state replay audit."""
+    expected_keys = {
+        "format", "status", "metric", "selection_split", "metric_atol",
+        "replay_atol", "winner_candidate_id", "candidates",
+        "input_closure", "input_closure_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        raise ModelSuiteError("Stage-16 validation-selection audit schema changed")
+    candidates = value.get("candidates")
+    if not isinstance(candidates, list) or len(candidates) != len(
+        LSTM_VALIDATION_GRID
+    ):
+        raise ModelSuiteError("Stage-16 validation-selection audit is incomplete")
+    if (
+        value.get("format") != STAGE16_SELECTION_AUDIT_FORMAT
+        or value.get("status")
+        != "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY"
+        or value.get("metric") != "mean_station_rmse_across_all_horizons"
+        or value.get("selection_split") != "2016-2017 validation"
+        or value.get("metric_atol") != STAGE16_SELECTION_METRIC_ATOL
+        or value.get("replay_atol") != STAGE16_SELECTION_METRIC_ATOL
+        or value.get("winner_candidate_id") != winner_candidate_id
+        or value.get("input_closure") != dict(input_closure)
+        or value.get("input_closure_sha256") != sha256_json(input_closure)
+    ):
+        raise ModelSuiteError("Stage-16 validation-selection audit changed")
+    candidate_keys = {
+        "candidate_id", "recomputed_val_station_macro_rmse",
+        "reported_val_station_macro_rmse", "checkpoint_best_metric",
+        "best_state_max_abs_difference", "selected",
+    }
+    for candidate_id, candidate in enumerate(candidates):
+        if not isinstance(candidate, Mapping) or set(candidate) != candidate_keys:
+            raise ModelSuiteError(
+                "Stage-16 validation-selection candidate audit changed"
+            )
+        try:
+            recomputed = float(candidate["recomputed_val_station_macro_rmse"])
+            reported = float(candidate["reported_val_station_macro_rmse"])
+            checkpoint_metric = float(candidate["checkpoint_best_metric"])
+            difference = float(candidate["best_state_max_abs_difference"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ModelSuiteError(
+                "Stage-16 validation-selection candidate audit is malformed"
+            ) from exc
+        if (
+            candidate.get("candidate_id") != candidate_id
+            or recomputed != float(recomputed_metrics[candidate_id])
+            or reported
+            != float(selection_records[candidate_id]["val_station_macro_rmse"])
+            or checkpoint_metric != float(checkpoint_metrics[candidate_id])
+            or candidate.get("selected") is not (
+                candidate_id == winner_candidate_id
+            )
+            or not np.isfinite(difference)
+            or difference < 0.0
+            or difference > STAGE16_SELECTION_METRIC_ATOL
+        ):
+            raise ModelSuiteError(
+                "Stage-16 validation-selection candidate audit changed"
+            )
+    return dict(value)
+
+
+def _verify_stage16_final_bundle_parity(
+    *,
+    root: Path,
+    bundle: Path,
+    expected: pd.DataFrame,
+    metadata: Mapping[str, Any],
+    wd: Any | None = None,
+    publication_guard: Callable[[], object] | None,
+) -> dict[str, Any]:
+    """Actually replay all five final members on val/calib/test windows."""
+    binding = metadata.get("development_prediction")
+    if not isinstance(binding, Mapping):
+        raise ModelSuiteError("Stage-16 LSTM lacks a prediction parity binding")
+    raw_atol = binding.get("atol")
+    if (
+        isinstance(raw_atol, (bool, np.bool_))
+        or not isinstance(raw_atol, (float, np.floating))
+        or float(raw_atol) != 1e-5
+    ):
+        raise ModelSuiteError("Stage-16 LSTM parity tolerance changed")
+    if publication_guard is not None:
+        publication_guard()
+    if wd is None:
+        wd, _, _ = _stage16_replay_inputs(root, build_windows=True)
+    if wd is None:  # pragma: no cover - build_windows=True is authoritative
+        raise ModelSuiteError("Stage-16 bundle replay lacks canonical windows")
+    from .frozen_inference import lstm_factory_from_metadata
+
+    difference = verify_sequence_prediction_parity(
+        bundle,
+        wd=wd,
+        expected=expected,
+        model_factory=lambda _member, value: lstm_factory_from_metadata(value),
+        member_seeds={f"seed{seed}": seed for seed in C.USGS_SEEDS},
+        atol=float(raw_atol),
+        splits=("val", "calib", "test"),
+        publication_guard=publication_guard,
+    )
+    input_closure = _stage16_parity_input_closure(
+        root=root, bundle=bundle, metadata=metadata
+    )
+    audit = {
+        "format": STAGE16_PARITY_AUDIT_FORMAT,
+        "status": "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY",
+        "members": [f"seed{seed}" for seed in C.USGS_SEEDS],
+        "splits": ["val", "calib", "test"],
+        "atol": float(raw_atol),
+        "max_abs_difference": float(difference),
+        "input_closure": input_closure,
+        "input_closure_sha256": sha256_json(input_closure),
+    }
+    if publication_guard is not None:
+        publication_guard()
+    return audit
+
+
+def _stage16_parity_input_closure(
+    *, root: Path, bundle: Path, metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a replay result to every byte that can affect its conclusion."""
+    prediction = metadata.get("development_prediction")
+    if not isinstance(prediction, Mapping):
+        raise ModelSuiteError("Stage-16 parity lacks a prediction binding")
+    return {
+        "panel": file_binding(
+            root, root / "data_usgs" / "panel_usgs_120v2.parquet"
+        ),
+        "frozen_panel_spec": file_binding(
+            root, root / "data_usgs" / "frozen_panel_v1.json"
+        ),
+        "station_registry": file_binding(
+            root, root / "data_usgs" / "station_registry_v1.csv"
+        ),
+        "bundle_metadata": file_binding(root, bundle / "metadata.json"),
+        "bundle_weights": file_binding(root, bundle / "weights.pt"),
+        "development_prediction": dict(prediction),
+    }
+
+
+def _validate_stage16_parity_audit(
+    value: object,
+    *,
+    input_closure: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Statically verify a previously executed, content-bound replay audit."""
+    expected_keys = {
+        "format", "status", "members", "splits", "atol",
+        "max_abs_difference", "input_closure", "input_closure_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        raise ModelSuiteError("Stage-16 five-member parity audit schema changed")
+    try:
+        tolerance = float(value["atol"])
+        difference = float(value["max_abs_difference"])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ModelSuiteError("Stage-16 five-member parity audit is malformed") from exc
+    if (
+        value.get("format") != STAGE16_PARITY_AUDIT_FORMAT
+        or value.get("status") != "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY"
+        or tuple(value.get("members", ()))
+        != tuple(f"seed{seed}" for seed in C.USGS_SEEDS)
+        or tuple(value.get("splits", ())) != ("val", "calib", "test")
+        or tolerance != 1e-5
+        or not np.isfinite(difference)
+        or difference < 0.0
+        or difference > tolerance
+        or value.get("input_closure") != dict(input_closure)
+        or value.get("input_closure_sha256") != sha256_json(input_closure)
+    ):
+        raise ModelSuiteError("Stage-16 five-member parity audit changed")
+    return dict(value)
+
+
+def _stage16_expected_artifacts(
+    *,
+    root: Path,
+    run_id: str,
+    run_manifest: Path,
+    stage09_receipt_path: Path,
+    selection_path: Path,
+    components_pointer: Path,
+    identity: Mapping[str, Any],
+    configuration: Mapping[str, Any],
+    replay_selection: bool,
+    replay_bundle: bool,
+    publication_guard: Callable[[], object] | None,
+) -> tuple[
+    dict[str, Any], dict[str, Any], dict[str, Any] | None,
+    dict[str, Any] | None, dict[str, Any], dict[str, Any],
+]:
+    """Validate and bind Stage 16's complete authoritative file closure."""
+    canonical = canonical_stage16_artifact_paths(run_id)
+    for label, path in {
+        "run_manifest": run_manifest,
+        "stage09_completion_receipt": stage09_receipt_path,
+        "lstm_validation_selection": selection_path,
+        "components_pointer": components_pointer,
+    }.items():
+        exact = _stage16_exact_file(root, canonical[label], label=label)
+        if _relative(root, path) != canonical[label] or path.resolve() != exact:
+            raise ModelSuiteError(
+                f"Stage-16 {label} path is not canonical"
+            )
+    if publication_guard is not None:
+        publication_guard()
+    stage09_pointer = root / STAGE9_COMPONENT_POINTER_PATH
+    stage09_receipt = validate_stage09_completion_receipt(
+        stage09_receipt_path,
+        root=root,
+        stage9_pointer=stage09_pointer,
+        publication_guard=publication_guard,
+    )
+    stage09_artifacts = stage09_receipt.get("artifacts")
+    if not isinstance(stage09_artifacts, Mapping):
+        raise ModelSuiteError("Stage-16 Stage-9 parent receipt is malformed")
+    parent_path = _stage16_exact_file(
+        root,
+        canonical["stage09_parent_predictions"],
+        label="Stage-9 parent predictions",
+    )
+    parent_sidecar = _stage16_exact_file(
+        root,
+        canonical["stage09_parent_prediction_sidecar"],
+        label="Stage-9 parent prediction sidecar",
+    )
+    if (
+        stage09_artifacts.get("predictions") != file_binding(root, parent_path)
+        or stage09_artifacts.get("prediction_sidecar")
+        != file_binding(root, parent_sidecar)
+        or parent_sidecar != sidecar_path(parent_path).resolve()
+    ):
+        raise ModelSuiteError(
+            "Stage-16 parent is not the receipt-validated Stage-9 prediction"
+        )
+    parent_sha256 = sha256_file(parent_path)
+    if publication_guard is not None:
+        publication_guard()
+    selection_records, selected_candidate = _read_stage16_selection(selection_path)
+    replay_wd, replay_thresholds, threshold_contract = _stage16_replay_inputs(
+        root,
+        build_windows=replay_selection or replay_bundle,
+    )
+
+    selection_file_bindings: list[dict[str, str]] = []
+    recomputed_metrics: list[float] = []
+    checkpoint_metrics: list[float] = []
+    replay_differences: list[float] = []
+    for candidate_id, candidate_config in enumerate(LSTM_VALIDATION_GRID):
+        candidate_path = _stage16_exact_file(
+            root,
+            canonical[f"candidate{candidate_id}_predictions"],
+            label=f"candidate{candidate_id} predictions",
+        )
+        candidate_sidecar = _stage16_exact_file(
+            root,
+            canonical[f"candidate{candidate_id}_prediction_sidecar"],
+            label=f"candidate{candidate_id} prediction sidecar",
+        )
+        checkpoint = _stage16_exact_file(
+            root,
+            canonical[f"candidate{candidate_id}_checkpoint"],
+            label=f"candidate{candidate_id} checkpoint",
+        )
+        checkpoint_sidecar = _stage16_exact_file(
+            root,
+            canonical[f"candidate{candidate_id}_checkpoint_sidecar"],
+            label=f"candidate{candidate_id} checkpoint sidecar",
+        )
+        expected_checkpoint_config = {
+            **dict(configuration),
+            "candidate_id": candidate_id,
+            "candidate": dict(candidate_config),
+        }
+        expected_config_json = canonical_json(expected_checkpoint_config)
+        expected_config_sha256 = sha256_json(expected_checkpoint_config)
+        candidate_snapshot = _stage16_file_snapshot(
+            candidate_path, label=f"candidate{candidate_id} predictions"
+        )
+        candidate_sidecar_snapshot = _stage16_file_snapshot(
+            candidate_sidecar,
+            label=f"candidate{candidate_id} prediction sidecar",
+        )
+        checkpoint_snapshot = _stage16_file_snapshot(
+            checkpoint, label=f"candidate{candidate_id} checkpoint"
+        )
+        checkpoint_sidecar_snapshot = _stage16_file_snapshot(
+            checkpoint_sidecar,
+            label=f"candidate{candidate_id} checkpoint sidecar",
+        )
+        try:
+            candidate_lineage = validate_artifact_sidecar(
+                candidate_path,
+                schema=R.PREDICTION_SCHEMA_VERSION,
+                kind="lstm_validation_candidate_predictions",
+            )
+            candidate_snapshot_lineage = json.loads(
+                candidate_sidecar_snapshot.payload.decode("utf-8")
+            )
+            candidate_frame = _stage16_read_prediction_frame(
+                candidate_path,
+                label=f"candidate{candidate_id} predictions",
+                payload=candidate_snapshot.payload,
+            )
+            checkpoint_payload = torch.load(
+                BytesIO(checkpoint_snapshot.payload),
+                map_location="cpu",
+                weights_only=True,
+            )
+            checkpoint_metadata = json.loads(
+                checkpoint_sidecar_snapshot.payload.decode("utf-8")
+            )
+        except ModelSuiteError:
+            raise
+        except (
+            OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError,
+            RuntimeError, TypeError,
+        ) as exc:
+            raise ModelSuiteError(
+                f"Stage-16 candidate{candidate_id} evidence is invalid"
+            ) from exc
+        _validate_stage16_candidate_checkpoint_payload(
+            candidate_id=candidate_id,
+            candidate_config=candidate_config,
+            checkpoint_payload=checkpoint_payload,
+            run_id=str(identity["run_id"]),
+            expected_config_json=expected_config_json,
+        )
+        candidate_extra = candidate_lineage.get("extra")
+        checkpoint_extra_json = (
+            checkpoint_payload.get("extra_json")
+            if isinstance(checkpoint_payload, Mapping) else None
+        )
+        if (
+            candidate_sidecar != sidecar_path(candidate_path).resolve()
+            or candidate_lineage != candidate_snapshot_lineage
+            or candidate_lineage.get("artifact_sha256")
+            != candidate_snapshot.sha256
+            or candidate_lineage.get("artifact_bytes")
+            != candidate_snapshot.size
+            or checkpoint_sidecar != checkpoint_sidecar_path(checkpoint).resolve()
+            or candidate_lineage.get("run") != dict(identity)
+            or candidate_lineage.get("parents") != {}
+            or candidate_extra != {
+                "candidate_id": candidate_id,
+                "candidate": dict(candidate_config),
+                "selection_split": "2016-2017 validation",
+            }
+            or tuple(candidate_frame.columns) != tuple(R.PRED_COLS)
+            or set(candidate_frame["model"].astype(str))
+            != {f"LSTM-grid-{candidate_id}"}
+            or set(candidate_frame["scope"].astype(str))
+            != {"validation_selection"}
+            or set(candidate_frame["feature_set"].astype(str)) != {"USGS"}
+            or set(candidate_frame["seed"].astype(int))
+            != {C.USGS_SEEDS[0]}
+            or set(candidate_frame["split"].astype(str)) != {"val"}
+            or not isinstance(checkpoint_payload, Mapping)
+            or set(checkpoint_payload) != _CHECKPOINT_FIELDS
+            or checkpoint_payload.get("format") != CHECKPOINT_VERSION
+            or checkpoint_payload.get("run_id") != identity.get("run_id")
+            or checkpoint_payload.get("resolved_config_json")
+            != expected_config_json
+            or checkpoint_payload.get("resolved_config_sha256")
+            != expected_config_sha256
+            or hashlib.sha256(expected_config_json.encode("utf-8")).hexdigest()
+            != expected_config_sha256
+            or not isinstance(checkpoint_extra_json, str)
+            or checkpoint_payload.get("extra_sha256")
+            != hashlib.sha256(checkpoint_extra_json.encode("utf-8")).hexdigest()
+            or not isinstance(checkpoint_metadata, Mapping)
+            or set(checkpoint_metadata) != _CHECKPOINT_METADATA_FIELDS
+            or checkpoint_metadata.get("format") != CHECKPOINT_METADATA_VERSION
+            or checkpoint_metadata.get("checkpoint_format")
+            != CHECKPOINT_VERSION
+            or checkpoint_metadata.get("run_id") != identity.get("run_id")
+            or checkpoint_metadata.get("checkpoint_sha256")
+            != checkpoint_snapshot.sha256
+            or checkpoint_metadata.get("checkpoint_bytes")
+            != checkpoint_snapshot.size
+            or checkpoint_metadata.get("resolved_config_sha256")
+            != expected_config_sha256
+            or checkpoint_metadata.get("extra_sha256")
+            != checkpoint_payload.get("extra_sha256")
+            or checkpoint_metadata.get("epoch")
+            != checkpoint_payload.get("epoch")
+            or any(
+                checkpoint_metadata.get(field) != checkpoint_payload.get(field)
+                for field in (
+                    "model_class", "optimizer_class", "scheduler_class",
+                    "scheduler_present",
+                )
+            )
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 candidate{candidate_id} evidence has another lineage"
+            )
+        raw_best_metric = checkpoint_payload.get("best_metric")
+        if (
+            isinstance(raw_best_metric, (bool, np.bool_))
+            or not isinstance(raw_best_metric, (float, np.floating))
+            or not np.isfinite(float(raw_best_metric))
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 candidate{candidate_id} checkpoint metric is invalid"
+            )
+        station_rmse = (
+            candidate_frame.assign(
+                __squared_error=(
+                    candidate_frame["y_pred"].to_numpy(float)
+                    - candidate_frame["y_true"].to_numpy(float)
+                ) ** 2
+            )
+            .groupby("site_id", sort=True)["__squared_error"]
+            .mean()
+            .pow(0.5)
+        )
+        recomputed = float(station_rmse.mean())
+        reported = float(selection_records[candidate_id]["val_station_macro_rmse"])
+        if (
+            not np.isfinite(recomputed)
+            or abs(recomputed - reported) > STAGE16_SELECTION_METRIC_ATOL
+            or abs(recomputed - float(raw_best_metric))
+            > STAGE16_SELECTION_METRIC_ATOL
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 candidate{candidate_id} validation metric changed"
+            )
+        recomputed_metrics.append(recomputed)
+        checkpoint_metrics.append(float(raw_best_metric))
+        if replay_selection:
+            if replay_wd is None:  # pragma: no cover - guarded by construction
+                raise ModelSuiteError("Stage-16 selection replay lacks windows")
+            replay_differences.append(
+                _verify_stage16_candidate_checkpoint(
+                    candidate_id=candidate_id,
+                    candidate_config=candidate_config,
+                    checkpoint_payload=checkpoint_payload,
+                    expected=candidate_frame,
+                    wd=replay_wd,
+                    thresholds=replay_thresholds,
+                    publication_guard=publication_guard,
+                )
+            )
+        selection_file_bindings.extend((
+            _stage16_snapshot_binding(root, candidate_snapshot),
+            _stage16_snapshot_binding(root, candidate_sidecar_snapshot),
+            _stage16_snapshot_binding(root, checkpoint_snapshot),
+            _stage16_snapshot_binding(root, checkpoint_sidecar_snapshot),
+        ))
+        for snapshot, label in (
+            (candidate_snapshot, f"candidate{candidate_id} predictions"),
+            (
+                candidate_sidecar_snapshot,
+                f"candidate{candidate_id} prediction sidecar",
+            ),
+            (checkpoint_snapshot, f"candidate{candidate_id} checkpoint"),
+            (
+                checkpoint_sidecar_snapshot,
+                f"candidate{candidate_id} checkpoint sidecar",
+            ),
+        ):
+            _stage16_assert_snapshot_current(snapshot, label=label)
+        if publication_guard is not None:
+            publication_guard()
+    selected_ids = [
+        int(record["candidate_id"])
+        for record in selection_records if bool(record["selected"])
+    ]
+    reported_metrics = [
+        float(record["val_station_macro_rmse"])
+        for record in selection_records
+    ]
+    reported_winner = _stage16_consistent_validation_winner(
+        reported_metrics, recomputed_metrics, checkpoint_metrics
+    )
+    if selected_ids != [reported_winner]:
+        raise ModelSuiteError(
+            "Stage-16 selected architecture is not the tolerance-aware "
+            "reported validation winner"
+        )
+    selection_input_closure = _stage16_selection_input_closure(
+        root=root,
+        run_manifest=run_manifest,
+        selection_path=selection_path,
+        candidate_files=selection_file_bindings,
+        threshold_contract=threshold_contract,
+    )
+    selection_audit = (
+        _make_stage16_selection_audit(
+            selection_records=selection_records,
+            recomputed_metrics=recomputed_metrics,
+            checkpoint_metrics=checkpoint_metrics,
+            replay_differences=replay_differences,
+            winner_candidate_id=reported_winner,
+            input_closure=selection_input_closure,
+        )
+        if replay_selection else None
+    )
+    selection_context = {
+        "selection_records": selection_records,
+        "recomputed_metrics": recomputed_metrics,
+        "checkpoint_metrics": checkpoint_metrics,
+        "winner_candidate_id": reported_winner,
+        "input_closure": selection_input_closure,
+    }
+
+    seed_frames: list[pd.DataFrame] = []
+    seed_file_bindings: list[dict[str, str]] = []
+    for seed in C.USGS_SEEDS:
+        seed_path = _stage16_exact_file(
+            root,
+            canonical[f"seed{seed}_predictions"],
+            label=f"seed{seed} predictions",
+        )
+        seed_sidecar = _stage16_exact_file(
+            root,
+            canonical[f"seed{seed}_prediction_sidecar"],
+            label=f"seed{seed} prediction sidecar",
+        )
+        try:
+            seed_lineage = validate_artifact_sidecar(
+                seed_path,
+                schema=R.PREDICTION_SCHEMA_VERSION,
+                kind="lstm_seed_predictions",
+            )
+            seed_frame = _stage16_read_prediction_frame(
+                seed_path, label=f"seed{seed} predictions"
+            )
+        except ModelSuiteError:
+            raise
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise ModelSuiteError(
+                f"Stage-16 seed{seed} prediction cache is invalid"
+            ) from exc
+        if (
+            seed_sidecar != sidecar_path(seed_path).resolve()
+            or seed_lineage.get("run") != dict(identity)
+            or seed_lineage.get("parents") != {}
+            or seed_lineage.get("extra") != {}
+            or set(seed_frame["model"].astype(str)) != {"LSTM"}
+            or set(seed_frame["scope"].astype(str)) != {"joint_usgs"}
+            or set(seed_frame["feature_set"].astype(str)) != {"USGS"}
+            or set(seed_frame["seed"].astype(int)) != {seed}
+            or set(seed_frame["split"].astype(str))
+            != {"val", "calib", "test"}
+        ):
+            raise ModelSuiteError(
+                f"Stage-16 seed{seed} prediction cache has another closure"
+            )
+        seed_frames.append(seed_frame.loc[:, R.PRED_COLS].copy())
+        seed_file_bindings.extend((
+            file_binding(root, seed_path),
+            file_binding(root, seed_sidecar),
+        ))
+        if publication_guard is not None:
+            publication_guard()
+
+    prediction_path = _stage16_exact_file(
+        root,
+        canonical["development_predictions"],
+        label="development predictions",
+    )
+    prediction_sidecar = _stage16_exact_file(
+        root,
+        canonical["development_prediction_sidecar"],
+        label="development prediction sidecar",
+    )
+    if prediction_sidecar != sidecar_path(prediction_path).resolve():
+        raise ModelSuiteError(
+            "Stage-16 development prediction sidecar path is not canonical"
+        )
+    try:
+        prediction_lineage = validate_artifact_sidecar(
+            prediction_path,
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            kind="final_route_a_development_predictions",
+        )
+    except (OSError, ValueError) as exc:
+        raise ModelSuiteError(
+            "Stage-16 development prediction sidecar is invalid"
+        ) from exc
+    extra = prediction_lineage.get("extra")
+    primary_models = extra.get("primary_models") if isinstance(extra, Mapping) else None
+    count_fields = (
+        "primary_common_test_keys", "dropped_primary_rows",
+        "lstm_validation_rows", "lstm_calibration_rows",
+    )
+    if (
+        prediction_lineage.get("run") != dict(identity)
+        or prediction_lineage.get("parents")
+        != {Path(STAGE16_PARENT_PREDICTION_PATH).name: parent_sha256}
+        or not isinstance(extra, Mapping)
+        or set(extra) != {
+            "parent_run_id", "primary_models", "primary_common_test_keys",
+            "dropped_primary_rows", "lstm_validation_rows",
+            "lstm_calibration_rows",
+        }
+        or extra.get("parent_run_id") != stage09_receipt.get("run_id")
+        or isinstance(primary_models, (str, bytes))
+        or not isinstance(primary_models, Sequence)
+        or tuple(primary_models)
+        != tuple(ROUTE_A_PRIMARY_MODELS)
+        or any(
+            isinstance(extra.get(field), (bool, np.bool_))
+            or not isinstance(extra.get(field), (int, np.integer))
+            or int(extra[field]) < 0
+            for field in count_fields
+        )
+        or int(extra["primary_common_test_keys"]) < 1
+        or int(extra["lstm_validation_rows"]) < 1
+        or int(extra["lstm_calibration_rows"]) < 1
+    ):
+        raise ModelSuiteError(
+            "Stage-16 development prediction lineage differs from its run"
+        )
+    if publication_guard is not None:
+        publication_guard()
+
+    parent_frame = _stage16_read_prediction_frame(
+        parent_path, label="Stage-9 parent predictions"
+    )
+    prediction_frame = _stage16_read_prediction_frame(
+        prediction_path, label="development predictions"
+    )
+    raw_lstm = pd.concat(seed_frames, ignore_index=True)
+    retained_lstm = raw_lstm[
+        raw_lstm["split"].isin(("val", "calib", "test"))
+    ].copy()
+    candidate = pd.concat(
+        [
+            parent_frame[parent_frame["model"].astype(str).ne("LSTM")],
+            retained_lstm,
+        ],
+        ignore_index=True,
+    )
+    try:
+        expected_prediction, common_audit = enforce_common_forecast_keys(
+            candidate,
+            ROUTE_A_PRIMARY_MODELS,
+            split="test",
+        )
+    except (AssertionError, ValueError) as exc:
+        raise ModelSuiteError(
+            "Stage-16 parent and LSTM rows cannot reproduce the common-key V2"
+        ) from exc
+    if (
+        len(expected_prediction) != len(prediction_frame)
+        or canonical_frame_digest(expected_prediction, R.PRED_COLS)
+        != canonical_frame_digest(prediction_frame, R.PRED_COLS)
+        or int(extra["primary_common_test_keys"]) != common_audit.common_unique
+        or int(extra["dropped_primary_rows"]) != common_audit.dropped_rows
+        or int(extra["lstm_validation_rows"])
+        != int(retained_lstm["split"].eq("val").sum())
+        or int(extra["lstm_calibration_rows"])
+        != int(retained_lstm["split"].eq("calib").sum())
+    ):
+        raise ModelSuiteError(
+            "Stage-16 V2 is not the exact Stage-9-plus-LSTM derivation"
+        )
+    parent_non_lstm = parent_frame[
+        parent_frame["model"].astype(str).ne("LSTM")
+    ]
+    final_non_lstm = prediction_frame[
+        prediction_frame["model"].astype(str).ne("LSTM")
+    ]
+    if (
+        common_audit.dropped_rows != 0
+        or int(extra["dropped_primary_rows"]) != 0
+        or len(parent_non_lstm) != len(final_non_lstm)
+        or canonical_frame_digest(parent_non_lstm, R.PRED_COLS)
+        != canonical_frame_digest(final_non_lstm, R.PRED_COLS)
+    ):
+        raise ModelSuiteError(
+            "Stage-16 changed or deleted a receipt-frozen non-LSTM row"
+        )
+    if publication_guard is not None:
+        publication_guard()
+
+    components = load_component_pointer(components_pointer)
+    expected_pointer_fields = {
+        "format", "status", "training_device", "run_id", "cohort",
+        "raw_feature_order", "models", "development_contract",
+        "development_prediction_artifact",
+    }
+    entries = components.get("models")
+    if (
+        set(components) != expected_pointer_fields
+        or components.get("cohort") != "temporal_lstm"
+        or components.get("run_id") != run_id
+        or components.get("training_device") != "cpu"
+        or not isinstance(entries, list)
+        or len(entries) != 1
+        or not isinstance(entries[0], Mapping)
+    ):
+        raise ModelSuiteError(
+            "Stage-16 component pointer is not an exact LSTM closure"
+        )
+    entry = dict(entries[0])
+    feature_order = tuple(components.get("raw_feature_order", ()))
+    if feature_order != STAGE9_USGS_VARIABLES:
+        raise ModelSuiteError("Stage-16 raw feature order changed")
+    expected_prediction_binding = {
+        **file_binding(root, prediction_path),
+        "sidecar": file_binding(root, prediction_sidecar),
+    }
+    if components.get("development_prediction_artifact") != expected_prediction_binding:
+        raise ModelSuiteError(
+            "Stage-16 component pointer binds another development prediction"
+        )
+    expected_development = canonical_development_contract(
+        root,
+        root / "data_usgs" / "frozen_panel_v1.json",
+        panel_sha256=str(identity["panel_sha256"]),
+        registry_sha256=str(identity["registry_sha256"]),
+        source_sha256=str(identity["source_sha256"]),
+    )
+    if components.get("development_contract") != expected_development:
+        raise ModelSuiteError(
+            "Stage-16 component pointer binds another source/data contract"
+        )
+    if (
+        entry.get("model_id") != "LSTM"
+        or entry.get("executor") != "lstm_bundle"
+        or entry.get("member_count") != 5
+        or tuple(entry.get("raw_feature_order", ())) != feature_order
+    ):
+        raise ModelSuiteError("Stage-16 LSTM component entry is malformed")
+    artifact = entry.get("artifact")
+    if not isinstance(artifact, Mapping):
+        raise ModelSuiteError("Stage-16 LSTM bundle binding is malformed")
+    bundle = _stage16_exact_directory(
+        root, canonical["bundle"], label="LSTM bundle"
+    )
+    if (
+        _relative(root, bundle) != canonical["bundle"]
+        or bundle.is_symlink()
+        or dict(artifact) != directory_binding(root, bundle)
+    ):
+        raise ModelSuiteError("Stage-16 LSTM bundle path or checksum changed")
+    try:
+        bundle_entries = list(bundle.iterdir())
+    except OSError as exc:
+        raise ModelSuiteError("Stage-16 LSTM bundle is unreadable") from exc
+    files = {path.name: path for path in bundle_entries}
+    if (
+        len(files) != len(bundle_entries)
+        or set(files) != {"metadata.json", "weights.pt"}
+        or any(
+            path.is_symlink() or not path.is_file()
+            for path in bundle_entries
+        )
+    ):
+        raise ModelSuiteError("Stage-16 LSTM bundle file closure changed")
+    for name in ("metadata.json", "weights.pt"):
+        files[name] = _stage16_exact_file(
+            root,
+            f"{canonical['bundle']}/{name}",
+            label=f"LSTM bundle {name}",
+        )
+    metadata = _entry_artifact_valid(
+        root,
+        entry,
+        feature_order,
+        external=False,
+        publication_guard=publication_guard,
+    )
+    if not isinstance(metadata, Mapping):
+        raise ModelSuiteError("Stage-16 LSTM metadata is absent")
+    architecture = metadata.get("architecture")
+    kwargs = architecture.get("kwargs") if isinstance(architecture, Mapping) else None
+    station_map = metadata.get("station_to_index")
+    expected_station_map = {
+        site: index for index, site in enumerate(C.STATIONS)
+    }
+    expected_kwargs = {
+        "n_vars": len(feature_order),
+        "n_stations": len(expected_station_map),
+        "context": C.CONTEXT_LENGTH,
+        "station_agnostic": False,
+        **selected_candidate,
+    }
+    if (
+        metadata.get("run_id") != run_id
+        or metadata.get("source_sha256") != identity.get("source_sha256")
+        or metadata.get("panel_sha256") != identity.get("panel_sha256")
+        or metadata.get("registry_sha256") != identity.get("registry_sha256")
+        or metadata.get("config_sha256") != identity.get("config_sha256")
+        or metadata.get("runtime_sha256") != identity.get("runtime_sha256")
+        or metadata.get("training_device") != "cpu"
+        or tuple(metadata.get("members", ()))
+        != tuple(f"seed{seed}" for seed in C.USGS_SEEDS)
+        or not isinstance(architecture, Mapping)
+        or architecture.get("class")
+        != "thermoroute.train.LSTMForecaster"
+        or architecture.get("train_config")
+        != asdict(C.TrainConfig(batch_size=1536))
+        or station_map != expected_station_map
+        or kwargs != expected_kwargs
+    ):
+        raise ModelSuiteError(
+            "Stage-16 LSTM bundle metadata differs from its run or winner"
+        )
+    development_snapshot = _read_development_prediction_snapshot(
+        root, metadata.get("development_prediction"), label="Stage-16 LSTM"
+    )
+    if (
+        development_snapshot.sidecar.get("run") != dict(identity)
+        or set(development_snapshot.selected["split"].astype(str))
+        != {"val", "calib", "test"}
+        or set(development_snapshot.selected["seed"].astype(int))
+        != set(C.USGS_SEEDS)
+        or any(
+            set(group["split"].astype(str)) != {"val", "calib", "test"}
+            for _, group in development_snapshot.selected.groupby("seed")
+        )
+    ):
+        raise ModelSuiteError(
+            "Stage-16 LSTM prediction binding lacks val/calib/test closure"
+        )
+    shortcut_path = _stage16_exact_file(
+        root, canonical["shortcut_pointer"], label="shortcut pointer"
+    )
+    try:
+        shortcut = json.loads(shortcut_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError("Stage-16 LSTM shortcut pointer is malformed") from exc
+    if shortcut != {
+        "run_id": run_id,
+        "bundle_path": canonical["bundle"],
+        "member_count": 5,
+        "metadata_sha256": sha256_file(files["metadata.json"]),
+        "weights_sha256": sha256_file(files["weights.pt"]),
+    }:
+        raise ModelSuiteError("Stage-16 LSTM shortcut pointer changed")
+    if publication_guard is not None:
+        publication_guard()
+    artifacts: dict[str, Any] = {
+        "run_manifest": file_binding(root, run_manifest),
+        "stage09_completion_receipt": file_binding(root, stage09_receipt_path),
+        "stage09_parent_predictions": file_binding(root, parent_path),
+        "stage09_parent_prediction_sidecar": file_binding(root, parent_sidecar),
+        "lstm_validation_selection": file_binding(root, selection_path),
+        "development_predictions": file_binding(root, prediction_path),
+        "development_prediction_sidecar": file_binding(root, prediction_sidecar),
+        "model_files": [
+            file_binding(root, files[name])
+            for name in ("metadata.json", "weights.pt")
+        ],
+        "lstm_seed_prediction_files": seed_file_bindings,
+        "selection_candidate_files": selection_file_bindings,
+        "shortcut_pointer": file_binding(root, shortcut_path),
+        "components_pointer": file_binding(root, components_pointer),
+    }
+    parity_input_closure = _stage16_parity_input_closure(
+        root=root, bundle=bundle, metadata=metadata
+    )
+    parity = (
+        _verify_stage16_final_bundle_parity(
+            root=root,
+            bundle=bundle,
+            expected=development_snapshot.selected,
+            metadata=metadata,
+            wd=replay_wd,
+            publication_guard=publication_guard,
+        )
+        if replay_bundle else None
+    )
+    return (
+        artifacts,
+        entry,
+        parity,
+        selection_audit,
+        parity_input_closure,
+        selection_context,
+    )
+
+
+def build_stage16_completion_receipt(
+    *,
+    root: str | Path,
+    run_id: str,
+    run_manifest: str | Path,
+    stage09_receipt: str | Path,
+    selection: str | Path,
+    components_pointer: str | Path,
+    enforce_current_runtime: bool = True,
+    publication_guard: Callable[[], object] | None = None,
+) -> dict[str, Any]:
+    """Build a deterministic receipt over the exact formal Stage-16 closure."""
+    if publication_guard is not None:
+        publication_guard()
+    root = Path(root).resolve()
+    run_manifest = Path(run_manifest).resolve()
+    stage09_receipt = Path(stage09_receipt).resolve()
+    selection = Path(selection).resolve()
+    components_pointer = Path(components_pointer).resolve()
+    parent = (root / STAGE16_PARENT_PREDICTION_PATH).resolve()
+    parent_sha256 = sha256_file(parent)
+    _, identity, configuration = _load_formal_stage16_manifest(
+        run_manifest,
+        root=root,
+        run_id=str(run_id),
+        parent_sha256=parent_sha256,
+        enforce_current_runtime=enforce_current_runtime,
+    )
+    (
+        artifacts, _, parity, selection_audit, _parity_inputs,
+        _selection_context,
+    ) = _stage16_expected_artifacts(
+        root=root,
+        run_id=str(run_id),
+        run_manifest=run_manifest,
+        stage09_receipt_path=stage09_receipt,
+        selection_path=selection,
+        components_pointer=components_pointer,
+        identity=identity,
+        configuration=configuration,
+        replay_selection=True,
+        replay_bundle=True,
+        publication_guard=publication_guard,
+    )
+    if parity is None or selection_audit is None:  # pragma: no cover
+        raise ModelSuiteError("Stage-16 build did not execute required replays")
+    document: dict[str, Any] = {
+        "format": STAGE16_COMPLETION_FORMAT,
+        "status": STAGE16_COMPLETION_STATUS,
+        "stage": "16_lstm_baseline_insample",
+        "run_id": str(run_id),
+        "parent_stage09_run_id": str(
+            json.loads(stage09_receipt.read_text(encoding="utf-8"))["run_id"]
+        ),
+        "run_identity": identity,
+        "formal_configuration": configuration,
+        "training_device": "cpu",
+        "confirmation_outcomes_requested_or_read": False,
+        "selection_audit": selection_audit,
+        "bundle_prediction_parity": parity,
+        "artifacts": artifacts,
+        "artifact_closure_sha256": sha256_json(artifacts),
+    }
+    document["receipt_self_sha256"] = sha256_json(document)
+    if publication_guard is not None:
+        publication_guard()
+    return document
+
+
+def write_stage16_completion_receipt(
+    path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> Path:
+    """Atomically publish Stage 16's receipt as its final filesystem write."""
+    stable = {
+        key: value for key, value in document.items()
+        if key != "receipt_self_sha256"
+    }
+    if document.get("receipt_self_sha256") != sha256_json(stable):
+        raise ModelSuiteError("Stage-16 completion receipt self hash is invalid")
+    destination = Path(path)
+    atomic_write_json(
+        destination,
+        dict(document),
+        publication_guard=publication_guard,
+    )
+    return destination
+
+
+def validate_stage16_completion_receipt(
+    receipt_path: str | Path,
+    *,
+    root: str | Path,
+    components_pointer: str | Path | None = None,
+    document: Mapping[str, Any] | None = None,
+    enforce_current_runtime: bool = True,
+    replay_selection: bool = False,
+    replay_bundle: bool = False,
+    publication_guard: Callable[[], object] | None = None,
+) -> dict[str, Any]:
+    """Fail closed unless the standalone Stage-16 completion is exact.
+
+    Formal callers hold the shared Stage-16 advisory lock, which defines the
+    atomicity boundary for cooperating project writers.  Candidate evidence is
+    additionally loaded and hashed from the same no-follow byte snapshots.
+    Deliberate concurrent replacement by another process with the same OS user
+    remains outside that cooperative-writer transaction model.
+    """
+    if publication_guard is not None:
+        publication_guard()
+    root = Path(root).resolve()
+    receipt_path = _canonical_completion_receipt_path(
+        root,
+        receipt_path,
+        relative=STAGE16_COMPLETION_RECEIPT_PATH,
+        label="Stage-16 completion receipt",
+        document_supplied=document is not None,
+    )
+    if document is None:
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModelSuiteError(
+                "Stage-16 completion receipt is absent or invalid"
+            ) from exc
+    else:
+        receipt = dict(document)
+    expected_keys = {
+        "format", "status", "stage", "run_id", "parent_stage09_run_id",
+        "run_identity", "formal_configuration", "training_device",
+        "confirmation_outcomes_requested_or_read", "selection_audit",
+        "bundle_prediction_parity", "artifacts",
+        "artifact_closure_sha256", "receipt_self_sha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != expected_keys:
+        raise ModelSuiteError("Stage-16 completion receipt schema is not exact")
+    stable = {
+        key: value for key, value in receipt.items()
+        if key != "receipt_self_sha256"
+    }
+    if receipt.get("receipt_self_sha256") != sha256_json(stable):
+        raise ModelSuiteError("Stage-16 completion receipt self hash changed")
+    if (
+        receipt.get("format") != STAGE16_COMPLETION_FORMAT
+        or receipt.get("status") != STAGE16_COMPLETION_STATUS
+        or receipt.get("stage") != "16_lstm_baseline_insample"
+        or receipt.get("training_device") != "cpu"
+        or receipt.get("confirmation_outcomes_requested_or_read") is not False
+    ):
+        raise ModelSuiteError("Stage-16 completion receipt is not a formal PASS")
+    run_id = str(receipt.get("run_id", ""))
+    if not run_id:
+        raise ModelSuiteError("Stage-16 completion receipt lacks a run id")
+    artifacts = receipt.get("artifacts")
+    artifact_keys = {
+        "run_manifest", "stage09_completion_receipt",
+        "stage09_parent_predictions", "stage09_parent_prediction_sidecar",
+        "lstm_validation_selection", "development_predictions",
+        "development_prediction_sidecar", "model_files",
+        "lstm_seed_prediction_files",
+        "selection_candidate_files",
+        "shortcut_pointer", "components_pointer",
+    }
+    if not isinstance(artifacts, Mapping) or set(artifacts) != artifact_keys:
+        raise ModelSuiteError("Stage-16 artifact closure schema is not exact")
+    if receipt.get("artifact_closure_sha256") != sha256_json(artifacts):
+        raise ModelSuiteError("Stage-16 artifact closure hash changed")
+    canonical = canonical_stage16_artifact_paths(run_id)
+    run_manifest = _validated_file_binding(
+        root, artifacts["run_manifest"], label="Stage-16 run manifest"
+    )
+    stage09_receipt = _validated_file_binding(
+        root,
+        artifacts["stage09_completion_receipt"],
+        label="Stage-16 Stage-9 completion receipt",
+    )
+    selection = _validated_file_binding(
+        root,
+        artifacts["lstm_validation_selection"],
+        label="Stage-16 LSTM validation selection",
+    )
+    pointer = _validated_file_binding(
+        root, artifacts["components_pointer"], label="Stage-16 component pointer"
+    )
+    if (
+        _relative(root, run_manifest) != canonical["run_manifest"]
+        or _relative(root, stage09_receipt)
+        != canonical["stage09_completion_receipt"]
+        or _relative(root, selection) != canonical["lstm_validation_selection"]
+        or _relative(root, pointer) != canonical["components_pointer"]
+    ):
+        raise ModelSuiteError("Stage-16 receipt binds noncanonical artifacts")
+    if components_pointer is not None and pointer != Path(
+        components_pointer
+    ).resolve():
+        raise ModelSuiteError("Stage-16 receipt binds another component pointer")
+    parent_sha256 = sha256_file(root / STAGE16_PARENT_PREDICTION_PATH)
+    _, identity, configuration = _load_formal_stage16_manifest(
+        run_manifest,
+        root=root,
+        run_id=run_id,
+        parent_sha256=parent_sha256,
+        enforce_current_runtime=enforce_current_runtime,
+    )
+    if identity != receipt.get("run_identity"):
+        raise ModelSuiteError("Stage-16 completion run identity changed")
+    if configuration != receipt.get("formal_configuration"):
+        raise ModelSuiteError("Stage-16 completion configuration changed")
+    (
+        expected_artifacts, _, parity, selection_audit, parity_inputs,
+        selection_context,
+    ) = _stage16_expected_artifacts(
+        root=root,
+        run_id=run_id,
+        run_manifest=run_manifest,
+        stage09_receipt_path=stage09_receipt,
+        selection_path=selection,
+        components_pointer=pointer,
+        identity=identity,
+        configuration=configuration,
+        replay_selection=replay_selection,
+        replay_bundle=replay_bundle,
+        publication_guard=publication_guard,
+    )
+    if dict(artifacts) != expected_artifacts:
+        raise ModelSuiteError("Stage-16 exact artifact closure changed")
+    validated_parity = _validate_stage16_parity_audit(
+        receipt.get("bundle_prediction_parity"),
+        input_closure=parity_inputs,
+    )
+    if parity is not None and validated_parity != parity:
+        raise ModelSuiteError("Stage-16 five-member parity replay changed")
+    validated_selection = _validate_stage16_selection_audit(
+        receipt.get("selection_audit"),
+        selection_records=selection_context["selection_records"],
+        recomputed_metrics=selection_context["recomputed_metrics"],
+        checkpoint_metrics=selection_context["checkpoint_metrics"],
+        winner_candidate_id=selection_context["winner_candidate_id"],
+        input_closure=selection_context["input_closure"],
+    )
+    if selection_audit is not None and validated_selection != selection_audit:
+        raise ModelSuiteError("Stage-16 validation-selection replay changed")
+    try:
+        stage09_document = json.loads(stage09_receipt.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelSuiteError("Stage-16 Stage-9 receipt changed") from exc
+    if receipt.get("parent_stage09_run_id") != stage09_document.get("run_id"):
+        raise ModelSuiteError("Stage-16 parent Stage-9 run changed")
+    if publication_guard is not None:
+        publication_guard()
+    return receipt
+
+
+def publish_stage16_completion_receipt(
+    receipt_path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    root: str | Path,
+    components_pointer: str | Path,
+    publication_guard: Callable[[], object],
+) -> Path:
+    """Preflight Stage 16, atomically publish, then re-open its exact closure."""
+    validate_stage16_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=components_pointer,
+        document=document,
+        publication_guard=publication_guard,
+    )
+    publication_guard()
+    destination = write_stage16_completion_receipt(
+        receipt_path,
+        document,
+        publication_guard=publication_guard,
+    )
+    validate_stage16_completion_receipt(
+        destination,
+        root=root,
+        components_pointer=components_pointer,
+        publication_guard=publication_guard,
+    )
+    publication_guard()
+    return destination
+
+
+def stage16_completion_gate_binding(
+    receipt_path: str | Path,
+    *,
+    root: str | Path,
+    components_pointer: str | Path,
+    enforce_current_runtime: bool = True,
+    replay_selection: bool = False,
+    replay_bundle: bool = False,
+    publication_guard: Callable[[], object] | None = None,
+) -> dict[str, str]:
+    """Validate Stage 16 and return the exact binding frozen downstream."""
+    validate_stage16_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=components_pointer,
+        enforce_current_runtime=enforce_current_runtime,
+        replay_selection=replay_selection,
+        replay_bundle=replay_bundle,
+        publication_guard=publication_guard,
+    )
+    return file_binding(root, receipt_path)
 
 
 def canonical_stage25_artifact_paths(run_id: str) -> dict[str, str]:
@@ -4478,7 +6659,10 @@ def build_stage25_completion_receipt(
 
 
 def write_stage25_completion_receipt(
-    path: str | Path, document: Mapping[str, Any],
+    path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
 ) -> Path:
     """Atomically publish the Stage-25 receipt as the transaction's last write."""
     stable = {
@@ -4488,7 +6672,11 @@ def write_stage25_completion_receipt(
     if document.get("receipt_self_sha256") != sha256_json(stable):
         raise ModelSuiteError("Stage-25 completion receipt self hash is invalid")
     destination = Path(path)
-    atomic_write_json(destination, dict(document))
+    atomic_write_json(
+        destination,
+        dict(document),
+        publication_guard=publication_guard,
+    )
     return destination
 
 
@@ -4502,13 +6690,13 @@ def validate_stage25_completion_receipt(
 ) -> dict[str, Any]:
     """Fail closed unless the standalone Stage-25 completion is exact."""
     root = Path(root).resolve()
-    receipt_path = Path(receipt_path).resolve()
-    if (
-        receipt_path != (root / STAGE25_COMPLETION_RECEIPT_PATH).resolve()
-    ):
-        raise ModelSuiteError(
-            "Stage-25 completion receipt is not at its exact canonical path"
-        )
+    receipt_path = _canonical_completion_receipt_path(
+        root,
+        receipt_path,
+        relative=STAGE25_COMPLETION_RECEIPT_PATH,
+        label="Stage-25 completion receipt",
+        document_supplied=document is not None,
+    )
     if document is None:
         try:
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -4600,6 +6788,7 @@ def publish_stage25_completion_receipt(
     *,
     root: str | Path,
     components_pointer: str | Path,
+    publication_guard: Callable[[], object],
 ) -> Path:
     """Preflight the whole closure, atomically publish, then re-open it."""
     validate_stage25_completion_receipt(
@@ -4608,12 +6797,18 @@ def publish_stage25_completion_receipt(
         components_pointer=components_pointer,
         document=document,
     )
-    destination = write_stage25_completion_receipt(receipt_path, document)
+    publication_guard()
+    destination = write_stage25_completion_receipt(
+        receipt_path,
+        document,
+        publication_guard=publication_guard,
+    )
     validate_stage25_completion_receipt(
         destination,
         root=root,
         components_pointer=components_pointer,
     )
+    publication_guard()
     return destination
 
 
@@ -4634,8 +6829,14 @@ def stage25_completion_gate_binding(
     return file_binding(root, receipt_path)
 
 
-def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: tuple[str, ...],
-                          *, external: bool) -> Mapping[str, Any] | None:
+def _entry_artifact_valid(
+    root: Path,
+    entry: Mapping[str, Any],
+    feature_order: tuple[str, ...],
+    *,
+    external: bool,
+    publication_guard: Callable[[], object] | None = None,
+) -> Mapping[str, Any] | None:
     model_id, executor = str(entry.get("model_id")), str(entry.get("executor"))
     if tuple(entry.get("raw_feature_order", ())) != feature_order:
         raise ModelSuiteError(f"{model_id} raw feature order differs from suite")
@@ -4650,7 +6851,10 @@ def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: t
         path = _resolve_inside(root, artifact.get("path"))
         if sha256_file(path) != artifact.get("sha256"):
             raise ModelSuiteError("LightGBM manifest checksum mismatch")
-        _, metadata = load_lightgbm_bundle(path)
+        _, metadata = load_lightgbm_bundle(
+            path,
+            publication_guard=publication_guard,
+        )
         if bool(metadata.get("station_agnostic")) != external:
             raise ModelSuiteError("LightGBM station-identity contract differs from cohort")
         if int(entry.get("member_count", 0)) != int(metadata.get("member_count", -1)):
@@ -4690,7 +6894,11 @@ def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: t
     if sha256_file(directory / "weights.pt") != artifact.get("weights_sha256"):
         raise ModelSuiteError(f"{model_id} weights checksum mismatch")
     count = int(entry.get("member_count", 0))
-    _, metadata = load_inference_bundle(directory, expected_member_count=count)
+    _, metadata = load_inference_bundle(
+        directory,
+        expected_member_count=count,
+        publication_guard=publication_guard,
+    )
     if tuple(metadata.get("feature_order", ())) != feature_order:
         raise ModelSuiteError(f"{model_id} sequence schema differs from suite")
     kwargs = metadata.get("architecture", {}).get("kwargs", {})
@@ -4722,14 +6930,22 @@ def _entry_artifact_valid(root: Path, entry: Mapping[str, Any], feature_order: t
             model_factory=lambda _member, bundle: sequence_factory_from_metadata(bundle),
             expected_member_count=count,
             device="cpu",
+            publication_guard=publication_guard,
         )
     except (RuntimeError, TypeError, ValueError) as exc:
         raise ModelSuiteError(f"{model_id} cannot be strictly reconstructed") from exc
     return metadata
 
 
-def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Path) -> None:
+def validate_model_suite_document(
+    document: Mapping[str, Any],
+    *,
+    root: str | Path,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
     """Fail closed on a missing member, stale checksum, or wrong cohort contract."""
+    if publication_guard is not None:
+        publication_guard()
     root = Path(root).resolve()
     if document.get("format") != MODEL_SUITE_FORMAT:
         raise ModelSuiteError("unsupported model suite format")
@@ -4808,8 +7024,14 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
                 if intervention != ABLATION_INTERVENTIONS[model_id]:
                     raise ModelSuiteError(f"{model_id} intervention is not the frozen control")
             metadata = _entry_artifact_valid(
-                root, by_id[model_id], features, external=is_external
+                root,
+                by_id[model_id],
+                features,
+                external=is_external,
+                publication_guard=publication_guard,
             )
+            if publication_guard is not None:
+                publication_guard()
             if metadata is not None:
                 loaded_metadata[model_id] = metadata
         if not is_external:
@@ -4945,11 +7167,12 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
     required_gates = {
         "stage09_completion",
         "stage09b_development_controls",
+        "stage16_lstm_completion",
         "stage25_external_completion",
     }
     if not isinstance(gates, Mapping) or set(gates) != required_gates:
         raise ModelSuiteError(
-            "model suite lacks the Stage-9/09b/25 completion gates"
+            "model suite lacks the Stage-9/09b/16/25 completion gates"
         )
     receipt_path = _validated_file_binding(
         root, gates["stage09_completion"], label="Stage-9 completion gate"
@@ -4965,8 +7188,13 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
         raise ModelSuiteError("model suite Stage-9 component binding is malformed")
     stage9_pointer = _resolve_inside(root, pointer_binding.get("path"))
     expected_gate = stage09_completion_gate_binding(
-        receipt_path, root=root, stage9_pointer=stage9_pointer
+        receipt_path,
+        root=root,
+        stage9_pointer=stage9_pointer,
+        publication_guard=publication_guard,
     )
+    if publication_guard is not None:
+        publication_guard()
     if dict(gates["stage09_completion"]) != expected_gate:
         raise ModelSuiteError("model suite Stage-9 completion binding changed")
     stage9 = load_component_pointer(stage9_pointer)
@@ -4983,7 +7211,9 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
     )
     try:
         controls_receipt = validate_stage09b_completion_receipt(
-            controls_receipt_path, root=root
+            controls_receipt_path,
+            root=root,
+            publication_guard=publication_guard,
         )
     except DevelopmentControlsGateError as exc:
         raise ModelSuiteError(
@@ -5016,6 +7246,78 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
         raise ModelSuiteError(
             "model suite Stage-09b gate differs from its Stage-9 development closure"
         )
+
+    stage16_receipt_path = _validated_file_binding(
+        root,
+        gates["stage16_lstm_completion"],
+        label="Stage-16 LSTM completion gate",
+    )
+    try:
+        stage16_candidate = json.loads(
+            stage16_receipt_path.read_text(encoding="utf-8")
+        )
+        stage16_artifacts = stage16_candidate["artifacts"]
+        stage16_pointer_binding = stage16_artifacts["components_pointer"]
+    except (
+        OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
+    ) as exc:
+        raise ModelSuiteError(
+            "model suite Stage-16 completion gate is malformed"
+        ) from exc
+    if not isinstance(stage16_pointer_binding, Mapping):
+        raise ModelSuiteError(
+            "model suite Stage-16 component binding is malformed"
+        )
+    stage16_pointer = _resolve_inside(
+        root, stage16_pointer_binding.get("path")
+    )
+    expected_stage16_gate = stage16_completion_gate_binding(
+        stage16_receipt_path,
+        root=root,
+        components_pointer=stage16_pointer,
+        enforce_current_runtime=False,
+        publication_guard=publication_guard,
+    )
+    if dict(gates["stage16_lstm_completion"]) != expected_stage16_gate:
+        raise ModelSuiteError("model suite Stage-16 completion binding changed")
+    if (
+        not isinstance(stage16_artifacts, Mapping)
+        or stage16_artifacts.get("stage09_completion_receipt")
+        != dict(gates["stage09_completion"])
+    ):
+        raise ModelSuiteError(
+            "model suite Stage-16 gate binds another Stage-9 completion"
+        )
+    stage16 = load_component_pointer(stage16_pointer)
+    stage16_entries = stage16.get("models")
+    frozen_lstm = [
+        entry for entry in temporal_entries
+        if isinstance(entry, Mapping) and entry.get("model_id") == "LSTM"
+    ]
+    stage16_identity = stage16_candidate.get("run_identity")
+    if (
+        dict(stage16_pointer_binding) != file_binding(root, stage16_pointer)
+        or not isinstance(stage16_entries, list)
+        or len(stage16_entries) != 1
+        or len(frozen_lstm) != 1
+        or stage16_entries[0] != frozen_lstm[0]
+        or stage16.get("development_contract") != development
+        or not isinstance(stage16_identity, Mapping)
+        or stage16_identity.get("panel_sha256")
+        != development["panel"]["sha256"]
+        or stage16_identity.get("registry_sha256")
+        != development["registry"]["sha256"]
+        or stage16_identity.get("source_sha256")
+        != development["source_sha256"]
+        or stage16_identity.get("runtime_sha256") != runtime_digest
+        or stage16_candidate.get("parent_stage09_run_id")
+        != receipt.get("run_id")
+    ):
+        raise ModelSuiteError(
+            "model suite LSTM cohort differs from its Stage-16 completion"
+        )
+    if publication_guard is not None:
+        publication_guard()
 
     stage25_receipt_path = _validated_file_binding(
         root,
@@ -5051,6 +7353,8 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
         # and the Stage-24 build require that runtime to be the current one.
         enforce_current_runtime=False,
     )
+    if publication_guard is not None:
+        publication_guard()
     if dict(gates["stage25_external_completion"]) != file_binding(
         root, stage25_receipt_path
     ):
@@ -5092,11 +7396,15 @@ def validate_model_suite_document(document: Mapping[str, Any], *, root: str | Pa
         raise ModelSuiteError(
             "model suite external cohort differs from its Stage-25 completion"
         )
+    if publication_guard is not None:
+        publication_guard()
 
 
 def _learned_metadata_runtime_sha256(
     root: Path,
     entries: Sequence[Mapping[str, Any]],
+    *,
+    publication_guard: Callable[[], object] | None = None,
 ) -> str:
     """Derive one runtime digest from every learned artifact's own metadata."""
     digests: set[str] = set()
@@ -5110,15 +7418,21 @@ def _learned_metadata_runtime_sha256(
         executor = str(entry.get("executor"))
         if executor == "lightgbm_bundle":
             path = _resolve_inside(root, artifact.get("path"))
-            _, metadata = load_lightgbm_bundle(path)
+            _, metadata = load_lightgbm_bundle(
+                path,
+                publication_guard=publication_guard,
+            )
         elif executor in {"thermoroute_bundle", "lstm_bundle"}:
             directory = _resolve_inside(root, artifact.get("path"), directory=True)
             _, metadata = load_inference_bundle(
                 directory,
                 expected_member_count=int(entry.get("member_count", 0)),
+                publication_guard=publication_guard,
             )
         else:
             raise ModelSuiteError(f"unsupported learned executor: {executor}")
+        if publication_guard is not None:
+            publication_guard()
         learned += 1
         digest = str(metadata.get("runtime_sha256", ""))
         if len(digest) != 64:
@@ -5134,6 +7448,31 @@ def _learned_metadata_runtime_sha256(
     return next(iter(digests))
 
 
+def _authority_output_path(
+    root: Path, path: str | Path, *, label: str,
+) -> Path:
+    """Return an in-root lexical output path without dereferencing aliases."""
+    raw = Path(path)
+    if not raw.is_absolute():
+        raw = root / raw
+    lexical = Path(os.path.abspath(raw))
+    if lexical == root or root not in lexical.parents:
+        raise ModelSuiteError(f"{label} path escapes repository")
+    current = lexical
+    while current != root:
+        if current.is_symlink():
+            raise ModelSuiteError(f"{label} path uses a symlink")
+        current = current.parent
+    if lexical.exists() or lexical.is_symlink():
+        try:
+            metadata = lexical.lstat()
+        except OSError as exc:  # pragma: no cover - exists/lstat race
+            raise ModelSuiteError(f"{label} is unreadable") from exc
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ModelSuiteError(f"{label} is not a single-link regular file")
+    return lexical
+
+
 def freeze_model_suite(
     destination: str | Path,
     current_pointer: str | Path,
@@ -5146,14 +7485,24 @@ def freeze_model_suite(
     development_contract: Mapping[str, Any],
     stage09_completion: Mapping[str, Any] | None = None,
     stage09b_completion: Mapping[str, Any] | None = None,
+    stage16_completion: Mapping[str, Any] | None = None,
     stage25_completion: Mapping[str, Any] | None = None,
     registry_alias: str | Path | None = None,
+    publication_guard: Callable[[], object],
 ) -> Path:
     """Write the versioned suite, then (and only then) publish its current pointer."""
+    publication_guard()
     root = Path(root).resolve()
-    destination = Path(destination).resolve()
+    destination = _authority_output_path(
+        root, destination, label="versioned model suite"
+    )
+    current_pointer = _authority_output_path(
+        root, current_pointer, label="current model-suite pointer"
+    )
     learned_runtime_sha256 = _learned_metadata_runtime_sha256(
-        root, [*temporal_entries, *external_entries]
+        root,
+        [*temporal_entries, *external_entries],
+        publication_guard=publication_guard,
     )
     document = {
         "format": MODEL_SUITE_FORMAT,
@@ -5167,11 +7516,13 @@ def freeze_model_suite(
             {"preopening_gates": {
                 "stage09_completion": dict(stage09_completion),
                 "stage09b_development_controls": dict(stage09b_completion),
+                "stage16_lstm_completion": dict(stage16_completion),
                 "stage25_external_completion": dict(stage25_completion),
             }}
             if (
                 stage09_completion is not None
                 and stage09b_completion is not None
+                and stage16_completion is not None
                 and stage25_completion is not None
             )
             else {}
@@ -5188,23 +7539,49 @@ def freeze_model_suite(
         },
     }
     # Validate before any current pointer can exist.
-    validate_model_suite_document(document, root=root)
-    _create_json_or_require_identical(destination, document)
     validate_model_suite_document(
-        json.loads(destination.read_text(encoding="utf-8")), root=root
+        document,
+        root=root,
+        publication_guard=publication_guard,
     )
+    publication_guard()
+    _create_json_or_require_identical(
+        destination,
+        document,
+        publication_guard=publication_guard,
+    )
+    validate_model_suite_document(
+        json.loads(destination.read_text(encoding="utf-8")),
+        root=root,
+        publication_guard=publication_guard,
+    )
+    publication_guard()
     current_suite = destination
     if registry_alias is not None:
-        alias = Path(registry_alias).resolve()
+        alias = _authority_output_path(
+            root, registry_alias, label="opening model-suite registry"
+        )
         alias_document = {
             **document,
             "versioned_suite": file_binding(root, destination),
         }
-        validate_model_suite_document(alias_document, root=root)
-        _create_json_or_require_identical(alias, alias_document)
         validate_model_suite_document(
-            json.loads(alias.read_text(encoding="utf-8")), root=root
+            alias_document,
+            root=root,
+            publication_guard=publication_guard,
         )
+        publication_guard()
+        _create_json_or_require_identical(
+            alias,
+            alias_document,
+            publication_guard=publication_guard,
+        )
+        validate_model_suite_document(
+            json.loads(alias.read_text(encoding="utf-8")),
+            root=root,
+            publication_guard=publication_guard,
+        )
+        publication_guard()
         current_suite = alias
     pointer = {
         "format": MODEL_SUITE_POINTER_FORMAT,
@@ -5212,41 +7589,105 @@ def freeze_model_suite(
         "suite_path": _relative(root, current_suite),
         "suite_sha256": sha256_file(current_suite),
     }
-    atomic_write_json(current_pointer, pointer)
+    atomic_write_json(
+        current_pointer,
+        pointer,
+        publication_guard=publication_guard,
+    )
+    resolved = resolve_model_suite_pointer(
+        current_pointer,
+        root=root,
+        publication_guard=publication_guard,
+    )
+    if resolved != current_suite:
+        raise ModelSuiteError("published model-suite pointer resolves elsewhere")
+    publication_guard()
     return destination
 
 
 def _create_json_or_require_identical(
     path: str | Path,
     value: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
 ) -> None:
-    """Create a frozen JSON artifact once; retries must be byte-identical."""
+    """Stage and create-only publish JSON; retries must be byte-identical."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = (
         json.dumps(dict(value), sort_keys=True, indent=2, allow_nan=False) + "\n"
     ).encode("utf-8")
-    if path.exists():
-        if path.read_bytes() != payload:
+    if path.exists() or path.is_symlink():
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or path.stat().st_nlink != 1
+            or path.read_bytes() != payload
+        ):
             raise FileExistsError(f"refusing to replace frozen model registry: {path}")
+        if publication_guard is not None:
+            publication_guard()
         return
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".staging", dir=path.parent
+    )
+    temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
+            os.fchmod(handle.fileno(), 0o444)
             os.fsync(handle.fileno())
-    except BaseException:
-        # Preserve any partial create as evidence; never silently replace it.
-        raise
+        if publication_guard is not None:
+            publication_guard()
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or path.stat().st_nlink != 1
+                or path.read_bytes() != payload
+            ):
+                raise FileExistsError(
+                    f"refusing to replace frozen model registry: {path}"
+                ) from None
+        parent_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_nlink != 1
+        or path.read_bytes() != payload
+    ):
+        raise FileExistsError(f"frozen model registry publication failed: {path}")
 
 
-def resolve_model_suite_pointer(path: str | Path, *, root: str | Path) -> Path:
+def resolve_model_suite_pointer(
+    path: str | Path,
+    *,
+    root: str | Path,
+    publication_guard: Callable[[], object] | None = None,
+) -> Path:
+    if publication_guard is not None:
+        publication_guard()
     document = json.loads(Path(path).read_text(encoding="utf-8"))
     if document.get("format") != MODEL_SUITE_POINTER_FORMAT:
         raise ModelSuiteError("unsupported model-suite pointer format")
     suite = _resolve_inside(Path(root), document.get("suite_path"))
     if sha256_file(suite) != document.get("suite_sha256"):
         raise ModelSuiteError("model-suite pointer checksum mismatch")
-    validate_model_suite_document(json.loads(suite.read_text(encoding="utf-8")), root=root)
+    validate_model_suite_document(
+        json.loads(suite.read_text(encoding="utf-8")),
+        root=root,
+        publication_guard=publication_guard,
+    )
+    if publication_guard is not None:
+        publication_guard()
     return suite

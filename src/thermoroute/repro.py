@@ -34,7 +34,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from typing import Any, Iterable, Iterator, Mapping, TextIO
+from typing import Any, Callable, Iterable, Iterator, Mapping, TextIO
 
 
 RUN_SCHEMA_VERSION = "thermoroute.run.v1"
@@ -975,13 +975,14 @@ def numerical_runtime_contract() -> dict[str, Any]:
 
 def environment_fingerprint() -> dict[str, Any]:
     """Runtime facts for audit logs; these do not enter ``run_id``."""
+    runtime_contract = numerical_runtime_contract()
     info: dict[str, Any] = {
         "python": platform.python_version(),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "processor": platform.processor(),
-        "numerical_runtime_contract": numerical_runtime_contract(),
-        "numerical_runtime_sha256": sha256_json(numerical_runtime_contract()),
+        "numerical_runtime_contract": runtime_contract,
+        "numerical_runtime_sha256": sha256_json(runtime_contract),
     }
     try:
         import numpy as np
@@ -1073,8 +1074,19 @@ def _fsync_parent_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def atomic_write_bytes(path: str | Path, payload: bytes) -> None:
-    """Write in the destination directory, fsync, then atomically replace."""
+def atomic_write_bytes(
+    path: str | Path,
+    payload: bytes,
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
+    """Write, optionally guard the staged bytes, then atomically replace.
+
+    ``publication_guard`` runs after the complete temporary file is durable but
+    before it can replace the authoritative path.  Formal numerical entrypoints
+    use this hook to prove that the live BLAS/OpenMP policy still holds at the
+    exact publication boundary.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -1083,6 +1095,8 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        if publication_guard is not None:
+            publication_guard()
         os.replace(tmp_name, path)
         _fsync_parent_directory(path)
     except BaseException:
@@ -1093,13 +1107,28 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> None:
         raise
 
 
-def atomic_write_json(path: str | Path, value: Any) -> None:
+def atomic_write_json(
+    path: str | Path,
+    value: Any,
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
     payload = (json.dumps(_jsonable(value), sort_keys=True, indent=2, allow_nan=False) + "\n")
-    atomic_write_bytes(path, payload.encode("utf-8"))
+    atomic_write_bytes(
+        path,
+        payload.encode("utf-8"),
+        publication_guard=publication_guard,
+    )
 
 
-def atomic_write_parquet(frame: Any, path: str | Path, **kwargs: Any) -> None:
-    """Atomically write a pandas-compatible frame to Parquet."""
+def atomic_write_parquet(
+    frame: Any,
+    path: str | Path,
+    *,
+    publication_guard: Callable[[], object] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Stage Parquet, optionally guard it, then atomically publish it."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -1109,6 +1138,8 @@ def atomic_write_parquet(frame: Any, path: str | Path, **kwargs: Any) -> None:
         # Ensure bytes are durable before replacing a previous valid artifact.
         with open(tmp_name, "rb") as handle:
             os.fsync(handle.fileno())
+        if publication_guard is not None:
+            publication_guard()
         os.replace(tmp_name, path)
         _fsync_parent_directory(path)
     except BaseException:
@@ -1205,7 +1236,9 @@ def validate_artifact_sidecar(
 def seal_artifact(artifact: str | Path, identity: RunIdentity, *,
                   kind: str, schema: str | None = None,
                   parents: Mapping[str, str] | None = None,
-                  extra: Mapping[str, Any] | None = None) -> Path:
+                  extra: Mapping[str, Any] | None = None,
+                  publication_guard: Callable[[], object] | None = None,
+                  ) -> Path:
     """Write a validated lineage sidecar for an already completed artifact."""
     artifact = Path(artifact)
     if not artifact.is_file():
@@ -1243,12 +1276,18 @@ def seal_artifact(artifact: str | Path, identity: RunIdentity, *,
                 # A sidecar is part of later create-only bundle identities.
                 # Preserve its exact bytes when the scientific lineage is
                 # unchanged; a wall-clock reseal must not make a retry differ.
+                if publication_guard is not None:
+                    publication_guard()
                 return destination
     metadata = {
         **stable,
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
-    atomic_write_json(destination, metadata)
+    atomic_write_json(
+        destination,
+        metadata,
+        publication_guard=publication_guard,
+    )
     return destination
 
 
@@ -1266,8 +1305,14 @@ def cache_is_valid(artifact: str | Path, identity: RunIdentity, *,
     return True
 
 
-def initialise_run_directory(root: str | Path, identity: RunIdentity, config: Any,
-                             *, provenance: Mapping[str, Any] | None = None) -> Path:
+def initialise_run_directory(
+    root: str | Path,
+    identity: RunIdentity,
+    config: Any,
+    *,
+    provenance: Mapping[str, Any] | None = None,
+    publication_guard: Callable[[], object] | None = None,
+) -> Path:
     """Lock, then create an immutable run directory and its audit record.
 
     The process-scoped lock is acquired before ``run.json`` or any cache path is
@@ -1306,8 +1351,14 @@ def initialise_run_directory(root: str | Path, identity: RunIdentity, config: An
                 or old.get("resolved_config") != _jsonable(config)
             ):
                 raise RuntimeError(f"run directory collision: {run_dir}")
+            if publication_guard is not None:
+                publication_guard()
         else:
-            atomic_write_json(metadata_path, payload)
+            atomic_write_json(
+                metadata_path,
+                payload,
+                publication_guard=publication_guard,
+            )
         return run_dir
     except BaseException:
         lock.release()

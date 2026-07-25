@@ -174,9 +174,10 @@ def split_for_forecast_interval(
 class Imputer:
     """Day-of-year seasonal-median imputation fit on the training fold only.
 
-    The series here are gap-free apart from the masked sentinels, so this only
-    fills the handful of WDSP / PRCP holes — but it does so with a statistic that
-    never sees the validation/test years, which is the property we need.
+    Missingness is variable- and site-dependent and can include long WTEMP,
+    FLOW, or meteorological gaps.  Every fill statistic is learned without
+    seeing validation or test years; the separately retained observed-value
+    masks are therefore part of the model-input contract.
     """
     medians: dict[tuple[str, str], pd.Series]  # (site, var) -> Series indexed by doy
     global_median: dict[tuple[str, str], float]

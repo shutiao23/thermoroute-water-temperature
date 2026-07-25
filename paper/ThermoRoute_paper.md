@@ -287,7 +287,14 @@ interpreted as prediction without target-site water-temperature records.
 
 An admissible issue must have genuinely observed issue-date WTEMP. Other cells in
 the 32-day history may be filled with training-only seasonal medians and retain
-explicit missingness masks; no minimum observed-history fraction is required.
+explicit missingness masks in the main sequence input; no minimum observed-history
+fraction is required.  Current issue-date auxiliary quantities used by the learned
+thermal proposal and regime gate (standardized physical forcings, FLOW, and WTEMP
+tendency) are computed from the same training-only imputed panel but do not each
+carry a separate auxiliary-path mask.  The model can see the corresponding masks
+through its sequence branch, yet its output is not guaranteed invariant to the
+chosen fill values.  This is a declared design limitation, not evidence that the
+auxiliary proposal is a fully mask-isolated physical model.
 Development windows require all three target horizons to remain within one
 partition and have observed labels, whereas later confirmation evaluates horizon
 admissibility independently. FLOW uses signed `log1p`, preserving negative values
@@ -409,13 +416,17 @@ chronology must show that the model-suite commit predates candidate metadata and
 target-period predictor artifacts. Any source change after the model freeze
 invalidates authorization.
 
-The temporal experiment, matched neural-control experiment, and pooled external
-training stage each end in a separate content-bound completion receipt. The pooled
+The temporal experiment, matched neural-control experiment, same-station LSTM
+stage, and pooled external training stage each end in a separate content-bound
+completion receipt. The LSTM receipt binds its exact Stage-9 parent, frozen
+three-candidate selection evidence, five seed-level validation/calibration/test
+predictions, unchanged non-LSTM parent rows, derived V2 prediction, five-member
+bundle, pointers, and content-bound selection and replay audits. The pooled
 receipt is the last atomic stage write and closes over the run manifest,
 development prediction and sidecar, component pointer, development-data bindings,
 two neural bundles, the LightGBM manifest, and its exact 75-file member/head
 registry. Model-suite
-freezing and the independent release verifier require all three receipts; a
+freezing and the independent release verifier require all four receipts; a
 missing, stale, incomplete, noncanonical, or re-sealed partial closure fails closed.
 
 The opening creates one irreversible intent and one fixed request ledger. This is
@@ -531,7 +542,8 @@ decision; it does not determine compliance with any law or regulation.
 Additional limitations are the availability-enriched station sample; missing
 original provider bytes for the development panel; point-scale meteorology rather
 than upstream forcings; unbalanced and coarse HUC2 clusters; daily-mean outcomes;
-outcome-observability conditioning; a numerical margin without stakeholder-derived
+outcome-observability conditioning; imputed auxiliary prior/gate features without
+separate path-specific validity flags; a numerical margin without stakeholder-derived
 importance; retrospectively acquired latest-provider covariates rather than
 as-issued vintages; absence of latency, memory, energy,
 and multi-hardware benchmarks; owner-controlled local evidence chronology; the

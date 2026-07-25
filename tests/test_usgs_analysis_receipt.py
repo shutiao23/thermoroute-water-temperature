@@ -51,6 +51,9 @@ def test_stage10_never_reads_tables_when_stage19_receipt_fails(
     monkeypatch.setattr(
         STAGE10.C, "STAGE19_TRANSACTION_LOCK", tmp_path / "stage19.lock"
     )
+    monkeypatch.setattr(
+        STAGE10.C, "STAGE16_TRANSACTION_LOCK", tmp_path / "stage16.lock"
+    )
 
     commands: list[list[str]] = []
 
@@ -119,6 +122,9 @@ def test_stage10_rejects_table_replaced_after_isolated_validation(
     monkeypatch.setattr(STAGE10.C, "REPORTS", reports)
     monkeypatch.setattr(
         STAGE10.C, "STAGE19_TRANSACTION_LOCK", root / "outputs" / ".stage19.lock"
+    )
+    monkeypatch.setattr(
+        STAGE10.C, "STAGE16_TRANSACTION_LOCK", root / "outputs" / ".stage16.lock"
     )
 
     def successful_but_racing_verifier(*_args, **_kwargs):

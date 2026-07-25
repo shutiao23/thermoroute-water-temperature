@@ -103,6 +103,58 @@ def test_trusted_directory_is_all_or_nothing_and_retryable_before_rename(
     opening._assert_exact_trusted_directory(canonical, state)
 
 
+def test_trusted_directory_guard_runs_after_stage_fsync_before_rename(
+    tmp_path: Path,
+) -> None:
+    state = _publication_state(tmp_path)
+    stage = _complete_stage(state)
+    canonical = opening._trusted_directory_from_state(state)
+
+    def reject() -> None:
+        raise RuntimeError("injected trusted publication drift")
+
+    with pytest.raises(RuntimeError, match="trusted publication drift"):
+        opening._atomic_publish_trusted_directory(
+            stage,
+            state,
+            publication_guard=reject,
+        )
+    assert stage.is_dir()
+    assert not canonical.exists()
+
+    assert opening._atomic_publish_trusted_directory(
+        stage,
+        state,
+        publication_guard=lambda: None,
+    ) == canonical
+    opening._assert_exact_trusted_directory(canonical, state)
+
+
+def test_opening_atomic_receipt_guard_runs_after_staging_before_link(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "opening_receipt_v1.json"
+    payload = b'{"status":"fixture"}\n'
+    observed: list[bytes] = []
+
+    def reject() -> None:
+        observed.extend(
+            candidate.read_bytes()
+            for candidate in tmp_path.glob(f".{receipt.name}.*.tmp")
+        )
+        raise RuntimeError("injected opening receipt drift")
+
+    with pytest.raises(RuntimeError, match="opening receipt drift"):
+        opening._atomic_create_bytes(
+            receipt,
+            payload,
+            publication_guard=reject,
+        )
+    assert observed == [payload]
+    assert not receipt.exists()
+    assert not list(tmp_path.glob(f".{receipt.name}.*.tmp"))
+
+
 def test_acquisition_bundle_is_all_or_nothing_at_directory_rename(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

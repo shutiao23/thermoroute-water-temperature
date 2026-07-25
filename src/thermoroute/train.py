@@ -26,12 +26,12 @@ from .checkpoint import load_training_checkpoint, save_training_checkpoint
 from .datasets import WindowedData
 
 
-def configure_deterministic_runtime(*, threads: int = 1) -> None:
-    """Apply the formal Torch determinism and thread contract.
+def _configure_torch_determinism_only(*, threads: int = 1) -> None:
+    """Apply only the Torch portion of the deterministic runtime contract.
 
-    Formal entry points set BLAS/OpenMP environment variables before importing
-    numerical libraries.  This function closes the Torch side of that contract;
-    callers must invoke it before resolving a content-addressed run identity.
+    This is an internal seed helper, not a formal runtime gate.  Formal
+    entrypoints must use :func:`thermoroute.repro.configure_deterministic_runtime`
+    so the live BLAS/OpenMP pools and the process-lifetime limiter are verified.
     """
     if threads != 1:
         raise ValueError("formal numerical runtime requires one Torch thread")
@@ -66,7 +66,7 @@ def set_seed(seed: int) -> None:
         torch.mps.manual_seed(seed)
     # A formal run must fail when an accelerator has no deterministic kernel;
     # a warning is easy to suppress and cannot support a replay claim.
-    configure_deterministic_runtime()
+    _configure_torch_determinism_only()
 
 
 # --------------------------------------------------------------------------- #
@@ -352,7 +352,9 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
               resume: bool = True,
               checkpoint_every: int = 1,
               stop_after_epoch: int | None = None,
-              export_splits: tuple[str, ...] = ("val", "calib", "test")) -> FitResult:
+              export_splits: tuple[str, ...] = ("val", "calib", "test"),
+              artifact_publication_guard: Callable[[], object] | None = None,
+              ) -> FitResult:
     """Fit a model under a reproducible and optionally station-balanced recipe.
 
     Prefer passing ``model`` as a zero-argument factory.  This lets the function
@@ -367,6 +369,8 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
     if checkpoint_every < 1:
         raise ValueError("checkpoint_every must be positive")
     set_seed(seed)
+    if artifact_publication_guard is not None:
+        artifact_publication_guard()
     device_obj = resolve_device(device)
     if not isinstance(model, nn.Module):
         model = model()
@@ -417,6 +421,7 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
             # on CPU for torch.set_rng_state.
             map_location="cpu",
             recover_missing_sidecar=True,
+            publication_guard=artifact_publication_guard,
         )
         start_epoch = resumed.epoch + 1
         best_epoch = resumed.best_epoch
@@ -497,6 +502,7 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
                     "bad_epochs": bad,
                     "train_rng_state": rng.bit_generator.state,
                 },
+                publication_guard=artifact_publication_guard,
             )
         if stop_after_epoch is not None and epoch >= stop_after_epoch:
             break
@@ -509,6 +515,8 @@ def fit_model(model: nn.Module | Callable[[], nn.Module], wd: WindowedData,
         model, wd, thresholds, device_obj, model_name, scope, feature_set, seed,
         batch_size=eval_batch_size, splits=export_splits,
     )
+    if artifact_publication_guard is not None:
+        artifact_publication_guard()
     return FitResult(model, pred, best_val, best_epoch)
 
 

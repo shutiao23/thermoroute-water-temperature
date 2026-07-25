@@ -27,6 +27,7 @@ REPORTS = OUTPUTS / "reports"
 MODELS = OUTPUTS / "models"
 LOGS = OUTPUTS / "logs"
 STAGE19_TRANSACTION_LOCK = OUTPUTS / ".stage19-probabilistic.lock"
+STAGE16_TRANSACTION_LOCK = OUTPUTS / ".stage16-lstm.lock"
 STAGE25_TRANSACTION_LOCK = OUTPUTS / ".stage25-external.lock"
 
 OUTPUT_DIRECTORIES = (

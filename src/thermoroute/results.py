@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -99,9 +100,20 @@ def validate_predictions(pred: pd.DataFrame, *,
             raise ValueError(f"duplicate prediction key:\n{duplicate.to_string(index=False)}")
 
 
-def write_predictions(pred: pd.DataFrame, path, *, require_unique: bool = True) -> None:
+def write_predictions(
+    pred: pd.DataFrame,
+    path,
+    *,
+    require_unique: bool = True,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
     validate_predictions(pred, require_unique=require_unique)
-    atomic_write_parquet(pred[PRED_COLS], path, index=False)
+    atomic_write_parquet(
+        pred[PRED_COLS],
+        path,
+        index=False,
+        publication_guard=publication_guard,
+    )
 
 
 def load_route_a_predictions(

@@ -8,9 +8,18 @@ a causal temporal convolutional encoder, a regime mixture, bounded residuals, an
 a separate MSE point head, three pinball-trained quantile heads, and split-conformal
 calibration of the nominal 90% interval.
 
-## Current evidence status
+## Byte-frozen pre-opening evidence snapshot
 
-The repository is in a **pre-opening reconstruction state**.
+This README is intentionally frozen as a PRE-stage document.  Present-tense
+statements in this section describe the evidence state at that seal; they are
+not a mutable dashboard.  After any valid one-time opening, the authoritative
+source-tree status is the verified canonical opening receipt together with the
+deterministic POST result suffix in `paper/ThermoRoute_paper.md`; a completed
+release archive additionally carries a verified `data_usgs/release_profile_v1.json`.
+Those generated records supersede this readiness snapshot without rewriting it.
+
+At the PRE-stage seal, the repository is in a **pre-opening reconstruction
+state**.
 
 - The canonical development panel is
   `data_usgs/panel_usgs_120v2.parquet`: 657,480 daily rows for 120 stable USGS
@@ -74,6 +83,17 @@ historical commits, is recorded in the
 [legacy three-site semantics notice](protocols/legacy_three_site_semantics_notice_v1.md).
 The identifiers `b1`, `s2`, and `p3` are ordinary monitoring stations; no
 topology, regulation status, or travel time is established for them.
+
+Two pre-label engineering corrections are recorded in the
+[native-thread enforcement notice](protocols/route_a_native_thread_enforcement_notice_v1.md)
+and the
+[native-artifact publication notice](protocols/route_a_native_artifact_publication_notice_v1.md).
+The latter requires every numerical artifact admitted to the confirmatory
+authority chain to be completely staged and fsynced, checked against the live
+one-thread policy at the exact atomic publication boundary, and rejected on
+cache acceptance when the live policy is not compliant. Both interrupted runs
+are diagnostic only; neither produced an admissible canonical prediction or
+completion receipt.
 
 ## Frozen evaluation design
 
@@ -173,7 +193,11 @@ implementation, not the official Air2stream code or a validated reproduction of 
 Temporal learned models receive stable site identity, while the pooled external
 models do not. The latter still consume each new gauge's observed WTEMP history.
 Other history cells may be filled by train-only seasonal medians while retaining
-missingness masks; there is no minimum observed fraction in the 32-day context.
+missingness masks in the sequence input; there is no minimum observed fraction in
+the 32-day context.  The learned prior and regime gate also consume current-day
+auxiliary values derived from that imputed panel without a separate validity flag
+for every auxiliary path.  The sequence branch still sees the corresponding masks,
+but fill-value invariance is not guaranteed and must be treated as a limitation.
 The 32 days are a construction buffer, not an effective 32-day memory claim: the
 router is restricted to lags 0--14, and the current two-block, kernel-three TCN
 has a theoretical seven-step receptive field. Consequently, no input older than
@@ -248,16 +272,22 @@ The intended order is strict:
    its own receipt as its final atomic write only after the exact 31-member
    (5 MLP + 5 TCN + 21 feature-ladder) registry, common forecast keys and truth,
    architecture/optimisation budget, combined predictions, report, and every
-   lineage sidecar validate. Stage 25 likewise publishes a standalone receipt as
+   lineage sidecar validate. Stage 16 publishes a separate receipt only after
+   validating its exact Stage-9 parent, the frozen LSTM selection grid and
+   candidate checkpoints/predictions, all five seed predictions on validation,
+   calibration, and development-test splits, an unchanged non-LSTM parent row
+   registry, the derived V2 prediction, the five-member bundle and both pointers,
+   and content-bound selection and bundle-replay audits. Stage 25 likewise
+   publishes a standalone receipt as
    its final atomic write only after its run manifest, pooled prediction and
    sidecar, component pointer, development-data bindings, two neural bundles, and
    the LightGBM manifest, and all 75 LightGBM member/head files form one exact
    80-model-file closure. Stage 24
-   rejects any of the Stage 9, Stage 09b, or Stage 25 receipts when it is missing,
-   stale, incomplete, tampered, or bound to another source/runtime/panel/registry.
-   It binds all three receipt paths and SHA-256 digests into the frozen suite
-   identity; the independent release verifier enforces the same three-gate closure
-   without executing archive code.
+   rejects any of the Stage 9, Stage 09b, Stage 16, or Stage 25 receipts when it
+   is missing, stale, incomplete, tampered, or bound to another
+   source/runtime/panel/registry. It binds all four receipt paths and SHA-256
+   digests into the frozen suite identity; the independent release verifier
+   enforces the same four-gate closure without executing archive code.
 4. Commit the model-suite registry while candidate metadata and target-period
    predictor artifacts are absent.
 5. Acquire metadata-only candidate evidence and retrospective Daymet/gridMET
@@ -352,8 +382,12 @@ The release archive produced by `scripts/make_release_archive.sh` is a local
 verification artifact, not permission to redistribute every bundled dataset and
 not a public release. Zenodo deposit metadata is intentionally disabled while
 creator identities and the redistribution terms for each data category remain
-unverified. A `.zenodo.json` file may be restored only after verified creators and
-separate, accurate data-license metadata are available.
+unverified. Historical Git objects include a withdrawn `.zenodo.json` whose
+claims of open/MIT data redistribution, safety, and prediction without
+target-site history are not authorized by the current evidence and must not be
+reused or treated as metadata for this project. A new `.zenodo.json` may be added
+only after verified creators,
+accurate scope claims, and separate data-license metadata are available.
 
 The archive's active member namespace excludes withdrawn outputs, generated
 figures, and rendered PDF/DOCX files. Its self-contained Git-history bundle is
@@ -367,4 +401,6 @@ license/privacy review before any public redistribution.
 Code is provided under the repository license. Data redistribution and provider
 terms must be reviewed separately before public release, especially for the three
 station case-study files whose source and redistribution authorization are not yet
-documented.
+documented.  The redistribution terms for the bundled third-party AGU LaTeX class
+must likewise be verified and recorded in a third-party notice, or that class must
+be excluded from any public code archive.

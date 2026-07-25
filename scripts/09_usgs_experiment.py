@@ -131,7 +131,6 @@ from thermoroute.model_suite import (
     STAGE9_AIR2STREAM_MODELS,
     STAGE9_COMPLETION_RECEIPT_PATH,
     STAGE9_LIGHTGBM_VALIDATION_GRID,
-    ModelSuiteError,
     build_stage09_completion_receipt,
     canonical_development_contract,
     development_predictor_bridge_binding,
@@ -211,6 +210,90 @@ def formal_publication_candidate(
         and str(training_device) == "cpu"
         and not bool(exploratory)
     )
+
+
+def formal_stage09_configuration(
+    *,
+    panel_path: Path,
+    training_device: str,
+    exploratory: bool,
+    canonical_output_paths: bool,
+    seeds: int,
+    station_sampling: str,
+    delta_scale: float,
+    ablations: bool,
+    air2stream: bool,
+) -> bool:
+    """Whether every pre-training condition permits canonical publication.
+
+    This is deliberately stricter than :func:`formal_publication_candidate`.
+    A run with the right panel and device but a partial seed ensemble, omitted
+    controls, or a sensitivity configuration is still a diagnostic run.  That
+    distinction must be known before the first result artifact is written.
+    """
+    return (
+        formal_publication_candidate(
+            panel_path=panel_path,
+            training_device=training_device,
+            exploratory=exploratory,
+        )
+        and bool(canonical_output_paths)
+        and int(seeds) == len(C.USGS_SEEDS)
+        and str(station_sampling) == "balanced"
+        and np.isclose(
+            float(delta_scale), float(DELTA_SCALE), rtol=0.0, atol=0.0
+        )
+        and bool(ablations)
+        and not bool(air2stream)
+    )
+
+
+def resolve_stage09_publication_paths(
+    *,
+    root: Path,
+    run_dir: Path,
+    requested_predictions: Path,
+    requested_scores: Path,
+    requested_report: Path,
+    formal_output_eligible: bool,
+) -> dict[str, Path]:
+    """Resolve all mutable Stage-9 result files into one authority scope.
+
+    A complete formal configuration retains the frozen canonical paths.
+    Everything else is forced beneath its content-addressed run directory;
+    caller-supplied or default canonical names can therefore never invalidate
+    an already completed formal receipt.
+    """
+    root = Path(root).resolve()
+    run_dir = Path(run_dir).resolve()
+    expected_run_root = (
+        root / "outputs" / "runs" / "09_usgs_experiment"
+    ).resolve()
+    if run_dir.parent != expected_run_root:
+        raise ValueError("Stage-9 diagnostic outputs require an exact run directory")
+
+    requested = {
+        "predictions": Path(requested_predictions).resolve(),
+        "scores": Path(requested_scores).resolve(),
+        "report": Path(requested_report).resolve(),
+    }
+    if formal_output_eligible:
+        if not stage09_outputs_are_canonical(root=root, **requested):
+            raise ValueError(
+                "formal Stage-9 publication requires all frozen canonical paths"
+            )
+        return {
+            **requested,
+            "lightgbm_selection": (
+                root / STAGE09_ARTIFACT_PATHS["lightgbm_selection"]
+            ).resolve(),
+        }
+
+    diagnostic_root = run_dir / "diagnostic_outputs"
+    return {
+        label: diagnostic_root / Path(STAGE09_ARTIFACT_PATHS[label]).name
+        for label in ("predictions", "scores", "report", "lightgbm_selection")
+    }
 
 
 def seed0_ablation_diagnostic_frames(
@@ -478,20 +561,37 @@ def read_prediction_cache(path, identity):
     return cached
 
 
-def write_prediction_artifact(frame, path, identity, *, kind, parents=None):
-    R.write_predictions(frame, path)
+def write_prediction_artifact(
+    frame,
+    path,
+    identity,
+    *,
+    kind,
+    publication_guard,
+    parents=None,
+):
+    R.write_predictions(
+        frame,
+        path,
+        publication_guard=publication_guard,
+    )
     seal_artifact(
         path,
         identity,
         kind=kind,
         schema=R.PREDICTION_SCHEMA_VERSION,
         parents=parents,
+        publication_guard=publication_guard,
     )
 
 
 def read_member_bundle(directory, identity, member_name):
     try:
-        weights, metadata = load_inference_bundle(directory, expected_member_count=1)
+        weights, metadata = load_inference_bundle(
+            directory,
+            expected_member_count=1,
+            publication_guard=assert_formal_numerical_policy,
+        )
     except (FileNotFoundError, ValueError, RuntimeError):
         return None
     expected_identity = (
@@ -638,8 +738,9 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                 Xtr, ytr, Xva, yva, "regression", params_override=params,
                 sample_weight=train_weight, val_sample_weight=validation_weight,
             )
-            validation_prediction = candidate.predict(Xva)
+            validation_prediction = candidate.predict(Xva, num_threads=1)
             score = _station_macro_validation_rmse(va, validation_prediction)
+            assert_formal_numerical_policy()
             selection_rows.append({
                 "horizon": h,
                 "candidate_id": candidate_id,
@@ -675,7 +776,9 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
             }
             def acquire_shard(head, head_config, trainer):
                 if shard_cache_path is None:
-                    return trainer()
+                    fitted = trainer()
+                    assert_formal_numerical_policy()
+                    return fitted
                 lineage = LightGBMShardLineage.from_run_identity(
                     shard_identity,
                     cohort=str(shard_cohort), seed=seed, horizon=h, head=head,
@@ -687,11 +790,13 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                     shard_cache_path, lineage=lineage, parity_input=parity_inputs[h]
                 )
                 if cached is not None:
+                    assert_formal_numerical_policy()
                     return cached
                 fitted = trainer()
                 return save_lightgbm_shard(
                     shard_cache_path, lineage=lineage, model=fitted,
                     parity_input=parity_inputs[h], parity_atol=1e-12,
+                    publication_guard=assert_formal_numerical_policy,
                 )
 
             common_regressor_config = {
@@ -804,7 +909,10 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                 )))
     if shard_cache_path is not None:
         finalize_shard_set(
-            shard_cache_path, lineages=shard_lineages, parity_inputs=parity_inputs
+            shard_cache_path,
+            lineages=shard_lineages,
+            parity_inputs=parity_inputs,
+            publication_guard=assert_formal_numerical_policy,
         )
     return (
         pd.concat(frames, ignore_index=True), pd.DataFrame(selection_rows),
@@ -860,14 +968,14 @@ def main():
 
     panel_path = Path(args.panel).resolve()
     registry_path = ROOT / "data_usgs" / "station_registry_v1.csv"
-    output_predictions = (C.PREDICTIONS / args.out_predictions).resolve()
-    score_path = (C.TABLES / args.out_scores).resolve()
-    report_path = (C.REPORTS / args.out_report).resolve()
+    requested_predictions = (C.PREDICTIONS / args.out_predictions).resolve()
+    requested_scores = (C.TABLES / args.out_scores).resolve()
+    requested_report = (C.REPORTS / args.out_report).resolve()
     canonical_output_paths = stage09_outputs_are_canonical(
         root=ROOT,
-        predictions=output_predictions,
-        scores=score_path,
-        report=report_path,
+        predictions=requested_predictions,
+        scores=requested_scores,
+        report=requested_report,
     )
     if not canonical_output_paths and not args.exploratory:
         ap.error(
@@ -887,13 +995,24 @@ def main():
             "--air2stream is an exploratory, model-specific-eligibility "
             "reference; a formal Route-A run must omit it"
         )
+    formal_configuration_complete = formal_stage09_configuration(
+        panel_path=panel_path,
+        training_device=resolved_device,
+        exploratory=args.exploratory,
+        canonical_output_paths=canonical_output_paths,
+        seeds=args.seeds,
+        station_sampling=args.station_sampling,
+        delta_scale=args.delta_scale,
+        ablations=args.ablations,
+        air2stream=args.air2stream,
+    )
     predictor_bridge = (
         development_predictor_bridge_binding(
             ROOT,
             panel_sha256=sha256_file(panel_path),
             registry_sha256=sha256_file(registry_path),
         )
-        if formal_candidate else None
+        if formal_configuration_complete else None
     )
     protocol = f"route_a_strict_v1_{args.station_sampling}_delta{args.delta_scale:g}"
     run_config = {
@@ -918,7 +1037,9 @@ def main():
         "device": resolved_device,
         "training_device": resolved_device,
         "execution_role": (
-            "route_a_formal_candidate" if formal_candidate else "exploratory_only"
+            "route_a_formal_candidate"
+            if formal_configuration_complete
+            else "run_scoped_diagnostic_only"
         ),
         "development_predictor_bridge": predictor_bridge,
         "eval_batch_size": args.eval_batch_size,
@@ -932,6 +1053,21 @@ def main():
         registry=registry_path,
         config=run_config,
     )
+    if formal_configuration_complete:
+        # Establish canonical data/source eligibility before any canonical
+        # result path can be selected or mutated.  A failed formal preflight is
+        # an error, never an implicit downgrade that could overwrite a receipt.
+        development_contract = canonical_development_contract(
+            ROOT,
+            ROOT / "data_usgs" / "frozen_panel_v1.json",
+            panel_sha256=identity.panel_sha256,
+            registry_sha256=identity.registry_sha256,
+            source_sha256=identity.source_sha256,
+        )
+        canonical_run = True
+    else:
+        development_contract = None
+        canonical_run = False
     run_dir = initialise_run_directory(
         ROOT / "outputs" / "runs" / "09_usgs_experiment",
         identity,
@@ -939,11 +1075,25 @@ def main():
         provenance={
             "evidence_role": (
                 "prelabel_route_a_model_build_development_only"
-                if formal_candidate else "development_exploratory_2019_2020"
+                if formal_configuration_complete
+                else "development_exploratory_2019_2020"
             ),
             "training_device": resolved_device,
         },
+        publication_guard=assert_formal_numerical_policy,
     )
+    publication_paths = resolve_stage09_publication_paths(
+        root=ROOT,
+        run_dir=run_dir,
+        requested_predictions=requested_predictions,
+        requested_scores=requested_scores,
+        requested_report=requested_report,
+        formal_output_eligible=formal_configuration_complete,
+    )
+    output_predictions = publication_paths["predictions"]
+    score_path = publication_paths["scores"]
+    report_path = publication_paths["report"]
+    lightgbm_selection_path = publication_paths["lightgbm_selection"]
     prediction_cache = run_dir / "predictions"
     training_checkpoints = run_dir / "checkpoints"
     member_cache = run_dir / "member_bundles"
@@ -953,6 +1103,8 @@ def main():
         if args.shard_cache else run_dir / "lightgbm_shards"
     )
     log(f"content-addressed run {identity.run_id} | device={resolved_device}")
+    if not formal_configuration_complete:
+        log(f"diagnostic outputs isolated under {publication_paths['predictions'].parent}")
 
     panel, panel_imp, masks, clim, stations, imputer = prep(str(panel_path))
     wd = DS.build_windows(panel_imp, masks, clim, variables=USGS_VARS,
@@ -997,10 +1149,6 @@ def main():
         shard_cohort="temporal_stage9",
     )
     chunks.append(lightgbm_predictions)
-    C.TABLES.mkdir(parents=True, exist_ok=True)
-    lightgbm_selection_path = (
-        C.TABLES / "lightgbm_joint_validation_selection.csv"
-    )
     atomic_write_bytes(
         lightgbm_selection_path,
         lightgbm_selection.to_csv(
@@ -1008,6 +1156,7 @@ def main():
             float_format="%.17g",
             lineterminator="\n",
         ).encode("utf-8"),
+        publication_guard=assert_formal_numerical_policy,
     )
     log("LightGBM joint done")
 
@@ -1021,6 +1170,7 @@ def main():
         cached_prediction = read_prediction_cache(seed_file, identity)
         cached_member = read_member_bundle(seed_bundle, identity, member_name)
         if cached_prediction is not None and cached_member is not None:
+            assert_formal_numerical_policy()
             tr_preds.append(cached_prediction)
             ensemble_members[member_name] = cached_member
             log(f"  ThermoRoute {member_name}: verified content cache")
@@ -1038,11 +1188,13 @@ def main():
                                           else "micro"),
                         checkpoint_path=training_checkpoints / f"{member_name}.pt",
                         run_id=identity.run_id,
-                        resolved_config={**run_config, "arm": "ThermoRoute", "seed": sd})
+                        resolved_config={**run_config, "arm": "ThermoRoute", "seed": sd},
+                        artifact_publication_guard=assert_formal_numerical_policy)
         model = res.model
         res.pred["seed"] = sd
         write_prediction_artifact(
-            res.pred, seed_file, identity, kind="thermoroute_seed_predictions"
+            res.pred, seed_file, identity, kind="thermoroute_seed_predictions",
+            publication_guard=assert_formal_numerical_policy,
         )
         tr_preds.append(res.pred)
         seed_offsets, seed_offset_audit, seed_calibrators = calibration_artifacts(
@@ -1058,6 +1210,7 @@ def main():
                 training_device=resolved_device,
             ),
             expected_member_count=1,
+            publication_guard=assert_formal_numerical_policy,
         )
         ensemble_members[member_name] = {
             key: value.detach().cpu().contiguous()
@@ -1074,6 +1227,7 @@ def main():
     lgo_file = prediction_cache / "thermoroute_lgo.parquet"
     cached_lgo = read_prediction_cache(lgo_file, identity)
     if cached_lgo is not None:
+        assert_formal_numerical_policy()
         chunks.append(cached_lgo)
         log("  LGO: verified content cache")
     else:
@@ -1092,11 +1246,13 @@ def main():
                         checkpoint_path=training_checkpoints / "lgo.pt",
                         run_id=identity.run_id,
                         resolved_config={**run_config, "arm": "ThermoRoute-LGO-WarmStart",
-                                         "seed": 0, "train_stations": trainset})
+                                         "seed": 0, "train_stations": trainset},
+                        artifact_publication_guard=assert_formal_numerical_policy)
         res.pred["seed"] = 0
         lgo_held = res.pred[res.pred.site_id.isin(hold)]
         write_prediction_artifact(
-            lgo_held, lgo_file, identity, kind="thermoroute_lgo_predictions"
+            lgo_held, lgo_file, identity, kind="thermoroute_lgo_predictions",
+            publication_guard=assert_formal_numerical_policy,
         )
         chunks.append(lgo_held)
         log(f"  LGO ({len(trainset)}→{len(hold)}): {time.time()-te:.0f}s")
@@ -1125,6 +1281,7 @@ def main():
             model_kw = dict(kw)
             model_kw.setdefault("delta_scale", args.delta_scale)
             if cached_ablation is not None and cached_weights is not None:
+                assert_formal_numerical_policy()
                 chunks.append(cached_ablation)
                 ablation_predictions[name] = cached_ablation
                 ablation_members[name] = cached_weights
@@ -1144,10 +1301,12 @@ def main():
                           checkpoint_path=training_checkpoints / f"ablation_{name}.pt",
                           run_id=identity.run_id,
                           resolved_config={**run_config, "arm": name, "seed": 0,
-                                           "model_kwargs": model_kw})
+                                           "model_kwargs": model_kw},
+                          artifact_publication_guard=assert_formal_numerical_policy)
             r.pred["seed"] = 0
             write_prediction_artifact(
-                r.pred, af, identity, kind="thermoroute_ablation_predictions"
+                r.pred, af, identity, kind="thermoroute_ablation_predictions",
+                publication_guard=assert_formal_numerical_policy,
             )
             (
                 ablation_offsets,
@@ -1166,6 +1325,7 @@ def main():
                     architecture_overrides=model_kw,
                 ),
                 expected_member_count=1,
+                publication_guard=assert_formal_numerical_policy,
             )
             ablation_predictions[name] = r.pred
             ablation_members[name] = {
@@ -1207,7 +1367,12 @@ def main():
         allp,
         output_predictions,
         identity,
-        kind="canonical_stage9_usgs_predictions",
+        kind=(
+            "canonical_stage9_usgs_predictions"
+            if formal_configuration_complete
+            else "diagnostic_stage9_usgs_predictions"
+        ),
+        publication_guard=assert_formal_numerical_policy,
         parents=(
             {"development_predictor_bridge_v1.json": predictor_bridge["sha256"]}
             if predictor_bridge is not None else None
@@ -1216,19 +1381,8 @@ def main():
     log(f"saved predictions ({len(allp)} rows)")
 
     # Formal bundles are bound to the immutable Stage-9 prediction artifact.
-    # A custom --panel may still produce a diagnostic bundle, but can never move
-    # a Route-A component pointer.
-    try:
-        development_contract = canonical_development_contract(
-            ROOT, ROOT / "data_usgs" / "frozen_panel_v1.json",
-            panel_sha256=identity.panel_sha256,
-            registry_sha256=identity.registry_sha256,
-            source_sha256=identity.source_sha256,
-        )
-        canonical_run = True
-    except ModelSuiteError:
-        development_contract = None
-        canonical_run = False
+    # Non-formal runs use only the diagnostic path selected above and can never
+    # move a Route-A component pointer.
 
     parity_atol = 1e-5
     offsets, offset_audit, event_calibrators = calibration_artifacts(
@@ -1252,9 +1406,12 @@ def main():
             ),
         ),
         expected_member_count=args.seeds,
+        publication_guard=assert_formal_numerical_policy,
     )
     loaded_members, loaded_metadata = load_inference_bundle(
-        deployment_bundle, expected_member_count=args.seeds
+        deployment_bundle,
+        expected_member_count=args.seeds,
+        publication_guard=assert_formal_numerical_policy,
     )
     if set(loaded_members) != set(ensemble_members) or loaded_metadata["run_id"] != identity.run_id:
         raise AssertionError("saved inference ensemble failed round-trip validation")
@@ -1264,7 +1421,9 @@ def main():
         model_factory=lambda _member, metadata: thermoroute_factory_from_metadata(metadata),
         member_seeds={f"seed{seed}": seed for seed in C.USGS_SEEDS[:args.seeds]},
         atol=parity_atol, batch_size=args.eval_batch_size,
+        publication_guard=assert_formal_numerical_policy,
     )
+    assert_formal_numerical_policy()
     update_torch_development_prediction(
         deployment_bundle,
         development_prediction_binding(
@@ -1328,13 +1487,16 @@ def main():
                 max_abs_difference=1e-12, atol=1e-12,
             ),
         },
+        publication_guard=assert_formal_numerical_policy,
     )
     lgb_difference = verify_lightgbm_prediction_parity(
         lgb_manifest, evaluation_design=lightgbm_evaluation_design,
         expected=allp[allp.model.eq("LightGBM")],
         member_seeds={f"seed{seed}": seed for seed in C.USGS_SEEDS},
         atol=1e-12,
+        publication_guard=assert_formal_numerical_policy,
     )
+    assert_formal_numerical_policy()
     update_lightgbm_development_prediction(
         lgb_manifest,
         development_prediction_binding(
@@ -1368,6 +1530,7 @@ def main():
                     ),
                 ),
                 expected_member_count=1,
+                publication_guard=assert_formal_numerical_policy,
             )
             difference = verify_sequence_prediction_parity(
                 destination, wd=wd, expected=pred,
@@ -1375,7 +1538,9 @@ def main():
                     thermoroute_factory_from_metadata(metadata),
                 member_seeds={name: 0}, atol=parity_atol,
                 batch_size=args.eval_batch_size,
+                publication_guard=assert_formal_numerical_policy,
             )
+            assert_formal_numerical_policy()
             update_torch_development_prediction(
                 destination,
                 development_prediction_binding(
@@ -1386,7 +1551,8 @@ def main():
             ablation_deployments[name] = destination
 
     formal_complete = (
-        canonical_run and full_ensemble and args.ablations
+        formal_configuration_complete
+        and canonical_run and full_ensemble and args.ablations
         and formal_candidate and predictor_bridge is not None
         and canonical_output_paths
         and args.station_sampling == "balanced"
@@ -1439,6 +1605,7 @@ def main():
             float_format="%.17g",
             lineterminator="\n",
         ).encode("utf-8"),
+        publication_guard=assert_formal_numerical_policy,
     )
 
     L = [f"# USGS large-sample experiment ({len(stations)} stations, {args.seeds} seeds)\n",
@@ -1516,7 +1683,11 @@ def main():
     report_payload = ("\n".join(L) + "\n").encode("utf-8")
 
     def write_report() -> None:
-        atomic_write_bytes(report_path, report_payload)
+        atomic_write_bytes(
+            report_path,
+            report_payload,
+            publication_guard=assert_formal_numerical_policy,
+        )
 
     def validate_outputs() -> None:
         validate_stage09_prepublication_outputs(
@@ -1536,20 +1707,31 @@ def main():
         receipt_path = ROOT / STAGE9_COMPLETION_RECEIPT_PATH
 
         def publish_pointers() -> None:
-            atomic_write_json(thermoroute_pointer, {
-                "run_id": identity.run_id,
-                "bundle_path": deployment_bundle.relative_to(ROOT).as_posix(),
-                "member_count": len(loaded_members),
-                "metadata_sha256": sha256_file(
-                    deployment_bundle / "metadata.json"
-                ),
-                "weights_sha256": sha256_file(deployment_bundle / "weights.pt"),
-            })
-            atomic_write_json(lightgbm_pointer, {
-                "run_id": identity.run_id,
-                "manifest": file_binding(ROOT, lgb_manifest),
-                "member_count": len(C.USGS_SEEDS),
-            })
+            assert_formal_numerical_policy()
+            atomic_write_json(
+                thermoroute_pointer,
+                {
+                    "run_id": identity.run_id,
+                    "bundle_path": deployment_bundle.relative_to(ROOT).as_posix(),
+                    "member_count": len(loaded_members),
+                    "metadata_sha256": sha256_file(
+                        deployment_bundle / "metadata.json"
+                    ),
+                    "weights_sha256": sha256_file(
+                        deployment_bundle / "weights.pt"
+                    ),
+                },
+                publication_guard=assert_formal_numerical_policy,
+            )
+            atomic_write_json(
+                lightgbm_pointer,
+                {
+                    "run_id": identity.run_id,
+                    "manifest": file_binding(ROOT, lgb_manifest),
+                    "member_count": len(C.USGS_SEEDS),
+                },
+                publication_guard=assert_formal_numerical_policy,
+            )
             write_component_pointer(
                 components_pointer,
                 run_id=identity.run_id,
@@ -1563,6 +1745,7 @@ def main():
                         ROOT, sidecar_path(output_predictions)
                     ),
                 },
+                publication_guard=assert_formal_numerical_policy,
             )
 
         def publish_receipt() -> Path:
@@ -1584,6 +1767,7 @@ def main():
                 document,
                 root=ROOT,
                 stage9_pointer=components_pointer,
+                publication_guard=assert_formal_numerical_policy,
             )
             return receipt_path
 

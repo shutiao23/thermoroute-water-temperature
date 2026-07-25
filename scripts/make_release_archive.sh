@@ -87,14 +87,11 @@ if [[ "$PROFILE" == "ROUTE_A_OPENED_COMPLETE" ]]; then
     --check-postopen-dirt --source-root "$ROOT_DIR" \
     --authorization "$AUTHORIZATION"
 else
-  if [[ "${ALLOW_DIRTY_RELEASE:-0}" != "1" ]]; then
-    DIRTY="$(git status --porcelain --untracked-files=all)"
-    if [[ -n "$DIRTY" ]]; then
-      echo "release refused: Git worktree is dirty" >&2
-      echo "$DIRTY" >&2
-      echo "Commit/stash changes, or set ALLOW_DIRTY_RELEASE=1 for a local non-release test." >&2
-      exit 2
-    fi
+  DIRTY="$(git status --porcelain --untracked-files=all)"
+  if [[ -n "$DIRTY" ]]; then
+    echo "release refused: formal pre-opening release requires a clean Git worktree" >&2
+    echo "$DIRTY" >&2
+    exit 2
   fi
 fi
 
@@ -115,6 +112,8 @@ required=(
   protocols/route_a_inference_amendment_seal_v2.json
   protocols/route_a_probability_metric_erratum_v1.json
   protocols/route_a_probability_metric_erratum_seal_v1.json
+  protocols/route_a_native_thread_enforcement_notice_v1.md
+  protocols/route_a_native_artifact_publication_notice_v1.md
   protocols/legacy_three_site_semantics_notice_v1.md
   protocols/route_a_claim_registry_v1.json
   scripts/26_validate_claims.py
@@ -196,9 +195,6 @@ copy_tracked_tree() {
 for path in src scripts tests .github protocols; do
   copy_tracked_tree "$path"
 done
-# Keep the authoritative b1/s2/p3 correction in dirty local release tests too;
-# production releases still require a clean, tracked worktree.
-copy_path protocols/legacy_three_site_semantics_notice_v1.md
 for path in "${paper_paths[@]}"; do
   copy_path "$path"
 done

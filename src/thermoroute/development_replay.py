@@ -15,7 +15,8 @@ import os
 from pathlib import Path
 import platform
 import sys
-from typing import Any, Mapping, Sequence, cast
+import tempfile
+from typing import Any, Callable, Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -348,7 +349,10 @@ def _load_suite(
     suite_path: Path,
     *,
     runtime_contract: Mapping[str, Any] | None = None,
+    publication_guard: Callable[[], object] | None = None,
 ) -> dict[str, Any]:
+    if publication_guard is not None:
+        publication_guard()
     try:
         value = json.loads(suite_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as exc:
@@ -371,7 +375,13 @@ def _load_suite(
         )
     if value.get("training_device") != "cpu":
         raise ModelSuiteError("development replay suite is not CPU-trained")
-    validate_model_suite_document(value, root=root)
+    validate_model_suite_document(
+        value,
+        root=root,
+        publication_guard=publication_guard,
+    )
+    if publication_guard is not None:
+        publication_guard()
     return value
 
 
@@ -380,7 +390,10 @@ def _selected_predictions(
     metadata: Mapping[str, Any],
     *,
     model_id: str,
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[pd.DataFrame, Mapping[str, Any]]:
+    if publication_guard is not None:
+        publication_guard()
     binding = metadata.get("development_prediction")
     validate_development_prediction_binding(root, binding, label=model_id)
     assert isinstance(binding, Mapping)
@@ -399,6 +412,8 @@ def _selected_predictions(
     ].copy()
     if len(selected) != int(binding["rows"]):
         raise ModelSuiteError(f"{model_id} replay selection row count changed")
+    if publication_guard is not None:
+        publication_guard()
     return selected, binding
 
 
@@ -538,8 +553,10 @@ def run_development_replay(
     root: str | Path,
     suite_path: str | Path,
     runtime_contract: Mapping[str, Any] | None = None,
+    publication_guard: Callable[[], object],
 ) -> dict[str, Any]:
     """Execute the full learned-model replay and return a deterministic receipt."""
+    publication_guard()
     root = Path(root).resolve()
     suite_path = Path(suite_path).resolve()
     if root not in suite_path.parents:
@@ -549,7 +566,12 @@ def run_development_replay(
         if runtime_contract is None
         else dict(runtime_contract)
     )
-    suite = _load_suite(root, suite_path, runtime_contract=runtime)
+    suite = _load_suite(
+        root,
+        suite_path,
+        runtime_contract=runtime,
+        publication_guard=publication_guard,
+    )
     frozen_source_sha256 = str(
         suite["development_contract"]["source_sha256"]
     )
@@ -567,12 +589,14 @@ def run_development_replay(
         temporal_windows,
         temporal_preprocessing,
     ) = _prepare_temporal(root, suite)
+    publication_guard()
     (
         external_panel,
         external_climatology,
         external_windows,
         external_preprocessing,
     ) = _prepare_external(panel, masks, stations, features)
+    publication_guard()
 
     results: list[dict[str, Any]] = []
     for cohort, expected_models, panel_imputed, climatology, windows, preprocessing in (
@@ -606,9 +630,15 @@ def run_development_replay(
             artifact = entry["artifact"]
             if executor == "lightgbm_bundle":
                 manifest_path = _inside(root, artifact["path"])
-                models, metadata = load_lightgbm_bundle(manifest_path)
+                models, metadata = load_lightgbm_bundle(
+                    manifest_path,
+                    publication_guard=publication_guard,
+                )
                 expected, binding = _selected_predictions(
-                    root, metadata, model_id=model_id
+                    root,
+                    metadata,
+                    model_id=model_id,
+                    publication_guard=publication_guard,
                 )
                 if metadata.get("preprocessing") != preprocessing:
                     raise ModelSuiteError(
@@ -632,14 +662,20 @@ def run_development_replay(
                     expected=expected,
                     member_seeds=member_seeds,
                     atol=float(binding["atol"]),
+                    publication_guard=publication_guard,
                 )
             else:
                 directory = _inside(root, artifact["path"], directory=True)
                 weights, metadata = load_inference_bundle(
-                    directory, expected_member_count=int(entry["member_count"])
+                    directory,
+                    expected_member_count=int(entry["member_count"]),
+                    publication_guard=publication_guard,
                 )
                 expected, binding = _selected_predictions(
-                    root, metadata, model_id=model_id
+                    root,
+                    metadata,
+                    model_id=model_id,
+                    publication_guard=publication_guard,
                 )
                 if metadata.get("preprocessing") != preprocessing:
                     raise ModelSuiteError(
@@ -661,6 +697,7 @@ def run_development_replay(
                     member_seeds=member_seeds,
                     atol=float(binding["atol"]),
                     splits=split_order,
+                    publication_guard=publication_guard,
                 )
             if (
                 binding.get("selection")
@@ -676,6 +713,7 @@ def run_development_replay(
                 label=f"{cohort}/{model_id}",
                 external=cohort == "external",
             )
+            publication_guard()
             results.append({
                 "cohort": cohort,
                 "model": model_id,
@@ -705,6 +743,7 @@ def run_development_replay(
         "models": results,
     }
     document["receipt_self_sha256"] = sha256_json(document)
+    publication_guard()
     return document
 
 
@@ -714,12 +753,14 @@ def run_guarded_development_replay(
     suite_path: str | Path,
     receipt_path: str | Path,
     entrypoint_path: str | Path,
+    publication_guard: Callable[[], object],
 ) -> dict[str, Any]:
     """Run the full replay under the fixed isolated, no-I/O-side-effect policy."""
     root = Path(root).resolve()
     suite_path = Path(suite_path).resolve()
     receipt_path = Path(receipt_path).resolve()
     entrypoint_path = Path(entrypoint_path).resolve()
+    publication_guard()
     _assert_formal_invocation(root, entrypoint_path)
     identity = _execution_identity(
         root=root,
@@ -734,12 +775,14 @@ def run_guarded_development_replay(
     # value through both the suite gate and final receipt; never recompute it
     # inside the guarded region.
     runtime = numerical_runtime_contract()
+    publication_guard()
     guard = DevelopmentReplayIOGuard(root)
     with guard:
         document = run_development_replay(
             root=root,
             suite_path=suite_path,
             runtime_contract=runtime,
+            publication_guard=publication_guard,
         )
     stable = {
         key: value for key, value in document.items()
@@ -753,6 +796,7 @@ def run_guarded_development_replay(
             "replacement of CPython, the operating system, or the repository owner"
         ),
     }
+    publication_guard()
     return {**stable, "receipt_self_sha256": sha256_json(stable)}
 
 
@@ -762,22 +806,27 @@ def fresh_verify_development_replay_receipt(
     root: str | Path,
     suite_path: str | Path,
     entrypoint_path: str | Path,
+    publication_guard: Callable[[], object],
 ) -> dict[str, Any]:
     """Recompute all predictions and require exact receipt equivalence."""
+    publication_guard()
     receipt_path = Path(receipt_path).resolve()
     existing = validate_development_replay_receipt(
         receipt_path, root=root, suite_path=suite_path
     )
+    publication_guard()
     replayed = run_guarded_development_replay(
         root=root,
         suite_path=suite_path,
         receipt_path=receipt_path,
         entrypoint_path=entrypoint_path,
+        publication_guard=publication_guard,
     )
     if replayed != existing:
         raise ModelSuiteError(
             "fresh full development replay differs from the frozen receipt"
         )
+    publication_guard()
     return existing
 
 
@@ -910,25 +959,57 @@ def validate_development_replay_receipt(
     return receipt
 
 
-def write_replay_receipt(path: str | Path, document: Mapping[str, Any]) -> Path:
-    """Create the deterministic receipt once; never replace different bytes."""
+def write_replay_receipt(
+    path: str | Path,
+    document: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> Path:
+    """Stage and create-only publish the deterministic replay receipt."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = (canonical_json(document) + "\n").encode("utf-8")
-    try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
-    except FileExistsError:
-        if path.read_bytes() != payload:
+    if path.exists() or path.is_symlink():
+        if path.is_symlink() or not path.is_file() or path.read_bytes() != payload:
             raise FileExistsError(
                 f"refusing to replace different development replay receipt: {path}"
             )
+        if publication_guard is not None:
+            publication_guard()
         return path
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".staging", dir=path.parent
+    )
+    temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
+            os.fchmod(handle.fileno(), 0o444)
             os.fsync(handle.fileno())
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
+        if publication_guard is not None:
+            publication_guard()
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if path.is_symlink() or not path.is_file() or path.read_bytes() != payload:
+                raise FileExistsError(
+                    f"refusing to replace different development replay receipt: {path}"
+                ) from None
+        parent_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.read_bytes() != payload
+    ):
+        raise FileExistsError(
+            f"refusing to replace different development replay receipt: {path}"
+        )
     return path

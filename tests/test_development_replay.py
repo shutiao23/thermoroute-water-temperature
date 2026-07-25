@@ -35,10 +35,13 @@ from thermoroute.development_replay import (  # noqa: E402
     _load_suite,
     _member_seeds,
     _validate_formal_pycache_prefix,
+    fresh_verify_development_replay_receipt,
+    run_development_replay,
     run_guarded_development_replay,
     validate_development_replay_receipt,
     write_replay_receipt,
 )
+import thermoroute.development_replay as DEVELOPMENT_REPLAY  # noqa: E402
 
 
 FORBIDDEN_CONFIRMATION_READ_PATHS = (
@@ -218,6 +221,28 @@ def test_development_replay_receipt_never_overwrites_different_bytes(tmp_path):
         write_replay_receipt(path, {"value": 2})
 
 
+def test_development_replay_receipt_guard_fails_before_create_only_link(tmp_path):
+    path = tmp_path / "receipt.json"
+    observed_staging: list[bytes] = []
+
+    def reject() -> None:
+        observed_staging.extend(
+            candidate.read_bytes()
+            for candidate in tmp_path.glob(f".{path.name}.*.staging")
+        )
+        raise RuntimeError("injected replay receipt drift")
+
+    with pytest.raises(RuntimeError, match="replay receipt drift"):
+        write_replay_receipt(
+            path,
+            {"value": 1},
+            publication_guard=reject,
+        )
+    assert observed_staging == [b'{"value":1}\n']
+    assert not path.exists()
+    assert not list(tmp_path.glob(f".{path.name}.*.staging"))
+
+
 @pytest.mark.parametrize("forged_path", FORBIDDEN_CONFIRMATION_READ_PATHS)
 def test_development_replay_receipt_rejects_confirmation_read_evidence(
     tmp_path, forged_path,
@@ -351,18 +376,28 @@ def test_guarded_replay_fingerprints_runtime_before_subprocess_ban(
 ):
     runtime = {"host_numerical_identity": {"cpu": "fixture"}}
     events = []
+    replay_completed = False
+    policy_observations: list[bool] = []
+
+    def publication_guard() -> None:
+        policy_observations.append(replay_completed)
+
+    expected_guard = publication_guard
 
     def fingerprint():
         events.append("runtime")
         return runtime
 
-    def replay(*, root, suite_path, runtime_contract):
+    def replay(*, root, suite_path, runtime_contract, publication_guard):
+        nonlocal replay_completed
         events.append("replay")
         assert root == tmp_path.resolve()
         assert suite_path == (tmp_path / "suite.json").resolve()
         assert runtime_contract == runtime
+        assert publication_guard is expected_guard
         with pytest.raises(PermissionError, match="child processes"):
             subprocess.run(["/usr/bin/true"], check=False)
+        replay_completed = True
         return {"status": "PASS", "receipt_self_sha256": "discarded"}
 
     monkeypatch.setattr(
@@ -387,13 +422,203 @@ def test_guarded_replay_fingerprints_runtime_before_subprocess_ban(
         suite_path=tmp_path / "suite.json",
         receipt_path=tmp_path / "receipt.json",
         entrypoint_path=tmp_path / "scripts" / "27_verify_development_replay.py",
+        publication_guard=publication_guard,
     )
 
     assert events == ["runtime", "replay"]
+    assert policy_observations[-1] is True
     assert document["status"] == "PASS"
     assert document["execution_attestation"]["io_guard"][
         "subprocess_allowed"
     ] is False
+
+
+def test_run_development_replay_guard_reaches_numeric_bundle_acceptance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_sha256 = "s" * 64
+    artifact = tmp_path / "lightgbm" / "manifest.json"
+    artifact.parent.mkdir()
+    artifact.write_text("{}", encoding="utf-8")
+    suite = {
+        "development_contract": {"source_sha256": source_sha256},
+        "actual_feature_order": ["WTEMP"],
+        "cohorts": {
+            "temporal": {"models": [{
+                "model_id": "LightGBM",
+                "executor": "lightgbm_bundle",
+                "member_count": 5,
+                "artifact": {"path": artifact.relative_to(tmp_path).as_posix()},
+            }]},
+            "external": {"models": []},
+        },
+    }
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text(json.dumps(suite), encoding="utf-8")
+    reconstructed = False
+    guard_observations: list[bool] = []
+
+    def publication_guard() -> None:
+        guard_observations.append(reconstructed)
+        if reconstructed:
+            raise RuntimeError("injected replay bundle policy drift")
+
+    expected_guard = publication_guard
+
+    def fake_load(_path, *, publication_guard):
+        nonlocal reconstructed
+        assert publication_guard is expected_guard
+        reconstructed = True
+        publication_guard()
+        raise AssertionError("the publication guard must fail closed")
+
+    monkeypatch.setattr(DEVELOPMENT_REPLAY, "LEARNED_TEMPORAL", ("LightGBM",))
+    monkeypatch.setattr(DEVELOPMENT_REPLAY, "LEARNED_EXTERNAL", ())
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "_load_suite",
+        lambda *_args, **_kwargs: suite,
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "source_tree_hash",
+        lambda _root: source_sha256,
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "_prepare_temporal",
+        lambda *_args, **_kwargs: (
+            object(), object(), ("fixture-site",), object(), object(), object(), {},
+        ),
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "_prepare_external",
+        lambda *_args, **_kwargs: (object(), object(), object(), {}),
+    )
+    monkeypatch.setattr(DEVELOPMENT_REPLAY, "load_lightgbm_bundle", fake_load)
+
+    with pytest.raises(RuntimeError, match="replay bundle policy drift"):
+        run_development_replay(
+            root=tmp_path,
+            suite_path=suite_path,
+            runtime_contract={"fixture": True},
+            publication_guard=publication_guard,
+        )
+    assert guard_observations[-1] is True
+
+
+def test_run_development_replay_guard_rechecks_after_receipt_construction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_sha256 = "s" * 64
+    suite = {
+        "development_contract": {"source_sha256": source_sha256},
+        "actual_feature_order": ["WTEMP"],
+        "numerical_runtime_sha256": "r" * 64,
+        "cohorts": {
+            "temporal": {"models": []},
+            "external": {"models": []},
+        },
+    }
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text(json.dumps(suite), encoding="utf-8")
+    receipt_hashed = False
+    guard_observations: list[bool] = []
+    original_sha256_json = DEVELOPMENT_REPLAY.sha256_json
+
+    def tracked_sha256_json(value):
+        nonlocal receipt_hashed
+        digest = original_sha256_json(value)
+        if isinstance(value, dict) and value.get("format") == DEVELOPMENT_REPLAY_FORMAT:
+            receipt_hashed = True
+        return digest
+
+    def publication_guard() -> None:
+        guard_observations.append(receipt_hashed)
+        if receipt_hashed:
+            raise RuntimeError("injected replay receipt policy drift")
+
+    monkeypatch.setattr(DEVELOPMENT_REPLAY, "LEARNED_TEMPORAL", ())
+    monkeypatch.setattr(DEVELOPMENT_REPLAY, "LEARNED_EXTERNAL", ())
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "_load_suite",
+        lambda *_args, **_kwargs: suite,
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "source_tree_hash",
+        lambda _root: source_sha256,
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "_prepare_temporal",
+        lambda *_args, **_kwargs: (
+            object(), object(), (), object(), object(), object(), {},
+        ),
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "_prepare_external",
+        lambda *_args, **_kwargs: (object(), object(), object(), {}),
+    )
+    monkeypatch.setattr(DEVELOPMENT_REPLAY, "sha256_json", tracked_sha256_json)
+
+    with pytest.raises(RuntimeError, match="replay receipt policy drift"):
+        run_development_replay(
+            root=tmp_path,
+            suite_path=suite_path,
+            runtime_contract={"fixture": True},
+            publication_guard=publication_guard,
+        )
+    assert guard_observations[0] is False
+    assert guard_observations[-1] is True
+
+
+def test_fresh_verify_guard_rechecks_after_exact_replay_equivalence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = {"status": "PASS", "receipt_self_sha256": "fixture"}
+    replay_completed = False
+    guard_observations: list[bool] = []
+
+    def publication_guard() -> None:
+        guard_observations.append(replay_completed)
+        if replay_completed:
+            raise RuntimeError("injected fresh-verify policy drift")
+
+    expected_guard = publication_guard
+
+    def fake_replay(*, publication_guard, **_kwargs):
+        nonlocal replay_completed
+        assert publication_guard is expected_guard
+        replay_completed = True
+        return existing
+
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "validate_development_replay_receipt",
+        lambda *_args, **_kwargs: existing,
+    )
+    monkeypatch.setattr(
+        DEVELOPMENT_REPLAY,
+        "run_guarded_development_replay",
+        fake_replay,
+    )
+
+    with pytest.raises(RuntimeError, match="fresh-verify policy drift"):
+        fresh_verify_development_replay_receipt(
+            tmp_path / "receipt.json",
+            root=tmp_path,
+            suite_path=tmp_path / "suite.json",
+            entrypoint_path=tmp_path / "scripts" / "27_verify_development_replay.py",
+            publication_guard=publication_guard,
+        )
+    assert guard_observations[-1] is True
 
 
 def test_formal_replay_rejects_missing_or_repository_local_pycache(tmp_path):

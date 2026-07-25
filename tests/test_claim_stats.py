@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 from pathlib import Path
 import sys
@@ -92,6 +93,7 @@ def _development_identities() -> list[dict[str, object]]:
             horizon=horizon,
             reference=reference,
             source_prediction_sha256="a" * 64,
+            stage16_completion_receipt_sha256="c" * 64,
             source_tree_sha256="b" * 64,
         )
         for horizon in (1, 3, 7)
@@ -134,6 +136,44 @@ def test_development_mirror_rows_have_exact_nonformal_identity_schema():
         row["summarized_models"] == "|".join(CLAIM_STATS.MODELS)
         for row in rows
     )
+    assert all(
+        row["stage16_completion_receipt_sha256"] == "c" * 64
+        for row in rows
+    )
+
+
+def test_stage12_holds_stage16_gate_across_all_publication(monkeypatch, tmp_path):
+    events: list[object] = []
+    lock_path = tmp_path / "stage16.lock"
+    monkeypatch.setattr(CLAIM_STATS.C, "STAGE16_TRANSACTION_LOCK", lock_path)
+
+    @contextmanager
+    def fake_lock(path, *, exclusive):
+        events.append(("lock-enter", path, exclusive))
+        yield
+        events.append(("lock-exit", path, exclusive))
+
+    def fake_validate(path, *, root, replay_bundle):
+        events.append(("gate", path, root, replay_bundle))
+        return {"status": "PASS_FORMAL_STAGE16_COMPLETE"}
+
+    def fake_run(*, stage16_completion_receipt_sha256):
+        events.append(("run", stage16_completion_receipt_sha256))
+
+    monkeypatch.setattr(CLAIM_STATS, "advisory_file_lock", fake_lock)
+    monkeypatch.setattr(
+        CLAIM_STATS, "validate_stage16_completion_receipt", fake_validate
+    )
+    monkeypatch.setattr(CLAIM_STATS, "sha256_file", lambda _path: "d" * 64)
+    monkeypatch.setattr(CLAIM_STATS, "_run", fake_run)
+    CLAIM_STATS.main()
+
+    assert events == [
+        ("lock-enter", lock_path, False),
+        ("gate", CLAIM_STATS.STAGE16_RECEIPT, CLAIM_STATS.ROOT, False),
+        ("run", "d" * 64),
+        ("lock-exit", lock_path, False),
+    ]
 
 
 def test_development_mirror_has_exactly_five_family_rows_and_excludes_h1_lightgbm():

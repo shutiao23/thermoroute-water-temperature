@@ -17,6 +17,7 @@ outputs/predictions/
 outputs/models/
 outputs/logs/
 outputs/.stage19-probabilistic.lock
+outputs/.stage16-lstm.lock
 outputs/.stage25-external.lock
 data/processed/
 

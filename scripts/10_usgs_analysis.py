@@ -156,11 +156,13 @@ def _main_under_lock() -> None:
 
 
 def main() -> None:
-    # Stage19 takes the same path exclusively.  Holding this shared lock across
-    # isolated verification, byte reads, parsing, and report publication closes
-    # the validate-then-replace race for ordinary concurrent executions.
-    with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=False):
-        _main_under_lock()
+    # Use the same global Stage16 -> Stage19 order as the Stage19 producer.
+    # Holding both shared locks across isolated verification, byte reads,
+    # parsing, and publication closes both upstream and Stage19 replacement
+    # races without creating a lock-order cycle.
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=False):
+            _main_under_lock()
 
 
 if __name__ == "__main__":

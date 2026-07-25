@@ -29,7 +29,7 @@ import stat
 import subprocess
 import sys
 import tempfile
-from typing import Any, Iterator, Mapping, Sequence, cast
+from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 from urllib.parse import parse_qs, urlsplit
 import warnings
 
@@ -660,7 +660,12 @@ def _validate_atomic_final_file(
                 )
 
 
-def _atomic_create_bytes(path: Path, payload: bytes) -> None:
+def _atomic_create_bytes(
+    path: Path,
+    payload: bytes,
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
     """Create immutable bytes atomically; a writer crash cannot expose a prefix."""
     path = Path(os.path.abspath(os.fspath(path)))
     with _secure_directory_chain(path.parent, create=True) as parent_descriptor:
@@ -698,6 +703,8 @@ def _atomic_create_bytes(path: Path, payload: bytes) -> None:
                     "after_final_mode_before_inode_fsync", path
                 )
                 os.fsync(handle.fileno())
+            if publication_guard is not None:
+                publication_guard()
             _atomic_create_fault("before_no_replace_link", path)
             try:
                 os.link(
@@ -5669,7 +5676,10 @@ def _harden_recoverable_trusted_directory(state: Mapping[str, Any]) -> None:
 
 
 def _atomic_publish_trusted_directory(
-    stage_directory: Path, state: Mapping[str, Any]
+    stage_directory: Path,
+    state: Mapping[str, Any],
+    *,
+    publication_guard: Callable[[], object] | None = None,
 ) -> Path:
     """Publish a validated trusted directory with one same-parent rename."""
     canonical = _trusted_directory_from_state(state)
@@ -5705,6 +5715,8 @@ def _atomic_publish_trusted_directory(
         )
         try:
             os.fsync(stage_descriptor)
+            if publication_guard is not None:
+                publication_guard()
             _trusted_publication_fault("before_trusted_directory_rename")
             try:
                 os.rename(
@@ -10576,6 +10588,7 @@ def isolated_score_and_receipt(
                     trusted_permission_recovery
                 ),
             )
+            assert_formal_numerical_policy()
             if trusted_permission_recovery:
                 _harden_recoverable_trusted_directory(state)
             if abandoned_stage_count:
@@ -10602,11 +10615,17 @@ def isolated_score_and_receipt(
                 staged=True,
             )
             _trusted_publication_fault("after_stage_validation")
-            _atomic_publish_trusted_directory(stage_directory, state)
+            assert_formal_numerical_policy()
+            _atomic_publish_trusted_directory(
+                stage_directory,
+                state,
+                publication_guard=assert_formal_numerical_policy,
+            )
             _trusted_publication_fault("after_trusted_publish")
             _assert_validated_artifacts_published(
                 validated=validated, root=root
             )
+            assert_formal_numerical_policy()
         if validated.get("all_required_models_reported") is not True:
             raise OpeningContractError(
                 "trusted scorer did not report every frozen model"
@@ -10626,15 +10645,21 @@ def isolated_score_and_receipt(
                 _cleanup_atomic_create_path_temps(
                     sidecar_path, sidecar_path.read_bytes()
                 )
+            assert_formal_numerical_policy()
             if not sidecar_exists:
                 _atomic_create_bytes(
-                    sidecar_path, _receipt_sidecar_bytes(receipt_path)
+                    sidecar_path,
+                    _receipt_sidecar_bytes(receipt_path),
+                    publication_guard=assert_formal_numerical_policy,
                 )
                 _trusted_publication_fault("after_receipt_sidecar_recovery")
-            return _read_completed_receipt(
+            completed = _read_completed_receipt(
                 authorization_path=authorization_path, root=root
             )
+            assert_formal_numerical_policy()
+            return completed
 
+        assert_formal_numerical_policy()
         runtime_attestation = environment_fingerprint()
         if runtime_attestation.get(
             "numerical_runtime_sha256"
@@ -10696,17 +10721,25 @@ def isolated_score_and_receipt(
             **receipt_stable,
             "receipt_self_sha256": sha256_json(receipt_stable),
         }
+        assert_formal_numerical_policy()
         _atomic_create_bytes(
-            receipt_path, canonical_json_bytes(receipt)
+            receipt_path,
+            canonical_json_bytes(receipt),
+            publication_guard=assert_formal_numerical_policy,
         )
         _trusted_publication_fault("after_receipt_publish")
+        assert_formal_numerical_policy()
         _atomic_create_bytes(
-            sidecar_path, _receipt_sidecar_bytes(receipt_path)
+            sidecar_path,
+            _receipt_sidecar_bytes(receipt_path),
+            publication_guard=assert_formal_numerical_policy,
         )
         _trusted_publication_fault("after_receipt_sidecar_publish")
-        return _read_completed_receipt(
+        completed = _read_completed_receipt(
             authorization_path=authorization_path, root=root
         )
+        assert_formal_numerical_policy()
+        return completed
 
 
 def _read_completed_receipt(
@@ -10967,6 +11000,13 @@ def isolated_verify_release(
         raise OpeningContractError("release replay must run under python -I")
     if root not in authorization_path.parents or not authorization_path.is_file():
         raise OpeningContractError("release authorization escapes or is absent")
+    try:
+        configure_deterministic_runtime()
+        assert_formal_numerical_policy()
+    except RuntimeError as exc:
+        raise OpeningContractError(
+            "release replay determinism policy was not applied"
+        ) from exc
     preflight = validate_authorization(
         authorization_path,
         root=root,
@@ -10991,7 +11031,8 @@ def isolated_verify_release(
     )
     if validated["artifacts"] != receipt.get("artifacts"):
         raise OpeningContractError("release replay artifacts differ from receipt")
-    return {
+    assert_formal_numerical_policy()
+    result = {
         "status": "ROUTE_A_RELEASE_REPLAY_VALID",
         "opening_id": receipt["opening_id"],
         "state_namespace": receipt["state_paths"]["namespace"],
@@ -11006,6 +11047,8 @@ def isolated_verify_release(
         "network_used": False,
         "files_written": False,
     }
+    assert_formal_numerical_policy()
+    return result
 
 
 def run_opening_once(

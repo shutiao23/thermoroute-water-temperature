@@ -13,7 +13,7 @@ import re
 import shutil
 import stat
 import tempfile
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import torch
@@ -359,7 +359,12 @@ def _move_optimizer_state(optimizer: torch.optim.Optimizer,
                 state[key] = value.to(device)
 
 
-def _atomic_torch_save(value: Any, destination: str | Path) -> None:
+def _atomic_torch_save(
+    value: Any,
+    destination: str | Path,
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
@@ -370,6 +375,8 @@ def _atomic_torch_save(value: Any, destination: str | Path) -> None:
         torch.save(value, tmp_name)
         with open(tmp_name, "rb") as handle:
             os.fsync(handle.fileno())
+        if publication_guard is not None:
+            publication_guard()
         os.replace(tmp_name, destination)
         descriptor = os.open(destination.parent, os.O_RDONLY)
         try:
@@ -399,7 +406,9 @@ def save_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
                              scheduler: Any | None, epoch: int, best_epoch: int,
                              best_metric: float, best_model_state: Mapping[str, Any] | None,
                              run_id: str, resolved_config: Mapping[str, Any],
-                             extra: Mapping[str, Any] | None = None) -> None:
+                             extra: Mapping[str, Any] | None = None,
+                             publication_guard: Callable[[], object] | None = None,
+                             ) -> None:
     """Save a digest-bound, weights-only-safe checkpoint for the next epoch."""
     path = Path(path)
     if type(run_id) is not str or not run_id:
@@ -452,7 +461,11 @@ def save_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
         expected_run_id=run_id,
         expected_config_json=config_json,
     )
-    _atomic_torch_save(payload, path)
+    _atomic_torch_save(
+        payload,
+        path,
+        publication_guard=publication_guard,
+    )
     metadata = {
         "format": CHECKPOINT_METADATA_VERSION,
         "checkpoint_format": CHECKPOINT_VERSION,
@@ -467,7 +480,11 @@ def save_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
         "scheduler_class": scheduler_class,
         "scheduler_present": scheduler_present,
     }
-    atomic_write_json(checkpoint_sidecar_path(path), metadata)
+    atomic_write_json(
+        checkpoint_sidecar_path(path),
+        metadata,
+        publication_guard=publication_guard,
+    )
 
 
 def _assert_state_dict(payload: Any, current: Mapping[str, Any], *, label: str) -> None:
@@ -817,9 +834,13 @@ def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
                              scheduler: Any | None, expected_run_id: str,
                              expected_resolved_config: Mapping[str, Any],
                              map_location: str | torch.device = "cpu",
-                             recover_missing_sidecar: bool = False) -> ResumeState:
+                             recover_missing_sidecar: bool = False,
+                             publication_guard: Callable[[], object] | None = None,
+                             ) -> ResumeState:
     """Restore a validated checkpoint without allowing arbitrary pickle globals."""
     path = Path(path)
+    if publication_guard is not None:
+        publication_guard()
     if type(expected_run_id) is not str or not expected_run_id:
         raise ValueError("expected_run_id must be a non-empty string")
     expected_config_json, expected_config_sha256 = _canonical_mapping(
@@ -873,7 +894,11 @@ def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
     if metadata is None:
         # The only missing-sidecar recovery state is a complete validated
         # payload.  A broken link is rejected above rather than treated absent.
-        atomic_write_json(sidecar, expected_metadata)
+        atomic_write_json(
+            sidecar,
+            expected_metadata,
+            publication_guard=publication_guard,
+        )
         _assert_single_regular_file(sidecar, label="recovered checkpoint sidecar")
         metadata = _load_checkpoint_metadata(
             path, model=model, optimizer=optimizer, scheduler=scheduler,
@@ -900,7 +925,11 @@ def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
         )
         if not recoverable_stale_pair:
             raise ValueError("checkpoint payload/sidecar transaction is inconsistent")
-        atomic_write_json(sidecar, expected_metadata)
+        atomic_write_json(
+            sidecar,
+            expected_metadata,
+            publication_guard=publication_guard,
+        )
         _assert_single_regular_file(sidecar, label="recovered checkpoint sidecar")
         metadata = _load_checkpoint_metadata(
             path, model=model, optimizer=optimizer, scheduler=scheduler,
@@ -921,6 +950,8 @@ def load_training_checkpoint(path: str | Path, *, model: torch.nn.Module,
     if scheduler is not None:
         scheduler.load_state_dict(payload["scheduler_state"])
     restore_rng_state(payload["rng_state"])
+    if publication_guard is not None:
+        publication_guard()
     return ResumeState(
         epoch=int(payload["epoch"]),
         best_epoch=int(payload["best_epoch"]),
@@ -952,7 +983,9 @@ REQUIRED_BUNDLE_METADATA = {
 def save_inference_bundle(directory: str | Path, *,
                           members: Mapping[str, torch.nn.Module | Mapping[str, torch.Tensor]],
                           metadata: Mapping[str, Any],
-                          expected_member_count: int | None = None) -> Path:
+                          expected_member_count: int | None = None,
+                          publication_guard: Callable[[], object] | None = None,
+                          ) -> Path:
     """Save all ensemble members as weights-only tensors plus explicit metadata."""
     missing = REQUIRED_BUNDLE_METADATA - set(metadata)
     if missing:
@@ -998,6 +1031,8 @@ def save_inference_bundle(directory: str | Path, *,
                 raise FileExistsError(
                     f"refusing to replace non-identical inference bundle: {directory}"
                 )
+        if publication_guard is not None:
+            publication_guard()
         return directory
 
     directory.parent.mkdir(parents=True, exist_ok=True)
@@ -1019,6 +1054,8 @@ def save_inference_bundle(directory: str | Path, *,
         # rename publishes it.  A retry may read an identical object, but can
         # never overwrite an earlier content address.
         load_inference_bundle(staging, expected_member_count=expected_member_count)
+        if publication_guard is not None:
+            publication_guard()
         os.rename(staging, directory)
         descriptor = os.open(directory.parent, os.O_RDONLY)
         try:
@@ -1031,11 +1068,21 @@ def save_inference_bundle(directory: str | Path, *,
     return directory
 
 
-def load_inference_bundle(directory: str | Path, *,
-                          expected_member_count: int | None = None,
-                          map_location: str | torch.device = "cpu"
-                          ) -> tuple[dict[str, dict[str, torch.Tensor]], dict[str, Any]]:
-    """Load a bundle without allowing arbitrary pickle globals."""
+def load_inference_bundle(
+    directory: str | Path,
+    *,
+    expected_member_count: int | None = None,
+    map_location: str | torch.device = "cpu",
+    publication_guard: Callable[[], object] | None = None,
+) -> tuple[dict[str, dict[str, torch.Tensor]], dict[str, Any]]:
+    """Load a bundle without allowing arbitrary pickle globals.
+
+    Formal authority-bearing callers pass ``publication_guard`` so the live
+    numerical policy is checked both before any model bytes are accepted and
+    after Torch has reconstructed the complete weights object.
+    """
+    if publication_guard is not None:
+        publication_guard()
     directory = Path(directory)
     metadata = json.loads((directory / "metadata.json").read_text())
     if metadata.get("format") != BUNDLE_VERSION:
@@ -1056,6 +1103,8 @@ def load_inference_bundle(directory: str | Path, *,
         raise ValueError(
             f"inference bundle has {len(weights)} members; expected {expected_member_count}"
         )
+    if publication_guard is not None:
+        publication_guard()
     return weights, metadata
 
 
@@ -1065,6 +1114,7 @@ def instantiate_inference_ensemble(
     model_factory: Any,
     expected_member_count: int | None = None,
     device: str | torch.device = "cpu",
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[dict[str, torch.nn.Module], dict[str, Any]]:
     """Restore a weights-only ensemble and put every member in inference mode.
 
@@ -1076,6 +1126,7 @@ def instantiate_inference_ensemble(
         directory,
         expected_member_count=expected_member_count,
         map_location=device,
+        publication_guard=publication_guard,
     )
     models: dict[str, torch.nn.Module] = {}
     for member_name in metadata["members"]:
@@ -1086,4 +1137,8 @@ def instantiate_inference_ensemble(
         model.to(device)
         model.eval()
         models[member_name] = model
+        if publication_guard is not None:
+            publication_guard()
+    if publication_guard is not None:
+        publication_guard()
     return models, metadata

@@ -5,6 +5,7 @@ Compares ordinary split-CQR, seven-day block-CQR, and delayed-feedback ACI.  All
 results are empirical diagnostics on a previously inspected development period;
 no exchangeability or conditional-coverage guarantee is claimed.
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
 import sys
@@ -22,12 +23,17 @@ from thermoroute import results as R
 from thermoroute.adaptive import delayed_aci
 from thermoroute.conformal import block_cqr_offsets, conformal_quantile
 from thermoroute.evidence import FrozenPanelSpec
+from thermoroute.model_suite import (
+    STAGE16_COMPLETION_RECEIPT_PATH,
+    validate_stage16_completion_receipt,
+)
 from thermoroute.probability import ensemble_prediction_frame
-from thermoroute.repro import atomic_write_bytes
+from thermoroute.repro import advisory_file_lock, atomic_write_bytes
 from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
 
 PREDICTIONS = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+STAGE16_RECEIPT = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
 PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 STATION_REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 ALPHA = 0.10
@@ -41,7 +47,7 @@ def _interval_score(y, lower, upper, alpha=ALPHA):
     )
 
 
-def main() -> None:
+def _run() -> None:
     predictions = R.load_route_a_predictions(
         PREDICTIONS,
         root=ROOT,
@@ -147,6 +153,14 @@ def main() -> None:
     ])
     atomic_write_bytes(C.REPORTS / "adaptive_conformal.md", "\n".join(lines).encode())
     print("\n".join(lines))
+
+
+def main() -> None:
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        validate_stage16_completion_receipt(
+            STAGE16_RECEIPT, root=ROOT, replay_bundle=False,
+        )
+        _run()
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@
     "paper/highlights.md",
     "paper/cover_letter.md",
     "paper/agu_submission/ThermoRoute_WRR.tex",
+    "protocols/route_a_native_thread_enforcement_notice_v1.md",
+    "protocols/route_a_native_artifact_publication_notice_v1.md",
     "protocols/legacy_three_site_semantics_notice_v1.md",
     "outputs/confirmatory/route_a_*/trusted/report_v1.md"
   ],
@@ -31,14 +33,18 @@
     "paper/highlights.md",
     "paper/cover_letter.md",
     "paper/agu_submission/ThermoRoute_WRR.tex",
+    "protocols/route_a_native_thread_enforcement_notice_v1.md",
+    "protocols/route_a_native_artifact_publication_notice_v1.md",
     "protocols/legacy_three_site_semantics_notice_v1.md"
   ],
   "preopen_document_sha256": {
-    "README.md": "837e10125e41225d50043391321e1b7986e701dbc76c13d094e26ae7607d661c",
-    "paper/ThermoRoute_paper.md": "9cbf1a6a8d7888c1858d5f38acce93805bd041be68130f10ca5259cdcec36f85",
+    "README.md": "e53a8e70b6c3749b32be20451ff197dddd4d3c6cbe7f1b829a8da8ba35ced891",
+    "paper/ThermoRoute_paper.md": "09ab716110a4606b70236b19fd43fd7e637ec94eb3d123eb6b1dd7b584c6aa74",
     "paper/highlights.md": "a2bae78002e63e088ce61eb752f597b883e45af9f96d65429b1367fda924a342",
     "paper/cover_letter.md": "bfb79bc6cdab31f5a4d0ec275839c859dd14aee9cfc8ba7c8b34f3d88e0cf820",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "14374277356308f50355d2a3aef21553401715f29536e0383007796238871ec7",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "52e2cdba84075a787eaec46b792a5b17ce9ff498d8a5539e7b7adbd8c37a9d6c",
+    "protocols/route_a_native_thread_enforcement_notice_v1.md": "fd0487df218def582c096855a66eb8f0220987442f251fb0f4c8cfb8d01fde72",
+    "protocols/route_a_native_artifact_publication_notice_v1.md": "e1ff940228a1d549a566d823702880d1278d276e8b7c891356104eb64f04f878",
     "protocols/legacy_three_site_semantics_notice_v1.md": "f6e815453b98968b9e391b6b46ceaeab62e892b0d3b5228d4017df6da93c3f25"
   },
   "postopen_document_transform": {

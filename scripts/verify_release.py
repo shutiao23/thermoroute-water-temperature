@@ -155,8 +155,8 @@ PREOPEN_PROFILE = "PREOPEN_NOT_COMPLETE"
 POSTOPEN_PROFILE = "ROUTE_A_OPENED_COMPLETE"
 RELEASE_PROFILES = (PREOPEN_PROFILE, POSTOPEN_PROFILE)
 PREOPEN_WARNING = (
-    "This archive predates the one-time Route-A label opening. It cannot support "
-    "a Route-A confirmatory result or conclusion."
+    "This evidence state contains no verified Route-A opening or target-label/result "
+    "evidence. It cannot support a Route-A confirmatory result or conclusion."
 )
 HASHED_LOCK_ROLE = (
     "FULLY_HASHED_PACKAGE_PORTABILITY_AID; NOT_THE_OPENING_RUNTIME_IDENTITY "
@@ -223,6 +223,12 @@ PROBABILITY_METRIC_ERRATUM_SEAL_PATH = (
 )
 LEGACY_THREE_SITE_NOTICE_PATH = (
     "protocols/legacy_three_site_semantics_notice_v1.md"
+)
+NATIVE_THREAD_ENFORCEMENT_NOTICE_PATH = (
+    "protocols/route_a_native_thread_enforcement_notice_v1.md"
+)
+NATIVE_ARTIFACT_PUBLICATION_NOTICE_PATH = (
+    "protocols/route_a_native_artifact_publication_notice_v1.md"
 )
 PROBABILITY_METRIC_ERRATUM_FORMAT = (
     "thermoroute.route-a-probability-metric-erratum.v1"
@@ -500,6 +506,8 @@ REQUIRED_MEMBERS = {
     INFERENCE_AMENDMENT_SEAL_PATH,
     PROBABILITY_METRIC_ERRATUM_PATH,
     PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+    NATIVE_THREAD_ENFORCEMENT_NOTICE_PATH,
+    NATIVE_ARTIFACT_PUBLICATION_NOTICE_PATH,
     LEGACY_THREE_SITE_NOTICE_PATH,
     "protocols/route_a_claim_registry_v1.json",
     "data/b1.csv",
@@ -574,6 +582,20 @@ CANONICAL_DEVELOPMENT_PATHS = (
     "data_usgs/huc_metadata_usgs_v1.csv",
     "data_usgs/huc_metadata_usgs_v1.provenance.json",
 )
+
+# These archive bytes must be the exact blobs at the compute commit, not merely
+# a self-consistent marker/manifest closure that an archive editor could
+# recompute after replacing data.  The HUC snapshot directory is handled as a
+# tree below because its content-addressed request directory is deliberately
+# verbose and the fixed index already constrains its semantic shape.
+GIT_BOUND_FIXED_ARCHIVE_MEMBERS = frozenset({
+    "LICENSE",
+    "data/b1.csv",
+    "data/s2.csv",
+    "data/p3.csv",
+    *CANONICAL_DEVELOPMENT_PATHS,
+})
+GIT_BOUND_ARCHIVE_TREES = ("data_usgs/raw_snapshots/huc-v1",)
 
 REQUIRED_STATE_PATHS = {
     "namespace",
@@ -5230,6 +5252,931 @@ def _validate_stage25_prediction_sidecar(
     )
 
 
+def _stage16_validation_grid() -> list[dict[str, object]]:
+    """Return the exact validation-only LSTM grid without archive imports."""
+    return [
+        {
+            "d": 64, "layers": 1, "dropout": 0.0,
+            "station_embed_dim": 8, "use_derived_context": False,
+            "anchor": "persistence",
+        },
+        {
+            "d": 64, "layers": 1, "dropout": 0.0,
+            "station_embed_dim": 8, "use_derived_context": True,
+            "anchor": "damped",
+        },
+        {
+            "d": 64, "layers": 2, "dropout": 0.10,
+            "station_embed_dim": 8, "use_derived_context": True,
+            "anchor": "damped",
+        },
+    ]
+
+
+def _stage16_train_config() -> dict[str, object]:
+    """Mirror the frozen CPU Stage-16 TrainConfig(batch_size=1536)."""
+    return {
+        "d_model": 40,
+        "encoder_blocks": 2,
+        "kernel_size": 3,
+        "dropout": 0.15,
+        "n_experts": 3,
+        "station_embed_dim": 8,
+        "lr": 0.002,
+        "weight_decay": 0.0001,
+        "batch_size": 1536,
+        "max_epochs": 80,
+        "patience": 12,
+        "grad_clip": 1.0,
+        "lambda_event": 0.3,
+        "lambda_residual": 0.01,
+        "lambda_crossing": 1.0,
+    }
+
+
+_STAGE16_SELECTION_COLUMNS = (
+    "candidate_id", "d", "layers", "dropout", "station_embed_dim",
+    "use_derived_context", "anchor", "val_station_macro_rmse",
+    "selected", "selection_split",
+)
+_STAGE16_CHECKPOINT_FIELDS = {
+    "format", "run_id", "resolved_config_json", "resolved_config_sha256",
+    "extra_json", "extra_sha256", "epoch", "best_epoch", "best_metric",
+    "model_class", "optimizer_class", "scheduler_class", "model_state",
+    "best_model_state", "optimizer_state", "scheduler_present",
+    "scheduler_state", "rng_state",
+}
+
+
+def _stage16_validation_winner(
+    metrics: Iterable[object], *, label: str
+) -> int:
+    """Choose the lowest candidate within the frozen 1e-5 best-metric band."""
+    values = list(metrics)
+    if not values or any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < 0.0
+        for value in values
+    ):
+        raise ValueError(f"{label} metrics are malformed")
+    best = min(float(value) for value in values)
+    return min(
+        candidate_id
+        for candidate_id, value in enumerate(values)
+        if float(value) <= best + 1e-5
+    )
+
+
+def _stage16_selection_metrics(payload: bytes, *, label: str) -> tuple[list[float], int]:
+    """Parse the exact Stage-16 selection CSV without archive-code imports."""
+    try:
+        text = payload.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text, newline=""))
+        rows = list(reader)
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError(f"{label} is unreadable") from exc
+    grid = _stage16_validation_grid()
+    if reader.fieldnames is None or tuple(reader.fieldnames) != (
+        _STAGE16_SELECTION_COLUMNS
+    ) or len(rows) != len(grid):
+        raise ValueError(f"{label} schema changed")
+    metrics: list[float] = []
+    selected_ids: list[int] = []
+    for candidate_id, (row, expected_grid) in enumerate(zip(rows, grid, strict=True)):
+        try:
+            metric = float(row["val_station_macro_rmse"])
+            observed = {
+                "d": int(row["d"]),
+                "layers": int(row["layers"]),
+                "dropout": float(row["dropout"]),
+                "station_embed_dim": int(row["station_embed_dim"]),
+                "use_derived_context": row["use_derived_context"] == "True",
+                "anchor": row["anchor"],
+            }
+            observed_id = int(row["candidate_id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"{label} row is malformed") from exc
+        if (
+            observed_id != candidate_id
+            or observed != expected_grid
+            or row["use_derived_context"] not in {"True", "False"}
+            or row["selected"] not in {"True", "False"}
+            or row["selection_split"] != "2016-2017 validation"
+            or not math.isfinite(metric)
+            or metric < 0.0
+        ):
+            raise ValueError(f"{label} grid changed")
+        metrics.append(metric)
+        if row["selected"] == "True":
+            selected_ids.append(candidate_id)
+    winner = _stage16_validation_winner(metrics, label=label)
+    if selected_ids != [winner]:
+        raise ValueError(f"{label} selected flags changed")
+    return metrics, winner
+
+
+def _stage16_candidate_audit_views(
+    candidates: object,
+    *,
+    reported_metrics: list[float],
+    audit_winner: object,
+    label: str,
+) -> tuple[list[float], list[float]]:
+    """Validate all audit flags and independently select each metric view."""
+    candidate_keys = {
+        "candidate_id", "recomputed_val_station_macro_rmse",
+        "reported_val_station_macro_rmse", "checkpoint_best_metric",
+        "best_state_max_abs_difference", "selected",
+    }
+    if not isinstance(candidates, list) or len(candidates) != len(reported_metrics):
+        raise ValueError(f"{label} candidate closure changed")
+    recomputed_metrics: list[float] = []
+    checkpoint_metrics: list[float] = []
+    selected_ids: list[int] = []
+    for candidate_id, row in enumerate(candidates):
+        if not isinstance(row, Mapping) or set(row) != candidate_keys:
+            raise ValueError(f"{label} candidate replay audit changed")
+        numerical = (
+            row.get("recomputed_val_station_macro_rmse"),
+            row.get("reported_val_station_macro_rmse"),
+            row.get("checkpoint_best_metric"),
+            row.get("best_state_max_abs_difference"),
+        )
+        if (
+            row.get("candidate_id") != candidate_id
+            or type(row.get("selected")) is not bool
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in numerical
+            )
+            or any(float(value) < 0.0 for value in numerical[:3])
+            or abs(float(numerical[1]) - reported_metrics[candidate_id]) > 1e-5
+            or abs(float(numerical[0]) - reported_metrics[candidate_id]) > 1e-5
+            or abs(float(numerical[2]) - reported_metrics[candidate_id]) > 1e-5
+            or not 0.0 <= float(numerical[3]) <= 1e-5
+        ):
+            raise ValueError(f"{label} candidate replay audit changed")
+        recomputed_metrics.append(float(numerical[0]))
+        checkpoint_metrics.append(float(numerical[2]))
+        if row["selected"]:
+            selected_ids.append(candidate_id)
+    reported_winner = _stage16_validation_winner(
+        reported_metrics, label=f"{label} reported"
+    )
+    recomputed_winner = _stage16_validation_winner(
+        recomputed_metrics, label=f"{label} recomputed"
+    )
+    checkpoint_winner = _stage16_validation_winner(
+        checkpoint_metrics, label=f"{label} checkpoint"
+    )
+    if (
+        {reported_winner, recomputed_winner, checkpoint_winner}
+        != {reported_winner}
+        or audit_winner != reported_winner
+        or selected_ids != [reported_winner]
+    ):
+        raise ValueError(f"{label} three-view validation winner changed")
+    return recomputed_metrics, checkpoint_metrics
+
+
+def _stage16_checkpoint_payload(
+    payload_bytes: bytes,
+    *,
+    expected_run_id: str,
+    expected_config: Mapping[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    """Safely inspect the static v3 checkpoint envelope using trusted Torch."""
+    try:
+        # Torch is an installed verifier dependency; no code is imported from
+        # the untrusted archive before its Git identity is established.
+        import torch
+
+        payload = torch.load(
+            io.BytesIO(payload_bytes), map_location="cpu", weights_only=True
+        )
+    except Exception as exc:
+        raise ValueError(f"{label} cannot be safely loaded") from exc
+    if type(payload) is not dict or set(payload) != _STAGE16_CHECKPOINT_FIELDS:
+        raise ValueError(f"{label} top-level fields changed")
+    expected_config_json = json.dumps(
+        dict(expected_config),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    try:
+        extra = json.loads(payload["extra_json"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label} extra JSON is malformed") from exc
+    expected_extra_json = json.dumps(
+        extra,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    epoch = payload.get("epoch")
+    best_epoch = payload.get("best_epoch")
+    best_metric = payload.get("best_metric")
+    bad_epochs = extra.get("bad_epochs") if isinstance(extra, Mapping) else None
+    train_rng_state = (
+        extra.get("train_rng_state") if isinstance(extra, Mapping) else None
+    )
+    train_config = _stage16_train_config()
+    state_fields = (
+        "model_state", "best_model_state", "optimizer_state",
+        "scheduler_state", "rng_state",
+    )
+    if (
+        payload.get("format") != "thermoroute.training-checkpoint.v3"
+        or payload.get("run_id") != expected_run_id
+        or payload.get("resolved_config_json") != expected_config_json
+        or payload.get("resolved_config_sha256") != _sha256_json(expected_config)
+        or type(payload.get("extra_json")) is not str
+        or payload.get("extra_json") != expected_extra_json
+        or payload.get("extra_sha256") != _sha256_json(extra)
+        or not isinstance(extra, Mapping)
+        or set(extra) != {"bad_epochs", "train_rng_state"}
+        or type(bad_epochs) is not int
+        or not isinstance(train_rng_state, Mapping)
+        or type(epoch) is not int
+        or type(best_epoch) is not int
+        or epoch < 0
+        or best_epoch < 0
+        or best_epoch > epoch
+        or bad_epochs < 0
+        or bad_epochs > epoch + 1
+        or not (
+            epoch == int(train_config["max_epochs"]) - 1
+            or bad_epochs >= int(train_config["patience"])
+        )
+        or type(best_metric) is not float
+        or not math.isfinite(best_metric)
+        or payload.get("model_class") != "thermoroute.train.LSTMForecaster"
+        or payload.get("optimizer_class") != "torch.optim.adamw.AdamW"
+        or payload.get("scheduler_class")
+        != "torch.optim.lr_scheduler.ReduceLROnPlateau"
+        or payload.get("scheduler_present") is not True
+        or any(type(payload.get(field)) is not dict for field in state_fields)
+    ):
+        raise ValueError(f"{label} structure or terminal state changed")
+    return payload
+
+
+def _validate_stage16_artifact_sidecar(
+    path: Path,
+    artifact: Path,
+    *,
+    identity: Mapping[str, Any],
+    kind: str,
+    parents: Mapping[str, str],
+    extra: Mapping[str, Any],
+    label: str,
+) -> None:
+    """Validate one Stage-16 prediction sidecar from release bytes."""
+    metadata = _load_json(path, label=label)
+    expected_keys = {
+        "schema_version", "kind", "artifact", "artifact_sha256",
+        "artifact_bytes", "content_schema", "run", "parents", "extra",
+        "created_utc",
+    }
+    try:
+        created = datetime.fromisoformat(str(metadata.get("created_utc")))
+    except ValueError as exc:
+        raise ValueError(f"authorized {label} timestamp is invalid") from exc
+    if (
+        set(metadata) != expected_keys
+        or metadata.get("schema_version") != "thermoroute.artifact.v1"
+        or metadata.get("kind") != kind
+        or metadata.get("artifact") != artifact.name
+        or metadata.get("artifact_sha256") != sha256_file(artifact)
+        or metadata.get("artifact_bytes") != artifact.stat().st_size
+        or metadata.get("content_schema") != "thermoroute.predictions.v1"
+        or metadata.get("run") != identity
+        or metadata.get("parents") != dict(parents)
+        or metadata.get("extra") != dict(extra)
+        or created.tzinfo is None
+        or created.utcoffset() is None
+    ):
+        raise ValueError(f"authorized {label} changed")
+
+
+def _validate_stage16_completion_gate(
+    root: Path,
+    categories: dict[str, set[Path]],
+    suite: Mapping[str, Any],
+    development: Mapping[str, Any],
+    suite_runtime: str,
+    *,
+    stage9_receipt: Mapping[str, Any],
+    stage9_receipt_path: Path,
+) -> None:
+    """Independently verify the complete Stage-16 LSTM admission receipt."""
+    gates = suite.get("preopening_gates")
+    if not isinstance(gates, Mapping):
+        raise ValueError("authorized model suite lacks pre-opening gates")
+
+    def add(binding: object, *, label: str) -> Path:
+        return _add_binding(root, categories, "model_suite", binding, label=label)
+
+    receipt_path = add(
+        gates.get("stage16_lstm_completion"),
+        label="Stage-16 LSTM completion gate",
+    )
+    if _relative(root, receipt_path, label="Stage-16 receipt") != (
+        "outputs/models/route_a_stage16_completion.json"
+    ):
+        raise ValueError("authorized Stage-16 completion receipt path is noncanonical")
+    receipt = _load_json(receipt_path, label="Stage-16 completion receipt")
+    receipt_keys = {
+        "format", "status", "stage", "run_id", "parent_stage09_run_id",
+        "run_identity", "formal_configuration", "training_device",
+        "confirmation_outcomes_requested_or_read", "selection_audit",
+        "bundle_prediction_parity", "artifacts", "artifact_closure_sha256",
+        "receipt_self_sha256",
+    }
+    artifact_keys = {
+        "run_manifest", "stage09_completion_receipt",
+        "stage09_parent_predictions", "stage09_parent_prediction_sidecar",
+        "lstm_validation_selection", "development_predictions",
+        "development_prediction_sidecar", "model_files",
+        "lstm_seed_prediction_files", "selection_candidate_files",
+        "shortcut_pointer", "components_pointer",
+    }
+    identity_fields = {
+        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256", "schema_version",
+    }
+    artifacts = receipt.get("artifacts")
+    identity = receipt.get("run_identity")
+    configuration = receipt.get("formal_configuration")
+    run_id = receipt.get("run_id")
+    if (
+        set(receipt) != receipt_keys
+        or receipt.get("format")
+        != "thermoroute.stage16-completion-receipt.v1"
+        or receipt.get("status") != "PASS_FORMAL_STAGE16_COMPLETE"
+        or receipt.get("stage") != "16_lstm_baseline_insample"
+        or receipt.get("training_device") != "cpu"
+        or receipt.get("confirmation_outcomes_requested_or_read") is not False
+        or not isinstance(run_id, str)
+        or re.fullmatch(r"[0-9a-f]{20}", run_id) is None
+        or not isinstance(identity, Mapping)
+        or set(identity) != identity_fields
+        or not isinstance(configuration, Mapping)
+        or not isinstance(artifacts, Mapping)
+        or set(artifacts) != artifact_keys
+        or receipt.get("artifact_closure_sha256") != _sha256_json(artifacts)
+    ):
+        raise ValueError("authorized Stage-16 completion receipt is malformed")
+    _validate_receipt_self_hash(receipt, label="Stage-16 receipt")
+    panel = development.get("panel")
+    registry = development.get("registry")
+    parent_artifacts = stage9_receipt.get("artifacts")
+    if (
+        not isinstance(panel, Mapping)
+        or not isinstance(registry, Mapping)
+        or not isinstance(parent_artifacts, Mapping)
+        or receipt.get("parent_stage09_run_id") != stage9_receipt.get("run_id")
+        or _relative(
+            root, stage9_receipt_path, label="Stage-16 Stage-9 receipt"
+        ) != "outputs/models/route_a_stage09_completion.json"
+        or artifacts.get("stage09_completion_receipt")
+        != gates.get("stage09_completion")
+        or artifacts.get("stage09_parent_predictions")
+        != parent_artifacts.get("predictions")
+        or artifacts.get("stage09_parent_prediction_sidecar")
+        != parent_artifacts.get("prediction_sidecar")
+    ):
+        raise ValueError("authorized Stage-16 receipt binds another Stage-9 parent")
+    parent_path = add(
+        artifacts["stage09_parent_predictions"],
+        label="Stage-16 Stage-9 parent predictions",
+    )
+    parent_sidecar = add(
+        artifacts["stage09_parent_prediction_sidecar"],
+        label="Stage-16 Stage-9 parent prediction sidecar",
+    )
+    parent_sha256 = sha256_file(parent_path)
+    expected_configuration_keys = {
+        "stage", "role", "parent_sha256", "models", "seeds", "variables",
+        "horizons", "context_length", "station_embedding",
+        "station_balanced", "selection_metric", "validation_grid",
+        "validation_selection_seed", "validation_selection_split",
+        "event_reference_fit_interval", "train_config", "training_device",
+        "formal_numerical_policy",
+    }
+    feature_order = [
+        "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+    ]
+    if (
+        set(configuration) != expected_configuration_keys
+        or configuration.get("stage") != "16_lstm_baseline_insample"
+        or configuration.get("role") != "final_route_a_development_predictions"
+        or configuration.get("parent_sha256") != parent_sha256
+        or configuration.get("models")
+        != [
+            "Persistence", "DampedPersistence", "Climatology",
+            "LightGBM", "LSTM", "ThermoRoute",
+        ]
+        or configuration.get("seeds") != [0, 1, 2, 3, 4]
+        or configuration.get("variables") != feature_order
+        or configuration.get("horizons") != [1, 3, 7]
+        or configuration.get("context_length") != 32
+        or configuration.get("station_embedding") is not True
+        or configuration.get("station_balanced") is not True
+        or configuration.get("selection_metric") != "station_macro"
+        or configuration.get("validation_grid") != _stage16_validation_grid()
+        or configuration.get("validation_selection_seed") != 0
+        or configuration.get("validation_selection_split") != "2016-2017 only"
+        or configuration.get("event_reference_fit_interval")
+        != ["2006-01-01", "2018-12-31"]
+        or configuration.get("train_config") != _stage16_train_config()
+        or configuration.get("training_device") != "cpu"
+        or not isinstance(configuration.get("formal_numerical_policy"), Mapping)
+        or not configuration["formal_numerical_policy"]
+    ):
+        raise ValueError("authorized Stage-16 formal configuration changed")
+    identity_stable = {
+        "schema_version": identity.get("schema_version"),
+        "panel_sha256": identity.get("panel_sha256"),
+        "registry_sha256": identity.get("registry_sha256"),
+        "config_sha256": identity.get("config_sha256"),
+        "source_sha256": identity.get("source_sha256"),
+        "runtime_sha256": identity.get("runtime_sha256"),
+    }
+    if (
+        identity.get("run_id") != run_id
+        or identity.get("schema_version") != "thermoroute.run.v1"
+        or identity.get("panel_sha256") != panel.get("sha256")
+        or identity.get("registry_sha256") != registry.get("sha256")
+        or identity.get("config_sha256") != _sha256_json(configuration)
+        or identity.get("source_sha256") != development.get("source_sha256")
+        or identity.get("runtime_sha256") != suite_runtime
+        or run_id != _sha256_json(identity_stable)[:20]
+    ):
+        raise ValueError("authorized Stage-16 run identity/configuration changed")
+
+    run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
+    bundle_dir = f"outputs/models/lstm_usgs_bundle_{run_id}"
+    canonical_scalar = {
+        "run_manifest": f"{run_dir}/run.json",
+        "stage09_completion_receipt": (
+            "outputs/models/route_a_stage09_completion.json"
+        ),
+        "stage09_parent_predictions": (
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+        ),
+        "stage09_parent_prediction_sidecar": (
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json"
+        ),
+        "lstm_validation_selection": (
+            "outputs/tables/lstm_validation_selection.csv"
+        ),
+        "development_predictions": (
+            "outputs/predictions/usgs_predictions_v2.parquet"
+        ),
+        "development_prediction_sidecar": (
+            "outputs/predictions/usgs_predictions_v2.parquet.meta.json"
+        ),
+        "shortcut_pointer": "outputs/models/lstm_usgs_bundle.json",
+        "components_pointer": "outputs/models/route_a_lstm_components.json",
+    }
+    resolved: dict[str, Path] = {}
+    for label, expected in canonical_scalar.items():
+        resolved[label] = add(artifacts[label], label=f"Stage-16 {label}")
+        if _relative(root, resolved[label], label=f"Stage-16 {label}") != expected:
+            raise ValueError("authorized Stage-16 top-level artifact path changed")
+
+    expected_lists = {
+        "model_files": [
+            f"{bundle_dir}/metadata.json", f"{bundle_dir}/weights.pt",
+        ],
+        "lstm_seed_prediction_files": [
+            path
+            for seed in range(5)
+            for path in (
+                f"{run_dir}/predictions/seed{seed}.parquet",
+                f"{run_dir}/predictions/seed{seed}.parquet.meta.json",
+            )
+        ],
+        "selection_candidate_files": [
+            path
+            for candidate in range(3)
+            for path in (
+                f"{run_dir}/selection/candidate{candidate}.parquet",
+                f"{run_dir}/selection/candidate{candidate}.parquet.meta.json",
+                f"{run_dir}/selection/candidate{candidate}.pt",
+                f"{run_dir}/selection/candidate{candidate}.pt.meta.json",
+            )
+        ],
+    }
+    resolved_lists: dict[str, list[Path]] = {}
+    for label, expected_paths in expected_lists.items():
+        bindings = artifacts.get(label)
+        if (
+            not isinstance(bindings, list)
+            or len(bindings) != len(expected_paths)
+            or any(
+                not isinstance(binding, Mapping)
+                or set(binding) != {"path", "sha256"}
+                for binding in bindings
+            )
+            or [str(binding["path"]) for binding in bindings] != expected_paths
+            or len(expected_paths) != len(set(expected_paths))
+        ):
+            raise ValueError(f"authorized Stage-16 {label} closure changed")
+        resolved_lists[label] = [
+            add(binding, label=f"Stage-16 {label}/{index}")
+            for index, binding in enumerate(bindings)
+        ]
+
+    run_manifest = _load_json(
+        resolved["run_manifest"], label="Stage-16 run manifest"
+    )
+    provenance = run_manifest.get("provenance")
+    if (
+        set(run_manifest)
+        != {
+            "schema_version", "identity", "resolved_config", "created_utc",
+            "environment", "git", "provenance",
+        }
+        or run_manifest.get("schema_version") != "thermoroute.run.v1"
+        or run_manifest.get("identity") != identity
+        or run_manifest.get("resolved_config") != configuration
+        or not isinstance(provenance, Mapping)
+        or provenance
+        != {
+            "evidence_role": "prelabel_route_a_model_build_development_only",
+            "training_device": "cpu",
+        }
+    ):
+        raise ValueError("authorized Stage-16 run manifest changed")
+    try:
+        created = datetime.fromisoformat(str(run_manifest.get("created_utc")))
+    except ValueError as exc:
+        raise ValueError("authorized Stage-16 run timestamp is invalid") from exc
+    if created.tzinfo is None or created.utcoffset() is None:
+        raise ValueError("authorized Stage-16 run timestamp is not timezone-aware")
+
+    try:
+        selection_payload = resolved["lstm_validation_selection"].read_bytes()
+    except OSError as exc:
+        raise ValueError("authorized Stage-16 selection is unreadable") from exc
+    metrics, winner = _stage16_selection_metrics(
+        selection_payload, label="authorized Stage-16 selection"
+    )
+
+    threshold_contract: object = None
+    selection_audit = receipt.get("selection_audit")
+    selection_candidates = (
+        selection_audit.get("candidates")
+        if isinstance(selection_audit, Mapping) else None
+    )
+    selection_inputs = (
+        selection_audit.get("input_closure")
+        if isinstance(selection_audit, Mapping) else None
+    )
+    if isinstance(selection_inputs, Mapping):
+        threshold_contract = selection_inputs.get("event_threshold_contract")
+    if (
+        not isinstance(selection_audit, Mapping)
+        or set(selection_audit)
+        != {
+            "format", "status", "metric", "selection_split", "metric_atol",
+            "replay_atol", "winner_candidate_id", "candidates",
+            "input_closure", "input_closure_sha256",
+        }
+        or selection_audit.get("format")
+        != "thermoroute.stage16-selection-audit.v1"
+        or selection_audit.get("status")
+        != "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY"
+        or selection_audit.get("metric")
+        != "mean_station_rmse_across_all_horizons"
+        or selection_audit.get("selection_split") != "2016-2017 validation"
+        or selection_audit.get("metric_atol") != 1e-5
+        or selection_audit.get("replay_atol") != 1e-5
+        or selection_audit.get("winner_candidate_id") != winner
+        or not isinstance(selection_candidates, list)
+        or len(selection_candidates) != 3
+        or not isinstance(selection_inputs, Mapping)
+        or selection_audit.get("input_closure_sha256")
+        != _sha256_json(selection_inputs)
+        or not isinstance(threshold_contract, Mapping)
+    ):
+        raise ValueError("authorized Stage-16 validation-selection audit changed")
+    expected_selection_inputs = {
+        "run_manifest": artifacts["run_manifest"],
+        "panel": development.get("panel"),
+        "frozen_panel_spec": development.get("frozen_panel_spec"),
+        "station_registry": development.get("registry"),
+        "selection": artifacts["lstm_validation_selection"],
+        "candidate_files": artifacts["selection_candidate_files"],
+        "event_threshold_contract": threshold_contract,
+    }
+    threshold_registry = threshold_contract.get("registry")
+    station_registry_path = add(
+        development.get("registry"), label="Stage-16 canonical station registry"
+    )
+    try:
+        with station_registry_path.open(newline="", encoding="utf-8") as handle:
+            station_rows = list(csv.DictReader(handle))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("authorized Stage-16 station registry is unreadable") from exc
+    canonical_sites = {
+        str(row.get("site_no", "")).strip() for row in station_rows
+    }
+    if (
+        dict(selection_inputs) != expected_selection_inputs
+        or set(threshold_contract)
+        != {
+            "target", "fit_split", "scope", "estimator", "quantile",
+            "registry", "registry_sha256",
+        }
+        or threshold_contract.get("target") != "WTEMP"
+        or threshold_contract.get("fit_split")
+        != "canonical development train mask"
+        or threshold_contract.get("scope") != "station-specific"
+        or threshold_contract.get("estimator")
+        != "pandas Series.quantile(q=0.90, interpolation=linear)"
+        or threshold_contract.get("quantile") != 0.90
+        or not isinstance(threshold_registry, Mapping)
+        or not threshold_registry
+        or "" in canonical_sites
+        or set(threshold_registry) != canonical_sites
+        or threshold_contract.get("registry_sha256")
+        != _sha256_json(threshold_registry)
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in threshold_registry.values()
+        )
+    ):
+        raise ValueError("authorized Stage-16 event-threshold closure changed")
+    _, checkpoint_audit_metrics = _stage16_candidate_audit_views(
+        selection_candidates,
+        reported_metrics=metrics,
+        audit_winner=selection_audit.get("winner_candidate_id"),
+        label="authorized Stage-16 selection audit",
+    )
+
+    model_files = artifacts["model_files"]
+    metadata = _load_json(
+        resolved_lists["model_files"][0], label="Stage-16 LSTM metadata"
+    )
+    parity = receipt.get("bundle_prediction_parity")
+    parity_inputs = parity.get("input_closure") if isinstance(parity, Mapping) else None
+    expected_parity_inputs = {
+        "panel": development.get("panel"),
+        "frozen_panel_spec": development.get("frozen_panel_spec"),
+        "station_registry": development.get("registry"),
+        "bundle_metadata": model_files[0],
+        "bundle_weights": model_files[1],
+        "development_prediction": metadata.get("development_prediction"),
+    }
+    difference = parity.get("max_abs_difference") if isinstance(parity, Mapping) else None
+    if (
+        not isinstance(parity, Mapping)
+        or set(parity)
+        != {
+            "format", "status", "members", "splits", "atol",
+            "max_abs_difference", "input_closure", "input_closure_sha256",
+        }
+        or parity.get("format") != "thermoroute.stage16-bundle-parity.v1"
+        or parity.get("status") != "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY"
+        or parity.get("members") != [f"seed{seed}" for seed in range(5)]
+        or parity.get("splits") != ["val", "calib", "test"]
+        or parity.get("atol") != 1e-5
+        or isinstance(difference, bool)
+        or not isinstance(difference, (int, float))
+        or not math.isfinite(float(difference))
+        or not 0.0 <= float(difference) <= 1e-5
+        or parity_inputs != expected_parity_inputs
+        or parity.get("input_closure_sha256") != _sha256_json(parity_inputs)
+    ):
+        raise ValueError("authorized Stage-16 five-member parity audit changed")
+
+    components = _load_json(
+        resolved["components_pointer"], label="Stage-16 components pointer"
+    )
+    entries = components.get("models")
+    cohorts = suite.get("cohorts")
+    temporal = cohorts.get("temporal") if isinstance(cohorts, Mapping) else None
+    temporal_entries = temporal.get("models") if isinstance(temporal, Mapping) else None
+    frozen_lstm = [
+        entry for entry in temporal_entries or []
+        if isinstance(entry, Mapping) and entry.get("model_id") == "LSTM"
+    ]
+    expected_prediction_binding = {
+        **dict(artifacts["development_predictions"]),
+        "sidecar": dict(artifacts["development_prediction_sidecar"]),
+    }
+    if (
+        set(components)
+        != {
+            "format", "status", "training_device", "run_id", "cohort",
+            "raw_feature_order", "models", "development_contract",
+            "development_prediction_artifact",
+        }
+        or components.get("format")
+        != "thermoroute.route-a-model-components.v1"
+        or components.get("status") != "COMPLETE"
+        or components.get("training_device") != "cpu"
+        or components.get("run_id") != run_id
+        or components.get("cohort") != "temporal_lstm"
+        or components.get("raw_feature_order") != feature_order
+        or components.get("development_contract") != development
+        or components.get("development_prediction_artifact")
+        != expected_prediction_binding
+        or not isinstance(entries, list)
+        or len(entries) != 1
+        or len(frozen_lstm) != 1
+        or entries[0] != frozen_lstm[0]
+    ):
+        raise ValueError("authorized Stage-16 components differ from frozen suite")
+    entry = entries[0]
+    artifact = entry.get("artifact") if isinstance(entry, Mapping) else None
+    if (
+        set(entry)
+        != {"model_id", "executor", "raw_feature_order", "member_count", "artifact"}
+        or entry.get("executor") != "lstm_bundle"
+        or entry.get("raw_feature_order") != feature_order
+        or entry.get("member_count") != 5
+        or not isinstance(artifact, Mapping)
+        or artifact
+        != {
+            "path": bundle_dir,
+            "metadata_sha256": model_files[0]["sha256"],
+            "weights_sha256": model_files[1]["sha256"],
+        }
+    ):
+        raise ValueError("authorized Stage-16 LSTM component entry changed")
+    shortcut = _load_json(
+        resolved["shortcut_pointer"], label="Stage-16 shortcut pointer"
+    )
+    if shortcut != {
+        "run_id": run_id,
+        "bundle_path": bundle_dir,
+        "member_count": 5,
+        "metadata_sha256": model_files[0]["sha256"],
+        "weights_sha256": model_files[1]["sha256"],
+    }:
+        raise ValueError("authorized Stage-16 shortcut pointer changed")
+
+    parent_document = _load_json(
+        parent_sidecar, label="Stage-16 Stage-9 parent prediction sidecar"
+    )
+    if parent_document.get("artifact_sha256") != parent_sha256:
+        raise ValueError("authorized Stage-16 Stage-9 parent sidecar changed")
+    final_extra = {
+        "parent_run_id": stage9_receipt.get("run_id"),
+        "primary_models": [
+            "Persistence", "DampedPersistence", "Climatology",
+            "LightGBM", "LSTM", "ThermoRoute",
+        ],
+    }
+    final_sidecar_document = _load_json(
+        resolved["development_prediction_sidecar"],
+        label="Stage-16 development prediction sidecar",
+    )
+    extra = final_sidecar_document.get("extra")
+    if (
+        not isinstance(extra, Mapping)
+        or set(extra)
+        != {
+            "parent_run_id", "primary_models", "primary_common_test_keys",
+            "dropped_primary_rows", "lstm_validation_rows",
+            "lstm_calibration_rows",
+        }
+        or extra.get("parent_run_id") != final_extra["parent_run_id"]
+        or extra.get("primary_models") != final_extra["primary_models"]
+        or type(extra.get("primary_common_test_keys")) is not int
+        or extra["primary_common_test_keys"] < 1
+        or extra.get("dropped_primary_rows") != 0
+        or type(extra.get("lstm_validation_rows")) is not int
+        or extra["lstm_validation_rows"] < 1
+        or type(extra.get("lstm_calibration_rows")) is not int
+        or extra["lstm_calibration_rows"] < 1
+    ):
+        raise ValueError("authorized Stage-16 V2 lineage changed")
+    _validate_stage16_artifact_sidecar(
+        resolved["development_prediction_sidecar"],
+        resolved["development_predictions"],
+        identity=identity,
+        kind="final_route_a_development_predictions",
+        parents={parent_path.name: parent_sha256},
+        extra=extra,
+        label="Stage-16 development prediction sidecar",
+    )
+
+    seed_paths = resolved_lists["lstm_seed_prediction_files"]
+    for seed in range(5):
+        _validate_stage16_artifact_sidecar(
+            seed_paths[2 * seed + 1],
+            seed_paths[2 * seed],
+            identity=identity,
+            kind="lstm_seed_predictions",
+            parents={},
+            extra={},
+            label=f"Stage-16 seed{seed} prediction sidecar",
+        )
+    candidate_paths = resolved_lists["selection_candidate_files"]
+    checkpoint_payload_metrics: list[float] = []
+    for candidate_id, candidate in enumerate(_stage16_validation_grid()):
+        offset = 4 * candidate_id
+        _validate_stage16_artifact_sidecar(
+            candidate_paths[offset + 1],
+            candidate_paths[offset],
+            identity=identity,
+            kind="lstm_validation_candidate_predictions",
+            parents={},
+            extra={
+                "candidate_id": candidate_id,
+                "candidate": candidate,
+                "selection_split": "2016-2017 validation",
+            },
+            label=f"Stage-16 candidate{candidate_id} prediction sidecar",
+        )
+        checkpoint_metadata = _load_json(
+            candidate_paths[offset + 3],
+            label=f"Stage-16 candidate{candidate_id} checkpoint sidecar",
+        )
+        checkpoint_config = {
+            **dict(configuration),
+            "candidate_id": candidate_id,
+            "candidate": candidate,
+        }
+        try:
+            checkpoint_bytes = candidate_paths[offset + 2].read_bytes()
+        except OSError as exc:
+            raise ValueError(
+                f"authorized Stage-16 candidate{candidate_id} checkpoint is unreadable"
+            ) from exc
+        checkpoint_payload = _stage16_checkpoint_payload(
+            checkpoint_bytes,
+            expected_run_id=run_id,
+            expected_config=checkpoint_config,
+            label=f"authorized Stage-16 candidate{candidate_id} checkpoint",
+        )
+        checkpoint_payload_metrics.append(float(checkpoint_payload["best_metric"]))
+        if (
+            set(checkpoint_metadata)
+            != {
+                "format", "checkpoint_format", "run_id", "epoch",
+                "checkpoint_bytes", "checkpoint_sha256",
+                "resolved_config_sha256", "extra_sha256", "model_class",
+                "optimizer_class", "scheduler_class", "scheduler_present",
+            }
+            or checkpoint_metadata.get("format")
+            != "thermoroute.training-checkpoint-metadata.v2"
+            or checkpoint_metadata.get("checkpoint_format")
+            != "thermoroute.training-checkpoint.v3"
+            or checkpoint_metadata.get("run_id") != run_id
+            or checkpoint_metadata.get("epoch") != checkpoint_payload["epoch"]
+            or checkpoint_metadata.get("checkpoint_bytes")
+            != candidate_paths[offset + 2].stat().st_size
+            or checkpoint_metadata.get("checkpoint_sha256")
+            != sha256_file(candidate_paths[offset + 2])
+            or checkpoint_metadata.get("resolved_config_sha256")
+            != checkpoint_payload["resolved_config_sha256"]
+            or checkpoint_metadata.get("extra_sha256")
+            != checkpoint_payload["extra_sha256"]
+            or checkpoint_metadata.get("model_class")
+            != "thermoroute.train.LSTMForecaster"
+            or checkpoint_metadata.get("optimizer_class")
+            != "torch.optim.adamw.AdamW"
+            or checkpoint_metadata.get("scheduler_class")
+            != "torch.optim.lr_scheduler.ReduceLROnPlateau"
+            or checkpoint_metadata.get("scheduler_present") is not True
+        ):
+            raise ValueError(
+                f"authorized Stage-16 candidate{candidate_id} checkpoint changed"
+            )
+        if (
+            abs(
+                float(checkpoint_payload["best_metric"])
+                - checkpoint_audit_metrics[candidate_id]
+            ) > 1e-5
+        ):
+            raise ValueError(
+                f"authorized Stage-16 candidate{candidate_id} checkpoint metric changed"
+            )
+    if _stage16_validation_winner(
+        checkpoint_payload_metrics,
+        label="authorized Stage-16 checkpoint payload",
+    ) != winner:
+        raise ValueError("authorized Stage-16 three-view validation winner changed")
+
+    _walk_json_dependencies(root, categories, "model_suite", receipt_path)
+
+
 def _validate_stage25_completion_gate(
     root: Path,
     categories: dict[str, set[Path]],
@@ -5468,7 +6415,7 @@ def _validate_preopening_completion_gates(
     development: Mapping[str, Any],
     suite_runtime: str,
 ) -> None:
-    """Independently verify all three pre-opening admission receipts.
+    """Independently verify all four pre-opening admission receipts.
 
     This verifier deliberately does not import or execute archive Python.  It
     checks the receipt schemas, self hashes, byte bindings, 31-member registry,
@@ -5479,10 +6426,13 @@ def _validate_preopening_completion_gates(
     required = {
         "stage09_completion",
         "stage09b_development_controls",
+        "stage16_lstm_completion",
         "stage25_external_completion",
     }
     if not isinstance(gates, Mapping) or set(gates) != required:
-        raise ValueError("authorized model suite lacks Stage-9/09b/25 completion gates")
+        raise ValueError(
+            "authorized model suite lacks Stage-9/09b/16/25 completion gates"
+        )
 
     def add(binding: object, *, label: str) -> Path:
         return _add_binding(
@@ -6236,6 +7186,15 @@ def _validate_preopening_completion_gates(
             != resolved_artifacts[sidecar_label].stat().st_size
         ):
             raise ValueError("authorized Stage-09b semantic artifact audit changed")
+    _validate_stage16_completion_gate(
+        root,
+        categories,
+        suite,
+        development,
+        suite_runtime,
+        stage9_receipt=stage9,
+        stage9_receipt_path=stage9_path,
+    )
     _validate_stage25_completion_gate(
         root, categories, suite, development, suite_runtime
     )
@@ -10382,14 +11341,24 @@ def _normalise_git_relative(value: object, *, label: str) -> str:
 def _git_json_document(
     bare: Path, commit: str, relative: str, *, label: str
 ) -> dict[str, Any]:
-    blob = _run_git(bare, "show", f"{commit}:{relative}")
+    payload = _git_blob_bytes(bare, commit, relative, label=label)
     try:
-        value = json.loads(blob.stdout.decode("utf-8"))
+        value = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"cannot parse {label} from Git") from exc
-    if blob.returncode or not isinstance(value, dict):
+    if not isinstance(value, dict):
         raise ValueError(f"cannot replay {label} from Git")
     return value
+
+
+def _git_blob_bytes(
+    bare: Path, commit: str, relative: str, *, label: str
+) -> bytes:
+    """Read one exact Git blob without executing any archived code."""
+    blob = _run_git(bare, "show", f"{commit}:{relative}")
+    if blob.returncode:
+        raise ValueError(f"cannot replay {label} from Git")
+    return bytes(blob.stdout)
 
 
 def _git_declared_binding_path(
@@ -10941,6 +11910,486 @@ def _git_stage25_dependency_paths(
     return output
 
 
+def _git_stage16_dependency_paths(
+    bare: Path,
+    commit: str,
+    suite: Mapping[str, Any],
+    gate_binding: object,
+    *,
+    stage9_gate_binding: object,
+) -> set[str]:
+    """Replay the exact Stage-16 receipt and all authoritative bytes from Git."""
+    if not isinstance(gate_binding, Mapping) or set(gate_binding) != {
+        "path", "sha256"
+    }:
+        raise ValueError("Git stage16_lstm_completion binding is not exact")
+    receipt_path = _git_declared_binding_path(
+        bare, commit, gate_binding, label="Git stage16_lstm_completion"
+    )
+    if receipt_path != "outputs/models/route_a_stage16_completion.json":
+        raise ValueError("Git Stage-16 completion receipt path is noncanonical")
+    output = {receipt_path}
+    receipt = _git_json_document(
+        bare, commit, receipt_path, label="Git Stage-16 completion receipt"
+    )
+    receipt_keys = {
+        "format", "status", "stage", "run_id", "parent_stage09_run_id",
+        "run_identity", "formal_configuration", "training_device",
+        "confirmation_outcomes_requested_or_read", "selection_audit",
+        "bundle_prediction_parity", "artifacts", "artifact_closure_sha256",
+        "receipt_self_sha256",
+    }
+    artifact_keys = {
+        "run_manifest", "stage09_completion_receipt",
+        "stage09_parent_predictions", "stage09_parent_prediction_sidecar",
+        "lstm_validation_selection", "development_predictions",
+        "development_prediction_sidecar", "model_files",
+        "lstm_seed_prediction_files", "selection_candidate_files",
+        "shortcut_pointer", "components_pointer",
+    }
+    identity_fields = {
+        "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+        "source_sha256", "runtime_sha256", "schema_version",
+    }
+    stable = dict(receipt)
+    self_hash = stable.pop("receipt_self_sha256", None)
+    artifacts = receipt.get("artifacts")
+    identity = receipt.get("run_identity")
+    configuration = receipt.get("formal_configuration")
+    run_id = receipt.get("run_id")
+    development = suite.get("development_contract")
+    if (
+        set(receipt) != receipt_keys
+        or receipt.get("format")
+        != "thermoroute.stage16-completion-receipt.v1"
+        or receipt.get("status") != "PASS_FORMAL_STAGE16_COMPLETE"
+        or receipt.get("stage") != "16_lstm_baseline_insample"
+        or receipt.get("training_device") != "cpu"
+        or receipt.get("confirmation_outcomes_requested_or_read") is not False
+        or not isinstance(run_id, str)
+        or re.fullmatch(r"[0-9a-f]{20}", run_id) is None
+        or not isinstance(identity, Mapping)
+        or set(identity) != identity_fields
+        or not isinstance(configuration, Mapping)
+        or not isinstance(artifacts, Mapping)
+        or set(artifacts) != artifact_keys
+        or not isinstance(development, Mapping)
+        or receipt.get("artifact_closure_sha256") != _sha256_json(artifacts)
+        or self_hash != _sha256_json(stable)
+    ):
+        raise ValueError("Git Stage-16 completion receipt changed")
+    panel = development.get("panel")
+    registry = development.get("registry")
+    if not isinstance(panel, Mapping) or not isinstance(registry, Mapping):
+        raise ValueError("Git Stage-16 development contract changed")
+    expected_configuration_keys = {
+        "stage", "role", "parent_sha256", "models", "seeds", "variables",
+        "horizons", "context_length", "station_embedding",
+        "station_balanced", "selection_metric", "validation_grid",
+        "validation_selection_seed", "validation_selection_split",
+        "event_reference_fit_interval", "train_config", "training_device",
+        "formal_numerical_policy",
+    }
+    feature_order = [
+        "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+    ]
+    if (
+        set(configuration) != expected_configuration_keys
+        or configuration.get("stage") != "16_lstm_baseline_insample"
+        or configuration.get("role") != "final_route_a_development_predictions"
+        or configuration.get("models")
+        != [
+            "Persistence", "DampedPersistence", "Climatology",
+            "LightGBM", "LSTM", "ThermoRoute",
+        ]
+        or configuration.get("seeds") != [0, 1, 2, 3, 4]
+        or configuration.get("variables") != feature_order
+        or configuration.get("horizons") != [1, 3, 7]
+        or configuration.get("context_length") != 32
+        or configuration.get("station_embedding") is not True
+        or configuration.get("station_balanced") is not True
+        or configuration.get("selection_metric") != "station_macro"
+        or configuration.get("validation_grid") != _stage16_validation_grid()
+        or configuration.get("validation_selection_seed") != 0
+        or configuration.get("validation_selection_split") != "2016-2017 only"
+        or configuration.get("event_reference_fit_interval")
+        != ["2006-01-01", "2018-12-31"]
+        or configuration.get("train_config") != _stage16_train_config()
+        or configuration.get("training_device") != "cpu"
+        or not isinstance(configuration.get("formal_numerical_policy"), Mapping)
+        or not configuration["formal_numerical_policy"]
+    ):
+        raise ValueError("Git Stage-16 formal configuration changed")
+    identity_stable = {
+        "schema_version": identity.get("schema_version"),
+        "panel_sha256": identity.get("panel_sha256"),
+        "registry_sha256": identity.get("registry_sha256"),
+        "config_sha256": identity.get("config_sha256"),
+        "source_sha256": identity.get("source_sha256"),
+        "runtime_sha256": identity.get("runtime_sha256"),
+    }
+    if (
+        identity.get("run_id") != run_id
+        or identity.get("schema_version") != "thermoroute.run.v1"
+        or identity.get("panel_sha256") != panel.get("sha256")
+        or identity.get("registry_sha256") != registry.get("sha256")
+        or identity.get("config_sha256") != _sha256_json(configuration)
+        or identity.get("source_sha256") != development.get("source_sha256")
+        or identity.get("runtime_sha256")
+        != suite.get("numerical_runtime_sha256")
+        or run_id != _sha256_json(identity_stable)[:20]
+    ):
+        raise ValueError("Git Stage-16 run identity/configuration changed")
+
+    run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
+    bundle_dir = f"outputs/models/lstm_usgs_bundle_{run_id}"
+    canonical_scalar = {
+        "run_manifest": f"{run_dir}/run.json",
+        "stage09_completion_receipt": (
+            "outputs/models/route_a_stage09_completion.json"
+        ),
+        "stage09_parent_predictions": (
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+        ),
+        "stage09_parent_prediction_sidecar": (
+            "outputs/predictions/usgs_predictions_stage9_v2.parquet.meta.json"
+        ),
+        "lstm_validation_selection": (
+            "outputs/tables/lstm_validation_selection.csv"
+        ),
+        "development_predictions": (
+            "outputs/predictions/usgs_predictions_v2.parquet"
+        ),
+        "development_prediction_sidecar": (
+            "outputs/predictions/usgs_predictions_v2.parquet.meta.json"
+        ),
+        "shortcut_pointer": "outputs/models/lstm_usgs_bundle.json",
+        "components_pointer": "outputs/models/route_a_lstm_components.json",
+    }
+    resolved: dict[str, str] = {}
+    for label, expected_path in canonical_scalar.items():
+        resolved[label] = _git_declared_binding_path(
+            bare, commit, artifacts[label], label=f"Git Stage-16 {label}"
+        )
+        if resolved[label] != expected_path:
+            raise ValueError("Git Stage-16 top-level artifact path changed")
+        output.add(resolved[label])
+    expected_lists = {
+        "model_files": [
+            f"{bundle_dir}/metadata.json", f"{bundle_dir}/weights.pt",
+        ],
+        "lstm_seed_prediction_files": [
+            path
+            for seed in range(5)
+            for path in (
+                f"{run_dir}/predictions/seed{seed}.parquet",
+                f"{run_dir}/predictions/seed{seed}.parquet.meta.json",
+            )
+        ],
+        "selection_candidate_files": [
+            path
+            for candidate_id in range(3)
+            for path in (
+                f"{run_dir}/selection/candidate{candidate_id}.parquet",
+                f"{run_dir}/selection/candidate{candidate_id}.parquet.meta.json",
+                f"{run_dir}/selection/candidate{candidate_id}.pt",
+                f"{run_dir}/selection/candidate{candidate_id}.pt.meta.json",
+            )
+        ],
+    }
+    for label, expected_paths in expected_lists.items():
+        bindings = artifacts.get(label)
+        if (
+            not isinstance(bindings, list)
+            or len(bindings) != len(expected_paths)
+            or any(
+                not isinstance(binding, Mapping)
+                or set(binding) != {"path", "sha256"}
+                for binding in bindings
+            )
+        ):
+            raise ValueError(f"Git Stage-16 {label} closure changed")
+        observed = [
+            _git_declared_binding_path(
+                bare,
+                commit,
+                binding,
+                label=f"Git Stage-16 {label}/{index}",
+            )
+            for index, binding in enumerate(bindings)
+        ]
+        if observed != expected_paths or len(observed) != len(set(observed)):
+            raise ValueError(f"Git Stage-16 {label} paths changed")
+        output.update(observed)
+
+    if artifacts.get("stage09_completion_receipt") != stage9_gate_binding:
+        raise ValueError("Git Stage-16 receipt binds another Stage-9 gate")
+    stage9 = _git_json_document(
+        bare,
+        commit,
+        resolved["stage09_completion_receipt"],
+        label="Git Stage-16 Stage-9 receipt",
+    )
+    stage9_artifacts = stage9.get("artifacts")
+    if (
+        not isinstance(stage9_artifacts, Mapping)
+        or receipt.get("parent_stage09_run_id") != stage9.get("run_id")
+        or artifacts.get("stage09_parent_predictions")
+        != stage9_artifacts.get("predictions")
+        or artifacts.get("stage09_parent_prediction_sidecar")
+        != stage9_artifacts.get("prediction_sidecar")
+        or configuration.get("parent_sha256")
+        != artifacts["stage09_parent_predictions"].get("sha256")
+    ):
+        raise ValueError("Git Stage-16 Stage-9 parent closure changed")
+
+    manifest = _git_json_document(
+        bare, commit, resolved["run_manifest"], label="Git Stage-16 run manifest"
+    )
+    if (
+        set(manifest)
+        != {
+            "schema_version", "identity", "resolved_config", "created_utc",
+            "environment", "git", "provenance",
+        }
+        or manifest.get("schema_version") != "thermoroute.run.v1"
+        or manifest.get("identity") != identity
+        or manifest.get("resolved_config") != configuration
+        or manifest.get("provenance")
+        != {
+            "evidence_role": "prelabel_route_a_model_build_development_only",
+            "training_device": "cpu",
+        }
+    ):
+        raise ValueError("Git Stage-16 run manifest changed")
+
+    selection_payload = _git_blob_bytes(
+        bare,
+        commit,
+        resolved["lstm_validation_selection"],
+        label="Git Stage-16 selection",
+    )
+    reported_metrics, winner = _stage16_selection_metrics(
+        selection_payload, label="Git Stage-16 selection"
+    )
+    selection_audit = receipt.get("selection_audit")
+    selection_inputs = (
+        selection_audit.get("input_closure")
+        if isinstance(selection_audit, Mapping) else None
+    )
+    candidates = (
+        selection_audit.get("candidates")
+        if isinstance(selection_audit, Mapping) else None
+    )
+    threshold_contract = (
+        selection_inputs.get("event_threshold_contract")
+        if isinstance(selection_inputs, Mapping) else None
+    )
+    if (
+        not isinstance(selection_audit, Mapping)
+        or set(selection_audit)
+        != {
+            "format", "status", "metric", "selection_split", "metric_atol",
+            "replay_atol", "winner_candidate_id", "candidates",
+            "input_closure", "input_closure_sha256",
+        }
+        or selection_audit.get("format")
+        != "thermoroute.stage16-selection-audit.v1"
+        or selection_audit.get("status")
+        != "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY"
+        or selection_audit.get("metric")
+        != "mean_station_rmse_across_all_horizons"
+        or selection_audit.get("selection_split") != "2016-2017 validation"
+        or selection_audit.get("metric_atol") != 1e-5
+        or selection_audit.get("replay_atol") != 1e-5
+        or selection_audit.get("winner_candidate_id") != winner
+        or not isinstance(candidates, list)
+        or len(candidates) != 3
+        or not isinstance(selection_inputs, Mapping)
+        or selection_audit.get("input_closure_sha256")
+        != _sha256_json(selection_inputs)
+        or not isinstance(threshold_contract, Mapping)
+        or threshold_contract.get("registry_sha256")
+        != _sha256_json(threshold_contract.get("registry"))
+        or selection_inputs.get("run_manifest") != artifacts["run_manifest"]
+        or selection_inputs.get("panel") != development.get("panel")
+        or selection_inputs.get("frozen_panel_spec")
+        != development.get("frozen_panel_spec")
+        or selection_inputs.get("station_registry") != development.get("registry")
+        or selection_inputs.get("selection")
+        != artifacts["lstm_validation_selection"]
+        or selection_inputs.get("candidate_files")
+        != artifacts["selection_candidate_files"]
+    ):
+        raise ValueError("Git Stage-16 selection audit changed")
+    _, checkpoint_audit_metrics = _stage16_candidate_audit_views(
+        candidates,
+        reported_metrics=reported_metrics,
+        audit_winner=selection_audit.get("winner_candidate_id"),
+        label="Git Stage-16 selection audit",
+    )
+    checkpoint_paths = expected_lists["selection_candidate_files"]
+    checkpoint_payload_metrics: list[float] = []
+    for candidate_id, candidate in enumerate(_stage16_validation_grid()):
+        offset = 4 * candidate_id
+        checkpoint_path = checkpoint_paths[offset + 2]
+        checkpoint_bytes = _git_blob_bytes(
+            bare,
+            commit,
+            checkpoint_path,
+            label=f"Git Stage-16 candidate{candidate_id} checkpoint",
+        )
+        checkpoint_config = {
+            **dict(configuration),
+            "candidate_id": candidate_id,
+            "candidate": candidate,
+        }
+        checkpoint_payload = _stage16_checkpoint_payload(
+            checkpoint_bytes,
+            expected_run_id=run_id,
+            expected_config=checkpoint_config,
+            label=f"Git Stage-16 candidate{candidate_id} checkpoint",
+        )
+        checkpoint_payload_metrics.append(float(checkpoint_payload["best_metric"]))
+        checkpoint_metadata = _git_json_document(
+            bare,
+            commit,
+            checkpoint_paths[offset + 3],
+            label=f"Git Stage-16 candidate{candidate_id} checkpoint sidecar",
+        )
+        if (
+            set(checkpoint_metadata)
+            != {
+                "format", "checkpoint_format", "run_id", "epoch",
+                "checkpoint_bytes", "checkpoint_sha256",
+                "resolved_config_sha256", "extra_sha256", "model_class",
+                "optimizer_class", "scheduler_class", "scheduler_present",
+            }
+            or checkpoint_metadata.get("format")
+            != "thermoroute.training-checkpoint-metadata.v2"
+            or checkpoint_metadata.get("checkpoint_format")
+            != "thermoroute.training-checkpoint.v3"
+            or checkpoint_metadata.get("run_id") != run_id
+            or checkpoint_metadata.get("epoch") != checkpoint_payload["epoch"]
+            or checkpoint_metadata.get("checkpoint_bytes") != len(checkpoint_bytes)
+            or checkpoint_metadata.get("checkpoint_sha256")
+            != hashlib.sha256(checkpoint_bytes).hexdigest()
+            or checkpoint_metadata.get("resolved_config_sha256")
+            != checkpoint_payload["resolved_config_sha256"]
+            or checkpoint_metadata.get("extra_sha256")
+            != checkpoint_payload["extra_sha256"]
+            or checkpoint_metadata.get("model_class")
+            != "thermoroute.train.LSTMForecaster"
+            or checkpoint_metadata.get("optimizer_class")
+            != "torch.optim.adamw.AdamW"
+            or checkpoint_metadata.get("scheduler_class")
+            != "torch.optim.lr_scheduler.ReduceLROnPlateau"
+            or checkpoint_metadata.get("scheduler_present") is not True
+            or abs(
+                float(checkpoint_payload["best_metric"])
+                - checkpoint_audit_metrics[candidate_id]
+            ) > 1e-5
+        ):
+            raise ValueError(
+                f"Git Stage-16 candidate{candidate_id} checkpoint changed"
+            )
+    if _stage16_validation_winner(
+        checkpoint_payload_metrics, label="Git Stage-16 checkpoint payload"
+    ) != winner:
+        raise ValueError("Git Stage-16 three-view validation winner changed")
+
+    metadata = _git_json_document(
+        bare,
+        commit,
+        expected_lists["model_files"][0],
+        label="Git Stage-16 LSTM metadata",
+    )
+    parity = receipt.get("bundle_prediction_parity")
+    parity_inputs = parity.get("input_closure") if isinstance(parity, Mapping) else None
+    parity_difference = parity.get("max_abs_difference") if isinstance(
+        parity, Mapping
+    ) else None
+    if (
+        not isinstance(parity, Mapping)
+        or parity.get("format") != "thermoroute.stage16-bundle-parity.v1"
+        or parity.get("status") != "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY"
+        or parity.get("members") != [f"seed{seed}" for seed in range(5)]
+        or parity.get("splits") != ["val", "calib", "test"]
+        or parity.get("atol") != 1e-5
+        or isinstance(parity_difference, bool)
+        or not isinstance(parity_difference, (int, float))
+        or not 0.0 <= float(parity_difference) <= 1e-5
+        or parity_inputs
+        != {
+            "panel": development.get("panel"),
+            "frozen_panel_spec": development.get("frozen_panel_spec"),
+            "station_registry": development.get("registry"),
+            "bundle_metadata": artifacts["model_files"][0],
+            "bundle_weights": artifacts["model_files"][1],
+            "development_prediction": metadata.get("development_prediction"),
+        }
+        or parity.get("input_closure_sha256") != _sha256_json(parity_inputs)
+    ):
+        raise ValueError("Git Stage-16 parity audit changed")
+
+    tree = _run_git(
+        bare, "ls-tree", "-r", "--name-only", commit, "--", bundle_dir
+    )
+    if tree.returncode:
+        raise ValueError("cannot enumerate Git Stage-16 bundle")
+    bundle_tree = set(tree.stdout.decode("utf-8").splitlines())
+    if bundle_tree != set(expected_lists["model_files"]):
+        raise ValueError("Git Stage-16 bundle file closure changed")
+    components = _git_json_document(
+        bare,
+        commit,
+        resolved["components_pointer"],
+        label="Git Stage-16 components pointer",
+    )
+    entries = components.get("models")
+    cohorts = suite.get("cohorts")
+    temporal = cohorts.get("temporal") if isinstance(cohorts, Mapping) else None
+    temporal_entries = temporal.get("models") if isinstance(temporal, Mapping) else None
+    frozen_lstm = [
+        entry for entry in temporal_entries or []
+        if isinstance(entry, Mapping) and entry.get("model_id") == "LSTM"
+    ]
+    expected_prediction = {
+        **dict(artifacts["development_predictions"]),
+        "sidecar": dict(artifacts["development_prediction_sidecar"]),
+    }
+    if (
+        components.get("format") != "thermoroute.route-a-model-components.v1"
+        or components.get("status") != "COMPLETE"
+        or components.get("training_device") != "cpu"
+        or components.get("run_id") != run_id
+        or components.get("cohort") != "temporal_lstm"
+        or components.get("raw_feature_order") != feature_order
+        or components.get("development_contract") != development
+        or components.get("development_prediction_artifact") != expected_prediction
+        or not isinstance(entries, list)
+        or len(entries) != 1
+        or len(frozen_lstm) != 1
+        or entries[0] != frozen_lstm[0]
+    ):
+        raise ValueError("Git Stage-16 components differ from frozen suite")
+    shortcut = _git_json_document(
+        bare,
+        commit,
+        resolved["shortcut_pointer"],
+        label="Git Stage-16 shortcut pointer",
+    )
+    if shortcut != {
+        "run_id": run_id,
+        "bundle_path": bundle_dir,
+        "member_count": 5,
+        "metadata_sha256": artifacts["model_files"][0]["sha256"],
+        "weights_sha256": artifacts["model_files"][1]["sha256"],
+    }:
+        raise ValueError("Git Stage-16 shortcut pointer changed")
+    return output
+
+
 def _git_preopening_gate_dependency_paths(
     bare: Path, commit: str, suite: Mapping[str, Any]
 ) -> set[str]:
@@ -10957,9 +12406,15 @@ def _git_preopening_gate_dependency_paths(
             "PASS_STAGE09B_BEST_MODEL_STATE_PREDICTION_REPLAY",
         ),
     }
-    required_gates = {*expected_gates, "stage25_external_completion"}
+    required_gates = {
+        *expected_gates,
+        "stage16_lstm_completion",
+        "stage25_external_completion",
+    }
     if not isinstance(gates, Mapping) or set(gates) != required_gates:
-        raise ValueError("Git model suite lacks exact Stage-09/09b/25 completion gates")
+        raise ValueError(
+            "Git model suite lacks exact Stage-09/09b/16/25 completion gates"
+        )
     output: set[str] = set()
     for gate_name, (
         expected_receipt_path, expected_format, expected_status,
@@ -11284,6 +12739,13 @@ def _git_preopening_gate_dependency_paths(
                 "sidecar": descriptors[sidecar_label],
             }:
                 raise ValueError("Git Stage-09b derived-artifact evidence changed")
+    output |= _git_stage16_dependency_paths(
+        bare,
+        commit,
+        suite,
+        gates["stage16_lstm_completion"],
+        stage9_gate_binding=gates["stage09_completion"],
+    )
     output |= _git_stage25_dependency_paths(
         bare, commit, suite, gates["stage25_external_completion"]
     )
@@ -12352,6 +13814,70 @@ def _verify_manuscript_blobs_from_bundle(
             )
 
 
+def _verify_canonical_archive_blobs_from_bundle(
+    *, root: Path, bare: Path, compute_commit: str
+) -> None:
+    """Bind license, legacy inputs, and canonical development data to Git.
+
+    Exact required-member and profile-closure checks run elsewhere.  Missing
+    paths are skipped here only so small unit fixtures can isolate Git-history
+    behavior; a real archive cannot omit them.  Any path that is present must
+    be a regular committed blob with byte-identical archive content.
+    """
+    relatives = {
+        relative
+        for relative in GIT_BOUND_FIXED_ARCHIVE_MEMBERS
+        if (root / relative).exists() or (root / relative).is_symlink()
+    }
+    for prefix in GIT_BOUND_ARCHIVE_TREES:
+        base = root / prefix
+        if not base.exists() and not base.is_symlink():
+            continue
+        if base.is_symlink() or not base.is_dir():
+            raise ValueError(
+                f"Git-bound archive tree is not a regular directory: {prefix}"
+            )
+        relatives.update(
+            path.relative_to(root).as_posix()
+            for path in base.rglob("*")
+            if path.is_file() or path.is_symlink()
+        )
+
+    for relative in sorted(relatives):
+        current = root / relative
+        if current.is_symlink() or not current.is_file():
+            raise ValueError(
+                f"Git-bound archive member is not a regular file: {relative}"
+            )
+        tree = _run_git(
+            bare, "ls-tree", "-z", compute_commit, "--", relative
+        )
+        records = [record for record in tree.stdout.split(b"\0") if record]
+        if tree.returncode or len(records) != 1:
+            raise ValueError(
+                f"Git-bound archive member is absent from compute Git: {relative}"
+            )
+        try:
+            metadata, raw_path = records[0].split(b"\t", 1)
+            mode, object_type, _oid = metadata.decode("ascii").split()
+            git_relative = raw_path.decode("utf-8", errors="strict")
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ValueError("Git-bound archive entry is malformed") from exc
+        if (
+            git_relative != relative
+            or object_type != "blob"
+            or mode not in {"100644", "100755"}
+        ):
+            raise ValueError(
+                f"Git-bound archive entry is noncanonical: {relative}"
+            )
+        blob = _run_git(bare, "show", f"{compute_commit}:{relative}")
+        if blob.returncode or blob.stdout != current.read_bytes():
+            raise ValueError(
+                f"canonical archive data/license differs from compute Git blob: {relative}"
+            )
+
+
 def _verify_amendment_seal_history_from_bundle(
     *, root: Path, bare: Path, compute_commit: str
 ) -> None:
@@ -12754,6 +14280,9 @@ def _verify_git_history_evidence(
         _verify_protected_tree_from_bundle(
             root=root, bare=bare, commit=commits[0]
         )
+        _verify_canonical_archive_blobs_from_bundle(
+            root=root, bare=bare, compute_commit=commits[0]
+        )
         blob = _run_git(
             bare, "show", f"{sealed.get('commit')}:{sealed.get('path')}"
         )
@@ -12999,9 +14528,41 @@ def _validate_release_member_names(members: Iterable[str]) -> set[str]:
     return canonical
 
 
-def normalised_members(archive: zipfile.ZipFile) -> set[str]:
-    """Return paths below the single archive root after security validation."""
+def _is_canonical_opened_state_member(relative: PurePosixPath) -> bool:
+    """Identify the exact content-addressed Route-A opened-state subtree."""
+    parts = relative.parts
+    if len(parts) < 3 or parts[:2] != ("outputs", "confirmatory"):
+        return False
+    namespace = parts[2]
+    return (
+        namespace.startswith("route_a_")
+        and len(namespace) == len("route_a_") + 24
+        and all(character in "0123456789abcdef" for character in namespace[8:])
+    )
+
+
+def _expected_archive_permission(
+    relative: PurePosixPath, *, directory: bool
+) -> int:
+    """Return the sole accepted owner-independent archive permission."""
+    if _is_canonical_opened_state_member(relative):
+        return 0o555 if directory else 0o444
+    if directory:
+        return 0o755
+    return (
+        0o755
+        if relative.parts[:1] == ("scripts",)
+        and relative.suffix in {".py", ".sh"}
+        else 0o644
+    )
+
+
+def _normalised_archive_layout(
+    archive: zipfile.ZipFile,
+) -> tuple[set[str], set[str]]:
+    """Return exact file/directory paths below one validated archive root."""
     members: set[str] = set()
+    directories: set[str] = set()
     infos = archive.infolist()
     _validate_archive_resource_limits(infos)
     names = [info.filename for info in infos]
@@ -13024,30 +14585,48 @@ def normalised_members(archive: zipfile.ZipFile) -> set[str]:
         if info.date_time != (1980, 1, 1, 0, 0, 0):
             raise ValueError(f"archive member has a non-deterministic timestamp: {info.filename!r}")
         permission = (info.external_attr >> 16) & 0o777
+        relative = PurePosixPath(*path.parts[1:])
         expected_kind: int
         if info.is_dir():
-            expected_permission = 0o755
+            expected_permission = _expected_archive_permission(
+                relative, directory=True
+            )
             expected_kind = stat.S_IFDIR
         else:
-            relative = PurePosixPath(*path.parts[1:])
-            expected_permission = (
-                0o755
-                if relative.parts[:1] == ("scripts",)
-                and relative.suffix in {".py", ".sh"}
-                else 0o644
+            expected_permission = _expected_archive_permission(
+                relative, directory=False
             )
             expected_kind = stat.S_IFREG
         if permission != expected_permission or mode != expected_kind:
             raise ValueError(f"archive member has a non-canonical mode: {info.filename!r}")
-        if len(path.parts) > 1 and not info.is_dir():
-            members.add(PurePosixPath(*path.parts[1:]).as_posix())
+        if info.is_dir():
+            directories.add(relative.as_posix())
+        elif len(path.parts) > 1:
+            members.add(relative.as_posix())
+    if "." not in directories:
+        raise ValueError(f"archive lacks its explicit {ARCHIVE_ROOT}/ root directory")
+    if members & directories:
+        raise ValueError("archive aliases a regular file with a directory")
+    return members, directories
+
+
+def normalised_members(archive: zipfile.ZipFile) -> set[str]:
+    """Return file paths below the single root after layout validation."""
+    members, _directories = _normalised_archive_layout(archive)
     return members
 
 
 def _extract_archive_safely(archive: zipfile.ZipFile, destination: Path) -> None:
-    """Stream regular members below destination while re-enforcing size limits."""
+    """Extract regular inodes, then apply declared directory modes bottom-up."""
+    # Keep this independently fail-closed if a future caller forgets to run the
+    # outer member validator.  No path is written until every central-directory
+    # name, kind, timestamp, size and permission has passed.
+    _normalised_archive_layout(archive)
     destination = destination.resolve()
+    if not destination.is_dir() or any(destination.iterdir()):
+        raise ValueError("archive extraction destination must be an empty directory")
     total_written = 0
+    directory_modes: list[tuple[Path, int]] = []
     for info in archive.infolist():
         posix = PurePosixPath(info.filename)
         target = destination.joinpath(*posix.parts)
@@ -13056,32 +14635,99 @@ def _extract_archive_safely(archive: zipfile.ZipFile, destination: Path) -> None
             raise ValueError(f"archive extraction path escapes destination: {info.filename!r}")
         permission = (info.external_attr >> 16) & 0o777
         if info.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            target.chmod(permission)
+            try:
+                target.mkdir(mode=0o700)
+            except (FileExistsError, FileNotFoundError) as exc:
+                raise ValueError(
+                    f"archive directory layout is not explicit and unique: {info.filename!r}"
+                ) from exc
+            metadata = target.lstat()
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(
+                    f"archive directory did not extract as a directory: {info.filename!r}"
+                )
+            directory_modes.append((target, permission))
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            parent_metadata = target.parent.lstat()
+        except FileNotFoundError as exc:
+            raise ValueError(
+                f"archive file lacks an explicit parent directory: {info.filename!r}"
+            ) from exc
+        if not stat.S_ISDIR(parent_metadata.st_mode):
+            raise ValueError(
+                f"archive file parent is not a directory: {info.filename!r}"
+            )
         if target.exists() or target.is_symlink():
             raise ValueError(f"archive extraction target already exists: {info.filename!r}")
         written = 0
-        with archive.open(info, "r") as source, target.open("xb") as output:
-            while True:
-                chunk = source.read(ARCHIVE_COPY_CHUNK_BYTES)
-                if not chunk:
-                    break
-                written += len(chunk)
-                total_written += len(chunk)
-                if written > info.file_size or written > MAX_ARCHIVE_MEMBER_BYTES:
-                    raise ValueError(
-                        f"archive member expanded beyond declared limit: {info.filename!r}"
-                    )
-                if total_written > MAX_ARCHIVE_TOTAL_BYTES:
-                    raise ValueError("archive expanded beyond total safety limit")
-                output.write(chunk)
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            descriptor = os.open(target, flags, 0o600)
+        except OSError as exc:
+            raise ValueError(
+                f"archive extraction target cannot be created safely: {info.filename!r}"
+            ) from exc
+        with os.fdopen(descriptor, "wb") as output:
+            with archive.open(info, "r") as source:
+                while True:
+                    chunk = source.read(ARCHIVE_COPY_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    total_written += len(chunk)
+                    if (
+                        written > info.file_size
+                        or written > MAX_ARCHIVE_MEMBER_BYTES
+                    ):
+                        raise ValueError(
+                            "archive member expanded beyond declared limit: "
+                            f"{info.filename!r}"
+                        )
+                    if total_written > MAX_ARCHIVE_TOTAL_BYTES:
+                        raise ValueError(
+                            "archive expanded beyond total safety limit"
+                        )
+                    output.write(chunk)
+            output.flush()
+            os.fchmod(output.fileno(), permission)
         if written != info.file_size:
             raise ValueError(
                 f"archive member expanded size differs from metadata: {info.filename!r}"
             )
+        metadata = target.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != permission
+        ):
+            raise ValueError(
+                f"archive member did not extract as one canonical inode: {info.filename!r}"
+            )
+    # A canonical opened-state directory is intentionally 0555.  Applying that
+    # mode while streaming would make nested extraction impossible for a
+    # non-root verifier, so directories remain private/writable only inside the
+    # fresh temporary root and are hardened deepest-first after all files close.
+    for target, permission in sorted(
+        directory_modes,
+        key=lambda item: len(item[0].relative_to(destination).parts),
+        reverse=True,
+    ):
         target.chmod(permission)
+        metadata = target.lstat()
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != permission
+        ):
+            raise ValueError(
+                f"archive directory mode could not be finalized: {target}"
+            )
 
 
 def validate_members(members: set[str]) -> None:
@@ -13158,6 +14804,48 @@ def _closure_paths(declared: object) -> set[str]:
                 if isinstance(binding, Mapping) and isinstance(binding.get("path"), str):
                     output.add(str(binding["path"]))
     return output
+
+
+def _expected_release_directories(files: set[str]) -> set[str]:
+    """Derive every required explicit archive directory from exact files."""
+    directories = {"."}
+    for relative in files:
+        path = PurePosixPath(relative)
+        for parent in path.parents:
+            if parent == PurePosixPath("."):
+                break
+            directories.add(parent.as_posix())
+    return directories
+
+
+def _validate_exact_release_member_layout(
+    root: Path,
+    marker: Mapping[str, Any],
+    members: set[str],
+    directories: set[str],
+) -> None:
+    """Reject every file or empty directory outside the reconstructed release."""
+    expected_files = (
+        set(REQUIRED_MEMBERS)
+        | set(ALLOWED_PAPER_MEMBERS)
+        | _working_model_control_paths(root)
+        | _closure_paths(marker.get("artifact_closure"))
+    )
+    if members != expected_files:
+        missing = sorted(expected_files - members)
+        extra = sorted(members - expected_files)
+        raise ValueError(
+            "release archive file members differ from the exact authorized set: "
+            f"missing={missing[:10]}, extra={extra[:10]}"
+        )
+    expected_directories = _expected_release_directories(expected_files)
+    if directories != expected_directories:
+        missing = sorted(expected_directories - directories)
+        extra = sorted(directories - expected_directories)
+        raise ValueError(
+            "release archive directory members differ from exact file parents: "
+            f"missing={missing[:10]}, extra={extra[:10]}"
+        )
 
 
 def _verify_archived_revision_contract(
@@ -13269,6 +14957,7 @@ def verify_release_profile(
     members: set[str] | None = None,
     *,
     run_trusted_replay: bool = True,
+    archive_directories: set[str] | None = None,
 ) -> str:
     root = Path(root).resolve()
     marker = _read_profile_marker(root)
@@ -13307,8 +14996,12 @@ def verify_release_profile(
         }:
             raise ValueError("pre-opening archive declares non-canonical result evidence")
         _verify_declared_closure(root, marker.get("artifact_closure"), expected_categories)
-        if run_trusted_replay:
+        if run_trusted_replay or archive_directories is not None:
             _verify_git_history_evidence(root, marker, profile)
+        if archive_directories is not None:
+            _validate_exact_release_member_layout(
+                root, marker, members, archive_directories
+            )
         _verify_claim_audit(
             root,
             marker,
@@ -13362,6 +15055,10 @@ def verify_release_profile(
         raise ValueError(
             "opened release contains scientific artifacts outside the authorization closure: "
             + ", ".join(unexplained_scientific[:10])
+        )
+    if archive_directories is not None:
+        _validate_exact_release_member_layout(
+            root, marker, members, archive_directories
         )
     _verify_claim_audit(
         root,
@@ -13659,13 +15356,16 @@ def verify_archive(
     with tempfile.TemporaryDirectory(prefix="thermoroute-clean-room-") as tmp:
         destination = Path(tmp)
         with zipfile.ZipFile(archive_path) as archive:
-            members = normalised_members(archive)
+            members, directories = _normalised_archive_layout(archive)
             validate_members(members)
             _extract_archive_safely(archive, destination)
 
         root = destination / ARCHIVE_ROOT
         profile = verify_release_profile(
-            root, members, run_trusted_replay=run_trusted_replay
+            root,
+            members,
+            run_trusted_replay=run_trusted_replay,
+            archive_directories=directories,
         )
         verify_canonical_huc_closure(root)
         manifest = root / "outputs" / "manifest.json"

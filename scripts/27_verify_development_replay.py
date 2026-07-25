@@ -124,6 +124,10 @@ def _run_worker(*, suite: Path, receipt: Path, check: bool) -> int:
     )
 
     configure_deterministic_runtime()
+
+    def assert_publication_policy() -> object:
+        return assert_formal_numerical_policy(require_hash_randomization=True)
+
     try:
         if check:
             document = fresh_verify_development_replay_receipt(
@@ -131,6 +135,7 @@ def _run_worker(*, suite: Path, receipt: Path, check: bool) -> int:
                 root=ROOT,
                 suite_path=suite,
                 entrypoint_path=Path(__file__),
+                publication_guard=assert_publication_policy,
             )
         else:
             document = run_guarded_development_replay(
@@ -138,10 +143,16 @@ def _run_worker(*, suite: Path, receipt: Path, check: bool) -> int:
                 suite_path=suite,
                 receipt_path=receipt,
                 entrypoint_path=Path(__file__),
+                publication_guard=assert_publication_policy,
             )
-            assert_formal_numerical_policy(require_hash_randomization=True)
-            write_replay_receipt(receipt, document)
-    except (ModelSuiteError, FileExistsError, ValueError) as exc:
+            assert_publication_policy()
+            write_replay_receipt(
+                receipt,
+                document,
+                publication_guard=assert_publication_policy,
+            )
+        assert_publication_policy()
+    except (ModelSuiteError, FileExistsError, RuntimeError, ValueError) as exc:
         print(f"FAIL-CLOSED: {exc}", file=sys.stderr)
         return 2
     print(json.dumps({

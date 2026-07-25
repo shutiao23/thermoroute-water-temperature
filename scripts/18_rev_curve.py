@@ -5,6 +5,7 @@ This is a hypothetical decision model, not evidence of regulatory or operational
 value.  Event calibration is fitted on 2018.  The reference action uses a
 2006--2015 station-month climatology and never the 2019--2020 event rate.
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
 import sys
@@ -25,17 +26,22 @@ from thermoroute import data as D
 from thermoroute import results as R
 from thermoroute.decision import cluster_bootstrap_rev, rev_curve
 from thermoroute.evidence import FrozenPanelSpec
+from thermoroute.model_suite import (
+    STAGE16_COMPLETION_RECEIPT_PATH,
+    validate_stage16_completion_receipt,
+)
 from thermoroute.probability import (
     calibrated_event_frame,
     ensemble_prediction_frame,
     fit_seasonal_climatology,
 )
-from thermoroute.repro import atomic_write_bytes
+from thermoroute.repro import advisory_file_lock, atomic_write_bytes
 from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
 
 PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 PREDICTIONS = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+STAGE16_RECEIPT = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
 STATION_REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 GRID = np.linspace(0.01, 0.99, 99)
 PROBABILISTIC = {"ThermoRoute": "#B3132B", "LightGBM": "#185FA5", "LSTM": "#6A4C93"}
@@ -94,7 +100,7 @@ def _all_event_frames(predictions, thresholds, climatology):
     return {model: pd.concat(parts, ignore_index=True) for model, parts in aligned.items()}
 
 
-def main() -> None:
+def _run() -> None:
     thresholds, climatology = _references()
     predictions = R.load_route_a_predictions(
         PREDICTIONS,
@@ -170,6 +176,14 @@ def main() -> None:
         )
     atomic_write_bytes(C.REPORTS / "rev_curve.md", "\n".join(lines).encode())
     print("\n".join(lines))
+
+
+def main() -> None:
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        validate_stage16_completion_receipt(
+            STAGE16_RECEIPT, root=ROOT, replay_bundle=False,
+        )
+        _run()
 
 
 if __name__ == "__main__":

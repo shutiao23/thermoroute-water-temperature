@@ -31,6 +31,7 @@ LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
 REPLAY_FORMAT = "thermoroute.route-a-development-replay.v1"
 INPUT_MANIFEST_FORMAT = "thermoroute.route-a-prelabel-inputs.v1"
 PROTOCOL_SEAL_FORMAT = "thermoroute.route-a-protocol-seal.v1"
+RUN_IDENTITY_SCHEMA_VERSION = "thermoroute.run.v1"
 
 DEFAULT_RECEIPT = "outputs/prelabel/route_a_prelabel_chronology_v1.json"
 DEFAULT_PROTOCOL_SEAL = "protocols/route_a_protocol_seal_v1.json"
@@ -101,6 +102,33 @@ STAGE09B_DATA_PATHS = {
     "registry": "data_usgs/station_registry_v1.csv",
     "predictor_bridge": "data_usgs/development_predictor_bridge_v1.json",
 }
+STAGE16_RECEIPT_PATH = "outputs/models/route_a_stage16_completion.json"
+STAGE16_ARTIFACT_LABELS = (
+    "run_manifest",
+    "stage09_completion_receipt",
+    "stage09_parent_predictions",
+    "stage09_parent_prediction_sidecar",
+    "lstm_validation_selection",
+    "development_predictions",
+    "development_prediction_sidecar",
+    "model_files",
+    "lstm_seed_prediction_files",
+    "selection_candidate_files",
+    "shortcut_pointer",
+    "components_pointer",
+)
+STAGE16_SEEDS = (0, 1, 2, 3, 4)
+STAGE16_CANDIDATES = (0, 1, 2)
+STAGE16_SELECTION_METRIC_ATOL = 1e-5
+STAGE16_PARENT_PREDICTION_PATH = (
+    "outputs/predictions/usgs_predictions_stage9_v2.parquet"
+)
+STAGE16_SELECTION_PATH = "outputs/tables/lstm_validation_selection.csv"
+STAGE16_DEVELOPMENT_PREDICTION_PATH = (
+    "outputs/predictions/usgs_predictions_v2.parquet"
+)
+STAGE16_SHORTCUT_POINTER_PATH = "outputs/models/lstm_usgs_bundle.json"
+STAGE16_COMPONENT_POINTER_PATH = "outputs/models/route_a_lstm_components.json"
 STAGE25_RECEIPT_PATH = "outputs/models/route_a_stage25_completion.json"
 STAGE25_ARTIFACT_LABELS = (
     "run_manifest",
@@ -984,6 +1012,337 @@ def _collect_development_bridge(
         )
 
 
+def _stage16_canonical_artifact_paths(
+    run_id: str,
+) -> dict[str, str | list[str]]:
+    """Mirror Stage 16's final path contract without importing runtime deps."""
+    bundle = f"outputs/models/lstm_usgs_bundle_{run_id}"
+    run_dir = f"outputs/runs/16_lstm_baseline/{run_id}"
+    return {
+        "run_manifest": f"{run_dir}/run.json",
+        "stage09_completion_receipt": STAGE09_RECEIPT_PATH,
+        "stage09_parent_predictions": STAGE16_PARENT_PREDICTION_PATH,
+        "stage09_parent_prediction_sidecar": (
+            f"{STAGE16_PARENT_PREDICTION_PATH}.meta.json"
+        ),
+        "lstm_validation_selection": STAGE16_SELECTION_PATH,
+        "development_predictions": STAGE16_DEVELOPMENT_PREDICTION_PATH,
+        "development_prediction_sidecar": (
+            f"{STAGE16_DEVELOPMENT_PREDICTION_PATH}.meta.json"
+        ),
+        "model_files": [f"{bundle}/metadata.json", f"{bundle}/weights.pt"],
+        "lstm_seed_prediction_files": [
+            path
+            for seed in STAGE16_SEEDS
+            for path in (
+                f"{run_dir}/predictions/seed{seed}.parquet",
+                f"{run_dir}/predictions/seed{seed}.parquet.meta.json",
+            )
+        ],
+        "selection_candidate_files": [
+            path
+            for candidate_id in STAGE16_CANDIDATES
+            for path in (
+                f"{run_dir}/selection/candidate{candidate_id}.parquet",
+                f"{run_dir}/selection/candidate{candidate_id}.parquet.meta.json",
+                f"{run_dir}/selection/candidate{candidate_id}.pt",
+                f"{run_dir}/selection/candidate{candidate_id}.pt.meta.json",
+            )
+        ],
+        "shortcut_pointer": STAGE16_SHORTCUT_POINTER_PATH,
+        "components_pointer": STAGE16_COMPONENT_POINTER_PATH,
+    }
+
+
+def _is_lower_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _stage16_float(value: object, *, label: str) -> float:
+    if type(value) not in {int, float}:
+        raise ChronologyError(f"{label} is malformed")
+    assert isinstance(value, (int, float))
+    result = float(value)
+    if not math.isfinite(result):
+        raise ChronologyError(f"{label} is malformed")
+    return result
+
+
+def _stage16_validation_winner(metrics: list[float]) -> int:
+    """Return the frozen tolerance-aware candidate winner."""
+    minimum = min(metrics)
+    return min(
+        candidate_id
+        for candidate_id in STAGE16_CANDIDATES
+        if metrics[candidate_id] <= minimum + STAGE16_SELECTION_METRIC_ATOL
+    )
+
+
+def _stage16_audit_binding(
+    output: dict[str, dict[str, Any]],
+    root: Path,
+    commit: str,
+    value: object,
+    expected: object,
+    *,
+    label: str,
+) -> None:
+    """Require one audit binding to repeat its receipt artifact exactly."""
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {"path", "sha256"}
+        or not isinstance(expected, Mapping)
+        or dict(value) != dict(expected)
+    ):
+        raise ChronologyError(f"{label} changed")
+    _declared_root_binding(output, root, commit, value, label=label)
+
+
+def _validate_stage16_selection_audit(
+    output: dict[str, dict[str, Any]],
+    root: Path,
+    commit: str,
+    value: object,
+    artifacts: Mapping[str, Any],
+) -> None:
+    expected_keys = {
+        "format", "status", "metric", "selection_split", "metric_atol",
+        "replay_atol", "winner_candidate_id", "candidates",
+        "input_closure", "input_closure_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        raise ChronologyError("Stage-16 validation-selection audit schema changed")
+    winner = value.get("winner_candidate_id")
+    candidates = value.get("candidates")
+    if (
+        value.get("format") != "thermoroute.stage16-selection-audit.v1"
+        or value.get("status")
+        != "PASS_BEST_STATE_REPLAY_AND_VALIDATION_SELECTION_PARITY"
+        or value.get("metric") != "mean_station_rmse_across_all_horizons"
+        or value.get("selection_split") != "2016-2017 validation"
+        or value.get("metric_atol") != STAGE16_SELECTION_METRIC_ATOL
+        or value.get("replay_atol") != STAGE16_SELECTION_METRIC_ATOL
+        or type(winner) is not int
+        or winner not in STAGE16_CANDIDATES
+        or not isinstance(candidates, list)
+        or len(candidates) != len(STAGE16_CANDIDATES)
+    ):
+        raise ChronologyError("Stage-16 validation-selection audit changed")
+
+    candidate_keys = {
+        "candidate_id", "recomputed_val_station_macro_rmse",
+        "reported_val_station_macro_rmse", "checkpoint_best_metric",
+        "best_state_max_abs_difference", "selected",
+    }
+    recomputed_metrics: list[float] = []
+    reported_metrics: list[float] = []
+    checkpoint_metrics: list[float] = []
+    for candidate_id, candidate in zip(
+        STAGE16_CANDIDATES, candidates, strict=True,
+    ):
+        if not isinstance(candidate, Mapping) or set(candidate) != candidate_keys:
+            raise ChronologyError("Stage-16 candidate replay audit changed")
+        recomputed, reported, checkpoint, difference = (
+            _stage16_float(
+                candidate.get("recomputed_val_station_macro_rmse"),
+                label="Stage-16 recomputed validation metric",
+            ),
+            _stage16_float(
+                candidate.get("reported_val_station_macro_rmse"),
+                label="Stage-16 reported validation metric",
+            ),
+            _stage16_float(
+                candidate.get("checkpoint_best_metric"),
+                label="Stage-16 checkpoint validation metric",
+            ),
+            _stage16_float(
+                candidate.get("best_state_max_abs_difference"),
+                label="Stage-16 best-state replay difference",
+            ),
+        )
+        if (
+            candidate.get("candidate_id") != candidate_id
+            or candidate.get("selected") is not (candidate_id == winner)
+            or abs(recomputed - reported) > STAGE16_SELECTION_METRIC_ATOL
+            or abs(checkpoint - reported) > STAGE16_SELECTION_METRIC_ATOL
+            or difference < 0.0
+            or difference > STAGE16_SELECTION_METRIC_ATOL
+        ):
+            raise ChronologyError("Stage-16 candidate best-state replay changed")
+        recomputed_metrics.append(recomputed)
+        reported_metrics.append(reported)
+        checkpoint_metrics.append(checkpoint)
+    view_winners = {
+        _stage16_validation_winner(recomputed_metrics),
+        _stage16_validation_winner(reported_metrics),
+        _stage16_validation_winner(checkpoint_metrics),
+    }
+    if view_winners != {winner}:
+        raise ChronologyError(
+            "Stage-16 three validation metric views do not select the same "
+            "tolerance-aware candidate"
+        )
+
+    closure = value.get("input_closure")
+    closure_keys = {
+        "run_manifest", "panel", "frozen_panel_spec", "station_registry",
+        "selection", "candidate_files", "event_threshold_contract",
+    }
+    if (
+        not isinstance(closure, Mapping)
+        or set(closure) != closure_keys
+        or value.get("input_closure_sha256") != _repro_sha256_json(closure)
+    ):
+        raise ChronologyError("Stage-16 selection replay input closure changed")
+    for label, artifact_label in (
+        ("run_manifest", "run_manifest"),
+        ("selection", "lstm_validation_selection"),
+    ):
+        _stage16_audit_binding(
+            output, root, commit, closure.get(label), artifacts.get(artifact_label),
+            label=f"Stage-16 selection audit {label}",
+        )
+    for label, expected_path in (
+        ("panel", "data_usgs/panel_usgs_120v2.parquet"),
+        ("frozen_panel_spec", "data_usgs/frozen_panel_v1.json"),
+        ("station_registry", "data_usgs/station_registry_v1.csv"),
+    ):
+        binding = closure.get(label)
+        if not isinstance(binding, Mapping) or binding.get("path") != expected_path:
+            raise ChronologyError(
+                f"Stage-16 selection audit {label} path is noncanonical"
+            )
+        _stage16_audit_binding(
+            output, root, commit, binding, binding,
+            label=f"Stage-16 selection audit {label}",
+        )
+    if closure.get("candidate_files") != artifacts.get(
+        "selection_candidate_files"
+    ):
+        raise ChronologyError("Stage-16 selection audit candidate closure changed")
+
+    threshold = closure.get("event_threshold_contract")
+    threshold_keys = {
+        "target", "fit_split", "scope", "estimator", "quantile", "registry",
+        "registry_sha256",
+    }
+    registry = threshold.get("registry") if isinstance(threshold, Mapping) else None
+    if (
+        not isinstance(threshold, Mapping)
+        or set(threshold) != threshold_keys
+        or threshold.get("target") != "WTEMP"
+        or threshold.get("quantile") != 0.90
+        or not isinstance(registry, Mapping)
+        or not registry
+        or threshold.get("registry_sha256") != _repro_sha256_json(registry)
+    ):
+        raise ChronologyError("Stage-16 event-threshold contract changed")
+
+
+def _validate_stage16_parity_audit(
+    output: dict[str, dict[str, Any]],
+    root: Path,
+    commit: str,
+    value: object,
+    artifacts: Mapping[str, Any],
+) -> None:
+    expected_keys = {
+        "format", "status", "members", "splits", "atol",
+        "max_abs_difference", "input_closure", "input_closure_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        raise ChronologyError("Stage-16 five-member parity audit schema changed")
+    difference = _stage16_float(
+        value.get("max_abs_difference"),
+        label="Stage-16 five-member parity difference",
+    )
+    if (
+        value.get("format") != "thermoroute.stage16-bundle-parity.v1"
+        or value.get("status") != "PASS_FIVE_MEMBER_VAL_CALIB_TEST_REPLAY"
+        or value.get("members") != [f"seed{seed}" for seed in STAGE16_SEEDS]
+        or value.get("splits") != ["val", "calib", "test"]
+        or value.get("atol") != STAGE16_SELECTION_METRIC_ATOL
+        or difference < 0.0
+        or difference > STAGE16_SELECTION_METRIC_ATOL
+    ):
+        raise ChronologyError("Stage-16 five-member bundle parity changed")
+
+    closure = value.get("input_closure")
+    closure_keys = {
+        "panel", "frozen_panel_spec", "station_registry", "bundle_metadata",
+        "bundle_weights", "development_prediction",
+    }
+    if (
+        not isinstance(closure, Mapping)
+        or set(closure) != closure_keys
+        or value.get("input_closure_sha256") != _repro_sha256_json(closure)
+    ):
+        raise ChronologyError("Stage-16 parity replay input closure changed")
+    for label, expected_path in (
+        ("panel", "data_usgs/panel_usgs_120v2.parquet"),
+        ("frozen_panel_spec", "data_usgs/frozen_panel_v1.json"),
+        ("station_registry", "data_usgs/station_registry_v1.csv"),
+    ):
+        binding = closure.get(label)
+        if not isinstance(binding, Mapping) or binding.get("path") != expected_path:
+            raise ChronologyError(f"Stage-16 parity {label} path is noncanonical")
+        _stage16_audit_binding(
+            output, root, commit, binding, binding,
+            label=f"Stage-16 parity audit {label}",
+        )
+    model_files = artifacts.get("model_files")
+    if not isinstance(model_files, list) or len(model_files) != 2:
+        raise ChronologyError("Stage-16 parity lacks its two model files")
+    for label, expected in zip(
+        ("bundle_metadata", "bundle_weights"), model_files, strict=True,
+    ):
+        _stage16_audit_binding(
+            output, root, commit, closure.get(label), expected,
+            label=f"Stage-16 parity audit {label}",
+        )
+
+    prediction = closure.get("development_prediction")
+    prediction_keys = {
+        "artifact", "rows", "forecast_key_registry_sha256",
+        "prediction_sha256", "max_abs_difference", "atol", "selection",
+        "forecast_key_columns", "prediction_columns",
+    }
+    prediction_artifact = (
+        prediction.get("artifact") if isinstance(prediction, Mapping) else None
+    )
+    if (
+        not isinstance(prediction, Mapping)
+        or set(prediction) != prediction_keys
+        or type(prediction.get("rows")) is not int
+        or int(prediction["rows"]) < 1
+        or not _is_lower_sha256(prediction.get("forecast_key_registry_sha256"))
+        or not _is_lower_sha256(prediction.get("prediction_sha256"))
+        or not isinstance(prediction_artifact, Mapping)
+        or set(prediction_artifact) != {"path", "sha256", "sidecar"}
+    ):
+        raise ChronologyError("Stage-16 parity prediction binding changed")
+    _stage16_audit_binding(
+        output,
+        root,
+        commit,
+        {key: prediction_artifact[key] for key in ("path", "sha256")},
+        artifacts.get("development_predictions"),
+        label="Stage-16 parity development prediction",
+    )
+    _stage16_audit_binding(
+        output,
+        root,
+        commit,
+        prediction_artifact.get("sidecar"),
+        artifacts.get("development_prediction_sidecar"),
+        label="Stage-16 parity development prediction sidecar",
+    )
+
+
 def _collect_preopening_receipts(
     output: dict[str, dict[str, Any]],
     root: Path,
@@ -993,18 +1352,26 @@ def _collect_preopening_receipts(
     gates = suite.get("preopening_gates")
     if not isinstance(gates, Mapping) or set(gates) != {
         "stage09_completion",
+        "stage16_lstm_completion",
         "stage09b_development_controls",
         "stage25_external_completion",
     }:
         raise ChronologyError(
-            "model suite lacks exact Stage-09/09b/25 completion gates"
+            "model suite lacks exact Stage-09/09b/16/25 completion gates"
         )
+    stage09_run_id: str | None = None
     for gate_name, expected_path, expected_format, expected_status in (
         (
             "stage09_completion",
             STAGE09_RECEIPT_PATH,
             "thermoroute.stage09-completion-receipt.v1",
             "PASS_FORMAL_STAGE09_COMPLETE",
+        ),
+        (
+            "stage16_lstm_completion",
+            STAGE16_RECEIPT_PATH,
+            "thermoroute.stage16-completion-receipt.v1",
+            "PASS_FORMAL_STAGE16_COMPLETE",
         ),
         (
             "stage09b_development_controls",
@@ -1050,6 +1417,59 @@ def _collect_preopening_receipts(
             ):
                 raise ChronologyError("Stage-09 receipt contract changed")
             expected_artifact_labels = set(STAGE09_ARTIFACT_LABELS)
+            stage09_run_id = str(receipt["run_id"])
+        elif gate_name == "stage16_lstm_completion":
+            expected_receipt_keys = {
+                "format", "status", "stage", "run_id",
+                "parent_stage09_run_id", "run_identity",
+                "formal_configuration", "training_device",
+                "confirmation_outcomes_requested_or_read", "selection_audit",
+                "bundle_prediction_parity", "artifacts",
+                "artifact_closure_sha256", "receipt_self_sha256",
+            }
+            artifacts = receipt.get("artifacts")
+            identity = receipt.get("run_identity")
+            identity_keys = {
+                "run_id", "panel_sha256", "registry_sha256", "config_sha256",
+                "source_sha256", "runtime_sha256", "schema_version",
+            }
+            run_id = receipt.get("run_id")
+            if (
+                set(receipt) != expected_receipt_keys
+                or receipt.get("stage") != "16_lstm_baseline_insample"
+                or receipt.get("training_device") != "cpu"
+                or receipt.get("confirmation_outcomes_requested_or_read") is not False
+                or not isinstance(run_id, str)
+                or not re.fullmatch(r"[0-9a-f]{20}", run_id)
+                or not isinstance(identity, Mapping)
+                or set(identity) != identity_keys
+            ):
+                raise ChronologyError("Stage-16 receipt contract changed")
+            identity_parts = {
+                key: identity[key] for key in identity_keys - {"run_id"}
+            }
+            if (
+                identity.get("schema_version") != RUN_IDENTITY_SCHEMA_VERSION
+                or identity.get("run_id") != run_id
+                or any(
+                    not _is_lower_sha256(identity.get(key))
+                    for key in (
+                        "panel_sha256", "registry_sha256", "config_sha256",
+                        "source_sha256", "runtime_sha256",
+                    )
+                )
+                or _repro_sha256_json(identity_parts)[:20] != run_id
+                or not isinstance(receipt.get("formal_configuration"), Mapping)
+                or _repro_sha256_json(receipt["formal_configuration"])
+                != identity.get("config_sha256")
+                or stage09_run_id is None
+                or receipt.get("parent_stage09_run_id") != stage09_run_id
+                or not isinstance(artifacts, Mapping)
+                or receipt.get("artifact_closure_sha256")
+                != _repro_sha256_json(artifacts)
+            ):
+                raise ChronologyError("Stage-16 receipt contract changed")
+            expected_artifact_labels = set(STAGE16_ARTIFACT_LABELS)
         elif gate_name == "stage09b_development_controls":
             expected_receipt_keys = {
                 "format", "status", "stage", "run_id", "run_identity",
@@ -1106,7 +1526,44 @@ def _collect_preopening_receipts(
         ):
             raise ChronologyError(f"{gate_name} artifact registry changed")
         resolved: dict[str, str] = {}
+        resolved_lists: dict[str, list[str]] = {}
         for label, binding in artifacts.items():
+            if gate_name == "stage16_lstm_completion" and label in {
+                "model_files", "lstm_seed_prediction_files",
+                "selection_candidate_files",
+            }:
+                expected_counts = {
+                    "model_files": 2,
+                    "lstm_seed_prediction_files": 10,
+                    "selection_candidate_files": 12,
+                }
+                if (
+                    not isinstance(binding, list)
+                    or len(binding) != expected_counts[label]
+                ):
+                    raise ChronologyError(
+                        f"Stage-16 {label} registry has the wrong cardinality"
+                    )
+                paths: list[str] = []
+                for index, file_binding in enumerate(binding):
+                    if (
+                        not isinstance(file_binding, Mapping)
+                        or set(file_binding) != {"path", "sha256"}
+                    ):
+                        raise ChronologyError(
+                            f"Stage-16 {label}[{index}] binding is not exact"
+                        )
+                    paths.append(_declared_root_binding(
+                        output,
+                        root,
+                        commit,
+                        file_binding,
+                        label=f"Stage-16 {label}[{index}]",
+                    ))
+                if len(set(paths)) != len(paths):
+                    raise ChronologyError(f"Stage-16 {label} is not unique")
+                resolved_lists[str(label)] = paths
+                continue
             if gate_name == "stage25_external_completion" and label == "model_files":
                 if not isinstance(binding, list) or len(binding) != 80:
                     raise ChronologyError(
@@ -1149,6 +1606,36 @@ def _collect_preopening_receipts(
             }
             if resolved != expected_paths:
                 raise ChronologyError("Stage-09 artifact paths are noncanonical")
+            continue
+
+        if gate_name == "stage16_lstm_completion":
+            canonical = _stage16_canonical_artifact_paths(run_id)
+            expected_paths = {
+                label: path
+                for label, path in canonical.items()
+                if isinstance(path, str)
+            }
+            expected_lists = {
+                label: path
+                for label, path in canonical.items()
+                if isinstance(path, list)
+            }
+            if resolved != expected_paths or resolved_lists != expected_lists:
+                raise ChronologyError("Stage-16 artifact paths are noncanonical")
+            _validate_stage16_selection_audit(
+                output,
+                root,
+                commit,
+                receipt.get("selection_audit"),
+                artifacts,
+            )
+            _validate_stage16_parity_audit(
+                output,
+                root,
+                commit,
+                receipt.get("bundle_prediction_parity"),
+                artifacts,
+            )
             continue
 
         if gate_name == "stage25_external_completion":

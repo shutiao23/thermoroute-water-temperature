@@ -24,6 +24,15 @@ accepted as evidence merely because it exists.
 # ruff: noqa: E402
 from __future__ import annotations
 
+import os
+
+for _thread_variable in (
+    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_variable] = "1"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
 import argparse
 from dataclasses import dataclass
 from io import BytesIO
@@ -54,10 +63,12 @@ from thermoroute import results as R
 from thermoroute.checkpoint import load_inference_bundle
 from thermoroute.model_suite import (
     ModelSuiteError,
+    STAGE16_COMPLETION_RECEIPT_PATH,
     file_binding,
     load_component_pointer,
     load_lightgbm_bundle,
     route_a_calibration_fit_contract,
+    validate_stage16_completion_receipt,
 )
 from thermoroute.probability import (
     PlattCalibrator,
@@ -68,8 +79,10 @@ from thermoroute.probability import (
 from thermoroute.registry import ROUTE_A_PRIMARY_MODELS
 from thermoroute.repro import (
     advisory_file_lock,
+    assert_formal_numerical_policy,
     atomic_write_bytes,
     atomic_write_json,
+    configure_deterministic_runtime,
     numerical_runtime_contract,
     resolve_run_identity,
     seal_artifact,
@@ -82,9 +95,13 @@ from thermoroute.repro import (
 from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
 
+configure_deterministic_runtime()
+
+
 PANEL = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
 STATION_REGISTRY = ROOT / "data_usgs" / "station_registry_v1.csv"
 PREDICTIONS = C.PREDICTIONS / "usgs_predictions_v2.parquet"
+STAGE16_RECEIPT = ROOT / STAGE16_COMPLETION_RECEIPT_PATH
 STAGE9_COMPONENTS = C.MODELS / "route_a_stage9_components.json"
 LSTM_COMPONENTS = C.MODELS / "route_a_lstm_components.json"
 PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
@@ -127,6 +144,7 @@ CANONICAL_INPUT_PATHS: Mapping[tuple[str, ...], str] = {
     ("prediction", "lineage_sidecar"): (
         "outputs/predictions/usgs_predictions_v2.parquet.meta.json"
     ),
+    ("stage16_completion_receipt",): STAGE16_COMPLETION_RECEIPT_PATH,
     ("panel",): "data_usgs/panel_usgs_120v2.parquet",
     ("registry",): "data_usgs/station_registry_v1.csv",
     ("protocol",): "protocols/route_a_confirmatory_v1.json",
@@ -1250,7 +1268,61 @@ def _write_self_hashed_receipt(path: Path, document: Mapping[str, Any]) -> None:
         raise ProbabilityContractError("receipt input already contains a self-hash")
     payload = dict(document)
     payload["receipt_self_sha256"] = sha256_json(payload)
-    atomic_write_json(path, payload)
+    atomic_write_json(
+        path,
+        payload,
+        publication_guard=assert_formal_numerical_policy,
+    )
+
+
+def _publish_stage19_outputs(
+    *,
+    receipt_path: Path,
+    artifacts: Mapping[str, Path],
+    probability_scores_payload: bytes,
+    point_scores_payload: bytes,
+    calibration_audit: Mapping[str, Any],
+    reliability_figure_payload: bytes,
+    report_payload: bytes,
+) -> None:
+    """Revoke PASS, then guard every durable Stage-19 replacement boundary."""
+    atomic_write_json(
+        receipt_path,
+        {
+            "format": RECEIPT_FORMAT,
+            "status": "INCOMPLETE",
+            "scientific_role": (
+                "previously_inspected_development_evaluation_2019_2020"
+            ),
+            "inference_computed": False,
+        },
+        publication_guard=assert_formal_numerical_policy,
+    )
+    atomic_write_bytes(
+        artifacts["probability_scores"],
+        probability_scores_payload,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    atomic_write_bytes(
+        artifacts["point_scores"],
+        point_scores_payload,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    atomic_write_json(
+        artifacts["calibration_audit"],
+        calibration_audit,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    atomic_write_bytes(
+        artifacts["reliability_figure"],
+        reliability_figure_payload,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    atomic_write_bytes(
+        artifacts["report"],
+        report_payload,
+        publication_guard=assert_formal_numerical_policy,
+    )
 
 
 def validate_probability_receipt(
@@ -1259,8 +1331,10 @@ def validate_probability_receipt(
     root: Path,
     enforce_current_source_and_runtime: bool = True,
     enforce_canonical_paths: bool = True,
+    transaction_locks_held: bool = False,
 ) -> Mapping[str, Any]:
     """Validate receipt self-hash plus every bound input/output byte artifact."""
+    assert_formal_numerical_policy()
     resolved_receipt = path.resolve()
     resolved_root = root.resolve()
     if resolved_receipt == resolved_root or resolved_root not in resolved_receipt.parents:
@@ -1273,6 +1347,25 @@ def validate_probability_receipt(
         raise ProbabilityContractError(
             "probability receipt is not at its exact canonical path"
         )
+    if (
+        enforce_canonical_paths
+        and resolved_root == ROOT.resolve()
+        and not transaction_locks_held
+    ):
+        # All formal callers use the global Stage16 -> Stage19 lock order.  The
+        # recursive call performs only validation while both shared locks stay
+        # held, closing receipt/artifact replacement races for direct callers.
+        with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+            with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=False):
+                return validate_probability_receipt(
+                    path,
+                    root=root,
+                    enforce_current_source_and_runtime=(
+                        enforce_current_source_and_runtime
+                    ),
+                    enforce_canonical_paths=enforce_canonical_paths,
+                    transaction_locks_held=True,
+                )
     document = _load_json(path, label="probability receipt")
     if set(document) != RECEIPT_TOP_LEVEL_FIELDS:
         raise ProbabilityContractError("probability receipt top-level schema changed")
@@ -1293,6 +1386,7 @@ def validate_probability_receipt(
     artifacts = document.get("artifacts")
     if not isinstance(inputs, Mapping) or set(inputs) != {
         "prediction",
+        "stage16_completion_receipt",
         "panel",
         "registry",
         "protocol",
@@ -1363,6 +1457,7 @@ def validate_probability_receipt(
     required_bindings: list[object] = [
         prediction["artifact"],
         prediction["lineage_sidecar"],
+        inputs["stage16_completion_receipt"],
         inputs["panel"],
         inputs["registry"],
         inputs["protocol"],
@@ -1391,6 +1486,38 @@ def validate_probability_receipt(
         if sha256_file(resolved) != binding.get("sha256"):
             raise ProbabilityContractError(
                 f"probability receipt binding changed: {binding.get('path')}"
+            )
+    if enforce_canonical_paths:
+        stage16_binding = inputs["stage16_completion_receipt"]
+        assert isinstance(stage16_binding, Mapping)
+        stage16_path = _inside(root, stage16_binding.get("path"))
+        try:
+            stage16_document = validate_stage16_completion_receipt(
+                stage16_path,
+                root=root,
+                components_pointer=_inside(
+                    root, component_pointers["lstm"].get("path")
+                ),
+                enforce_current_runtime=enforce_current_source_and_runtime,
+                replay_bundle=False,
+            )
+        except ModelSuiteError as exc:
+            raise ProbabilityContractError(
+                "Stage-16 completion gate is absent, stale, or malformed"
+            ) from exc
+        stage16_artifacts = stage16_document.get("artifacts")
+        if (
+            dict(stage16_binding) != file_binding(root, stage16_path)
+            or not isinstance(stage16_artifacts, Mapping)
+            or stage16_artifacts.get("development_predictions")
+            != prediction["artifact"]
+            or stage16_artifacts.get("development_prediction_sidecar")
+            != prediction["lineage_sidecar"]
+            or stage16_artifacts.get("components_pointer")
+            != component_pointers["lstm"]
+        ):
+            raise ProbabilityContractError(
+                "probability receipt disagrees with its Stage-16 completion gate"
             )
     lineage = document.get("lineage")
     run_identity = document.get("run_identity")
@@ -1458,6 +1585,9 @@ def validate_probability_receipt(
     expected_parents = {
         "prediction": str(prediction["artifact"]["sha256"]),
         "prediction_lineage": str(prediction["lineage_sidecar"]["sha256"]),
+        "stage16_completion_receipt": str(
+            inputs["stage16_completion_receipt"]["sha256"]
+        ),
         "stage9_components": str(component_pointers["stage9"]["sha256"]),
         "lstm_components": str(component_pointers["lstm"]["sha256"]),
         "protocol": str(inputs["protocol"]["sha256"]),
@@ -1506,6 +1636,7 @@ def validate_probability_receipt(
             numerical_runtime_contract()
         ):
             raise ProbabilityContractError("probability receipt is stale for current runtime")
+    assert_formal_numerical_policy()
     return document
 
 
@@ -1541,7 +1672,31 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _run(args: argparse.Namespace) -> None:
+def _validated_stage16_gate_under_lock() -> tuple[Mapping[str, Any], dict[str, str]]:
+    """Validate and bind Stage 16 while its shared transaction lock is held."""
+    assert_formal_numerical_policy()
+    try:
+        document = validate_stage16_completion_receipt(
+            STAGE16_RECEIPT,
+            root=ROOT,
+            components_pointer=LSTM_COMPONENTS,
+            replay_bundle=False,
+        )
+    except ModelSuiteError as exc:
+        raise ProbabilityContractError(
+            "Stage-16 completion gate is absent, stale, or malformed"
+        ) from exc
+    assert_formal_numerical_policy()
+    return document, _binding(ROOT, STAGE16_RECEIPT)
+
+
+def _run(
+    args: argparse.Namespace,
+    *,
+    stage16_document: Mapping[str, Any],
+    stage16_binding: Mapping[str, str],
+) -> None:
+    assert_formal_numerical_policy()
     formal_paths = {
         "panel": (args.panel, PANEL),
         "registry": (args.registry, STATION_REGISTRY),
@@ -1571,6 +1726,19 @@ def _run(args: argparse.Namespace) -> None:
     stage9_components = args.stage9_components.resolve()
     lstm_components = args.lstm_components.resolve()
     protocol_path = args.protocol.resolve()
+    stage16_artifacts = stage16_document.get("artifacts")
+    if (
+        not isinstance(stage16_artifacts, Mapping)
+        or stage16_artifacts.get("development_predictions")
+        != _binding(ROOT, predictions_path)
+        or stage16_artifacts.get("development_prediction_sidecar")
+        != _binding(ROOT, sidecar_path(predictions_path))
+        or stage16_artifacts.get("components_pointer")
+        != _binding(ROOT, lstm_components)
+    ):
+        raise ProbabilityContractError(
+            "Stage-19 inputs disagree with the validated Stage-16 completion gate"
+        )
 
     prediction_lineage = validate_artifact_sidecar(
         predictions_path,
@@ -1590,6 +1758,9 @@ def _run(args: argparse.Namespace) -> None:
         stage9_components=stage9_components,
         lstm_components=lstm_components,
     )
+    # Bundle loaders may reuse validated in-process state.  Acceptance is still
+    # conditional on the live native/Torch limiter, not just a runtime hash.
+    assert_formal_numerical_policy()
     run_lineage = prediction_lineage["run"]
     actual_runtime_sha256 = sha256_json(numerical_runtime_contract())
     expected_lineage = {
@@ -1669,27 +1840,20 @@ def _run(args: argparse.Namespace) -> None:
     # Revoke any previous PASS before the first output byte can move.  The
     # exclusive transaction lock prevents Stage10 from validating the old
     # receipt and then reading a partly replaced artifact set.
-    atomic_write_json(args.receipt.resolve(), {
-        "format": RECEIPT_FORMAT,
-        "status": "INCOMPLETE",
-        "scientific_role": "previously_inspected_development_evaluation_2019_2020",
-        "inference_computed": False,
-    })
-    atomic_write_bytes(
-        artifacts["probability_scores"],
-        probability_scores.to_csv(
+    report_payload = _render_report(probability_scores)
+    _publish_stage19_outputs(
+        receipt_path=args.receipt.resolve(),
+        artifacts=artifacts,
+        probability_scores_payload=probability_scores.to_csv(
             index=False, float_format="%.17g", lineterminator="\n"
         ).encode("utf-8"),
-    )
-    atomic_write_bytes(
-        artifacts["point_scores"],
-        point_scores.to_csv(
+        point_scores_payload=point_scores.to_csv(
             index=False, float_format="%.17g", lineterminator="\n"
         ).encode("utf-8"),
+        calibration_audit=probability_audit,
+        reliability_figure_payload=reliability_png,
+        report_payload=report_payload,
     )
-    atomic_write_json(artifacts["calibration_audit"], probability_audit)
-    atomic_write_bytes(artifacts["reliability_figure"], reliability_png)
-    atomic_write_bytes(artifacts["report"], _render_report(probability_scores))
 
     stage19_config = {
         "stage": "19_probabilistic_v2",
@@ -1707,6 +1871,7 @@ def _run(args: argparse.Namespace) -> None:
             "stage9": sha256_file(stage9_components),
             "lstm": sha256_file(lstm_components),
         },
+        "stage16_completion_receipt_sha256": str(stage16_binding["sha256"]),
         "protocol_sha256": sha256_file(protocol_path),
     }
     identity = resolve_run_identity(
@@ -1720,6 +1885,7 @@ def _run(args: argparse.Namespace) -> None:
     parent_bindings = {
         "prediction": sha256_file(predictions_path),
         "prediction_lineage": sha256_file(sidecar_path(predictions_path)),
+        "stage16_completion_receipt": str(stage16_binding["sha256"]),
         "stage9_components": sha256_file(stage9_components),
         "lstm_components": sha256_file(lstm_components),
         "protocol": sha256_file(protocol_path),
@@ -1739,6 +1905,7 @@ def _run(args: argparse.Namespace) -> None:
                 "development_only": True,
                 "receipt_path": args.receipt.resolve().relative_to(ROOT).as_posix(),
             },
+            publication_guard=assert_formal_numerical_policy,
         )
 
     inputs = {
@@ -1746,6 +1913,7 @@ def _run(args: argparse.Namespace) -> None:
             "artifact": _binding(ROOT, predictions_path),
             "lineage_sidecar": _binding(ROOT, sidecar_path(predictions_path)),
         },
+        "stage16_completion_receipt": dict(stage16_binding),
         "panel": _binding(ROOT, panel),
         "registry": _binding(ROOT, registry),
         "protocol": _binding(ROOT, protocol_path),
@@ -1783,21 +1951,42 @@ def _run(args: argparse.Namespace) -> None:
     }
     receipt_path = args.receipt.resolve()
     _write_self_hashed_receipt(receipt_path, receipt_document)
-    validate_probability_receipt(receipt_path, root=ROOT)
-    print(_render_report(probability_scores).decode("utf-8"))
+    validate_probability_receipt(
+        receipt_path,
+        root=ROOT,
+        transaction_locks_held=True,
+    )
+    print(report_payload.decode("utf-8"))
     print(f"validated self-hashed receipt: {receipt_path.relative_to(ROOT)}")
 
 
 def main() -> None:
     args = _parse_args()
-    if args.check:
-        receipt_path = args.receipt.resolve()
-        with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=False):
-            validate_probability_receipt(receipt_path, root=ROOT)
-        print(f"validated self-hashed receipt: {receipt_path.relative_to(ROOT)}")
-        return
-    with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=True):
-        _run(args)
+    # One global order is used everywhere: Stage16 first, Stage19 second.  The
+    # Stage16 lock stays shared through receipt validation and all reads/writes,
+    # so a V2 generation can never be replaced halfway through this stage.
+    with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=False):
+        stage16_document, stage16_binding = (
+            _validated_stage16_gate_under_lock()
+        )
+        if args.check:
+            receipt_path = args.receipt.resolve()
+            with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=False):
+                validate_probability_receipt(
+                    receipt_path,
+                    root=ROOT,
+                    transaction_locks_held=True,
+                )
+            print(
+                f"validated self-hashed receipt: {receipt_path.relative_to(ROOT)}"
+            )
+            return
+        with advisory_file_lock(C.STAGE19_TRANSACTION_LOCK, exclusive=True):
+            _run(
+                args,
+                stage16_document=stage16_document,
+                stage16_binding=stage16_binding,
+            )
 
 
 if __name__ == "__main__":

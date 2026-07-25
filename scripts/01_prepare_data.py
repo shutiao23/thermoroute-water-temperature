@@ -85,8 +85,9 @@ def main() -> None:
         pr = [np.sqrt(np.mean((s.values[h:] - s.values[:-h]) ** 2)) for h in C.HORIZONS]
         w(f"| {st} | {crmse:.3f} | {s.autocorr(1):.3f} | "
           f"{pr[0]:.3f} / {pr[1]:.3f} / {pr[2]:.3f} |")
-    w("\n_Persistence is the dominant short-horizon baseline; only damped "
-      "persistence toward climatology reliably beats it (see results)._\n")
+    w("\n_Persistence and damped persistence toward climatology are required "
+      "strong baselines. Comparative performance must be read only from the "
+      "current lineage-bound experiment outputs._\n")
 
     # 5. pairwise association diagnostic (not topology identification)
     w("## 5. Pairwise contemporaneous association (not topology)\n")

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -36,6 +38,12 @@ def _load_stage19():
 
 
 STAGE19 = _load_stage19()
+
+
+def test_stage19_import_activates_live_formal_numerical_policy():
+    policy = STAGE19.assert_formal_numerical_policy()
+    assert set(policy["thread_environment"].values()) == {"1"}
+    assert policy["cublas_workspace_config"] == ":4096:8"
 
 
 def _event_reference(sites: tuple[str, ...]) -> dict[str, object]:
@@ -273,6 +281,7 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
     panel = tmp_path / "panel.parquet"
     registry = tmp_path / "registry.csv"
     protocol = tmp_path / "protocol.json"
+    stage16_receipt = tmp_path / "stage16-receipt.json"
     stage9 = tmp_path / "stage9.json"
     lstm = tmp_path / "lstm.json"
     prediction = tmp_path / "predictions.parquet"
@@ -280,6 +289,7 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
         (panel, b"panel"),
         (registry, b"registry"),
         (protocol, b"protocol"),
+        (stage16_receipt, b"stage16 receipt"),
         (stage9, b"stage9"),
         (lstm, b"lstm"),
         (prediction, b"predictions"),
@@ -328,6 +338,7 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
             "artifact": binding(prediction),
             "lineage_sidecar": binding(sidecar_path(prediction)),
         },
+        "stage16_completion_receipt": binding(stage16_receipt),
         "panel": binding(panel),
         "registry": binding(registry),
         "protocol": binding(protocol),
@@ -342,6 +353,9 @@ def _receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object], dict[str,
     parents = {
         "prediction": inputs["prediction"]["artifact"]["sha256"],
         "prediction_lineage": inputs["prediction"]["lineage_sidecar"]["sha256"],
+        "stage16_completion_receipt": inputs["stage16_completion_receipt"][
+            "sha256"
+        ],
         "stage9_components": inputs["component_pointers"]["stage9"]["sha256"],
         "lstm_components": inputs["component_pointers"]["lstm"]["sha256"],
         "protocol": inputs["protocol"]["sha256"],
@@ -437,6 +451,150 @@ def test_receipt_cannot_drop_artifact_and_reseal_public_self_hash(tmp_path):
     changed["receipt_self_sha256"] = sha256_json(changed)
     receipt.write_text(json.dumps(changed), encoding="utf-8")
     with pytest.raises(STAGE19.ProbabilityContractError, match="artifact closure"):
+        STAGE19.validate_probability_receipt(
+            receipt,
+            root=tmp_path,
+            enforce_current_source_and_runtime=False,
+            enforce_canonical_paths=False,
+        )
+
+
+def test_receipt_cannot_drop_stage16_gate_and_reseal_public_self_hash(tmp_path):
+    receipt, _document, _outputs = _receipt_fixture(tmp_path)
+    changed = json.loads(receipt.read_text(encoding="utf-8"))
+    changed["inputs"].pop("stage16_completion_receipt")
+    changed.pop("receipt_self_sha256")
+    changed["receipt_self_sha256"] = sha256_json(changed)
+    receipt.write_text(json.dumps(changed), encoding="utf-8")
+    with pytest.raises(STAGE19.ProbabilityContractError, match="input closure"):
+        STAGE19.validate_probability_receipt(
+            receipt,
+            root=tmp_path,
+            enforce_current_source_and_runtime=False,
+            enforce_canonical_paths=False,
+        )
+
+
+def test_stage19_main_uses_stage16_then_stage19_lock_order(monkeypatch, tmp_path):
+    events: list[object] = []
+    stage16_lock = tmp_path / "stage16.lock"
+    stage19_lock = tmp_path / "stage19.lock"
+    monkeypatch.setattr(STAGE19.C, "STAGE16_TRANSACTION_LOCK", stage16_lock)
+    monkeypatch.setattr(STAGE19.C, "STAGE19_TRANSACTION_LOCK", stage19_lock)
+    args = SimpleNamespace(check=False)
+    monkeypatch.setattr(STAGE19, "_parse_args", lambda: args)
+
+    @contextmanager
+    def fake_lock(path, *, exclusive):
+        events.append(("enter", path, exclusive))
+        yield
+        events.append(("exit", path, exclusive))
+
+    def fake_gate():
+        events.append("gate")
+        return {"artifacts": {}}, {"path": "stage16", "sha256": "a" * 64}
+
+    def fake_run(run_args, *, stage16_document, stage16_binding):
+        events.append(("run", run_args, stage16_document, stage16_binding))
+
+    monkeypatch.setattr(STAGE19, "advisory_file_lock", fake_lock)
+    monkeypatch.setattr(STAGE19, "_validated_stage16_gate_under_lock", fake_gate)
+    monkeypatch.setattr(STAGE19, "_run", fake_run)
+    STAGE19.main()
+
+    assert events == [
+        ("enter", stage16_lock, False),
+        "gate",
+        ("enter", stage19_lock, True),
+        (
+            "run",
+            args,
+            {"artifacts": {}},
+            {"path": "stage16", "sha256": "a" * 64},
+        ),
+        ("exit", stage19_lock, True),
+        ("exit", stage16_lock, False),
+    ]
+
+
+def test_stage19_gate_helper_fails_closed_on_missing_stage16(monkeypatch):
+    def missing_gate(*_args, **_kwargs):
+        raise STAGE19.ModelSuiteError("missing")
+
+    monkeypatch.setattr(
+        STAGE19, "validate_stage16_completion_receipt", missing_gate
+    )
+    with pytest.raises(
+        STAGE19.ProbabilityContractError,
+        match="Stage-16 completion gate is absent, stale, or malformed",
+    ):
+        STAGE19._validated_stage16_gate_under_lock()
+
+
+def test_live_guard_failure_preserves_artifact_and_cannot_publish_pass(
+    monkeypatch, tmp_path,
+):
+    receipt = tmp_path / "probabilistic_evaluation_v2.json"
+    receipt.write_text('{"status":"PASS"}\n', encoding="utf-8")
+    artifacts = {
+        label: tmp_path / f"{label}.artifact"
+        for label in STAGE19.OUTPUT_CONTENT_SCHEMAS
+    }
+    for label, path in artifacts.items():
+        path.write_bytes(f"old:{label}\n".encode("utf-8"))
+    original_artifacts = {
+        label: path.read_bytes() for label, path in artifacts.items()
+    }
+    calls = 0
+
+    def fail_after_incomplete():
+        nonlocal calls
+        calls += 1
+        if calls >= 2:
+            raise RuntimeError("simulated live native pool drift")
+        return {"live": "formal"}
+
+    monkeypatch.setattr(
+        STAGE19, "assert_formal_numerical_policy", fail_after_incomplete
+    )
+    with pytest.raises(RuntimeError, match="live native pool drift"):
+        STAGE19._publish_stage19_outputs(
+            receipt_path=receipt,
+            artifacts=artifacts,
+            probability_scores_payload=b"new probability scores\n",
+            point_scores_payload=b"new point scores\n",
+            calibration_audit={"new": True},
+            reliability_figure_payload=b"new figure\n",
+            report_payload=b"new report\n",
+        )
+    # The first guarded boundary revokes the old PASS.  The second guard runs
+    # after the candidate bytes are durable but before canonical replacement.
+    assert json.loads(receipt.read_text(encoding="utf-8"))["status"] == "INCOMPLETE"
+    assert {
+        label: path.read_bytes() for label, path in artifacts.items()
+    } == original_artifacts
+    assert not list(tmp_path.glob(".*.tmp"))
+
+    with pytest.raises(RuntimeError, match="live native pool drift"):
+        STAGE19._write_self_hashed_receipt(
+            receipt,
+            {"format": STAGE19.RECEIPT_FORMAT, "status": "PASS"},
+        )
+    assert json.loads(receipt.read_text(encoding="utf-8"))["status"] == "INCOMPLETE"
+
+
+def test_receipt_validation_fails_closed_when_live_policy_drifts(
+    monkeypatch, tmp_path,
+):
+    receipt, _document, _outputs = _receipt_fixture(tmp_path)
+
+    def reject_live_policy():
+        raise RuntimeError("simulated live policy rejection")
+
+    monkeypatch.setattr(
+        STAGE19, "assert_formal_numerical_policy", reject_live_policy
+    )
+    with pytest.raises(RuntimeError, match="live policy rejection"):
         STAGE19.validate_probability_receipt(
             receipt,
             root=tmp_path,

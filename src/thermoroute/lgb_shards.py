@@ -28,7 +28,7 @@ from pathlib import Path
 import re
 import stat
 import tempfile
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import lightgbm as lgb
 import numpy as np
@@ -309,7 +309,13 @@ def _safe_cache_directory(root: Path, directory: Path, *, create: bool) -> bool:
     return True
 
 
-def _publish_create_only(root: Path, path: Path, payload: bytes) -> None:
+def _publish_create_only(
+    root: Path,
+    path: Path,
+    payload: bytes,
+    *,
+    publication_guard: Callable[[], object] | None = None,
+) -> None:
     """Atomically publish bytes without ever replacing an existing pathname."""
     _safe_cache_directory(root, path.parent, create=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -322,6 +328,8 @@ def _publish_create_only(root: Path, path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        if publication_guard is not None:
+            publication_guard()
         try:
             os.link(temporary, path)
             published = True
@@ -449,6 +457,7 @@ def save_lightgbm_shard(
     model: Any,
     parity_input: Any,
     parity_atol: float = 1e-12,
+    publication_guard: Callable[[], object] | None = None,
 ) -> lgb.Booster:
     """Publish one native-text model shard and return its reconstructed Booster."""
     if not isinstance(parity_atol, float) or not math.isfinite(parity_atol) or parity_atol < 0:
@@ -470,6 +479,8 @@ def save_lightgbm_shard(
             raise LightGBMShardError(
                 "refusing to replace a valid shard with different model content"
             )
+        if publication_guard is not None:
+            publication_guard()
         return existing
 
     try:
@@ -494,7 +505,12 @@ def save_lightgbm_shard(
         )
     difference = float(np.max(np.abs(before - after)))
     object_path = root / "objects" / f"{model_sha256}.txt"
-    _publish_create_only(root, object_path, text)
+    _publish_create_only(
+        root,
+        object_path,
+        text,
+        publication_guard=publication_guard,
+    )
     manifest = {
         "format": LIGHTGBM_SHARD_FORMAT,
         "lineage": lineage.as_dict(),
@@ -515,12 +531,19 @@ def save_lightgbm_shard(
     manifest_payload = (
         json.dumps(manifest, sort_keys=True, indent=2, allow_nan=False) + "\n"
     ).encode("utf-8")
-    _publish_create_only(root, shard_manifest_path(root, lineage), manifest_payload)
+    _publish_create_only(
+        root,
+        shard_manifest_path(root, lineage),
+        manifest_payload,
+        publication_guard=publication_guard,
+    )
     loaded = try_load_lightgbm_shard(
         root, lineage=lineage, parity_input=parity_input
     )
     if loaded is None:  # pragma: no cover - publication is synchronously visible
         raise LightGBMShardError("published LightGBM shard disappeared")
+    if publication_guard is not None:
+        publication_guard()
     return loaded
 
 
@@ -571,6 +594,7 @@ def finalize_shard_set(
     *,
     lineages: Sequence[LightGBMShardLineage],
     parity_inputs: Mapping[int, Any],
+    publication_guard: Callable[[], object] | None = None,
 ) -> Path:
     """Validate and create-only publish the exact complete formal shard set."""
     root = _cache_root(cache_root)
@@ -608,8 +632,15 @@ def finalize_shard_set(
     payload = (
         json.dumps(document, sort_keys=True, indent=2, allow_nan=False) + "\n"
     ).encode("utf-8")
-    _publish_create_only(root, destination, payload)
+    _publish_create_only(
+        root,
+        destination,
+        payload,
+        publication_guard=publication_guard,
+    )
     validate_shard_set(destination, cache_root=root, expected_lineages=ordered)
+    if publication_guard is not None:
+        publication_guard()
     return destination
 
 

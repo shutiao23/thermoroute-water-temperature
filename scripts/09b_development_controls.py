@@ -360,8 +360,14 @@ def _fsync_parent(path: Path) -> None:
         os.close(descriptor)
 
 
-def _create_only_file_from_temp(temp_path: Path, destination: Path) -> None:
+def _create_only_file_from_temp(
+    temp_path: Path,
+    destination: Path,
+    *,
+    publication_guard: Callable[[], object],
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    publication_guard()
     try:
         os.link(temp_path, destination)
     except FileExistsError as exc:
@@ -381,6 +387,7 @@ def write_arm_prediction(
     eval_batch_size: int,
     parents: Mapping[str, str],
     training_summary: Mapping[str, Any],
+    publication_guard: Callable[[], object],
 ) -> None:
     """Publish one prediction and sidecar without replacing existing bytes."""
     if path.exists() or sidecar_path(path).exists():
@@ -397,7 +404,11 @@ def write_arm_prediction(
         frame.loc[:, R.PRED_COLS].to_parquet(temporary_path, index=False)
         with temporary_path.open("rb") as handle:
             os.fsync(handle.fileno())
-        _create_only_file_from_temp(temporary_path, path)
+        _create_only_file_from_temp(
+            temporary_path,
+            path,
+            publication_guard=publication_guard,
+        )
     finally:
         temporary_path.unlink(missing_ok=True)
     extra = _arm_extra_static(
@@ -415,6 +426,7 @@ def write_arm_prediction(
         schema=R.PREDICTION_SCHEMA_VERSION,
         parents=parents,
         extra=extra,
+        publication_guard=publication_guard,
     )
 
 
@@ -430,6 +442,7 @@ def recover_arm_prediction_sidecar(
     eval_batch_size: int,
     parents: Mapping[str, str],
     training_summary: Mapping[str, Any],
+    publication_guard: Callable[[], object],
 ) -> None:
     """Recover only artifact-present/sidecar-absent exact crash state."""
     if not path.is_file() or sidecar_path(path).exists():
@@ -459,7 +472,7 @@ def recover_arm_prediction_sidecar(
     extra["training_summary"] = dict(training_summary)
     seal_artifact(
         path, identity, kind=PREDICTION_KIND, schema=R.PREDICTION_SCHEMA_VERSION,
-        parents=parents, extra=extra,
+        parents=parents, extra=extra, publication_guard=publication_guard,
     )
 
 
@@ -502,6 +515,7 @@ def replay_best_model_state_prediction(
     run_config: Mapping[str, Any],
     eval_batch_size: int,
     recover_missing_checkpoint_sidecar: bool = False,
+    publication_guard: Callable[[], object] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Safely load one checkpoint best state and reproduce exported predictions."""
     parameters = parameter_count(arm, n_stations=n_stations)
@@ -530,6 +544,7 @@ def replay_best_model_state_prediction(
             expected_resolved_config=arm_config,
             map_location="cpu",
             recover_missing_sidecar=recover_missing_checkpoint_sidecar,
+            publication_guard=publication_guard,
         )
     except (OSError, TypeError, ValueError) as exc:
         raise ControlExperimentError(
@@ -555,6 +570,8 @@ def replay_best_model_state_prediction(
     frame["feature_set"] = arm.feature_set
     frame["seed"] = int(seed)
     _validate_arm_frame(frame, arm, seed)
+    if publication_guard is not None:
+        publication_guard()
     summary = {
         "best_validation_metric": float(resumed.best_metric),
         "selected_epoch": int(resumed.best_epoch),
@@ -587,6 +604,7 @@ def train_arm_group(
     parents: Mapping[str, str],
     eval_batch_size: int,
     verbose: bool,
+    publication_guard: Callable[[], object],
     fit_function: FitCallable = fit_model,  # type: ignore[assignment]
 ) -> list[Path]:
     """Train/cache all arms sharing one window tensor without retaining frames."""
@@ -618,6 +636,7 @@ def train_arm_group(
                     thresholds=thresholds, n_stations=n_stations, identity=identity,
                     run_config=run_config, eval_batch_size=eval_batch_size,
                     recover_missing_checkpoint_sidecar=True,
+                    publication_guard=publication_guard,
                 )
                 member_lineage = _member_parents(parents, checkpoint_path)
                 recover_arm_prediction_sidecar(
@@ -625,6 +644,7 @@ def train_arm_group(
                     parameters=parameters, n_stations=n_stations,
                     eval_batch_size=eval_batch_size, parents=member_lineage,
                     training_summary=training_summary,
+                    publication_guard=publication_guard,
                 )
                 paths.append(prediction_path)
                 continue
@@ -636,6 +656,7 @@ def train_arm_group(
                     eval_batch_size=eval_batch_size, parents=member_lineage,
                 )
                 assert cached is not None
+                publication_guard()
                 paths.append(prediction_path)
                 continue
 
@@ -659,6 +680,7 @@ def train_arm_group(
                 resume=True,
                 checkpoint_every=1,
                 export_splits=("val", "calib", "test"),
+                artifact_publication_guard=publication_guard,
             )
             result.pred["model"] = arm.arm_id
             result.pred["scope"] = DEVELOPMENT_SCOPE
@@ -669,6 +691,7 @@ def train_arm_group(
                 thresholds=thresholds, n_stations=n_stations, identity=identity,
                 run_config=run_config, eval_batch_size=eval_batch_size,
                 recover_missing_checkpoint_sidecar=True,
+                publication_guard=publication_guard,
             )
             _assert_exact_prediction_replay(
                 result.pred, replayed, arm=arm, seed=seed,
@@ -692,6 +715,7 @@ def train_arm_group(
                 eval_batch_size=eval_batch_size,
                 parents=member_lineage,
                 training_summary=training_summary,
+                publication_guard=publication_guard,
             )
             paths.append(prediction_path)
     return paths
@@ -861,7 +885,12 @@ def validate_prediction_paths(
     )
 
 
-def _create_only_bytes(payload: bytes, destination: Path) -> None:
+def _create_only_bytes(
+    payload: bytes,
+    destination: Path,
+    *,
+    publication_guard: Callable[[], object],
+) -> None:
     if destination.exists():
         raise ControlExperimentError(f"refusing to overwrite immutable artifact: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -874,7 +903,11 @@ def _create_only_bytes(payload: bytes, destination: Path) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        _create_only_file_from_temp(temporary_path, destination)
+        _create_only_file_from_temp(
+            temporary_path,
+            destination,
+            publication_guard=publication_guard,
+        )
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -882,6 +915,8 @@ def _create_only_bytes(payload: bytes, destination: Path) -> None:
 def _stream_combined_predictions(
     members: Mapping[tuple[str, int], Path],
     destination: Path,
+    *,
+    publication_guard: Callable[[], object],
 ) -> None:
     if destination.exists():
         raise ControlExperimentError(f"refusing to overwrite combined artifact: {destination}")
@@ -915,7 +950,11 @@ def _stream_combined_predictions(
         writer = None
         with temporary_path.open("rb") as handle:
             os.fsync(handle.fileno())
-        _create_only_file_from_temp(temporary_path, destination)
+        _create_only_file_from_temp(
+            temporary_path,
+            destination,
+            publication_guard=publication_guard,
+        )
     finally:
         if writer is not None:
             writer.close()
@@ -1068,6 +1107,7 @@ def publish_final_artifacts(
     train_examples: int,
     canonical_registry_sha256: str,
     canonical_train_registry_sha256: str,
+    publication_guard: Callable[[], object],
 ) -> tuple[Path, Path, Path, Path, Path]:
     """Publish deterministic prediction-derived closure artifacts."""
     expected = set(expected_member_registry(arms))
@@ -1189,30 +1229,44 @@ def publish_final_artifacts(
             raise ControlExperimentError(f"sidecar exists without artifact: {artifact}")
 
     if not prediction_path.exists():
-        _stream_combined_predictions(member_paths, prediction_path)
+        _stream_combined_predictions(
+            member_paths,
+            prediction_path,
+            publication_guard=publication_guard,
+        )
     elif not sidecar_path(prediction_path).exists():
         # For the one recoverable crash window, require byte identity with a
         # freshly streamed reconstruction before blessing the orphan artifact.
         probe = prediction_path.with_name(f".{prediction_path.name}.recovery-probe")
         try:
-            _stream_combined_predictions(member_paths, probe)
+            _stream_combined_predictions(
+                member_paths,
+                probe,
+                publication_guard=publication_guard,
+            )
             if sha256_file(probe) != sha256_file(prediction_path):
                 raise ControlExperimentError("orphan combined artifact bytes changed")
         finally:
             probe.unlink(missing_ok=True)
     if _validate_combined_exact(prediction_path, member_paths) != audit.prediction_rows:
         raise ControlExperimentError("combined prediction row count changed during publication")
+    publication_guard()
     for path, payload in exact_bytes.items():
         if path.exists():
             if path.read_bytes() != payload:
                 raise ControlExperimentError(f"existing final artifact changed: {path}")
         else:
-            _create_only_bytes(payload, path)
+            _create_only_bytes(
+                payload,
+                path,
+                publication_guard=publication_guard,
+            )
     for path, kind, schema, role in base_specs:
         if not sidecar_path(path).exists():
             seal_artifact(
                 path, identity, kind=kind, schema=schema, parents=final_parents,
                 extra=_final_extra(audit, artifact_role=role),
+                publication_guard=publication_guard,
             )
         metadata = validate_artifact_sidecar(
             path, identity=identity, schema=schema, kind=kind,
@@ -1242,12 +1296,17 @@ def publish_final_artifacts(
         if semantic_audit_path.read_bytes() != semantic_bytes:
             raise ControlExperimentError("semantic audit changed")
     else:
-        _create_only_bytes(semantic_bytes, semantic_audit_path)
+        _create_only_bytes(
+            semantic_bytes,
+            semantic_audit_path,
+            publication_guard=publication_guard,
+        )
     if not sidecar_path(semantic_audit_path).exists():
         seal_artifact(
             semantic_audit_path, identity, kind=SEMANTIC_AUDIT_KIND,
             schema=SEMANTIC_AUDIT_FORMAT, parents=final_parents,
             extra=_final_extra(audit, artifact_role="semantic_audit"),
+            publication_guard=publication_guard,
         )
     metadata = validate_artifact_sidecar(
         semantic_audit_path, identity=identity, schema=SEMANTIC_AUDIT_FORMAT,
@@ -1258,6 +1317,7 @@ def publish_final_artifacts(
         or metadata["extra"] != _final_extra(audit, artifact_role="semantic_audit")
     ):
         raise ControlExperimentError("semantic audit metadata changed")
+    publication_guard()
     return prediction_path, budget_path, summary_path, report_path, semantic_audit_path
 
 
@@ -1391,6 +1451,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "suite_pointer_written": False,
             "training_device": "cpu",
         },
+        publication_guard=assert_formal_numerical_policy,
     )
     parents = _parent_bindings(identity, predictor_bridge)
 
@@ -1483,6 +1544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parents=parents,
                 eval_batch_size=args.eval_batch_size,
                 verbose=args.verbose,
+                publication_guard=assert_formal_numerical_policy,
             )
         )
         del wd, current_registry, current_train_registry
@@ -1524,6 +1586,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         canonical_train_registry_sha256=window_registry_digest(
             canonical_train_registry
         ),
+        publication_guard=assert_formal_numerical_policy,
     )
     predictions, architecture_budget, metric_summary, report, semantic_audit = outputs
     receipt_path = ROOT / STAGE09B_COMPLETION_RECEIPT_PATH
@@ -1547,7 +1610,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # member, budget/report failure, sidecar drift, or common-key mismatch raises
     # before the stable receipt can be replaced.
     assert_formal_numerical_policy(require_hash_randomization=True)
-    publish_stage09b_completion_receipt(receipt_path, receipt, root=ROOT)
+    publish_stage09b_completion_receipt(
+        receipt_path,
+        receipt,
+        root=ROOT,
+        publication_guard=assert_formal_numerical_policy,
+    )
     print(
         json.dumps(
             {

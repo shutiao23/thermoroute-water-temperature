@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -49,6 +50,7 @@ from thermoroute.model_suite import (  # noqa: E402
     validate_development_calibrated_head_gate,
     validate_development_prediction_binding,
     verify_lightgbm_prediction_parity,
+    verify_sequence_prediction_parity,
     write_component_pointer,
     _create_json_or_require_identical,
     _learned_metadata_runtime_sha256,
@@ -122,7 +124,10 @@ def _lgb_audit_inputs(X, horizons=(1, 3, 7), *, truth=0.0):
     }
 
 
-def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(tmp_path):
+def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(
+    tmp_path,
+    monkeypatch,
+):
     rng = np.random.default_rng(7)
     X = pd.DataFrame(rng.normal(size=(80, 3)), columns=["a", "b", "c"])
     y = 2 * X["a"] - X["b"] + rng.normal(scale=0.01, size=len(X))
@@ -142,6 +147,32 @@ def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(tm
         quantile_audit_inputs=_lgb_audit_inputs(X),
         parity_inputs={horizon: X.iloc[:13] for horizon in (1, 3, 7)},
     )
+
+    reconstructed: list[lgb.Booster] = []
+    guard_observations: list[int] = []
+    original_booster = MODEL_SUITE.lgb.Booster
+
+    def tracked_booster(*args, **kwargs):
+        value = original_booster(*args, **kwargs)
+        reconstructed.append(value)
+        return value
+
+    def reject_reconstructed_booster() -> None:
+        guard_observations.append(len(reconstructed))
+        if reconstructed:
+            assert isinstance(reconstructed[-1], original_booster)
+            raise RuntimeError("injected LightGBM load policy drift")
+
+    with monkeypatch.context() as context:
+        context.setattr(MODEL_SUITE.lgb, "Booster", tracked_booster)
+        with pytest.raises(RuntimeError, match="LightGBM load policy drift"):
+            load_lightgbm_bundle(
+                manifest,
+                publication_guard=reject_reconstructed_booster,
+            )
+    assert guard_observations[0] == 0
+    assert guard_observations[-1] > 0
+
     restored, metadata = load_lightgbm_bundle(manifest)
     assert set(restored) == {f"seed{seed}" for seed in range(5)}
     assert all(set(horizons) == {1, 3, 7} for horizons in restored.values())
@@ -167,6 +198,7 @@ def test_lightgbm_native_bundle_reconstructs_all_heads_with_prediction_parity(tm
 
 def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
     tmp_path,
+    monkeypatch,
 ):
     X = pd.DataFrame({
         "a": np.arange(12.0),
@@ -241,6 +273,39 @@ def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
     )
     assert difference == 0.0
 
+    replay_completed = False
+    guard_observations: list[bool] = []
+    original_audit = MODEL_SUITE._build_lightgbm_raw_crossing_audit
+
+    def tracked_audit(*args, **kwargs):
+        nonlocal replay_completed
+        value = original_audit(*args, **kwargs)
+        replay_completed = True
+        return value
+
+    def reject_replayed_predictions() -> None:
+        guard_observations.append(replay_completed)
+        if replay_completed:
+            raise RuntimeError("injected LightGBM parity policy drift")
+
+    with monkeypatch.context() as context:
+        context.setattr(
+            MODEL_SUITE,
+            "_build_lightgbm_raw_crossing_audit",
+            tracked_audit,
+        )
+        with pytest.raises(RuntimeError, match="LightGBM parity policy drift"):
+            verify_lightgbm_prediction_parity(
+                manifest,
+                evaluation_design=evaluation_design,
+                expected=pd.DataFrame(expected_rows),
+                member_seeds={f"seed{seed}": seed for seed in range(5)},
+                atol=1e-12,
+                publication_guard=reject_replayed_predictions,
+            )
+    assert guard_observations[0] is False
+    assert guard_observations[-1] is True
+
     different_rows = pd.DataFrame(expected_rows)
     different_rows["y_true"] = np.nextafter(
         np.float32(32.1), np.float32(np.inf), dtype=np.float32
@@ -261,6 +326,75 @@ def test_lightgbm_raw_crossings_are_audited_and_nominal_q50_survives_replay(
     manifest.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(ModelSuiteError, match="raw quantile audit self hash"):
         load_lightgbm_bundle(manifest)
+
+
+def test_sequence_parity_guard_rechecks_after_numerical_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    issue_date = pd.Timestamp("2019-01-01")
+    expected = pd.DataFrame([{
+        "model": "ThermoRoute",
+        "scope": "temporal",
+        "feature_set": "full",
+        "seed": 0,
+        "site_id": "fixture-site",
+        "horizon": 1,
+        "split": "test",
+        "issue_date": issue_date,
+        "target_date": issue_date + pd.Timedelta(days=1),
+        "y_true": 11.0,
+        "y_pred": 11.1,
+        "q05": 10.0,
+        "q50": 11.0,
+        "q95": 12.0,
+        "p_exceed": 0.2,
+    }])
+    replay_completed = False
+    guard_observations: list[bool] = []
+
+    def reject_after_replay() -> None:
+        guard_observations.append(replay_completed)
+        if replay_completed:
+            raise RuntimeError("injected sequence parity policy drift")
+
+    def fake_instantiate(
+        _directory,
+        *,
+        model_factory,
+        expected_member_count,
+        device,
+        publication_guard,
+    ):
+        assert model_factory is not None
+        assert expected_member_count == 1
+        assert device == "cpu"
+        assert publication_guard is reject_after_replay
+        publication_guard()
+        return {"seed0": object()}, {}
+
+    def fake_export(*_args, **_kwargs):
+        nonlocal replay_completed
+        replay_completed = True
+        return expected.copy()
+
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "instantiate_inference_ensemble",
+        fake_instantiate,
+    )
+    monkeypatch.setattr("thermoroute.train._export_predictions", fake_export)
+
+    with pytest.raises(RuntimeError, match="sequence parity policy drift"):
+        verify_sequence_prediction_parity(
+            "fixture-bundle",
+            wd=object(),
+            expected=expected,
+            model_factory=lambda *_args: object(),
+            member_seeds={"seed0": 0},
+            publication_guard=reject_after_replay,
+        )
+    assert guard_observations[0] is False
+    assert guard_observations[-1] is True
 
 
 def test_median_preserving_repair_never_reassigns_nominal_q50():
@@ -449,6 +583,7 @@ def test_incomplete_suite_is_rejected_without_publishing_current_pointer(tmp_pat
             protocol_sha256="protocol", temporal_entries=[], external_entries=[],
             actual_feature_order=("WTEMP", "FLOW"),
             development_contract=development_contract,
+            publication_guard=lambda: None,
         )
     assert not current.exists()
     assert not (tmp_path / "suite.json").exists()
@@ -977,6 +1112,167 @@ def test_frozen_registry_create_is_idempotent_but_never_overwrites(tmp_path):
     assert path.read_bytes() == original
 
 
+@pytest.mark.parametrize("attack", ("sibling_symlink", "hardlink_alias"))
+def test_suite_freeze_rejects_versioned_output_link_aliases(
+    tmp_path, monkeypatch, attack,
+):
+    destination = tmp_path / "outputs" / "models" / "suite-versioned.json"
+    destination.parent.mkdir(parents=True)
+    alias = destination.with_name(f"suite-{attack}.json")
+    alias.write_bytes(b"attacker-controlled output\n")
+    if attack == "sibling_symlink":
+        destination.symlink_to(alias)
+    else:
+        os.link(alias, destination)
+        assert destination.stat().st_nlink == 2
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_learned_metadata_runtime_sha256",
+        lambda _root, _entries, *, publication_guard=None: "b" * 64,
+    )
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "validate_model_suite_document",
+        lambda _document, *, root, publication_guard=None: None,
+    )
+    with pytest.raises(ModelSuiteError, match="symlink|single-link"):
+        freeze_model_suite(
+            destination,
+            tmp_path / "outputs" / "models" / "current.json",
+            root=tmp_path,
+            protocol_sha256="a" * 64,
+            temporal_entries=[],
+            external_entries=[],
+            actual_feature_order=("WTEMP", "FLOW"),
+            development_contract={},
+            publication_guard=lambda: None,
+        )
+
+
+def test_frozen_registry_rejects_identical_hardlink_alias(tmp_path):
+    path = tmp_path / "registry.json"
+    value = {"format": "fixture", "value": 1}
+    _create_json_or_require_identical(path, value)
+    os.link(path, tmp_path / "registry-hardlink-alias.json")
+    with pytest.raises(FileExistsError, match="refusing to replace"):
+        _create_json_or_require_identical(path, value)
+
+
+def _publication_staging_files(path: Path) -> list[Path]:
+    """Find transaction-private files for one intended authoritative path."""
+    return sorted({
+        *path.parent.glob(f".{path.name}.*.tmp"),
+        *path.parent.glob(f".{path.name}.*.staging"),
+    })
+
+
+def test_frozen_registry_create_guard_failure_removes_durable_staging(tmp_path):
+    path = tmp_path / "registry.json"
+    value = {"format": "fixture", "value": 1}
+    observed_staging: list[Path] = []
+
+    def reject_staged_publication() -> None:
+        staged = _publication_staging_files(path)
+        if not staged:
+            return
+        assert len(staged) == 1
+        assert json.loads(staged[0].read_text(encoding="utf-8")) == value
+        assert not path.exists()
+        observed_staging.extend(staged)
+        raise RuntimeError("injected frozen-registry publication drift")
+
+    with pytest.raises(RuntimeError, match="frozen-registry publication drift"):
+        _create_json_or_require_identical(
+            path,
+            value,
+            publication_guard=reject_staged_publication,
+        )
+    assert observed_staging
+    assert not path.exists()
+    assert not _publication_staging_files(path)
+
+
+@pytest.mark.parametrize("rejected_boundary", ("versioned", "alias", "current"))
+def test_suite_freeze_guard_failure_never_advances_authoritative_boundary(
+    tmp_path,
+    monkeypatch,
+    rejected_boundary,
+):
+    versioned = tmp_path / "outputs" / "models" / "suite-versioned.json"
+    alias = tmp_path / "data_usgs" / "confirmatory-suite.json"
+    current = tmp_path / "outputs" / "models" / "suite-current.json"
+    targets = {
+        "versioned": versioned,
+        "alias": alias,
+        "current": current,
+    }
+    target = targets[rejected_boundary]
+    old_pointer = b"pre-existing current pointer bytes\n"
+    if rejected_boundary == "current":
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(old_pointer)
+
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_learned_metadata_runtime_sha256",
+        lambda _root, _entries, *, publication_guard=None: "b" * 64,
+    )
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "validate_model_suite_document",
+        lambda _document, *, root, publication_guard=None: None,
+    )
+    observed_staging: list[Path] = []
+
+    def reject_target_staging() -> None:
+        staged = _publication_staging_files(target)
+        if not staged:
+            return
+        assert len(staged) == 1
+        assert staged[0].stat().st_size > 0
+        if rejected_boundary == "current":
+            assert current.read_bytes() == old_pointer
+        else:
+            assert not target.exists()
+        observed_staging.extend(staged)
+        raise RuntimeError(f"injected {rejected_boundary} publication drift")
+
+    with pytest.raises(
+        RuntimeError,
+        match=rf"{rejected_boundary} publication drift",
+    ):
+        freeze_model_suite(
+            versioned,
+            current,
+            root=tmp_path,
+            protocol_sha256="a" * 64,
+            temporal_entries=[],
+            external_entries=[],
+            actual_feature_order=("WTEMP", "FLOW"),
+            development_contract={},
+            stage09_completion={"path": "stage09", "sha256": "c" * 64},
+            stage09b_completion={"path": "stage09b", "sha256": "d" * 64},
+            stage25_completion={"path": "stage25", "sha256": "e" * 64},
+            registry_alias=alias,
+            publication_guard=reject_target_staging,
+        )
+
+    assert observed_staging, "guard never observed the durable staging boundary"
+    assert not _publication_staging_files(target)
+    if rejected_boundary == "versioned":
+        assert not versioned.exists()
+        assert not alias.exists()
+        assert not current.exists()
+    elif rejected_boundary == "alias":
+        assert versioned.is_file()
+        assert not alias.exists()
+        assert not current.exists()
+    else:
+        assert versioned.is_file()
+        assert alias.is_file()
+        assert current.read_bytes() == old_pointer
+
+
 def test_lightgbm_declared_member_count_rejects_a_missing_seed(tmp_path):
     X = pd.DataFrame({"a": np.arange(30.0), "b": np.arange(30.0) % 3,
                       "c": np.ones(30)})
@@ -1295,6 +1591,7 @@ def test_stage25_receipt_is_self_hashed_exact_and_atomically_published(
         document,
         root=tmp_path,
         components_pointer=components,
+        publication_guard=lambda: None,
     )
     validated = validate_stage25_completion_receipt(
         receipt_path,
@@ -1302,6 +1599,63 @@ def test_stage25_receipt_is_self_hashed_exact_and_atomically_published(
         components_pointer=components,
     )
     assert validated == document
+
+
+@pytest.mark.parametrize("attack", ("sibling_symlink", "hardlink_alias"))
+def test_stage25_validator_rejects_receipt_link_aliases(
+    tmp_path, monkeypatch, attack,
+):
+    receipt_path, components, document, _model = _stage25_receipt_fixture(
+        tmp_path, monkeypatch
+    )
+    publish_stage25_completion_receipt(
+        receipt_path,
+        document,
+        root=tmp_path,
+        components_pointer=components,
+        publication_guard=lambda: None,
+    )
+    alias = receipt_path.with_name(f"stage25-{attack}.json")
+    if attack == "sibling_symlink":
+        alias.write_bytes(receipt_path.read_bytes())
+        receipt_path.unlink()
+        receipt_path.symlink_to(alias)
+    else:
+        os.link(receipt_path, alias)
+        assert receipt_path.stat().st_nlink == 2
+    with pytest.raises(ModelSuiteError, match="symlink|single-link"):
+        validate_stage25_completion_receipt(
+            receipt_path,
+            root=tmp_path,
+            components_pointer=components,
+        )
+
+
+def test_stage25_receipt_writer_guard_failure_publishes_no_marker(
+    tmp_path, monkeypatch,
+):
+    receipt_path, components, document, _model = _stage25_receipt_fixture(
+        tmp_path, monkeypatch
+    )
+    calls = 0
+
+    def reject_at_atomic_boundary() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected receipt publication drift")
+
+    with pytest.raises(RuntimeError, match="receipt publication drift"):
+        publish_stage25_completion_receipt(
+            receipt_path,
+            document,
+            root=tmp_path,
+            components_pointer=components,
+            publication_guard=reject_at_atomic_boundary,
+        )
+    assert calls == 2
+    assert not receipt_path.exists()
+    assert not list(receipt_path.parent.glob(f".{receipt_path.name}.*.tmp"))
 
 
 def test_stage25_receipt_rejects_resealed_incomplete_closure_and_byte_tamper(
@@ -1315,6 +1669,7 @@ def test_stage25_receipt_rejects_resealed_incomplete_closure_and_byte_tamper(
         document,
         root=tmp_path,
         components_pointer=components,
+        publication_guard=lambda: None,
     )
     attacked = json.loads(receipt_path.read_text(encoding="utf-8"))
     attacked["artifacts"]["model_files"].pop()
@@ -1332,6 +1687,7 @@ def test_stage25_receipt_rejects_resealed_incomplete_closure_and_byte_tamper(
         document,
         root=tmp_path,
         components_pointer=components,
+        publication_guard=lambda: None,
     )
     model.write_bytes(model.read_bytes() + b"tamper")
     with pytest.raises(ModelSuiteError, match="checksum"):
@@ -1360,6 +1716,7 @@ def test_stage25_publish_leaves_incomplete_marker_when_preflight_fails(
             document,
             root=tmp_path,
             components_pointer=components,
+            publication_guard=lambda: None,
         )
     assert receipt_path.read_bytes() == marker_bytes
     with pytest.raises(ModelSuiteError, match="schema is not exact"):

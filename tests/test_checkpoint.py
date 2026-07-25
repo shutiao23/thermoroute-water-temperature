@@ -46,6 +46,22 @@ def _model_optimizer():
     return model, optimizer, scheduler
 
 
+def _reject_publication() -> None:
+    raise RuntimeError("publication guard rejected artifact")
+
+
+def _reject_publication_on_call(target: int):
+    calls = 0
+
+    def guard() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == target:
+            _reject_publication()
+
+    return guard
+
+
 def test_checkpoint_restores_model_optimizer_and_rng(tmp_path):
     random.seed(7)
     np.random.seed(7)
@@ -123,6 +139,108 @@ def _save_valid_checkpoint(path: Path, *, with_scheduler: bool = True):
         extra={"bad_epochs": 1},
     )
     return model, optimizer, selected_scheduler
+
+
+def test_checkpoint_publication_guard_failure_publishes_no_payload_or_sidecar(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "guarded.pt"
+    model, optimizer, scheduler = _model_optimizer()
+    scheduler.step(0.5)
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        save_training_checkpoint(
+            checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epoch=0,
+            best_epoch=0,
+            best_metric=0.5,
+            best_model_state=model.state_dict(),
+            run_id="guarded-run",
+            resolved_config={"seed": 31},
+            publication_guard=_reject_publication,
+        )
+
+    assert not checkpoint.exists()
+    assert not checkpoint_sidecar_path(checkpoint).exists()
+    assert not list(tmp_path.glob(f".{checkpoint.name}.*.tmp"))
+
+
+def test_checkpoint_sidecar_boundary_failure_leaves_only_recoverable_payload(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "sidecar-boundary.pt"
+    model, optimizer, scheduler = _model_optimizer()
+    scheduler.step(0.5)
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        save_training_checkpoint(
+            checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epoch=0,
+            best_epoch=0,
+            best_metric=0.5,
+            best_model_state=model.state_dict(),
+            run_id="guarded-run",
+            resolved_config={"seed": 31},
+            publication_guard=_reject_publication_on_call(2),
+        )
+
+    assert checkpoint.is_file()
+    assert not checkpoint_sidecar_path(checkpoint).exists()
+    assert not list(tmp_path.glob(f".{checkpoint.name}.*.tmp"))
+    assert not list(
+        tmp_path.glob(f".{checkpoint_sidecar_path(checkpoint).name}.*.tmp")
+    )
+
+    restored_model, restored_optimizer, restored_scheduler = _model_optimizer()
+    resumed = load_training_checkpoint(
+        checkpoint,
+        model=restored_model,
+        optimizer=restored_optimizer,
+        scheduler=restored_scheduler,
+        expected_run_id="guarded-run",
+        expected_resolved_config={"seed": 31},
+        recover_missing_sidecar=True,
+        publication_guard=lambda: None,
+    )
+    assert resumed.epoch == 0
+    assert checkpoint_sidecar_path(checkpoint).is_file()
+
+
+def test_checkpoint_load_guard_rejects_valid_cache_before_state_acceptance(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "cached.pt"
+    _save_valid_checkpoint(checkpoint)
+    payload_before = checkpoint.read_bytes()
+    sidecar_before = checkpoint_sidecar_path(checkpoint).read_bytes()
+    model, optimizer, scheduler = _model_optimizer()
+    state_before = {
+        name: value.detach().clone() for name, value in model.state_dict().items()
+    }
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        load_training_checkpoint(
+            checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            expected_run_id="safe-run",
+            expected_resolved_config={"seed": 19, "scheduler": True},
+            publication_guard=_reject_publication,
+        )
+
+    assert all(
+        torch.equal(value, model.state_dict()[name])
+        for name, value in state_before.items()
+    )
+    assert checkpoint.read_bytes() == payload_before
+    assert checkpoint_sidecar_path(checkpoint).read_bytes() == sidecar_before
 
 
 def _refresh_checkpoint_sidecar(path: Path, **updates) -> None:
@@ -555,6 +673,146 @@ def test_weights_only_inference_bundle_round_trip_and_checksum(tmp_path):
     weights_path.write_bytes(weights_path.read_bytes()[:-1] + b"x")
     with pytest.raises(ValueError, match="checksum"):
         load_inference_bundle(directory)
+
+
+def test_inference_bundle_load_guard_runs_after_weights_reconstruction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, _, _ = _model_optimizer()
+    metadata = {
+        "run_id": "guarded-load",
+        "architecture": {"name": "fixture"},
+        "feature_order": ["WTEMP", "FLOW"],
+        "horizons": [1, 3, 7],
+        "station_to_index": {"01234567": 0},
+        "preprocessing": {},
+        "event_thresholds": {},
+        "event_calibrators": {},
+        "conformal_offsets": {},
+        "source_sha256": "s",
+        "panel_sha256": "p",
+        "registry_sha256": "r",
+        "runtime_sha256": "t",
+        "output_head_schema": neural_output_head_schema(),
+    }
+    directory = save_inference_bundle(
+        tmp_path / "guarded-load",
+        members={"seed0": model},
+        metadata=metadata,
+    )
+    original_load = torch.load
+    weights_reconstructed = False
+    guard_observations: list[bool] = []
+
+    def tracked_load(*args, **kwargs):
+        nonlocal weights_reconstructed
+        value = original_load(*args, **kwargs)
+        weights_reconstructed = True
+        return value
+
+    def reject_acceptance() -> None:
+        guard_observations.append(weights_reconstructed)
+        if weights_reconstructed:
+            raise RuntimeError("injected inference-load policy drift")
+
+    monkeypatch.setattr("thermoroute.checkpoint.torch.load", tracked_load)
+    with pytest.raises(RuntimeError, match="inference-load policy drift"):
+        load_inference_bundle(
+            directory,
+            publication_guard=reject_acceptance,
+        )
+    assert guard_observations[0] is False
+    assert guard_observations[-1] is True
+
+
+def test_inference_ensemble_guard_rechecks_after_model_reconstruction(
+    tmp_path: Path,
+) -> None:
+    source = torch.nn.Linear(2, 1)
+    metadata = {
+        "run_id": "guarded-ensemble",
+        "architecture": {"name": "linear-2x1"},
+        "feature_order": ["WTEMP", "FLOW"],
+        "horizons": [1, 3, 7],
+        "station_to_index": {"01234567": 0},
+        "preprocessing": {},
+        "event_thresholds": {},
+        "event_calibrators": {},
+        "conformal_offsets": {},
+        "source_sha256": "s",
+        "panel_sha256": "p",
+        "registry_sha256": "r",
+        "runtime_sha256": "t",
+        "output_head_schema": neural_output_head_schema(),
+    }
+    directory = save_inference_bundle(
+        tmp_path / "guarded-ensemble",
+        members={"seed0": source},
+        metadata=metadata,
+    )
+    reconstructed: list[torch.nn.Module] = []
+    guard_observations: list[int] = []
+
+    def factory(_member: str, _metadata: dict) -> torch.nn.Module:
+        model = torch.nn.Linear(2, 1)
+        reconstructed.append(model)
+        return model
+
+    def reject_final_acceptance() -> None:
+        guard_observations.append(len(reconstructed))
+        if reconstructed:
+            assert all(not model.training for model in reconstructed)
+            assert all(
+                torch.equal(value, reconstructed[0].state_dict()[name])
+                for name, value in source.state_dict().items()
+            )
+            raise RuntimeError("injected ensemble policy drift")
+
+    with pytest.raises(RuntimeError, match="ensemble policy drift"):
+        instantiate_inference_ensemble(
+            directory,
+            model_factory=factory,
+            expected_member_count=1,
+            publication_guard=reject_final_acceptance,
+        )
+
+    assert guard_observations[0] == 0
+    assert guard_observations[-1] == 1
+
+
+def test_inference_bundle_guard_failure_never_publishes_canonical_directory(
+    tmp_path: Path,
+) -> None:
+    model, _, _ = _model_optimizer()
+    metadata = {
+        "run_id": "guarded-bundle",
+        "architecture": {"name": "fixture"},
+        "feature_order": ["WTEMP", "FLOW"],
+        "horizons": [1, 3, 7],
+        "station_to_index": {"01234567": 0},
+        "preprocessing": {"scaler": "embedded"},
+        "event_thresholds": {},
+        "event_calibrators": {},
+        "conformal_offsets": {},
+        "source_sha256": "s",
+        "panel_sha256": "p",
+        "registry_sha256": "r",
+        "runtime_sha256": "t",
+        "output_head_schema": neural_output_head_schema(),
+    }
+    target = tmp_path / "guarded-bundle"
+
+    with pytest.raises(RuntimeError, match="publication guard rejected"):
+        save_inference_bundle(
+            target,
+            members={"seed0": model},
+            metadata=metadata,
+            publication_guard=_reject_publication,
+        )
+
+    assert not target.exists()
+    assert not list(tmp_path.glob(f".{target.name}.*.staging"))
 
 
 def test_five_member_bundle_reconstructs_models_with_prediction_parity(tmp_path):

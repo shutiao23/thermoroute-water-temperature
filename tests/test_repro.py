@@ -21,6 +21,7 @@ from thermoroute import repro as repro_module  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     _canonical_native_library_identities,
     advisory_file_lock,
+    atomic_write_bytes,
     atomic_write_parquet,
     cache_is_valid,
     canonical_json,
@@ -31,6 +32,41 @@ from thermoroute.repro import (  # noqa: E402
     source_tree_hash,
     validate_artifact_sidecar,
 )
+
+
+def test_atomic_publication_guard_runs_after_staging_and_before_replace(tmp_path):
+    destination = tmp_path / "authoritative.bin"
+    destination.write_bytes(b"old-authoritative-bytes")
+    observed: list[bytes] = []
+
+    def reject() -> None:
+        observed.extend(
+            path.read_bytes()
+            for path in destination.parent.glob(f".{destination.name}.*.tmp")
+        )
+        raise RuntimeError("injected live-policy drift")
+
+    with pytest.raises(RuntimeError, match="live-policy drift"):
+        atomic_write_bytes(
+            destination,
+            b"new-staged-bytes",
+            publication_guard=reject,
+        )
+    assert observed == [b"new-staged-bytes"]
+    assert destination.read_bytes() == b"old-authoritative-bytes"
+    assert not list(destination.parent.glob(f".{destination.name}.*.tmp"))
+
+    parquet = tmp_path / "candidate.parquet"
+    with pytest.raises(RuntimeError, match="live-policy drift"):
+        atomic_write_parquet(
+            pd.DataFrame({"value": [1.0]}),
+            parquet,
+            index=False,
+            publication_guard=lambda: (_ for _ in ()).throw(
+                RuntimeError("injected live-policy drift")
+            ),
+        )
+    assert not parquet.exists()
 
 
 def test_advisory_transaction_lock_rejects_symlink(tmp_path):
