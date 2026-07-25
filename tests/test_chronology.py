@@ -18,6 +18,17 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute.chronology import (  # noqa: E402
     ChronologyError,
+    DEFAULT_MODEL_MATRIX_AMENDMENT,
+    DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
+    MODEL_MATRIX_AMENDMENT_FORMAT,
+    MODEL_MATRIX_AMENDMENT_ID,
+    MODEL_MATRIX_AMENDMENT_STATUS,
+    MODEL_MATRIX_DOCUMENT_LINEAGE_CONTRACT,
+    MODEL_MATRIX_PRELABEL_ATTESTATION,
+    MODEL_MATRIX_SEAL_FORMAT,
+    MODEL_MATRIX_SEAL_HISTORY_CONTRACT,
+    MODEL_MATRIX_SEAL_STATUS,
+    REQUIRED_GATE_PATHS,
     STAGE09_ARTIFACT_PATHS,
     STAGE09B_MEMBERS,
     _stage09b_scientific_comparison_registry,
@@ -459,11 +470,63 @@ def _seed_stage16_completion(
     return {"path": receipt_path, "run_id": run_id, "artifacts": artifacts}
 
 
+def _seed_model_matrix_governance(
+    root: Path,
+    *,
+    attack: str | None = None,
+) -> dict[str, str]:
+    amendment = {
+        "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+        "status": MODEL_MATRIX_AMENDMENT_STATUS,
+        "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+        "recorded_date": "2026-07-25",
+        "governance_inputs": {},
+        "primary_contract_object_bindings": {},
+        "scientific_scope": {},
+        "stage09_architecture_control_matrix": {"fixture": "stage09"},
+        "stage09b_development_control_matrix": {"fixture": "stage09b"},
+        "unchanged_primary_boundary": {},
+        "lineage_contract": MODEL_MATRIX_DOCUMENT_LINEAGE_CONTRACT,
+        "prelabel_attestation": MODEL_MATRIX_PRELABEL_ATTESTATION,
+    }
+    _write(root, DEFAULT_MODEL_MATRIX_AMENDMENT, _json_bytes(amendment))
+    document_commit = _commit(root, "freeze fixture model-matrix amendment")
+    seal = {
+        "format": MODEL_MATRIX_SEAL_FORMAT,
+        "status": MODEL_MATRIX_SEAL_STATUS,
+        "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+        "amendment": {
+            "path": DEFAULT_MODEL_MATRIX_AMENDMENT,
+            "sha256": _file_sha(root, DEFAULT_MODEL_MATRIX_AMENDMENT),
+        },
+        "amendment_document_commit": (
+            "0" * 40 if attack == "wrong_document_commit" else document_commit
+        ),
+        "governance_seals": {},
+        "history_contract": MODEL_MATRIX_SEAL_HISTORY_CONTRACT,
+        "prelabel_attestation": MODEL_MATRIX_PRELABEL_ATTESTATION,
+    }
+    _write(root, DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL, _json_bytes(seal))
+    if attack != "seal_at_model_freeze":
+        seal_commit = _commit(root, "seal fixture model-matrix amendment")
+    else:
+        seal_commit = ""
+    if attack == "rewrite_document_after_seal":
+        amendment["scientific_scope"] = {"changed_after_seal": True}
+        _write(root, DEFAULT_MODEL_MATRIX_AMENDMENT, _json_bytes(amendment))
+    return {
+        "document_commit": document_commit,
+        "seal_commit": seal_commit,
+    }
+
+
 def _seed_model_commit(
     root: Path,
     *,
     original_commit: str,
     final_commit: str,
+    matrix_document_commit: str,
+    matrix_attack: str | None,
     leak_before_model: bool,
     lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
     stage16_attack: str | None = None,
@@ -504,17 +567,9 @@ def _seed_model_commit(
         },
     }
     _write(root, "protocols/route_a_protocol_seal_v1.json", _json_bytes(seal))
-    for path in (
-        "src/thermoroute/chronology.py",
-        "src/thermoroute/outcome_qc.py",
-        "src/thermoroute/probability_metric_erratum.py",
-        "scripts/28_freeze_prelabel_chronology.py",
-        "tests/test_chronology.py",
-        "protocols/route_a_outcome_qc_policy_v1.json",
-        "protocols/route_a_probability_metric_erratum_v1.json",
-        "protocols/route_a_probability_metric_erratum_seal_v1.json",
-    ):
-        _write(root, path, f"# frozen gate fixture: {path}\n")
+    for path in REQUIRED_GATE_PATHS:
+        if not (root / path).exists():
+            _write(root, path, f"# frozen gate fixture: {path}\n")
 
     _write(root, "data_usgs/frozen_panel_v1.json", "{}\n")
     _write(root, "data_usgs/panel_usgs_120v2.parquet", b"development-panel")
@@ -905,9 +960,37 @@ def _seed_model_commit(
     # inventory committed alongside the model artifacts.
     frozen_source_sha256 = source_tree_hash(root)
 
-    suite = {
+    suite: dict[str, Any] = {
         "format": "thermoroute.route-a-model-suite.v1",
         "status": "FROZEN_BEFORE_LABEL_OPENING",
+        "model_matrix_amendment": {
+            "format": "thermoroute.route-a-model-matrix-suite-binding.v1",
+            "document": {
+                "path": DEFAULT_MODEL_MATRIX_AMENDMENT,
+                "sha256": _file_sha(root, DEFAULT_MODEL_MATRIX_AMENDMENT),
+                "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+                "status": MODEL_MATRIX_AMENDMENT_STATUS,
+                "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+                "amendment_document_commit": matrix_document_commit,
+            },
+            "seal": {
+                "path": DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
+                "sha256": _file_sha(root, DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL),
+                "format": MODEL_MATRIX_SEAL_FORMAT,
+                "status": MODEL_MATRIX_SEAL_STATUS,
+            },
+            "contract_id": _repro_sha(
+                {
+                    "format": "thermoroute.route-a-model-matrix-contract.v1",
+                    "stage09_architecture_control_matrix": {
+                        "fixture": "stage09"
+                    },
+                    "stage09b_development_control_matrix": {
+                        "fixture": "stage09b"
+                    },
+                }
+            ),
+        },
         "development_contract": {
             "frozen_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
             "panel": _binding(root, "data_usgs/panel_usgs_120v2.parquet"),
@@ -953,6 +1036,8 @@ def _seed_model_commit(
             },
         },
     }
+    if matrix_attack == "suite_contract_id":
+        suite["model_matrix_amendment"]["contract_id"] = "f" * 64
     suite_path = "data_usgs/confirmatory_model_suite_v1.json"
     _write(root, suite_path, _json_bytes(suite))
     replay = {
@@ -1068,6 +1153,7 @@ def _repository(
     creation_base: bool = True,
     lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
     stage16_attack: str | None = None,
+    matrix_attack: str | None = None,
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
     root.mkdir()
@@ -1079,10 +1165,13 @@ def _repository(
     _write(root, "protocols/route_a_confirmatory_protocol.md", "final protocol\n")
     _write(root, "protocols/route_a_confirmatory_v1.json", "{\"schema_version\": 1}\n")
     final = _commit(root, "final prelabel protocol")
+    matrix = _seed_model_matrix_governance(root, attack=matrix_attack)
     model = _seed_model_commit(
         root,
         original_commit=original,
         final_commit=final,
+        matrix_document_commit=matrix["document_commit"],
+        matrix_attack=matrix_attack,
         leak_before_model=leak_before_model,
         lightgbm_bundle_format=lightgbm_bundle_format,
         stage16_attack=stage16_attack,
@@ -1101,6 +1190,8 @@ def _repository(
         "root": root,
         "original": original,
         "final": final,
+        "matrix_document": matrix["document_commit"],
+        "matrix_seal": matrix["seal_commit"],
         "model": model,
         "evidence": evidence,
         "marker": marker,
@@ -1128,6 +1219,12 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     assert document["status"] == "PASS_REPOSITORY_INTERNAL_PRELABEL_ORDER"
     assert document["order"]["model_freeze_commit"] == state["model"]
     assert document["order"]["input_evidence_commit"] == state["evidence"]
+    assert document["model_matrix_history"]["amendment_document_commit"] == state[
+        "matrix_document"
+    ]
+    assert document["model_matrix_history"]["seal_commit"] == state["matrix_seal"]
+    assert document["model_matrix_history"]["model_freeze_commit"] == state["model"]
+    assert document["model_matrix_history"]["strict_order_verified"] is True
     assert len(document["model_freeze_artifacts"]) >= 10
     assert len(document["input_evidence_artifacts"]) >= 15
     assert document["external_timestamp_or_public_preregistration"] is False
@@ -1150,6 +1247,23 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     assert validate_prelabel_chronology(
         state["receipt"], root=state["root"]
     ) == document
+
+
+@pytest.mark.parametrize(
+    ("attack", "message"),
+    (
+        ("seal_at_model_freeze", "amendment seal < model freeze"),
+        ("wrong_document_commit", "model-matrix seal contract changed"),
+        ("rewrite_document_after_seal", "working-tree bytes differ|changed after"),
+        ("suite_contract_id", "model suite and model-matrix history differ"),
+    ),
+)
+def test_chronology_rejects_broken_model_matrix_lineage(
+    tmp_path, attack, message,
+):
+    state = _repository(tmp_path, matrix_attack=attack)
+    with pytest.raises(ChronologyError, match=message):
+        _freeze(state)
 
 
 @pytest.mark.parametrize(

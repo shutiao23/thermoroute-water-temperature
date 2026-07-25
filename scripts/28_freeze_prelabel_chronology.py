@@ -100,6 +100,8 @@ from thermoroute.chronology import (  # noqa: E402
     DEFAULT_EXTERNAL_LOCK,
     DEFAULT_EXTERNAL_REGISTRY,
     DEFAULT_INPUT_MANIFEST,
+    DEFAULT_MODEL_MATRIX_AMENDMENT,
+    DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
     DEFAULT_MODEL_SUITE,
     DEFAULT_PROTOCOL_SEAL,
     DEFAULT_RECEIPT,
@@ -125,6 +127,16 @@ def main() -> int:
         help="later commit containing candidate and retrospective-input evidence",
     )
     parser.add_argument("--protocol-seal", type=Path, default=_path(DEFAULT_PROTOCOL_SEAL))
+    parser.add_argument(
+        "--model-matrix-amendment",
+        type=Path,
+        default=_path(DEFAULT_MODEL_MATRIX_AMENDMENT),
+    )
+    parser.add_argument(
+        "--model-matrix-amendment-seal",
+        type=Path,
+        default=_path(DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL),
+    )
     parser.add_argument("--model-suite", type=Path, default=_path(DEFAULT_MODEL_SUITE))
     parser.add_argument(
         "--development-replay", type=Path, default=_path(DEFAULT_DEVELOPMENT_REPLAY)
@@ -168,6 +180,8 @@ def main() -> int:
                 model_freeze_commit=args.model_freeze_commit,
                 input_evidence_commit=args.input_evidence_commit,
                 protocol_seal=args.protocol_seal,
+                model_matrix_amendment=args.model_matrix_amendment,
+                model_matrix_amendment_seal=args.model_matrix_amendment_seal,
                 model_suite=args.model_suite,
                 development_replay=args.development_replay,
                 candidate_table=args.candidate_table,

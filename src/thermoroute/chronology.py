@@ -35,6 +35,12 @@ RUN_IDENTITY_SCHEMA_VERSION = "thermoroute.run.v2"
 
 DEFAULT_RECEIPT = "outputs/prelabel/route_a_prelabel_chronology_v1.json"
 DEFAULT_PROTOCOL_SEAL = "protocols/route_a_protocol_seal_v1.json"
+DEFAULT_MODEL_MATRIX_AMENDMENT = (
+    "protocols/route_a_model_matrix_amendment_v1.json"
+)
+DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL = (
+    "protocols/route_a_model_matrix_amendment_seal_v1.json"
+)
 DEFAULT_MODEL_SUITE = "data_usgs/confirmatory_model_suite_v1.json"
 DEFAULT_DEVELOPMENT_REPLAY = (
     "outputs/model_replay/route_a_development_replay_v1.json"
@@ -52,14 +58,72 @@ DEFAULT_INPUT_MANIFEST = "data_usgs/confirmatory_actual_inputs_v1.json"
 
 REQUIRED_GATE_PATHS = (
     "src/thermoroute/chronology.py",
+    "src/thermoroute/model_matrix_amendment.py",
+    "src/thermoroute/model_suite.py",
+    "src/thermoroute/opening.py",
+    "src/thermoroute/opening_contract.py",
+    "src/thermoroute/outcome_acquisition.py",
     "src/thermoroute/outcome_qc.py",
     "src/thermoroute/probability_metric_erratum.py",
+    "src/thermoroute/release_acceptance.py",
+    "scripts/24_confirmatory_opening.py",
+    "scripts/24_freeze_model_suite.py",
+    "scripts/26_validate_claims.py",
     "scripts/28_freeze_prelabel_chronology.py",
+    "scripts/30_verify_release_fresh_process.py",
+    "scripts/make_release_archive.sh",
+    "scripts/route_a_opening_orchestrator.py",
+    "scripts/verify_release.py",
+    "tests/test_claim_registry.py",
     "tests/test_chronology.py",
+    "tests/test_confirmatory_opening.py",
+    "tests/test_manifest_release.py",
+    "tests/test_model_matrix_amendment.py",
+    "tests/test_model_suite.py",
+    "tests/test_release_acceptance.py",
+    "tests/test_trusted_publication.py",
+    DEFAULT_MODEL_MATRIX_AMENDMENT,
+    DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
     "protocols/route_a_outcome_qc_policy_v1.json",
     "protocols/route_a_probability_metric_erratum_v1.json",
     "protocols/route_a_probability_metric_erratum_seal_v1.json",
 )
+
+MODEL_MATRIX_AMENDMENT_FORMAT = (
+    "thermoroute.route-a-model-matrix-amendment.v1"
+)
+MODEL_MATRIX_AMENDMENT_ID = "route-a-prelabel-model-matrix-replication-017"
+MODEL_MATRIX_AMENDMENT_STATUS = "FROZEN_PRELABEL_OUTCOME_FREE"
+MODEL_MATRIX_SEAL_FORMAT = (
+    "thermoroute.route-a-model-matrix-amendment-seal.v1"
+)
+MODEL_MATRIX_SEAL_STATUS = "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+MODEL_MATRIX_PRELABEL_ATTESTATION = {
+    "post_2020_wtemp_requested_or_inspected": False,
+    "confirmation_outcomes_requested_or_inspected": False,
+    "confirmation_outcome_artifact_present": False,
+    "outcome_endpoint_called": False,
+    "outcome_independent": True,
+    "network_used": False,
+}
+MODEL_MATRIX_DOCUMENT_LINEAGE_CONTRACT = {
+    "existing_governance_files_remain_immutable": True,
+    "separate_amendment_seal_required": True,
+    "seal_path": DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
+    "seal_sha256_declared_in_this_document": False,
+    "amendment_document_commit_must_precede_seal_commit": True,
+    "amendment_document_created_exactly_once": True,
+    "seal_created_exactly_once": True,
+    "document_and_seal_immutable_after_sealing": True,
+}
+MODEL_MATRIX_SEAL_HISTORY_CONTRACT = {
+    "governance_seal_commits_must_be_strict_ancestors": True,
+    "amendment_blob_must_match_document_commit": True,
+    "amendment_document_created_exactly_once": True,
+    "document_commit_must_precede_seal_commit": True,
+    "seal_created_exactly_once": True,
+    "amendment_and_seal_immutable_to_release_tip": True,
+}
 
 STAGE09_RECEIPT_PATH = "outputs/models/route_a_stage09_completion.json"
 STAGE09_ARTIFACT_PATHS = {
@@ -568,6 +632,70 @@ def _validate_portable_receipt_bytes(
     ) or len(set(commits)) != 3:
         raise ChronologyError("chronology commit identities are malformed or duplicated")
 
+    matrix_history = document.get("model_matrix_history")
+    matrix_history_keys = {
+        "format",
+        "amendment",
+        "seal",
+        "amendment_id",
+        "amendment_document_commit",
+        "seal_commit",
+        "model_freeze_commit",
+        "contract_id",
+        "strict_order_verified",
+        "immutable_to_release_tip",
+        "evidence_scope",
+    }
+    if not isinstance(matrix_history, Mapping) or set(matrix_history) != matrix_history_keys:
+        raise ChronologyError("chronology model-matrix history schema changed")
+    matrix_commits = (
+        matrix_history.get("amendment_document_commit"),
+        matrix_history.get("seal_commit"),
+        matrix_history.get("model_freeze_commit"),
+    )
+    if (
+        matrix_history.get("format")
+        != "thermoroute.route-a-model-matrix-history.v1"
+        or matrix_history.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or matrix_history.get("model_freeze_commit") != commits[0]
+        or matrix_history.get("strict_order_verified") is not True
+        or matrix_history.get("immutable_to_release_tip") is not True
+        or matrix_history.get("evidence_scope") != EVIDENCE_SCOPE
+        or any(
+            not isinstance(commit, str)
+            or len(commit) != 40
+            or any(character not in "0123456789abcdef" for character in commit)
+            for commit in matrix_commits
+        )
+        or len(set(matrix_commits)) != 3
+    ):
+        raise ChronologyError("chronology model-matrix history contract changed")
+    amendment_path = _portable_current_binding(
+        root,
+        matrix_history.get("amendment"),
+        label="chronology model-matrix amendment",
+    )
+    seal_path = _portable_current_binding(
+        root,
+        matrix_history.get("seal"),
+        label="chronology model-matrix amendment seal",
+    )
+    try:
+        amendment = json.loads((root / amendment_path).read_text(encoding="utf-8"))
+        seal = json.loads((root / seal_path).read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ChronologyError("gitless model-matrix documents are invalid JSON") from exc
+    if not isinstance(amendment, Mapping) or not isinstance(seal, Mapping):
+        raise ChronologyError("gitless model-matrix documents are not objects")
+    expected_contract_id = _validate_model_matrix_documents(
+        amendment,
+        seal,
+        amendment_binding=matrix_history["amendment"],
+        amendment_document_commit=str(matrix_history["amendment_document_commit"]),
+    )
+    if matrix_history.get("contract_id") != expected_contract_id:
+        raise ChronologyError("gitless model-matrix contract ID changed")
+
     observed_by_field: dict[str, set[str]] = {}
     bindings_by_path: dict[str, Mapping[str, Any]] = {}
     for field, minimum in (
@@ -611,6 +739,18 @@ def _validate_portable_receipt_bytes(
         or _repro_sha256_json(inventory) != document.get("source_tree_sha256")
     ):
         raise ChronologyError("gitless archive source-tree lineage changed")
+
+    paths = document.get("paths")
+    if not isinstance(paths, Mapping):
+        raise ChronologyError("chronology artifact path registry is absent")
+    suite_path = _normalise_path(str(paths.get("model_suite", "")))
+    try:
+        suite = json.loads((root / suite_path).read_text(encoding="utf-8"))
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ChronologyError("gitless model suite is absent or invalid") from exc
+    if not isinstance(suite, Mapping):
+        raise ChronologyError("gitless model suite is not an object")
+    _validate_suite_model_matrix_binding(suite, history=matrix_history)
 
     protocol = document.get("protocol_history")
     if not isinstance(protocol, Mapping):
@@ -2505,6 +2645,225 @@ def _assert_absent_at_model_freeze(
     return checked
 
 
+def _model_matrix_contract_id(amendment: Mapping[str, Any]) -> str:
+    """Hash only the two frozen replication/control matrices."""
+    stage09 = amendment.get("stage09_architecture_control_matrix")
+    stage09b = amendment.get("stage09b_development_control_matrix")
+    if not isinstance(stage09, Mapping) or not isinstance(stage09b, Mapping):
+        raise ChronologyError("model-matrix amendment lacks its two control matrices")
+    return _repro_sha256_json(
+        {
+            "format": "thermoroute.route-a-model-matrix-contract.v1",
+            "stage09_architecture_control_matrix": dict(stage09),
+            "stage09b_development_control_matrix": dict(stage09b),
+        }
+    )
+
+
+def _validate_model_matrix_documents(
+    amendment: Mapping[str, Any],
+    seal: Mapping[str, Any],
+    *,
+    amendment_binding: Mapping[str, Any],
+    amendment_document_commit: str,
+) -> str:
+    """Validate the outcome-free semantic core shared by Git and archives."""
+    amendment_keys = {
+        "format",
+        "status",
+        "amendment_id",
+        "recorded_date",
+        "governance_inputs",
+        "primary_contract_object_bindings",
+        "scientific_scope",
+        "stage09_architecture_control_matrix",
+        "stage09b_development_control_matrix",
+        "unchanged_primary_boundary",
+        "lineage_contract",
+        "prelabel_attestation",
+    }
+    seal_keys = {
+        "format",
+        "status",
+        "amendment_id",
+        "amendment",
+        "amendment_document_commit",
+        "governance_seals",
+        "history_contract",
+        "prelabel_attestation",
+    }
+    if set(amendment) != amendment_keys:
+        raise ChronologyError("model-matrix amendment top-level schema changed")
+    if set(seal) != seal_keys:
+        raise ChronologyError("model-matrix seal top-level schema changed")
+    if (
+        amendment.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
+        or amendment.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
+        or amendment.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or amendment.get("prelabel_attestation")
+        != MODEL_MATRIX_PRELABEL_ATTESTATION
+        or amendment.get("lineage_contract")
+        != MODEL_MATRIX_DOCUMENT_LINEAGE_CONTRACT
+        or not isinstance(amendment.get("governance_inputs"), Mapping)
+        or not isinstance(
+            amendment.get("primary_contract_object_bindings"), Mapping
+        )
+        or not isinstance(amendment.get("scientific_scope"), Mapping)
+        or not isinstance(amendment.get("unchanged_primary_boundary"), Mapping)
+    ):
+        raise ChronologyError("model-matrix amendment contract changed")
+    expected_amendment_binding = {
+        "path": amendment_binding.get("path"),
+        "sha256": amendment_binding.get("sha256"),
+    }
+    if (
+        seal.get("format") != MODEL_MATRIX_SEAL_FORMAT
+        or seal.get("status") != MODEL_MATRIX_SEAL_STATUS
+        or seal.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or seal.get("amendment") != expected_amendment_binding
+        or seal.get("amendment_document_commit") != amendment_document_commit
+        or seal.get("history_contract") != MODEL_MATRIX_SEAL_HISTORY_CONTRACT
+        or seal.get("prelabel_attestation") != MODEL_MATRIX_PRELABEL_ATTESTATION
+        or not isinstance(seal.get("governance_seals"), Mapping)
+    ):
+        raise ChronologyError("model-matrix seal contract changed")
+    return _model_matrix_contract_id(amendment)
+
+
+def _validate_suite_model_matrix_binding(
+    suite: Mapping[str, Any],
+    *,
+    history: Mapping[str, Any],
+) -> None:
+    value = suite.get("model_matrix_amendment")
+    if not isinstance(value, Mapping) or set(value) != {
+        "format", "document", "seal", "contract_id",
+    }:
+        raise ChronologyError("model suite lacks its exact model-matrix binding")
+    document = value.get("document")
+    seal = value.get("seal")
+    if not isinstance(document, Mapping) or set(document) != {
+        "path", "sha256", "format", "status", "amendment_id",
+        "amendment_document_commit",
+    }:
+        raise ChronologyError("model-suite amendment binding schema changed")
+    if not isinstance(seal, Mapping) or set(seal) != {
+        "path", "sha256", "format", "status",
+    }:
+        raise ChronologyError("model-suite amendment-seal binding schema changed")
+    amendment_binding = history.get("amendment")
+    seal_binding = history.get("seal")
+    if not isinstance(amendment_binding, Mapping) or not isinstance(
+        seal_binding, Mapping
+    ):
+        raise ChronologyError("chronology model-matrix bindings are absent")
+    expected_document = {
+        "path": amendment_binding.get("path"),
+        "sha256": amendment_binding.get("sha256"),
+        "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+        "status": MODEL_MATRIX_AMENDMENT_STATUS,
+        "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+        "amendment_document_commit": history.get("amendment_document_commit"),
+    }
+    expected_seal = {
+        "path": seal_binding.get("path"),
+        "sha256": seal_binding.get("sha256"),
+        "format": MODEL_MATRIX_SEAL_FORMAT,
+        "status": MODEL_MATRIX_SEAL_STATUS,
+    }
+    if (
+        value.get("format")
+        != "thermoroute.route-a-model-matrix-suite-binding.v1"
+        or document != expected_document
+        or seal != expected_seal
+        or value.get("contract_id") != history.get("contract_id")
+    ):
+        raise ChronologyError("model suite and model-matrix history differ")
+
+
+def _model_matrix_history(
+    root: Path,
+    *,
+    amendment_path: str,
+    seal_path: str,
+    model_suite_path: str,
+    model_commit: str,
+    current_head: str,
+) -> dict[str, Any]:
+    """Prove document < seal < frozen suite and immutable exact bytes."""
+    amendment_path = _normalise_path(amendment_path)
+    seal_path = _normalise_path(seal_path)
+    amendment_creations = _path_creation_commits(root, current_head, amendment_path)
+    seal_creations = _path_creation_commits(root, current_head, seal_path)
+    if len(amendment_creations) != 1:
+        raise ChronologyError("model-matrix amendment must be created exactly once")
+    if len(seal_creations) != 1:
+        raise ChronologyError("model-matrix seal must be created exactly once")
+    amendment_commit = amendment_creations[0]
+    seal_commit = seal_creations[0]
+    _strictly_precedes(
+        root,
+        amendment_commit,
+        seal_commit,
+        label="model-matrix amendment document < amendment seal",
+    )
+    _strictly_precedes(
+        root,
+        seal_commit,
+        model_commit,
+        label="model-matrix amendment seal < model freeze",
+    )
+    if _git_path_exists(root, amendment_commit, seal_path):
+        raise ChronologyError("model-matrix seal already existed at document commit")
+
+    amendment_binding = _binding(root, amendment_commit, amendment_path)
+    seal_binding = _binding(root, seal_commit, seal_path)
+    # A later identical rewrite is still prohibited, even if the final digest
+    # happens to equal the creation blob.
+    _assert_no_artifact_touches(
+        root,
+        start=amendment_commit,
+        end=current_head,
+        paths=(amendment_path,),
+        label="model-matrix amendment",
+    )
+    _assert_no_artifact_touches(
+        root,
+        start=seal_commit,
+        end=current_head,
+        paths=(seal_path,),
+        label="model-matrix amendment seal",
+    )
+    amendment = _json_from_git(
+        root, amendment_commit, amendment_path, label="model-matrix amendment"
+    )
+    seal = _json_from_git(
+        root, seal_commit, seal_path, label="model-matrix amendment seal"
+    )
+    contract_id = _validate_model_matrix_documents(
+        amendment,
+        seal,
+        amendment_binding=amendment_binding,
+        amendment_document_commit=amendment_commit,
+    )
+    suite = _json_from_git(root, model_commit, model_suite_path, label="model suite")
+    history = {
+        "format": "thermoroute.route-a-model-matrix-history.v1",
+        "amendment": amendment_binding,
+        "seal": seal_binding,
+        "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+        "amendment_document_commit": amendment_commit,
+        "seal_commit": seal_commit,
+        "model_freeze_commit": model_commit,
+        "contract_id": contract_id,
+        "strict_order_verified": True,
+        "immutable_to_release_tip": True,
+        "evidence_scope": EVIDENCE_SCOPE,
+    }
+    _validate_suite_model_matrix_binding(suite, history=history)
+    return history
+
+
 def _require_gate_files_at_model(
     root: Path, model_commit: str
 ) -> list[dict[str, Any]]:
@@ -2521,6 +2880,8 @@ def _require_gate_files_at_model(
 def _normalise_paths(paths: Mapping[str, str | Path]) -> dict[str, str]:
     required = {
         "protocol_seal",
+        "model_matrix_amendment",
+        "model_matrix_amendment_seal",
         "model_suite",
         "development_replay",
         "candidate_table",
@@ -2534,7 +2895,19 @@ def _normalise_paths(paths: Mapping[str, str | Path]) -> dict[str, str]:
         raise ChronologyError(
             f"chronology path registry changed: expected={sorted(required)}, found={sorted(paths)}"
         )
-    return {name: _normalise_path(str(value)) for name, value in paths.items()}
+    normalized = {
+        name: _normalise_path(str(value)) for name, value in paths.items()
+    }
+    canonical_matrix_paths = {
+        "model_matrix_amendment": DEFAULT_MODEL_MATRIX_AMENDMENT,
+        "model_matrix_amendment_seal": DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL,
+    }
+    for name, expected in canonical_matrix_paths.items():
+        if normalized[name] != expected:
+            raise ChronologyError(
+                f"chronology {name} must use its canonical path: {expected}"
+            )
+    return normalized
 
 
 def _evaluate_chronology(
@@ -2563,6 +2936,14 @@ def _evaluate_chronology(
         root,
         seal_path=paths["protocol_seal"],
         model_commit=model_commit,
+    )
+    model_matrix = _model_matrix_history(
+        root,
+        amendment_path=paths["model_matrix_amendment"],
+        seal_path=paths["model_matrix_amendment_seal"],
+        model_suite_path=paths["model_suite"],
+        model_commit=model_commit,
+        current_head=current_head,
     )
     gate_files = _require_gate_files_at_model(root, model_commit)
     source_control, source_tree_sha256 = _collect_model_source_control(
@@ -2640,6 +3021,7 @@ def _evaluate_chronology(
             "strict_order_verified": True,
         },
         "protocol_history": protocol,
+        "model_matrix_history": model_matrix,
         "paths": dict(paths),
         "required_gate_files_at_model_freeze": gate_files,
         "model_source_control_artifacts": source_control,
@@ -2674,6 +3056,10 @@ def freeze_prelabel_chronology(
     model_freeze_commit: str,
     input_evidence_commit: str,
     protocol_seal: str | Path = DEFAULT_PROTOCOL_SEAL,
+    model_matrix_amendment: str | Path = DEFAULT_MODEL_MATRIX_AMENDMENT,
+    model_matrix_amendment_seal: str | Path = (
+        DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL
+    ),
     model_suite: str | Path = DEFAULT_MODEL_SUITE,
     development_replay: str | Path = DEFAULT_DEVELOPMENT_REPLAY,
     candidate_table: str | Path = DEFAULT_CANDIDATE_TABLE,
@@ -2702,6 +3088,12 @@ def freeze_prelabel_chronology(
     paths = _normalise_paths(
         {
             "protocol_seal": _relative(root, protocol_seal),
+            "model_matrix_amendment": _relative(
+                root, model_matrix_amendment
+            ),
+            "model_matrix_amendment_seal": _relative(
+                root, model_matrix_amendment_seal
+            ),
             "model_suite": _relative(root, model_suite),
             "development_replay": _relative(root, development_replay),
             "candidate_table": _relative(root, candidate_table),
@@ -2853,6 +3245,8 @@ __all__ = [
     "DEFAULT_EXTERNAL_LOCK",
     "DEFAULT_EXTERNAL_REGISTRY",
     "DEFAULT_INPUT_MANIFEST",
+    "DEFAULT_MODEL_MATRIX_AMENDMENT",
+    "DEFAULT_MODEL_MATRIX_AMENDMENT_SEAL",
     "DEFAULT_MODEL_SUITE",
     "DEFAULT_PROTOCOL_SEAL",
     "DEFAULT_RECEIPT",
