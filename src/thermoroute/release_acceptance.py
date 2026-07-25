@@ -1,12 +1,16 @@
 """Same-host, fresh-process acceptance for the local Route-A evidence archive.
 
-This module deliberately proves a narrow engineering claim.  It launches the
-repository's fixed release verifier in a distinct ``python -I -B`` process,
-from a fresh working directory and a complete allowlisted environment, then
-binds the invocation and a single resource observation into a create-only
-receipt.  It does not execute the Route-A opening and it does not claim a fresh
-machine, container, virtual environment, cold cache, network sandbox, file-read
-sandbox, energy measurement, multi-hardware replay, or deployment latency.
+This module deliberately records a narrow engineering observation.  It copies
+the already hashed interpreter, release verifier, archive, and sidecar into a
+private temporary tree, launches those sealed bytes in a distinct
+``python -I -B`` process group from a fresh working directory and allowlisted
+environment, then records the invocation and one OS resource observation in a
+create-only receipt.  Receipt validation performs a new fixed replay from the
+currently bound archive; it does not authenticate the historical execution or
+its resource numbers.  It does not execute the Route-A opening and it does not
+claim a fresh machine, container, virtual environment, cold cache, network or
+file-read sandbox, energy measurement, multi-hardware replay, or deployment
+latency.
 
 The only accepted profile is ``PREOPEN_NOT_COMPLETE``.  Consequently, a PASS is
 named release-*mechanics* acceptance rather than model-suite readiness or a
@@ -24,8 +28,9 @@ import os
 from pathlib import Path, PurePosixPath
 import platform
 import re
-import resource
+import selectors
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -34,7 +39,7 @@ import time
 from typing import Any, NoReturn
 
 
-RECEIPT_FORMAT = "thermoroute.same-host-release-mechanics-acceptance.v1"
+RECEIPT_FORMAT = "thermoroute.same-host-release-mechanics-acceptance.v2"
 RECEIPT_STATUS = "PASS_SAME_HOST_FRESH_PROCESS_RELEASE_MECHANICS"
 RELEASE_PROFILE = "PREOPEN_NOT_COMPLETE"
 LOCAL_DISTRIBUTION = "LOCAL_EVIDENCE_ONLY"
@@ -45,15 +50,20 @@ EVIDENCE_SCOPE = (
 CORE_RELATIVE = "src/thermoroute/release_acceptance.py"
 RUNNER_RELATIVE = "scripts/30_verify_release_fresh_process.py"
 VERIFIER_RELATIVE = "scripts/verify_release.py"
-RECEIPT_RELATIVE = "outputs/prelabel/route_a_release_mechanics_acceptance_v1.json"
+RECEIPT_RELATIVE = "outputs/prelabel/route_a_release_mechanics_acceptance_v2.json"
 
-MEASUREMENT_BACKEND = "perf_counter_ns_plus_rusage_children_delta_plus_wait4_peak_rss_v1"
+MEASUREMENT_BACKEND = "perf_counter_ns_plus_exact_wait4_process_tree_rusage_v2"
+MEASUREMENT_SCOPE = (
+    "ONE_FIXED_VERIFIER_PROCESS_TREE_ON_THIS_HOST;_CPU_AND_RSS_ARE_THE_OS_"
+    "WAIT4_SUMMARY_FOR_THE_VERIFIER_AND_ALL_OF_ITS_DESCENDANTS;_PEAK_RSS_IS_"
+    "NOT_AN_ADDITIVE_OR_SIMULTANEOUS_PROCESS_TREE_MEMORY_PEAK"
+)
 NORMALISED_COMMAND = [
-    "<bound-python-executable>",
+    "<sealed-copy-of-bound-python-executable>",
     "-I",
     "-B",
-    "<repository>/scripts/verify_release.py",
-    "<repository>/<archive>",
+    "<sealed-copy-of-git-bound-release-verifier>",
+    "<sealed-copy-of-bound-archive>",
     "--distribution",
     LOCAL_DISTRIBUTION,
 ]
@@ -65,6 +75,9 @@ _MANIFEST_TRANSCRIPT_LINE = re.compile(
     r"manifest OK: [0-9]+ artifacts, source [0-9a-f]{12}, DAG [0-9]+ nodes"
 )
 _MAX_CAPTURE_BYTES = 8 * 1024 * 1024
+_VERIFIER_DEADLINE_SECONDS = 60 * 60
+_PROCESS_POLL_SECONDS = 0.01
+_PROCESS_TERMINATION_GRACE_SECONDS = 2.0
 
 _CHILD_ENVIRONMENT_STABLE = {
     "PATH": os.defpath,
@@ -91,9 +104,20 @@ ISOLATION_LIMITATIONS = {
     "cold_cache_enforced": False,
     "network_isolation_enforced": False,
     "filesystem_read_isolation_enforced": False,
+    "descendant_python_isolation_flags_enforced": False,
+    "descendant_new_session_escape_prevented": False,
     "energy_measured": False,
     "multi_hardware_replay": False,
     "deployment_latency_claim_allowed": False,
+}
+
+AUTHENTICATION_LIMITATIONS = {
+    "external_authentication": False,
+    "historical_execution_independently_proven": False,
+    "resource_observation_independently_attested": False,
+    "receipt_owner_tamper_resistance": False,
+    "same_account_concurrent_adversary_resistance": False,
+    "self_hash_role": "INTERNAL_CONSISTENCY_AND_ACCIDENTAL_CORRUPTION_DETECTION_ONLY",
 }
 
 LABEL_SAFETY = {
@@ -117,6 +141,7 @@ _TOP_LEVEL_FIELDS = frozenset(
         "execution",
         "resource_observation",
         "isolation_limitations",
+        "authentication_limitations",
         "label_safety",
         "receipt_self_sha256",
     }
@@ -158,6 +183,8 @@ _EXECUTION_FIELDS = frozenset(
         "fresh_cwd_empty_before",
         "fresh_cwd_empty_after",
         "temporary_root_removed_after_exit",
+        "sealed_archive_argument",
+        "process_group_cleanup_enforced",
         "returncode",
         "stdout_sha256",
         "stdout_bytes",
@@ -243,7 +270,12 @@ def _load_json_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
     return value
 
 
-def _read_regular_bytes(path: Path, *, label: str) -> bytes:
+def _read_regular_bytes(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int | None = None,
+) -> bytes:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
         descriptor = os.open(path, flags)
@@ -253,14 +285,28 @@ def _read_regular_bytes(path: Path, *, label: str) -> bytes:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
             raise ReleaseAcceptanceError(f"{label} must be one non-linked regular file: {path}")
+        if max_bytes is not None and metadata.st_size > max_bytes:
+            raise ReleaseAcceptanceError(f"{label} exceeds its byte limit")
         chunks: list[bytes] = []
+        total = 0
         while True:
             chunk = os.read(descriptor, 1 << 20)
             if not chunk:
                 return b"".join(chunks)
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ReleaseAcceptanceError(f"{label} exceeds its byte limit")
             chunks.append(chunk)
     finally:
         os.close(descriptor)
+
+
+def _payload_binding(path: str, payload: bytes) -> dict[str, object]:
+    return {
+        "path": path,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "bytes": len(payload),
+    }
 
 
 def _normalise_relative(value: str, *, label: str) -> str:
@@ -307,25 +353,28 @@ def _relative_existing(root: Path, path: str | Path, *, label: str) -> tuple[str
 def _binding(root: Path, path: Path, *, label: str) -> dict[str, object]:
     relative, canonical = _relative_existing(root, path, label=label)
     payload = _read_regular_bytes(canonical, label=label)
-    return {
-        "path": relative,
-        "sha256": hashlib.sha256(payload).hexdigest(),
-        "bytes": len(payload),
-    }
+    return _payload_binding(relative, payload)
 
 
-def _interpreter_binding() -> dict[str, object]:
+def _interpreter_material() -> tuple[dict[str, object], bytes]:
     invoked = Path(sys.executable)
     if not invoked.is_absolute() or not invoked.exists():
         raise ReleaseAcceptanceError("Python executable path is not absolute or absent")
     realpath = invoked.resolve()
     payload = _read_regular_bytes(realpath, label="Python executable")
-    return {
-        "invoked_path": str(invoked),
-        "realpath": str(realpath),
-        "sha256": hashlib.sha256(payload).hexdigest(),
-        "bytes": len(payload),
-    }
+    return (
+        {
+            "invoked_path": str(invoked),
+            "realpath": str(realpath),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "bytes": len(payload),
+        },
+        payload,
+    )
+
+
+def _interpreter_binding() -> dict[str, object]:
+    return _interpreter_material()[0]
 
 
 def _git_environment() -> dict[str, str]:
@@ -391,11 +440,11 @@ def _assert_exact_git_root(root: Path) -> None:
         raise ReleaseAcceptanceError("Git replacement refs are prohibited")
 
 
-def _source_identity(
+def _source_material(
     root: Path,
     *,
     require_clean: bool,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], dict[str, bytes]]:
     _assert_exact_git_root(root)
     if require_clean:
         dirt = _git(
@@ -414,6 +463,7 @@ def _source_identity(
     if _GIT_OBJECT.fullmatch(commit) is None or _GIT_OBJECT.fullmatch(tree) is None:
         raise ReleaseAcceptanceError("Git commit/tree identity is malformed")
     bindings: dict[str, dict[str, object]] = {}
+    payloads: dict[str, bytes] = {}
     for label, relative in (
         ("core", CORE_RELATIVE),
         ("runner", RUNNER_RELATIVE),
@@ -424,20 +474,31 @@ def _source_identity(
         committed = _git(root, "show", f"{commit}:{relative}")
         if committed != current:
             raise ReleaseAcceptanceError(f"{label} bytes differ from the acceptance Git commit")
-        bindings[label] = {
-            "path": relative,
-            "sha256": hashlib.sha256(current).hexdigest(),
-            "bytes": len(current),
-        }
-    return {
-        "git_commit": commit,
-        "git_tree": tree,
-        "git_clean_before_acceptance": True,
-        **bindings,
-    }
+        bindings[label] = _payload_binding(relative, current)
+        payloads[label] = current
+    return (
+        {
+            "git_commit": commit,
+            "git_tree": tree,
+            "git_clean_before_acceptance": True,
+            **bindings,
+        },
+        payloads,
+    )
 
 
-def _validate_source_identity(root: Path, source: Mapping[str, Any]) -> None:
+def _source_identity(
+    root: Path,
+    *,
+    require_clean: bool,
+) -> dict[str, object]:
+    return _source_material(root, require_clean=require_clean)[0]
+
+
+def _validate_source_identity(
+    root: Path,
+    source: Mapping[str, Any],
+) -> dict[str, bytes]:
     _require_keys(source, _SOURCE_FIELDS, label="source")
     commit, tree = source.get("git_commit"), source.get("git_tree")
     if (
@@ -457,12 +518,13 @@ def _validate_source_identity(root: Path, source: Mapping[str, Any]) -> None:
     head_history = set(_git(root, "rev-list", "HEAD").decode("ascii", errors="strict").splitlines())
     if commit not in head_history:
         raise ReleaseAcceptanceError("receipt source commit is not an ancestor of HEAD")
+    payloads: dict[str, bytes] = {}
     for label, relative in (
         ("core", CORE_RELATIVE),
         ("runner", RUNNER_RELATIVE),
         ("verifier", VERIFIER_RELATIVE),
     ):
-        binding = _validate_repository_binding(
+        binding, current = _validate_repository_binding(
             root,
             source.get(label),
             expected_path=relative,
@@ -473,6 +535,8 @@ def _validate_source_identity(root: Path, source: Mapping[str, Any]) -> None:
             committed
         ) != binding.get("bytes"):
             raise ReleaseAcceptanceError(f"receipt {label} differs from its source Git blob")
+        payloads[label] = current
+    return payloads
 
 
 def _child_environment(temporary_root: Path) -> dict[str, str]:
@@ -509,90 +573,275 @@ def _rss_contract(raw: int) -> tuple[str, int]:
     raise ReleaseAcceptanceError(f"peak RSS normalization is unsupported on {system!r}")
 
 
-def _wait4(pid: int) -> tuple[int, Any]:
+def _wait4(pid: int, options: int = 0) -> tuple[int, int, Any]:
     while True:
         try:
-            waited, status, usage = os.wait4(pid, 0)
+            waited, status, usage = os.wait4(pid, options)
         except InterruptedError:
             continue
-        if waited != pid:
+        if waited not in {0, pid}:
             raise ReleaseAcceptanceError("wait4 returned another process identity")
-        return status, usage
+        return waited, status, usage
+
+
+def _write_all(descriptor: int, payload: bytes) -> None:
+    view = memoryview(payload)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise ReleaseAcceptanceError("sealed input copy made no write progress")
+        view = view[written:]
+
+
+def _write_sealed_payload(
+    directory: Path,
+    *,
+    name: str,
+    payload: bytes,
+    mode: int,
+    label: str,
+) -> Path:
+    if not name or PurePosixPath(name).name != name or "/" in name or "\\" in name:
+        raise ReleaseAcceptanceError(f"{label} sealed-copy name is unsafe")
+    directory_descriptor = os.open(
+        directory,
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        descriptor = os.open(name, flags, mode, dir_fd=directory_descriptor)
+        try:
+            _write_all(descriptor, payload)
+            os.fchmod(descriptor, mode)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+    sealed = directory / name
+    if _read_regular_bytes(sealed, label=f"sealed {label}") != payload:
+        raise ReleaseAcceptanceError(f"sealed {label} bytes differ from their verified source FD")
+    return sealed
+
+
+def _process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError as exc:
+        raise ReleaseAcceptanceError("cannot inspect verifier process group") from exc
+    return True
+
+
+def _signal_process_group(process_group: int, signal_number: int) -> None:
+    try:
+        os.killpg(process_group, signal_number)
+    except ProcessLookupError:
+        pass
+
+
+def _terminate_and_reap(
+    pid: int,
+    *,
+    already_reaped: tuple[int, Any] | None,
+) -> tuple[int, Any]:
+    status_usage = already_reaped
+    _signal_process_group(pid, signal.SIGTERM)
+    grace_deadline = time.monotonic() + _PROCESS_TERMINATION_GRACE_SECONDS
+    while status_usage is None and time.monotonic() < grace_deadline:
+        waited, status, usage = _wait4(pid, os.WNOHANG)
+        if waited == pid:
+            status_usage = (status, usage)
+            break
+        time.sleep(_PROCESS_POLL_SECONDS)
+    if _process_group_exists(pid):
+        _signal_process_group(pid, signal.SIGKILL)
+    if status_usage is None:
+        _waited, status, usage = _wait4(pid)
+        status_usage = (status, usage)
+    cleanup_deadline = time.monotonic() + _PROCESS_TERMINATION_GRACE_SECONDS
+    while _process_group_exists(pid) and time.monotonic() < cleanup_deadline:
+        _signal_process_group(pid, signal.SIGKILL)
+        time.sleep(_PROCESS_POLL_SECONDS)
+    if _process_group_exists(pid):
+        raise ReleaseAcceptanceError("verifier process group survived forced cleanup")
+    return status_usage
+
+
+def _capture_process(
+    *,
+    command: list[str],
+    executable: Path,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> tuple[int, int, Any, bytes, bytes, int]:
+    started = time.perf_counter_ns()
+    process = subprocess.Popen(
+        command,
+        executable=str(executable),
+        cwd=cwd,
+        env=dict(environment),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        close_fds=True,
+        start_new_session=True,
+    )
+    if process.stdout is None or process.stderr is None:
+        _terminate_and_reap(process.pid, already_reaped=None)
+        raise ReleaseAcceptanceError("cannot capture fixed verifier streams")
+    selector = selectors.DefaultSelector()
+    streams = {"stdout": process.stdout, "stderr": process.stderr}
+    buffers: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    for label, stream in streams.items():
+        os.set_blocking(stream.fileno(), False)
+        selector.register(stream, selectors.EVENT_READ, label)
+
+    deadline = time.monotonic() + _VERIFIER_DEADLINE_SECONDS
+    reaped: tuple[int, Any] | None = None
+    failure: str | None = None
+    try:
+        while reaped is None or selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                failure = "fixed verifier exceeded its execution deadline"
+                break
+            events = selector.select(timeout=min(_PROCESS_POLL_SECONDS, remaining))
+            for key, _mask in events:
+                label = str(key.data)
+                try:
+                    chunk = os.read(key.fd, 1 << 16)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    stream = streams[label]
+                    selector.unregister(stream)
+                    stream.close()
+                    continue
+                buffers[label].extend(chunk)
+                if len(buffers[label]) > _MAX_CAPTURE_BYTES:
+                    failure = f"fixed verifier {label} exceeds capture limit"
+                    break
+            if failure is not None:
+                break
+            if reaped is None:
+                waited, status, usage = _wait4(process.pid, os.WNOHANG)
+                if waited == process.pid:
+                    reaped = (status, usage)
+            elif selector.get_map() and _process_group_exists(process.pid):
+                failure = "fixed verifier left a descendant process holding its streams"
+                break
+    except BaseException:
+        _terminate_and_reap(process.pid, already_reaped=reaped)
+        raise
+    finally:
+        selector.close()
+        for stream in streams.values():
+            if not stream.closed:
+                stream.close()
+
+    if failure is not None:
+        _terminate_and_reap(process.pid, already_reaped=reaped)
+        raise ReleaseAcceptanceError(failure)
+    if reaped is None:
+        raise ReleaseAcceptanceError("fixed verifier was not reaped")
+    if _process_group_exists(process.pid):
+        _terminate_and_reap(process.pid, already_reaped=reaped)
+        raise ReleaseAcceptanceError("fixed verifier left descendant processes")
+    status, exact_usage = reaped
+    process.returncode = os.waitstatus_to_exitcode(status)
+    finished = time.perf_counter_ns()
+    return (
+        process.returncode,
+        process.pid,
+        exact_usage,
+        bytes(buffers["stdout"]),
+        bytes(buffers["stderr"]),
+        finished - started,
+    )
 
 
 def _run_fixed_verifier(
     *,
-    root: Path,
-    archive: Path,
+    archive_name: str,
+    archive_payload: bytes,
+    sidecar_payload: bytes,
+    verifier_payload: bytes,
+    interpreter_payload: bytes,
 ) -> dict[str, Any]:
-    verifier = _inside(root, VERIFIER_RELATIVE, label="release verifier")
-    python = Path(sys.executable)
     if not hasattr(os, "wait4"):
         raise ReleaseAcceptanceError("formal acceptance requires POSIX wait4")
+    if PurePosixPath(archive_name).name != archive_name or not archive_name.endswith(".zip"):
+        raise ReleaseAcceptanceError("sealed archive name is unsafe")
 
     temporary_name: str | None = None
     captured: dict[str, Any]
     with tempfile.TemporaryDirectory(prefix="thermoroute-same-host-release-acceptance-") as name:
         temporary_name = name
         temporary_root = Path(name).resolve()
+        sealed_inputs = temporary_root / "sealed-inputs"
+        sealed_inputs.mkdir(mode=0o700)
+        sealed_inputs.chmod(0o700)
+        sealed_python = _write_sealed_payload(
+            sealed_inputs,
+            name="python-bound",
+            payload=interpreter_payload,
+            mode=0o500,
+            label="Python executable",
+        )
+        sealed_verifier = _write_sealed_payload(
+            sealed_inputs,
+            name="verify_release.py",
+            payload=verifier_payload,
+            mode=0o400,
+            label="release verifier",
+        )
+        _write_sealed_payload(
+            sealed_inputs,
+            name=archive_name,
+            payload=archive_payload,
+            mode=0o400,
+            label="release archive",
+        )
+        _write_sealed_payload(
+            sealed_inputs,
+            name=archive_name + ".sha256",
+            payload=sidecar_payload,
+            mode=0o400,
+            label="archive checksum sidecar",
+        )
         cwd = temporary_root / "fresh-cwd"
         cwd.mkdir(mode=0o700)
         if any(cwd.iterdir()):
             raise ReleaseAcceptanceError("fresh verifier cwd was not initially empty")
-        stdout_path = temporary_root / "stdout.bin"
-        stderr_path = temporary_root / "stderr.bin"
-        stdout_descriptor = os.open(
-            stdout_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
-            0o600,
-        )
-        stderr_descriptor = os.open(
-            stderr_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
-            0o600,
-        )
         environment = _child_environment(temporary_root)
+        sealed_archive_argument = f"../sealed-inputs/{archive_name}"
         command = [
-            str(python),
+            str(sealed_python),
             "-I",
             "-B",
-            str(verifier),
-            str(archive),
+            str(sealed_verifier),
+            sealed_archive_argument,
             "--distribution",
             LOCAL_DISTRIBUTION,
         ]
-        before = resource.getrusage(resource.RUSAGE_CHILDREN)
-        started = time.perf_counter_ns()
-        try:
-            process = subprocess.Popen(
-                command,
-                executable=str(python),
-                cwd=cwd,
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=stdout_descriptor,
-                stderr=stderr_descriptor,
-                close_fds=True,
-            )
-        except BaseException:
-            os.close(stdout_descriptor)
-            os.close(stderr_descriptor)
-            raise
-        pid = process.pid
-        os.close(stdout_descriptor)
-        os.close(stderr_descriptor)
-        status, exact_usage = _wait4(pid)
-        # wait4 supplies the exact process rusage that Popen.wait cannot return.
-        # Mark the already-reaped child complete so Popen never performs a
-        # second waitpid in a destructor or later poll.
-        process.returncode = os.waitstatus_to_exitcode(status)
-        finished = time.perf_counter_ns()
-        after = resource.getrusage(resource.RUSAGE_CHILDREN)
-        returncode = process.returncode
-        stdout = _read_regular_bytes(stdout_path, label="captured verifier stdout")
-        stderr = _read_regular_bytes(stderr_path, label="captured verifier stderr")
-        if len(stdout) > _MAX_CAPTURE_BYTES or len(stderr) > _MAX_CAPTURE_BYTES:
-            raise ReleaseAcceptanceError("fixed verifier output exceeds capture limit")
+        returncode, pid, exact_usage, stdout, stderr, wall_time_ns = _capture_process(
+            command=command,
+            executable=sealed_python,
+            cwd=cwd,
+            environment=environment,
+        )
         if any(cwd.iterdir()):
             raise ReleaseAcceptanceError("fixed verifier wrote into its fresh cwd")
         try:
@@ -600,7 +849,10 @@ def _run_fixed_verifier(
             stderr.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ReleaseAcceptanceError("fixed verifier emitted non-UTF-8 output") from exc
-        expected_line = f"LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; PREOPEN_NOT_COMPLETE]: {archive}"
+        expected_line = (
+            "LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; PREOPEN_NOT_COMPLETE]: "
+            f"{sealed_archive_argument}"
+        )
         stdout_lines = stdout_text.splitlines()
         if (
             returncode != 0
@@ -616,12 +868,12 @@ def _run_fixed_verifier(
                 f"returncode={returncode}, detail={detail[-4000:]}"
             )
         user_ns = _seconds_to_ns(
-            after.ru_utime - before.ru_utime,
-            label="RUSAGE_CHILDREN user CPU delta",
+            exact_usage.ru_utime,
+            label="wait4 process-tree user CPU",
         )
         system_ns = _seconds_to_ns(
-            after.ru_stime - before.ru_stime,
-            label="RUSAGE_CHILDREN system CPU delta",
+            exact_usage.ru_stime,
+            label="wait4 process-tree system CPU",
         )
         raw_peak = int(exact_usage.ru_maxrss)
         raw_unit, peak_bytes = _rss_contract(raw_peak)
@@ -640,6 +892,8 @@ def _run_fixed_verifier(
                 "fresh_cwd_empty_after": True,
                 # Set to true only after leaving TemporaryDirectory below.
                 "temporary_root_removed_after_exit": False,
+                "sealed_archive_argument": sealed_archive_argument,
+                "process_group_cleanup_enforced": True,
                 "returncode": returncode,
                 "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
                 "stdout_bytes": len(stdout),
@@ -650,7 +904,7 @@ def _run_fixed_verifier(
                 "profile_evidence_line": PROFILE_EVIDENCE_LINE,
             },
             "resource_observation": {
-                "wall_time_ns": finished - started,
+                "wall_time_ns": wall_time_ns,
                 "user_cpu_time_ns": user_ns,
                 "system_cpu_time_ns": system_ns,
                 "total_cpu_time_ns": user_ns + system_ns,
@@ -658,11 +912,7 @@ def _run_fixed_verifier(
                 "peak_rss_raw_unit": raw_unit,
                 "peak_rss_bytes": peak_bytes,
                 "measurement_backend": MEASUREMENT_BACKEND,
-                "measurement_scope": (
-                    "ONE_FIXED_VERIFIER_INVOCATION_ON_THIS_HOST;_CPU_IS_"
-                    "OS_ACCOUNTED_RUSAGE_CHILDREN_DELTA;_PEAK_RSS_IS_WAIT4_"
-                    "RUSAGE_FOR_THE_DIRECT_VERIFIER_PROCESS"
-                ),
+                "measurement_scope": MEASUREMENT_SCOPE,
                 "repetitions": 1,
             },
         }
@@ -672,35 +922,59 @@ def _run_fixed_verifier(
     return captured
 
 
-def _archive_binding(root: Path, archive_path: str | Path) -> dict[str, object]:
+def _archive_material(
+    root: Path,
+    archive_path: str | Path,
+) -> tuple[dict[str, object], bytes, bytes]:
     relative, archive = _relative_existing(root, archive_path, label="release archive")
     if PurePosixPath(relative).parent != PurePosixPath("dist") or archive.suffix != ".zip":
         raise ReleaseAcceptanceError("release archive must be one canonical dist/*.zip")
     payload = _read_regular_bytes(archive, label="release archive")
     digest = hashlib.sha256(payload).hexdigest()
     sidecar = Path(str(archive) + ".sha256")
-    sidecar_binding = _binding(root, sidecar, label="archive checksum sidecar")
+    sidecar_relative, sidecar = _relative_existing(
+        root,
+        sidecar,
+        label="archive checksum sidecar",
+    )
     sidecar_payload = _read_regular_bytes(sidecar, label="archive checksum sidecar")
+    sidecar_binding = _payload_binding(sidecar_relative, sidecar_payload)
     expected_sidecar = f"{digest}  {archive.name}\n".encode("utf-8")
     if sidecar_payload != expected_sidecar:
         raise ReleaseAcceptanceError("archive checksum sidecar is noncanonical or stale")
-    return {
-        "path": relative,
-        "sha256": digest,
-        "bytes": len(payload),
-        "sidecar": sidecar_binding,
-    }
+    return (
+        {
+            "path": relative,
+            "sha256": digest,
+            "bytes": len(payload),
+            "sidecar": sidecar_binding,
+        },
+        payload,
+        sidecar_payload,
+    )
+
+
+def _archive_binding(root: Path, archive_path: str | Path) -> dict[str, object]:
+    return _archive_material(root, archive_path)[0]
+
+
+def _runtime_material() -> tuple[dict[str, object], bytes]:
+    interpreter, payload = _interpreter_material()
+    return (
+        {
+            "python_implementation": platform.python_implementation(),
+            "python_version": platform.python_version(),
+            "python_executable": interpreter,
+            "platform_system": platform.system(),
+            "platform_release": platform.release(),
+            "machine": platform.machine(),
+        },
+        payload,
+    )
 
 
 def _runtime_document() -> dict[str, object]:
-    return {
-        "python_implementation": platform.python_implementation(),
-        "python_version": platform.python_version(),
-        "python_executable": _interpreter_binding(),
-        "platform_system": platform.system(),
-        "platform_release": platform.release(),
-        "machine": platform.machine(),
-    }
+    return _runtime_material()[0]
 
 
 def _require_keys(
@@ -734,7 +1008,7 @@ def _validate_repository_binding(
     *,
     expected_path: str,
     label: str,
-) -> Mapping[str, Any]:
+) -> tuple[Mapping[str, Any], bytes]:
     binding = _require_keys(value, _BINDING_FIELDS, label=f"{label} binding")
     if binding.get("path") != expected_path:
         raise ReleaseAcceptanceError(f"{label} binding names another path")
@@ -744,20 +1018,27 @@ def _validate_repository_binding(
         payload
     ):
         raise ReleaseAcceptanceError(f"{label} byte binding changed")
-    return binding
+    return binding, payload
 
 
-def _validate_archive_document(root: Path, value: object) -> None:
+def _validate_archive_document(
+    root: Path,
+    value: object,
+) -> tuple[bytes, bytes]:
     archive = _require_keys(value, _ARCHIVE_FIELDS, label="archive")
     relative = archive.get("path")
     if not isinstance(relative, str):
         raise ReleaseAcceptanceError("archive path is malformed")
-    expected = _archive_binding(root, _inside(root, relative, label="archive"))
+    expected, archive_payload, sidecar_payload = _archive_material(
+        root,
+        _inside(root, relative, label="archive"),
+    )
     if dict(archive) != expected:
         raise ReleaseAcceptanceError("archive/sidecar binding changed")
+    return archive_payload, sidecar_payload
 
 
-def _validate_runtime(value: object) -> None:
+def _validate_runtime(value: object) -> bytes:
     runtime = _require_keys(value, _RUNTIME_FIELDS, label="runtime")
     if any(
         runtime.get(key) != expected
@@ -786,6 +1067,10 @@ def _validate_runtime(value: object) -> None:
         "bytes"
     ) != len(payload):
         raise ReleaseAcceptanceError("Python executable byte binding changed")
+    current, current_payload = _interpreter_material()
+    if dict(executable) != current or payload != current_payload:
+        raise ReleaseAcceptanceError("receipt Python executable differs from this validator")
+    return payload
 
 
 def _validate_execution(
@@ -805,6 +1090,7 @@ def _validate_execution(
         or execution.get("fresh_cwd_empty_before") is not True
         or execution.get("fresh_cwd_empty_after") is not True
         or execution.get("temporary_root_removed_after_exit") is not True
+        or execution.get("process_group_cleanup_enforced") is not True
         or execution.get("returncode") != 0
         or execution.get("profile_evidence_line") != PROFILE_EVIDENCE_LINE
     ):
@@ -821,7 +1107,12 @@ def _validate_execution(
     archive_relative = archive_document.get("path")
     if not isinstance(archive_relative, str):
         raise ReleaseAcceptanceError("execution archive path is malformed")
-    archive_path = _inside(root, archive_relative, label="execution archive")
+    _inside(root, archive_relative, label="execution archive")
+    sealed_archive_argument = (
+        "../sealed-inputs/" + PurePosixPath(archive_relative).name
+    )
+    if execution.get("sealed_archive_argument") != sealed_archive_argument:
+        raise ReleaseAcceptanceError("sealed archive execution argument changed")
     stdout_transcript = execution.get("stdout_transcript")
     stderr_transcript = execution.get("stderr_transcript")
     if (
@@ -836,7 +1127,7 @@ def _validate_execution(
     expected_stdout = (
         stdout_transcript[0]
         + "\n"
-        + PROFILE_EVIDENCE_LINE.replace("<archive>", str(archive_path))
+        + PROFILE_EVIDENCE_LINE.replace("<archive>", sealed_archive_argument)
         + "\n"
     ).encode("utf-8")
     expected_streams = {"stdout": expected_stdout, "stderr": b""}
@@ -888,47 +1179,70 @@ def _validate_resource_observation(value: object) -> None:
         observation.get("peak_rss_raw_unit") != expected_unit
         or observation.get("peak_rss_bytes") != expected_bytes
         or observation.get("measurement_backend") != MEASUREMENT_BACKEND
-        or observation.get("measurement_scope")
-        != (
-            "ONE_FIXED_VERIFIER_INVOCATION_ON_THIS_HOST;_CPU_IS_"
-            "OS_ACCOUNTED_RUSAGE_CHILDREN_DELTA;_PEAK_RSS_IS_WAIT4_"
-            "RUSAGE_FOR_THE_DIRECT_VERIFIER_PROCESS"
-        )
+        or observation.get("measurement_scope") != MEASUREMENT_SCOPE
         or observation.get("repetitions") != 1
     ):
         raise ReleaseAcceptanceError("resource measurement contract changed")
 
 
-def _write_create_only(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _inside(path.parents[2], RECEIPT_RELATIVE, label="receipt")
-    flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
+def _write_create_only(root: Path, relative: str, payload: bytes) -> None:
+    relative = _normalise_relative(relative, label="receipt")
+    if relative != RECEIPT_RELATIVE:
+        raise ReleaseAcceptanceError(f"receipt must use its canonical path: {RECEIPT_RELATIVE}")
+    parts = PurePosixPath(relative).parts
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0)
     )
+    descriptors: list[int] = [os.open(root, directory_flags)]
     try:
-        descriptor = os.open(path, flags, 0o444)
-    except FileExistsError as exc:
-        raise ReleaseAcceptanceError(f"refusing to replace acceptance receipt: {path}") from exc
-    except OSError as exc:
-        raise ReleaseAcceptanceError(f"cannot create acceptance receipt: {path}") from exc
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+        for part in parts[:-1]:
+            parent_descriptor = descriptors[-1]
+            try:
+                os.mkdir(part, mode=0o700, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except FileExistsError:
+                pass
+            try:
+                child_descriptor = os.open(part, directory_flags, dir_fd=parent_descriptor)
+            except OSError as exc:
+                raise ReleaseAcceptanceError(
+                    f"receipt parent is not one real directory: {part}"
+                ) from exc
+            metadata = os.fstat(child_descriptor)
+            if not stat.S_ISDIR(metadata.st_mode):
+                os.close(child_descriptor)
+                raise ReleaseAcceptanceError(f"receipt parent is not a directory: {part}")
+            descriptors.append(child_descriptor)
+
+        path = root.joinpath(*parts)
+        parent_descriptor = descriptors[-1]
+        name = parts[-1]
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
         try:
-            os.fsync(directory)
+            descriptor = os.open(name, flags, 0o444, dir_fd=parent_descriptor)
+        except FileExistsError as exc:
+            raise ReleaseAcceptanceError(f"refusing to replace acceptance receipt: {path}") from exc
+        except OSError as exc:
+            raise ReleaseAcceptanceError(f"cannot create acceptance receipt: {path}") from exc
+        try:
+            _write_all(descriptor, payload)
+            os.fchmod(descriptor, 0o444)
+            os.fsync(descriptor)
         finally:
-            os.close(directory)
-    except BaseException:
-        # Preserve an interrupted create-only publication as evidence.  A retry
-        # must not silently replace it.
-        raise
+            os.close(descriptor)
+        os.fsync(parent_descriptor)
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 def run_release_mechanics_acceptance(
@@ -951,11 +1265,17 @@ def run_release_mechanics_acceptance(
     if os.path.lexists(receipt):
         raise ReleaseAcceptanceError(f"refusing to replace acceptance receipt: {receipt}")
 
-    archive_before = _archive_binding(root, archive_path)
+    archive_before, archive_payload, sidecar_payload = _archive_material(root, archive_path)
     archive = _inside(root, str(archive_before["path"]), label="archive")
-    source_before = _source_identity(root, require_clean=True)
-    runtime_before = _runtime_document()
-    measured = _run_fixed_verifier(root=root, archive=archive)
+    source_before, source_payloads = _source_material(root, require_clean=True)
+    runtime_before, interpreter_payload = _runtime_material()
+    measured = _run_fixed_verifier(
+        archive_name=archive.name,
+        archive_payload=archive_payload,
+        sidecar_payload=sidecar_payload,
+        verifier_payload=source_payloads["verifier"],
+        interpreter_payload=interpreter_payload,
+    )
 
     # Close every mutable input race before publishing the receipt.  The fixed
     # verifier must also leave the repository clean.
@@ -978,10 +1298,11 @@ def run_release_mechanics_acceptance(
         "execution": measured["execution"],
         "resource_observation": measured["resource_observation"],
         "isolation_limitations": dict(ISOLATION_LIMITATIONS),
+        "authentication_limitations": dict(AUTHENTICATION_LIMITATIONS),
         "label_safety": dict(LABEL_SAFETY),
     }
     document["receipt_self_sha256"] = _sha256_json(document)
-    _write_create_only(receipt, _canonical_json_bytes(document))
+    _write_create_only(root, RECEIPT_RELATIVE, _canonical_json_bytes(document))
     validated = validate_release_mechanics_receipt(receipt, root=root)
     if validated != document:
         raise ReleaseAcceptanceError("published receipt differs from exact validation")
@@ -1016,20 +1337,44 @@ def validate_release_mechanics_receipt(
     ):
         raise ReleaseAcceptanceError("receipt status/profile/scope changed")
     archive_document = _require_keys(document.get("archive"), _ARCHIVE_FIELDS, label="archive")
-    _validate_archive_document(root, archive_document)
+    archive_payload, sidecar_payload = _validate_archive_document(root, archive_document)
     source = _require_keys(document.get("source"), _SOURCE_FIELDS, label="source")
-    _validate_source_identity(root, source)
-    _validate_runtime(document.get("runtime"))
+    source_payloads = _validate_source_identity(root, source)
+    interpreter_payload = _validate_runtime(document.get("runtime"))
     _validate_execution(root, archive_document, document.get("execution"))
     _validate_resource_observation(document.get("resource_observation"))
     if document.get("isolation_limitations") != ISOLATION_LIMITATIONS:
         raise ReleaseAcceptanceError("receipt overstates process/machine isolation")
+    if document.get("authentication_limitations") != AUTHENTICATION_LIMITATIONS:
+        raise ReleaseAcceptanceError("receipt overstates historical/external authentication")
     if document.get("label_safety") != LABEL_SAFETY:
         raise ReleaseAcceptanceError("receipt overstates outcome-read safety evidence")
+    archive_relative = archive_document.get("path")
+    if not isinstance(archive_relative, str):
+        raise ReleaseAcceptanceError("archive path is malformed")
+    replay = _run_fixed_verifier(
+        archive_name=PurePosixPath(archive_relative).name,
+        archive_payload=archive_payload,
+        sidecar_payload=sidecar_payload,
+        verifier_payload=source_payloads["verifier"],
+        interpreter_payload=interpreter_payload,
+    )
+    recorded_execution = _require_keys(
+        document.get("execution"),
+        _EXECUTION_FIELDS,
+        label="execution",
+    )
+    replay_execution = replay["execution"]
+    replay_fields = _EXECUTION_FIELDS - {"controller_pid", "verifier_pid"}
+    if any(recorded_execution.get(field) != replay_execution.get(field) for field in replay_fields):
+        raise ReleaseAcceptanceError(
+            "receipt transcript differs from a current fixed replay of its bound archive"
+        )
     return document
 
 
 __all__ = [
+    "AUTHENTICATION_LIMITATIONS",
     "CHILD_ENVIRONMENT_CONTRACT",
     "CORE_RELATIVE",
     "EVIDENCE_SCOPE",
@@ -1037,6 +1382,7 @@ __all__ = [
     "LABEL_SAFETY",
     "LOCAL_DISTRIBUTION",
     "MEASUREMENT_BACKEND",
+    "MEASUREMENT_SCOPE",
     "PROFILE_EVIDENCE_LINE",
     "RECEIPT_FORMAT",
     "RECEIPT_RELATIVE",

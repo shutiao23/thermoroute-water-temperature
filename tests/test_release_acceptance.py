@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
+import py_compile
 import shutil
 import stat
 import subprocess
+import sys
+import time
+from typing import Any
 
 import pytest
 
@@ -67,7 +72,9 @@ def _fake_verifier(mode: str = "pass") -> bytes:
 from pathlib import Path
 import json
 import os
+import subprocess
 import sys
+import time
 
 expected_environment = {{
     "PATH": os.defpath,
@@ -93,7 +100,8 @@ assert not any(
     for key in os.environ
 )
 assert len(sys.argv) == 4
-archive = Path(sys.argv[1]).resolve()
+archive_argument = Path(sys.argv[1])
+archive = archive_argument.resolve()
 assert archive.is_file()
 assert sys.argv[2:] == ["--distribution", "LOCAL_EVIDENCE_ONLY"]
 temporary_root = Path(os.environ["TMPDIR"]).resolve()
@@ -107,13 +115,20 @@ if mode == "fail":
     raise SystemExit(9)
 if mode == "write_cwd":
     Path("forbidden-write.txt").write_text("bad", encoding="utf-8")
+if mode == "hang":
+    time.sleep(60)
+if mode == "large_output":
+    sys.stdout.buffer.write(b"x" * (9 * 1024 * 1024))
+    sys.stdout.buffer.flush()
+if mode == "escaped_descendant":
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
 if mode == "bad_profile":
     print(f"LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; WRONG_PROFILE]: {{archive}}")
 else:
     print("manifest OK: 7 artifacts, source abcdef012345, DAG 11 nodes")
     print(
         "LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; PREOPEN_NOT_COMPLETE]: "
-        + str(archive)
+        + str(archive_argument)
     )
 """.encode("utf-8")
 
@@ -148,7 +163,10 @@ def _make_fixture(tmp_path: Path, *, mode: str = "pass") -> tuple[Path, Path, Pa
     verifier = root / acceptance.VERIFIER_RELATIVE
     verifier.write_bytes(_fake_verifier(mode))
     verifier.chmod(0o755)
-    (root / ".gitignore").write_text("dist/\noutputs/prelabel/\n", encoding="utf-8")
+    (root / ".gitignore").write_text(
+        "dist/\noutputs/prelabel/\n__pycache__/\n",
+        encoding="utf-8",
+    )
     _git(root, "init", "-q")
     _commit(root, "fixed synthetic release verifier")
 
@@ -161,7 +179,7 @@ def _make_fixture(tmp_path: Path, *, mode: str = "pass") -> tuple[Path, Path, Pa
     return root, archive, receipt
 
 
-def _produce(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, object]]:
+def _produce(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
     root, archive, receipt = _make_fixture(tmp_path)
     document = run_release_mechanics_acceptance(archive, root=root)
     return root, archive, receipt, document
@@ -169,7 +187,7 @@ def _produce(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, object]]:
 
 def _rewrite_receipt(
     receipt: Path,
-    document: dict[str, object],
+    document: dict[str, Any],
     *,
     refresh_self_hash: bool = True,
 ) -> None:
@@ -210,12 +228,15 @@ def test_real_child_observes_isolated_flags_exact_environment_and_fresh_cwd(
     assert document["execution"]["fresh_cwd_empty_before"] is True
     assert document["execution"]["fresh_cwd_empty_after"] is True
     assert document["execution"]["temporary_root_removed_after_exit"] is True
+    assert document["execution"]["process_group_cleanup_enforced"] is True
     assert document["execution"]["environment"] == (acceptance.CHILD_ENVIRONMENT_CONTRACT)
     transcript = document["execution"]["stdout_transcript"]
     expected_stdout = (
         transcript[0]
         + "\n"
-        + acceptance.PROFILE_EVIDENCE_LINE.replace("<archive>", str(archive))
+        + acceptance.PROFILE_EVIDENCE_LINE.replace(
+            "<archive>", document["execution"]["sealed_archive_argument"]
+        )
         + "\n"
     ).encode("utf-8")
     assert document["execution"]["stdout_sha256"] == hashlib.sha256(expected_stdout).hexdigest()
@@ -239,6 +260,16 @@ def test_receipt_is_canonical_create_only_and_scoped_to_mechanics(tmp_path: Path
     assert document["receipt_self_sha256"] == _self_hash(document)
     assert document["isolation_limitations"] == acceptance.ISOLATION_LIMITATIONS
     assert all(value is False for value in document["isolation_limitations"].values())
+    assert document["authentication_limitations"] == acceptance.AUTHENTICATION_LIMITATIONS
+    assert document["authentication_limitations"]["external_authentication"] is False
+    assert (
+        document["authentication_limitations"]["historical_execution_independently_proven"]
+        is False
+    )
+    assert (
+        document["authentication_limitations"]["resource_observation_independently_attested"]
+        is False
+    )
     assert document["label_safety"] == acceptance.LABEL_SAFETY
     assert all(value is False for value in document["label_safety"].values())
 
@@ -256,6 +287,9 @@ def test_resource_observation_has_exact_single_run_units(tmp_path: Path) -> None
         observation["user_cpu_time_ns"] + observation["system_cpu_time_ns"]
     )
     assert observation["measurement_backend"] == acceptance.MEASUREMENT_BACKEND
+    assert observation["measurement_scope"] == acceptance.MEASUREMENT_SCOPE
+    assert "PROCESS_TREE" in observation["measurement_scope"]
+    assert "NOT_AN_ADDITIVE_OR_SIMULTANEOUS" in observation["measurement_scope"]
     assert observation["repetitions"] == 1
     if platform.system() == "Darwin":
         assert observation["peak_rss_raw_unit"] == "bytes"
@@ -344,6 +378,13 @@ def test_duplicate_nan_noncanonical_extra_and_self_hash_attacks_fail_closed(
         ("isolation_limitations", "container", True, "overstates"),
         ("isolation_limitations", "network_isolation_enforced", True, "overstates"),
         ("isolation_limitations", "deployment_latency_claim_allowed", True, "overstates"),
+        ("authentication_limitations", "external_authentication", True, "overstates"),
+        (
+            "authentication_limitations",
+            "historical_execution_independently_proven",
+            True,
+            "overstates",
+        ),
         ("label_safety", "outcome_read_absence_claim_allowed", True, "overstates"),
         ("execution", "command", ["sh", "-c", "opening"], "execution contract"),
         ("execution", "stdout_sha256", "0" * 64, "canonical transcript"),
@@ -444,13 +485,165 @@ def test_production_controller_has_no_opening_or_arbitrary_command_surface() -> 
     assert "resume_opening_once" not in runner_text + core_text
     assert "--command" not in runner_text
     assert acceptance.NORMALISED_COMMAND == [
-        "<bound-python-executable>",
+        "<sealed-copy-of-bound-python-executable>",
         "-I",
         "-B",
-        "<repository>/scripts/verify_release.py",
-        "<repository>/<archive>",
+        "<sealed-copy-of-git-bound-release-verifier>",
+        "<sealed-copy-of-bound-archive>",
         "--distribution",
         "LOCAL_EVIDENCE_ONLY",
     ]
     assert acceptance.RELEASE_PROFILE == "PREOPEN_NOT_COMPLETE"
     assert acceptance.LABEL_SAFETY["runner_invoked_opening_entrypoint"] is False
+
+
+def test_coordinated_transcript_pid_resource_and_self_hash_forgery_is_replayed(
+    tmp_path: Path,
+) -> None:
+    root, _archive, receipt, document = _produce(tmp_path)
+    attacked = copy.deepcopy(document)
+    execution = attacked["execution"]
+    execution["controller_pid"] = 111
+    execution["verifier_pid"] = 222
+    execution["stdout_transcript"][0] = (
+        "manifest OK: 999999 artifacts, source ffffffffffff, DAG 999999 nodes"
+    )
+    expected_stdout = (
+        execution["stdout_transcript"][0]
+        + "\n"
+        + acceptance.PROFILE_EVIDENCE_LINE.replace(
+            "<archive>", execution["sealed_archive_argument"]
+        )
+        + "\n"
+    ).encode("utf-8")
+    execution["stdout_sha256"] = hashlib.sha256(expected_stdout).hexdigest()
+    execution["stdout_bytes"] = len(expected_stdout)
+    observation = attacked["resource_observation"]
+    observation["wall_time_ns"] += 123456789
+    observation["user_cpu_time_ns"] += 1000
+    observation["total_cpu_time_ns"] = (
+        observation["user_cpu_time_ns"] + observation["system_cpu_time_ns"]
+    )
+    _rewrite_receipt(receipt, attacked)
+
+    with pytest.raises(ReleaseAcceptanceError, match="current fixed replay"):
+        validate_release_mechanics_receipt(receipt, root=root)
+
+
+def test_verified_payloads_are_sealed_before_transient_path_swaps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, archive, receipt = _make_fixture(tmp_path)
+    verifier = root / acceptance.VERIFIER_RELATIVE
+    sidecar = Path(str(archive) + ".sha256")
+    originals = {
+        verifier: verifier.read_bytes(),
+        archive: archive.read_bytes(),
+        sidecar: sidecar.read_bytes(),
+    }
+    fixed_run = acceptance._run_fixed_verifier
+
+    def swap_paths_after_binding(**kwargs: Any) -> dict[str, Any]:
+        malicious_verifier = _fake_verifier().replace(
+            b"manifest OK: 7 artifacts",
+            b"manifest OK: 999 artifacts",
+        )
+        malicious_archive = b"transient archive that must never be consumed\n"
+        verifier.write_bytes(malicious_verifier)
+        archive.write_bytes(malicious_archive)
+        sidecar.write_text(
+            hashlib.sha256(malicious_archive).hexdigest() + f"  {archive.name}\n",
+            encoding="utf-8",
+        )
+        try:
+            return fixed_run(**kwargs)
+        finally:
+            for path, payload in originals.items():
+                path.write_bytes(payload)
+
+    monkeypatch.setattr(acceptance, "_run_fixed_verifier", swap_paths_after_binding)
+    document = run_release_mechanics_acceptance(archive, root=root)
+    assert receipt.is_file()
+    assert document["execution"]["stdout_transcript"][0].startswith(
+        "manifest OK: 7 artifacts"
+    )
+
+
+@pytest.mark.parametrize("mode", ("hang", "large_output", "escaped_descendant"))
+def test_deadline_output_cap_and_process_group_escape_fail_without_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    root, archive, receipt = _make_fixture(tmp_path, mode=mode)
+    monkeypatch.setattr(acceptance, "_VERIFIER_DEADLINE_SECONDS", 0.25)
+    monkeypatch.setattr(acceptance, "_PROCESS_TERMINATION_GRACE_SECONDS", 0.2)
+    started = time.monotonic()
+    with pytest.raises(ReleaseAcceptanceError, match="deadline|capture limit|descendant"):
+        run_release_mechanics_acceptance(archive, root=root)
+    assert time.monotonic() - started < 5.0
+    assert not receipt.exists()
+
+
+def test_cpu_measurement_uses_exact_wait4_not_parent_children_delta(
+    tmp_path: Path,
+) -> None:
+    _root, _archive, _receipt, document = _produce(tmp_path)
+    assert document["resource_observation"]["measurement_backend"] == (
+        "perf_counter_ns_plus_exact_wait4_process_tree_rusage_v2"
+    )
+    assert "getrusage" not in CORE.read_text(encoding="utf-8")
+
+
+def test_real_controller_cli_reexecutes_isolated_and_ignores_repo_pyc(
+    tmp_path: Path,
+) -> None:
+    root, archive, receipt = _make_fixture(tmp_path)
+    core = root / acceptance.CORE_RELATIVE
+    cache = Path(importlib.util.cache_from_source(str(core)))
+    cache.parent.mkdir(parents=True)
+    malicious_prefix = b"raise RuntimeError('IGNORED_REPO_PYC_EXECUTED')\n"
+    assert len(malicious_prefix) < core.stat().st_size
+    malicious_source = tmp_path / "malicious_release_acceptance.py"
+    malicious_source.write_bytes(
+        malicious_prefix + b"#" * (core.stat().st_size - len(malicious_prefix))
+    )
+    core_metadata = core.stat()
+    os.utime(
+        malicious_source,
+        ns=(core_metadata.st_atime_ns, core_metadata.st_mtime_ns),
+    )
+    py_compile.compile(
+        str(malicious_source),
+        cfile=str(cache),
+        dfile=str(core),
+        doraise=True,
+    )
+    assert _git(root, "status", "--porcelain=v1", "--untracked-files=all").stdout == ""
+
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "PYTHONPATH": "/attacker/python",
+            "PYTHONSTARTUP": "/attacker/startup.py",
+            "GIT_DIR": "/attacker/git",
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, str(root / acceptance.RUNNER_RELATIVE), str(archive)],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    output = json.loads(result.stdout)
+    assert output["status"] == acceptance.RECEIPT_STATUS
+    assert output["profile"] == acceptance.RELEASE_PROFILE
+    assert receipt.is_file()
+    assert "from thermoroute" not in (root / acceptance.RUNNER_RELATIVE).read_text(
+        encoding="utf-8"
+    )
