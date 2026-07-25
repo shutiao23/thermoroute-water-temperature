@@ -423,6 +423,19 @@ def test_optional_model_freeze_authorization_and_release_descendants_are_replaye
     ) == seal
 
 
+def test_optional_model_freeze_must_strictly_follow_the_seal(
+    tmp_path: Path,
+) -> None:
+    root, _document, seal_commit, _seal = _sealed_repository(tmp_path)
+
+    with pytest.raises(ModelMatrixAmendmentError, match="not strict"):
+        validate_model_matrix_amendment_seal(
+            root / AMENDMENT_SEAL_RELATIVE,
+            root=root,
+            model_freeze_commit=seal_commit,
+        )
+
+
 def test_builder_rejects_a_preexisting_worktree_seal_path(tmp_path: Path) -> None:
     root, _governance, document_commit = _document_repository(tmp_path)
     _write_json(root / AMENDMENT_SEAL_RELATIVE, {"premature": True})

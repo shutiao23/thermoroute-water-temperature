@@ -30,6 +30,10 @@ AMENDMENT_SEAL_RELATIVE = (
 )
 AMENDMENT_SEAL_FORMAT = "thermoroute.route-a-model-matrix-amendment-seal.v1"
 AMENDMENT_SEAL_STATUS = "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+MODEL_MATRIX_CONTRACT_FORMAT = "thermoroute.route-a-model-matrix-contract.v1"
+MODEL_MATRIX_SUITE_BINDING_FORMAT = (
+    "thermoroute.route-a-model-matrix-suite-binding.v1"
+)
 
 HISTORY_CONTRACT = {
     "governance_seal_commits_must_be_strict_ancestors": True,
@@ -288,6 +292,31 @@ def _canonical_json(value: Any) -> str:
 
 def _sha256_json(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def model_matrix_contract_id(
+    stage09_architecture_control_matrix: Mapping[str, Any],
+    stage09b_development_control_matrix: Mapping[str, Any],
+) -> str:
+    """Content-address the two frozen matrix objects with domain separation."""
+    if (
+        not isinstance(stage09_architecture_control_matrix, Mapping)
+        or not isinstance(stage09b_development_control_matrix, Mapping)
+    ):
+        raise ModelMatrixAmendmentError(
+            "model-matrix contract objects must be JSON mappings"
+        )
+    return _sha256_json(
+        {
+            "format": MODEL_MATRIX_CONTRACT_FORMAT,
+            "stage09_architecture_control_matrix": dict(
+                stage09_architecture_control_matrix
+            ),
+            "stage09b_development_control_matrix": dict(
+                stage09b_development_control_matrix
+            ),
+        }
+    )
 
 
 def _inside(root: Path, relative: str) -> Path:
@@ -1312,12 +1341,15 @@ __all__ = [
     "GOVERNANCE_SEALS",
     "HISTORY_CONTRACT",
     "ModelMatrixAmendmentError",
+    "MODEL_MATRIX_CONTRACT_FORMAT",
+    "MODEL_MATRIX_SUITE_BINDING_FORMAT",
     "PLAIN_CONTROL_ALLOWED_INPUTS",
     "PLAIN_CONTROL_FORBIDDEN_INPUTS",
     "PROTOCOL_OBJECT_SHA256",
     "RECORDED_DATE",
     "build_model_matrix_amendment_seal_document",
     "expected_model_matrix_amendment_document",
+    "model_matrix_contract_id",
     "validate_model_matrix_amendment",
     "validate_model_matrix_amendment_seal",
 ]

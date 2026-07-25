@@ -14,8 +14,10 @@ This command performs no fitting and has no network or post-2020 input path.
 from __future__ import annotations
 
 import argparse
+from functools import cache
 import os
 from pathlib import Path
+import re
 import secrets
 import stat
 import subprocess
@@ -125,6 +127,7 @@ from thermoroute.model_suite import (  # noqa: E402
     file_binding,
     freeze_model_suite,
     load_component_pointer,
+    model_matrix_amendment_suite_binding,
     validate_stage16_completion_receipt,
     validate_stage09_completion_receipt,
     validate_stage25_completion_receipt,
@@ -145,8 +148,53 @@ def _assert_stage24_policy() -> object:
     return assert_formal_numerical_policy(require_hash_randomization=True)
 
 
+def _stage24_git_head() -> str:
+    """Resolve the live pre-freeze HEAD without ambient Git overrides."""
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("GIT_")
+    }
+    environment.update({
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_PAGER": "cat",
+        "GIT_TERMINAL_PROMPT": "0",
+    })
+    result = subprocess.run(
+        [
+            "git",
+            "--no-replace-objects",
+            "-c",
+            "core.useReplaceRefs=false",
+            "-C",
+            str(ROOT),
+            "rev-parse",
+            "--verify",
+            "HEAD^{commit}",
+        ],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    commit = result.stdout.strip()
+    if result.returncode or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ModelSuiteError("Stage 24 cannot resolve a full live Git HEAD")
+    return commit
+
+
 def _entries(pointer: dict) -> dict[str, dict]:
     return {str(entry["model_id"]): entry for entry in pointer["models"]}
+
+
+@cache
+def _default_model_matrix_identity_binding() -> dict:
+    """Compatibility fallback that still hashes one complete live binding."""
+    return model_matrix_amendment_suite_binding(ROOT)
 
 
 def _canonical_stage24_path(
@@ -273,8 +321,14 @@ def _model_suite_id(
     lstm: dict,
     external: dict,
     features: tuple[str, ...],
+    model_matrix_amendment: dict | None = None,
 ) -> str:
-    """Content-address the suite, including all four completion receipts."""
+    """Content-address the suite, including gates and the full matrix binding."""
+    matrix_binding = (
+        model_matrix_amendment
+        if model_matrix_amendment is not None
+        else _default_model_matrix_identity_binding()
+    )
     return sha256_json({
         "protocol_sha256": protocol_sha256,
         "stage9": stage9,
@@ -285,6 +339,7 @@ def _model_suite_id(
         "lstm": lstm,
         "external": external,
         "features": features,
+        "model_matrix_amendment": matrix_binding,
     })[:20]
 
 
@@ -354,6 +409,16 @@ def _run() -> None:
         require_regular_file=False,
     )
 
+    # This is the first governance read in the assembly path.  The full live
+    # validator proves document < seal < current HEAD before any component or
+    # existing suite is read.  The future model-freeze commit is intentionally
+    # left to the chronology receipt, which will bind this exact nested value.
+    model_matrix_binding = model_matrix_amendment_suite_binding(
+        ROOT,
+        live_git_tip_commit=_stage24_git_head(),
+        publication_guard=_assert_stage24_policy,
+    )
+
     stage9, stage09_completion = _load_verified_stage9(
         args.stage9, args.stage9_receipt
     )
@@ -377,30 +442,29 @@ def _run() -> None:
         raise ModelSuiteError("Stage-9 and LSTM raw schemas differ")
     if tuple(external["raw_feature_order"]) != feature_order:
         raise ModelSuiteError("temporal and external raw schemas differ")
-    contracts = [
-        stage9.get("development_contract"),
-        lstm.get("development_contract"),
-        external.get("development_contract"),
-    ]
-    if any(value is None for value in contracts) or not all(
-        value == contracts[0] for value in contracts[1:]
+    development_contract = stage9.get("development_contract")
+    if not isinstance(development_contract, dict) or any(
+        component.get("development_contract") != development_contract
+        for component in (lstm, external)
     ):
         raise ModelSuiteError("component pointers do not share one canonical source/data contract")
     controls_identity = controls_receipt["run_identity"]
     controls_config = controls_receipt["formal_configuration"]
     controls_artifacts = controls_receipt["artifacts"]
     if (
-        controls_identity["panel_sha256"] != contracts[0]["panel"]["sha256"]
-        or controls_identity["registry_sha256"] != contracts[0]["registry"]["sha256"]
-        or controls_identity["source_sha256"] != contracts[0]["source_sha256"]
+        controls_identity["panel_sha256"] != development_contract["panel"]["sha256"]
+        or controls_identity["registry_sha256"]
+        != development_contract["registry"]["sha256"]
+        or controls_identity["source_sha256"]
+        != development_contract["source_sha256"]
         or controls_config["development_predictor_bridge"]
-        != contracts[0]["predictor_bridge"]
+        != development_contract["predictor_bridge"]
         or controls_artifacts["frozen_panel_spec"]
-        != contracts[0]["frozen_panel_spec"]
-        or controls_artifacts["panel"] != contracts[0]["panel"]
-        or controls_artifacts["registry"] != contracts[0]["registry"]
+        != development_contract["frozen_panel_spec"]
+        or controls_artifacts["panel"] != development_contract["panel"]
+        or controls_artifacts["registry"] != development_contract["registry"]
         or controls_artifacts["predictor_bridge"]
-        != contracts[0]["predictor_bridge"]
+        != development_contract["predictor_bridge"]
     ):
         raise ModelSuiteError("Stage-09b receipt differs from the canonical development contract")
 
@@ -440,6 +504,7 @@ def _run() -> None:
         lstm=lstm,
         external=external,
         features=feature_order,
+        model_matrix_amendment=model_matrix_binding,
     )
     versioned = _canonical_stage24_path(
         C.MODELS / f"route_a_model_suite_{suite_id}.json",
@@ -452,7 +517,8 @@ def _run() -> None:
         root=ROOT, protocol_sha256=protocol_sha,
         temporal_entries=temporal, external_entries=external_models,
         actual_feature_order=feature_order,
-        development_contract=contracts[0],
+        development_contract=development_contract,
+        model_matrix_amendment=model_matrix_binding,
         stage09_completion=stage09_completion,
         stage09b_completion=stage09b_completion,
         stage16_completion=stage16_completion,

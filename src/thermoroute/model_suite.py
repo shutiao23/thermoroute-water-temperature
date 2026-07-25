@@ -64,6 +64,20 @@ from .input_closure import (
     compose_input_closure_digest,
     resolve_development_input_closure,
 )
+from .model_matrix_amendment import (
+    AMENDMENT_FORMAT as MODEL_MATRIX_AMENDMENT_FORMAT,
+    AMENDMENT_ID as MODEL_MATRIX_AMENDMENT_ID,
+    AMENDMENT_RELATIVE as MODEL_MATRIX_AMENDMENT_PATH,
+    AMENDMENT_SEAL_FORMAT as MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+    AMENDMENT_SEAL_RELATIVE as MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+    AMENDMENT_SEAL_STATUS as MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+    AMENDMENT_STATUS as MODEL_MATRIX_AMENDMENT_STATUS,
+    MODEL_MATRIX_SUITE_BINDING_FORMAT,
+    ModelMatrixAmendmentError,
+    model_matrix_contract_id,
+    validate_model_matrix_amendment,
+    validate_model_matrix_amendment_seal,
+)
 from .provenance import sha256_file
 from .quantiles import (
     LIGHTGBM_QUANTILE_REPAIR_METHOD,
@@ -102,6 +116,28 @@ from .weighting import (
 LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
 MODEL_SUITE_FORMAT = "thermoroute.route-a-model-suite.v1"
 MODEL_SUITE_POINTER_FORMAT = "thermoroute.route-a-model-suite-pointer.v1"
+MODEL_SUITE_DOCUMENT_FIELDS = frozenset({
+    "format",
+    "status",
+    "training_device",
+    "numerical_runtime_sha256",
+    "protocol_sha256",
+    "actual_feature_order",
+    "development_contract",
+    "model_matrix_amendment",
+    "preopening_gates",
+    "cohorts",
+})
+MODEL_MATRIX_SUITE_BINDING_FIELDS = frozenset({
+    "format", "document", "seal", "contract_id",
+})
+MODEL_MATRIX_SUITE_DOCUMENT_BINDING_FIELDS = frozenset({
+    "path", "sha256", "format", "status", "amendment_id",
+    "amendment_document_commit",
+})
+MODEL_MATRIX_SUITE_SEAL_BINDING_FIELDS = frozenset({
+    "path", "sha256", "format", "status",
+})
 COMPONENT_POINTER_FORMAT = "thermoroute.route-a-model-components.v1"
 STAGE9_COMPLETION_FORMAT = "thermoroute.stage09-completion-receipt.v1"
 STAGE9_COMPLETION_STATUS = "PASS_FORMAL_STAGE09_COMPLETE"
@@ -7100,6 +7136,118 @@ def _entry_artifact_valid(
     return metadata
 
 
+def model_matrix_amendment_suite_binding(
+    root: str | Path,
+    *,
+    live_git_tip_commit: str | None = None,
+    publication_guard: Callable[[], object] | None = None,
+) -> dict[str, Any]:
+    """Rebuild the exact suite binding from the two frozen local JSON files.
+
+    With a local Git repository, the amendment validator replays the complete
+    document/seal lineage.  ``live_git_tip_commit`` additionally requires the
+    seal creation to be a strict ancestor of that already-resolved commit.  In
+    a Gitless archive this helper proves only exact local bytes and semantics;
+    it deliberately makes no ancestry claim.
+    """
+    repository = Path(root).resolve()
+    amendment_file = repository / MODEL_MATRIX_AMENDMENT_PATH
+    seal_file = repository / MODEL_MATRIX_AMENDMENT_SEAL_PATH
+    if publication_guard is not None:
+        publication_guard()
+    try:
+        amendment_sha256 = sha256_file(amendment_file)
+        seal_sha256 = sha256_file(seal_file)
+        amendment = validate_model_matrix_amendment(
+            MODEL_MATRIX_AMENDMENT_PATH,
+            root=repository,
+        )
+        seal = validate_model_matrix_amendment_seal(
+            MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            root=repository,
+            allow_gitless_archive=True,
+            expected_amendment_sha256=amendment_sha256,
+            expected_seal_sha256=seal_sha256,
+            # The model-matrix validator treats each supplied descendant as a
+            # strict step.  At Stage 24 this is the current pre-freeze HEAD;
+            # chronology later binds the future model-freeze commit itself.
+            model_freeze_commit=live_git_tip_commit,
+        )
+    except (FileNotFoundError, OSError, ModelMatrixAmendmentError) as exc:
+        raise ModelSuiteError(
+            "model suite cannot validate its frozen model-matrix amendment"
+        ) from exc
+    if publication_guard is not None:
+        publication_guard()
+    if (
+        sha256_file(amendment_file) != amendment_sha256
+        or sha256_file(seal_file) != seal_sha256
+    ):
+        raise ModelSuiteError(
+            "model-matrix amendment bytes changed during suite validation"
+        )
+    stage09_matrix = amendment.get("stage09_architecture_control_matrix")
+    stage09b_matrix = amendment.get("stage09b_development_control_matrix")
+    if not isinstance(stage09_matrix, Mapping) or not isinstance(
+        stage09b_matrix, Mapping
+    ):
+        raise ModelSuiteError("model-matrix amendment lacks its two matrix objects")
+    return {
+        "format": MODEL_MATRIX_SUITE_BINDING_FORMAT,
+        "document": {
+            "path": MODEL_MATRIX_AMENDMENT_PATH,
+            "sha256": amendment_sha256,
+            "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+            "amendment_document_commit": str(
+                seal["amendment_document_commit"]
+            ),
+        },
+        "seal": {
+            "path": MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            "sha256": seal_sha256,
+            "format": MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+            "status": MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+        },
+        "contract_id": model_matrix_contract_id(
+            stage09_matrix,
+            stage09b_matrix,
+        ),
+    }
+
+
+def validate_model_matrix_suite_binding(
+    value: object,
+    *,
+    root: str | Path,
+    publication_guard: Callable[[], object] | None = None,
+) -> dict[str, Any]:
+    """Validate an exact suite binding by independently rebuilding it."""
+    if not isinstance(value, Mapping) or set(value) != set(
+        MODEL_MATRIX_SUITE_BINDING_FIELDS
+    ):
+        raise ModelSuiteError("model suite model-matrix binding schema changed")
+    document = value.get("document")
+    seal = value.get("seal")
+    if (
+        not isinstance(document, Mapping)
+        or set(document) != set(MODEL_MATRIX_SUITE_DOCUMENT_BINDING_FIELDS)
+        or not isinstance(seal, Mapping)
+        or set(seal) != set(MODEL_MATRIX_SUITE_SEAL_BINDING_FIELDS)
+    ):
+        raise ModelSuiteError("model suite model-matrix nested binding changed")
+    expected = model_matrix_amendment_suite_binding(
+        root,
+        publication_guard=publication_guard,
+    )
+    if dict(value) != expected:
+        raise ModelSuiteError(
+            "model suite model-matrix bytes, identity, seal, commit, or contract changed"
+        )
+    return expected
+
+
 def validate_model_suite_document(
     document: Mapping[str, Any],
     *,
@@ -7110,10 +7258,44 @@ def validate_model_suite_document(
     if publication_guard is not None:
         publication_guard()
     root = Path(root).resolve()
+    fields = set(document)
+    if (
+        fields != set(MODEL_SUITE_DOCUMENT_FIELDS)
+        and fields != set(MODEL_SUITE_DOCUMENT_FIELDS) | {"versioned_suite"}
+    ):
+        raise ModelSuiteError("model suite top-level schema changed")
     if document.get("format") != MODEL_SUITE_FORMAT:
         raise ModelSuiteError("unsupported model suite format")
     if document.get("status") != "FROZEN_BEFORE_LABEL_OPENING":
         raise ModelSuiteError("model suite is not frozen")
+    validate_model_matrix_suite_binding(
+        document.get("model_matrix_amendment"),
+        root=root,
+        publication_guard=publication_guard,
+    )
+    versioned_binding = document.get("versioned_suite")
+    if versioned_binding is not None:
+        versioned_path = _validated_file_binding(
+            root,
+            versioned_binding,
+            label="versioned model suite",
+        )
+        try:
+            versioned_document = json.loads(
+                versioned_path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModelSuiteError("versioned model suite is malformed") from exc
+        alias_document = dict(document)
+        alias_document.pop("versioned_suite")
+        if (
+            not isinstance(versioned_document, Mapping)
+            or set(versioned_document) != set(MODEL_SUITE_DOCUMENT_FIELDS)
+            or dict(versioned_document) != alias_document
+        ):
+            raise ModelSuiteError(
+                "opening registry differs from its versioned model suite"
+            )
     features = tuple(str(value) for value in document.get("actual_feature_order", ()))
     if not features or "WTEMP" not in features or len(features) != len(set(features)):
         raise ModelSuiteError("model suite feature order is invalid")
@@ -7659,6 +7841,7 @@ def freeze_model_suite(
     external_entries: Sequence[Mapping[str, Any]],
     actual_feature_order: Sequence[str],
     development_contract: Mapping[str, Any],
+    model_matrix_amendment: Mapping[str, Any] | None = None,
     stage09_completion: Mapping[str, Any] | None = None,
     stage09b_completion: Mapping[str, Any] | None = None,
     stage16_completion: Mapping[str, Any] | None = None,
@@ -7688,6 +7871,11 @@ def freeze_model_suite(
         "protocol_sha256": str(protocol_sha256),
         "actual_feature_order": list(actual_feature_order),
         "development_contract": dict(development_contract),
+        "model_matrix_amendment": (
+            dict(model_matrix_amendment)
+            if model_matrix_amendment is not None
+            else None
+        ),
         **(
             {"preopening_gates": {
                 "stage09_completion": dict(stage09_completion),

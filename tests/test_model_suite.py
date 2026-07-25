@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -42,10 +46,12 @@ from thermoroute.model_suite import (  # noqa: E402
     development_predictor_bridge_binding,
     freeze_model_suite,
     load_lightgbm_bundle,
+    model_matrix_amendment_suite_binding,
     save_lightgbm_bundle,
     route_a_calibration_fit_contract,
     publish_stage25_completion_receipt,
     validate_model_suite_document,
+    validate_model_matrix_suite_binding,
     validate_stage25_completion_receipt,
     validate_development_calibrated_head_gate,
     validate_development_prediction_binding,
@@ -54,6 +60,15 @@ from thermoroute.model_suite import (  # noqa: E402
     write_component_pointer,
     _create_json_or_require_identical,
     _learned_metadata_runtime_sha256,
+)
+from thermoroute.model_matrix_amendment import (  # noqa: E402
+    AMENDMENT_ID,
+    AMENDMENT_RELATIVE,
+    AMENDMENT_SEAL_RELATIVE,
+    GOVERNANCE_SHA256,
+    MODEL_MATRIX_CONTRACT_FORMAT,
+    MODEL_MATRIX_SUITE_BINDING_FORMAT,
+    model_matrix_contract_id,
 )
 from thermoroute.quantiles import (  # noqa: E402
     LIGHTGBM_QUANTILE_REPAIR_METHOD,
@@ -473,6 +488,280 @@ def _predictor_bridge(root: Path) -> dict[str, str]:
     return file_binding(root, path)
 
 
+def _copy_model_matrix_suite_binding(root: Path) -> dict[str, Any]:
+    """Create a Gitless byte/semantic fixture for suite-binding tests."""
+    for relative in (*GOVERNANCE_SHA256, AMENDMENT_RELATIVE, AMENDMENT_SEAL_RELATIVE):
+        source = ROOT / relative
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+    return model_matrix_amendment_suite_binding(root)
+
+
+def _placeholder_preopening_gates() -> dict[str, dict[str, str]]:
+    return {
+        "stage09_completion": {"path": "stage09", "sha256": "9" * 64},
+        "stage09b_development_controls": {
+            "path": "stage09b",
+            "sha256": "b" * 64,
+        },
+        "stage16_lstm_completion": {
+            "path": "stage16",
+            "sha256": "1" * 64,
+        },
+        "stage25_external_completion": {
+            "path": "stage25",
+            "sha256": "2" * 64,
+        },
+    }
+
+
+def test_model_matrix_suite_binding_is_exact_and_contract_is_independent(
+    tmp_path: Path,
+) -> None:
+    binding = _copy_model_matrix_suite_binding(tmp_path)
+    amendment = json.loads(
+        (tmp_path / AMENDMENT_RELATIVE).read_text(encoding="utf-8")
+    )
+    expected_contract = sha256_json({
+        "format": MODEL_MATRIX_CONTRACT_FORMAT,
+        "stage09_architecture_control_matrix": amendment[
+            "stage09_architecture_control_matrix"
+        ],
+        "stage09b_development_control_matrix": amendment[
+            "stage09b_development_control_matrix"
+        ],
+    })
+
+    assert set(binding) == {"format", "document", "seal", "contract_id"}
+    assert binding["format"] == MODEL_MATRIX_SUITE_BINDING_FORMAT
+    assert set(binding["document"]) == {
+        "path", "sha256", "format", "status", "amendment_id",
+        "amendment_document_commit",
+    }
+    assert set(binding["seal"]) == {"path", "sha256", "format", "status"}
+    assert binding["document"]["amendment_id"] == AMENDMENT_ID
+    assert binding["contract_id"] == expected_contract
+    assert binding["contract_id"] == model_matrix_contract_id(
+        amendment["stage09_architecture_control_matrix"],
+        amendment["stage09b_development_control_matrix"],
+    )
+    assert validate_model_matrix_suite_binding(
+        binding,
+        root=tmp_path,
+    ) == binding
+
+
+def test_production_model_matrix_seal_strictly_precedes_live_suite_freeze_head(
+) -> None:
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    binding = model_matrix_amendment_suite_binding(
+        ROOT,
+        live_git_tip_commit=head,
+    )
+    assert binding["document"]["amendment_document_commit"] == (
+        "e6e369a0076779aa4e053a23260f7c50d6bfa97e"
+    )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    (
+        "document_sha",
+        "amendment_id",
+        "document_commit",
+        "seal_path",
+        "seal_sha",
+        "seal_status",
+        "contract_id",
+        "old_binding",
+        "extra_outer",
+        "extra_nested",
+    ),
+)
+def test_model_matrix_suite_binding_rejects_every_tamper(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    binding: object = json.loads(
+        json.dumps(_copy_model_matrix_suite_binding(tmp_path))
+    )
+    if attack == "old_binding":
+        binding = None
+    else:
+        assert isinstance(binding, dict)
+        if attack == "document_sha":
+            binding["document"]["sha256"] = "0" * 64
+        elif attack == "amendment_id":
+            binding["document"]["amendment_id"] = "attacker-amendment"
+        elif attack == "document_commit":
+            binding["document"]["amendment_document_commit"] = "0" * 40
+        elif attack == "seal_path":
+            binding["seal"]["path"] = "protocols/attacker-seal.json"
+        elif attack == "seal_sha":
+            binding["seal"]["sha256"] = "0" * 64
+        elif attack == "seal_status":
+            binding["seal"]["status"] = "UNSEALED"
+        elif attack == "contract_id":
+            binding["contract_id"] = "0" * 64
+        elif attack == "extra_outer":
+            binding["extra"] = True
+        elif attack == "extra_nested":
+            binding["document"]["extra"] = True
+
+    with pytest.raises(ModelSuiteError, match="model-matrix"):
+        validate_model_matrix_suite_binding(binding, root=tmp_path)
+
+
+def test_old_or_extra_field_model_suite_envelopes_are_rejected(tmp_path: Path) -> None:
+    old = {
+        "format": MODEL_SUITE_FORMAT,
+        "status": "FROZEN_BEFORE_LABEL_OPENING",
+        "training_device": "cpu",
+        "numerical_runtime_sha256": "b" * 64,
+        "protocol_sha256": "protocol",
+        "actual_feature_order": ["WTEMP"],
+        "development_contract": {},
+        "preopening_gates": {},
+        "cohorts": {},
+    }
+    with pytest.raises(ModelSuiteError, match="top-level schema"):
+        validate_model_suite_document(old, root=tmp_path)
+    with pytest.raises(ModelSuiteError, match="top-level schema"):
+        validate_model_suite_document(
+            {
+                **old,
+                "model_matrix_amendment": {},
+                "attacker_extra_field": True,
+            },
+            root=tmp_path,
+        )
+
+
+def test_model_suite_identity_hashes_the_complete_matrix_binding(
+    tmp_path: Path,
+) -> None:
+    binding = _copy_model_matrix_suite_binding(tmp_path)
+    stage24_path = ROOT / "scripts" / "24_freeze_model_suite.py"
+    specification = importlib.util.spec_from_file_location(
+        "thermoroute_stage24_matrix_identity_test",
+        stage24_path,
+    )
+    assert specification is not None and specification.loader is not None
+    stage24 = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(stage24)
+    common = {
+        "protocol_sha256": "a" * 64,
+        "stage9": {"run_id": "stage9"},
+        "stage09_completion": {"path": "stage09", "sha256": "9" * 64},
+        "stage09b_completion": {"path": "stage09b", "sha256": "b" * 64},
+        "stage16_completion": {"path": "stage16", "sha256": "1" * 64},
+        "stage25_completion": {"path": "stage25", "sha256": "2" * 64},
+        "lstm": {"run_id": "lstm"},
+        "external": {"run_id": "external"},
+        "features": ("WTEMP", "FLOW"),
+    }
+    original = stage24._model_suite_id(
+        **common,
+        model_matrix_amendment=binding,
+    )
+    for group, field in (
+        ("document", "sha256"),
+        ("document", "amendment_id"),
+        ("document", "amendment_document_commit"),
+        ("seal", "sha256"),
+        ("seal", "status"),
+        (None, "contract_id"),
+    ):
+        attacked = json.loads(json.dumps(binding))
+        target = attacked if group is None else attacked[group]
+        target[field] = "0" * len(str(target[field]))
+        assert stage24._model_suite_id(
+            **common,
+            model_matrix_amendment=attacked,
+        ) != original
+
+
+def test_opening_registry_must_equal_its_bound_versioned_suite(
+    tmp_path: Path,
+) -> None:
+    binding = _copy_model_matrix_suite_binding(tmp_path)
+    versioned_document = {
+        "format": MODEL_SUITE_FORMAT,
+        "status": "FROZEN_BEFORE_LABEL_OPENING",
+        "training_device": "cpu",
+        "numerical_runtime_sha256": "b" * 64,
+        "protocol_sha256": "protocol",
+        "actual_feature_order": ["WTEMP"],
+        "development_contract": {},
+        "model_matrix_amendment": binding,
+        "preopening_gates": {},
+        "cohorts": {},
+    }
+    versioned = tmp_path / "outputs/models/route_a_model_suite_fixture.json"
+    versioned.parent.mkdir(parents=True)
+    versioned.write_text(
+        json.dumps(versioned_document, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    attacked_alias = {
+        **versioned_document,
+        "protocol_sha256": "attacker-protocol",
+        "versioned_suite": file_binding(tmp_path, versioned),
+    }
+    with pytest.raises(ModelSuiteError, match="differs from its versioned"):
+        validate_model_suite_document(attacked_alias, root=tmp_path)
+
+
+def test_freeze_publishes_one_matrix_binding_to_versioned_and_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = _copy_model_matrix_suite_binding(tmp_path)
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "_learned_metadata_runtime_sha256",
+        lambda _root, _entries, *, publication_guard=None: "b" * 64,
+    )
+    monkeypatch.setattr(
+        MODEL_SUITE,
+        "validate_model_suite_document",
+        lambda _document, *, root, publication_guard=None: None,
+    )
+    versioned = tmp_path / "outputs/models/suite-versioned.json"
+    alias = tmp_path / "data_usgs/confirmatory_model_suite_v1.json"
+    freeze_model_suite(
+        versioned,
+        tmp_path / "outputs/models/suite-current.json",
+        root=tmp_path,
+        protocol_sha256="a" * 64,
+        temporal_entries=[],
+        external_entries=[],
+        actual_feature_order=("WTEMP", "FLOW"),
+        development_contract={},
+        model_matrix_amendment=binding,
+        stage09_completion={"path": "stage09", "sha256": "9" * 64},
+        stage09b_completion={"path": "stage09b", "sha256": "b" * 64},
+        stage16_completion={"path": "stage16", "sha256": "1" * 64},
+        stage25_completion={"path": "stage25", "sha256": "2" * 64},
+        registry_alias=alias,
+        publication_guard=lambda: None,
+    )
+    versioned_document = json.loads(versioned.read_text(encoding="utf-8"))
+    alias_document = json.loads(alias.read_text(encoding="utf-8"))
+    assert versioned_document["model_matrix_amendment"] == binding
+    assert alias_document["model_matrix_amendment"] == binding
+    versioned_binding = alias_document.pop("versioned_suite")
+    assert versioned_binding == file_binding(tmp_path, versioned)
+    assert alias_document == versioned_document
+
+
 def test_development_predictor_bridge_is_a_required_exact_panel_registry_gate(
     tmp_path,
 ):
@@ -570,12 +859,18 @@ def test_incomplete_suite_is_rejected_without_publishing_current_pointer(tmp_pat
         "predictor_bridge": _predictor_bridge(tmp_path),
         "source_sha256": source_tree_hash(tmp_path),
     }
+    model_matrix_binding = _copy_model_matrix_suite_binding(tmp_path)
+    development_contract["source_sha256"] = source_tree_hash(tmp_path)
     document = {
         "format": MODEL_SUITE_FORMAT,
         "status": "FROZEN_BEFORE_LABEL_OPENING",
+        "training_device": "cpu",
+        "numerical_runtime_sha256": "b" * 64,
         "protocol_sha256": "protocol",
         "actual_feature_order": ["WTEMP", "FLOW"],
         "development_contract": development_contract,
+        "model_matrix_amendment": model_matrix_binding,
+        "preopening_gates": _placeholder_preopening_gates(),
         "cohorts": {
             "temporal": {"site_mode": "same_station", "models": []},
             "external": {
@@ -605,10 +900,16 @@ def test_model_suite_rejects_source_tree_drift_before_model_validation(tmp_path)
     source = tmp_path / "src" / "fixture.py"
     source.parent.mkdir()
     source.write_text("VALUE = 1\n", encoding="utf-8")
+    model_matrix_binding = _copy_model_matrix_suite_binding(tmp_path)
     document = {
         "format": MODEL_SUITE_FORMAT,
         "status": "FROZEN_BEFORE_LABEL_OPENING",
+        "training_device": "cpu",
+        "numerical_runtime_sha256": "b" * 64,
+        "protocol_sha256": "protocol",
         "actual_feature_order": ["WTEMP", "FLOW"],
+        "model_matrix_amendment": model_matrix_binding,
+        "preopening_gates": _placeholder_preopening_gates(),
         "development_contract": {
             "frozen_panel_spec": file_binding(tmp_path, tmp_path / "spec.json"),
             "panel": file_binding(tmp_path, tmp_path / "panel.parquet"),
