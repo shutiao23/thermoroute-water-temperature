@@ -49,6 +49,29 @@ INDETERMINATE_PHASE = "INDETERMINATE_FAIL_CLOSED"
 AUTHORIZATION_FORMAT = "thermoroute.route-a-opening-authorization.v1"
 STATISTICS_FORMAT = "thermoroute.route-a-confirmatory-statistics.v1"
 
+MODEL_MATRIX_AMENDMENT_RELATIVE = (
+    "protocols/route_a_model_matrix_amendment_v1.json"
+)
+MODEL_MATRIX_AMENDMENT_SHA256 = (
+    "4acbfdad420c3e2ab42f43ab46f6886a3bc36e697627145c18316f49ffac4dbc"
+)
+MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE = (
+    "protocols/route_a_model_matrix_amendment_seal_v1.json"
+)
+MODEL_MATRIX_AMENDMENT_SEAL_SHA256 = (
+    "6c80e929ba90a1df07b07623e32b2144f0012de354ea7ac34a32995839a1b2d9"
+)
+MODEL_MATRIX_AMENDMENT_ID = "route-a-prelabel-model-matrix-replication-017"
+MODEL_MATRIX_AMENDMENT_DOCUMENT_COMMIT = (
+    "e6e369a0076779aa4e053a23260f7c50d6bfa97e"
+)
+MODEL_MATRIX_CLAIM_REGISTRY_RELATIVE = (
+    "protocols/route_a_claim_registry_v1.json"
+)
+MODEL_MATRIX_CLAIM_REGISTRY_SHA256 = (
+    "bc3d489b6f2cfe945789a57990a15291b332ae63be6c8df0211aa2b6ff8b70b6"
+)
+
 BLOCK_START = re.compile(
     r"^<!-- ROUTE_A_CLAIM (?P<claim_id>[A-Za-z0-9_.-]+) "
     r"sha256=(?P<sha256>[0-9a-f]{64}) -->\n",
@@ -102,6 +125,123 @@ def _load_json(path: Path, *, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ClaimRegistryError(f"{label} is not a JSON object")
     return value
+
+
+def _frozen_regular_file(root: Path, relative: str, *, label: str) -> Path:
+    """Resolve one canonical, non-symlink, single-link governance file."""
+    candidate = root
+    for component in Path(relative).parts:
+        candidate = candidate / component
+        if candidate.is_symlink():
+            raise ClaimRegistryError(f"{label} uses a symlink: {relative}")
+    path = _inside(root, relative, require_file=True)
+    try:
+        metadata = path.stat()
+    except OSError as exc:
+        raise ClaimRegistryError(f"cannot stat {label}: {relative}") from exc
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ClaimRegistryError(
+            f"{label} is not a single-link regular file: {relative}"
+        )
+    return path
+
+
+def _validate_model_matrix_claim_governance(root: Path) -> None:
+    """Require the exact prelabel model-matrix document and later seal.
+
+    The claim validator deliberately performs an independent fixed-byte check
+    instead of trusting prose that says the exploratory controls are five-seed
+    and information matched.  Full Git-lineage replay remains the job of the
+    model-matrix, opening, chronology and release validators; this layer proves
+    that claim lint cannot run against a missing or substituted governance pair.
+    """
+    amendment_path = _frozen_regular_file(
+        root,
+        MODEL_MATRIX_AMENDMENT_RELATIVE,
+        label="model-matrix amendment",
+    )
+    seal_path = _frozen_regular_file(
+        root,
+        MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE,
+        label="model-matrix amendment seal",
+    )
+    registry_path = _frozen_regular_file(
+        root,
+        MODEL_MATRIX_CLAIM_REGISTRY_RELATIVE,
+        label="model-matrix-bound claim registry",
+    )
+    if _sha256_file(amendment_path) != MODEL_MATRIX_AMENDMENT_SHA256:
+        raise ClaimRegistryError("model-matrix amendment SHA-256 changed")
+    if _sha256_file(seal_path) != MODEL_MATRIX_AMENDMENT_SEAL_SHA256:
+        raise ClaimRegistryError("model-matrix amendment seal SHA-256 changed")
+    if _sha256_file(registry_path) != MODEL_MATRIX_CLAIM_REGISTRY_SHA256:
+        raise ClaimRegistryError(
+            "model-matrix-bound canonical claim registry SHA-256 changed"
+        )
+
+    amendment = _load_json(
+        amendment_path, label="claim-ledger model-matrix amendment"
+    )
+    governance = amendment.get("governance_inputs")
+    claim_registry_binding = (
+        governance.get("route_a_claim_registry_v1")
+        if isinstance(governance, Mapping)
+        else None
+    )
+    if (
+        amendment.get("format")
+        != "thermoroute.route-a-model-matrix-amendment.v1"
+        or amendment.get("status") != "FROZEN_PRELABEL_OUTCOME_FREE"
+        or amendment.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or claim_registry_binding
+        != {
+            "path": MODEL_MATRIX_CLAIM_REGISTRY_RELATIVE,
+            "sha256": MODEL_MATRIX_CLAIM_REGISTRY_SHA256,
+        }
+    ):
+        raise ClaimRegistryError(
+            "model-matrix amendment claim-governance contract changed"
+        )
+
+    seal = _load_json(
+        seal_path, label="claim-ledger model-matrix amendment seal"
+    )
+    if (
+        set(seal)
+        != {
+            "format",
+            "status",
+            "amendment_id",
+            "amendment",
+            "governance_seals",
+            "amendment_document_commit",
+            "history_contract",
+            "prelabel_attestation",
+        }
+        or seal.get("format")
+        != "thermoroute.route-a-model-matrix-amendment-seal.v1"
+        or seal.get("status") != "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+        or seal.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or seal.get("amendment")
+        != {
+            "path": MODEL_MATRIX_AMENDMENT_RELATIVE,
+            "sha256": MODEL_MATRIX_AMENDMENT_SHA256,
+        }
+        or seal.get("amendment_document_commit")
+        != MODEL_MATRIX_AMENDMENT_DOCUMENT_COMMIT
+        or seal.get("prelabel_attestation")
+        != {
+            "confirmation_outcome_artifact_present": False,
+            "confirmation_outcomes_requested_or_inspected": False,
+            "network_used": False,
+            "outcome_endpoint_called": False,
+            "outcome_independent": True,
+            "post_2020_wtemp_requested_or_inspected": False,
+        }
+    ):
+        raise ClaimRegistryError(
+            "model-matrix amendment seal claim-governance contract changed"
+        )
 
 
 def _load_registry(path: Path) -> Mapping[str, Any]:
@@ -641,6 +781,7 @@ def _validate_protocol_binding(root: Path, registry: Mapping[str, Any]) -> Mappi
             )
     for predicate in registry["decision_rule"]["protocol_predicates"]:
         validate_predicate(predicate, label="confirmatory claim decision rule")
+    _validate_model_matrix_claim_governance(root)
     return protocol
 
 

@@ -25,6 +25,12 @@ PRODUCTION_INFERENCE_AMENDMENT = (
     ROOT / "protocols" / "route_a_inference_amendment_v2.json"
 )
 PRODUCTION_PROTOCOL_SEAL = ROOT / "protocols" / "route_a_protocol_seal_v1.json"
+PRODUCTION_MODEL_MATRIX_AMENDMENT = (
+    ROOT / "protocols" / "route_a_model_matrix_amendment_v1.json"
+)
+PRODUCTION_MODEL_MATRIX_AMENDMENT_SEAL = (
+    ROOT / "protocols" / "route_a_model_matrix_amendment_seal_v1.json"
+)
 PRODUCTION_LEGACY_SEMANTIC_NOTICE = (
     ROOT / "protocols" / "legacy_three_site_semantics_notice_v1.md"
 )
@@ -70,6 +76,19 @@ def test_every_required_preopen_document_matches_its_frozen_sha256() -> None:
         assert frozen[relative] == _sha256(path), relative
 
 
+def test_claim_validator_requires_exact_model_matrix_document_and_seal() -> None:
+    module = _module()
+    module._validate_model_matrix_claim_governance(ROOT)
+    assert (
+        module.MODEL_MATRIX_AMENDMENT_SHA256
+        == _sha256(PRODUCTION_MODEL_MATRIX_AMENDMENT)
+    )
+    assert (
+        module.MODEL_MATRIX_AMENDMENT_SEAL_SHA256
+        == _sha256(PRODUCTION_MODEL_MATRIX_AMENDMENT_SEAL)
+    )
+
+
 def _v1_registry(path: Path, *, status: str = "PENDING_SINGLE_OPENING") -> Path:
     path.write_text(
         json.dumps(
@@ -111,6 +130,20 @@ def _v2_fixture(tmp_path: Path) -> tuple[object, Path, dict, dict]:
     amendment_path.write_bytes(PRODUCTION_INFERENCE_AMENDMENT.read_bytes())
     protocol_seal_path = tmp_path / "protocols" / "route_a_protocol_seal_v1.json"
     protocol_seal_path.write_bytes(PRODUCTION_PROTOCOL_SEAL.read_bytes())
+    model_matrix_path = (
+        tmp_path / "protocols" / "route_a_model_matrix_amendment_v1.json"
+    )
+    model_matrix_path.write_bytes(PRODUCTION_MODEL_MATRIX_AMENDMENT.read_bytes())
+    model_matrix_seal_path = (
+        tmp_path / "protocols" / "route_a_model_matrix_amendment_seal_v1.json"
+    )
+    model_matrix_seal_path.write_bytes(
+        PRODUCTION_MODEL_MATRIX_AMENDMENT_SEAL.read_bytes()
+    )
+    canonical_claim_registry = (
+        tmp_path / "protocols" / "route_a_claim_registry_v1.json"
+    )
+    canonical_claim_registry.write_bytes(PRODUCTION_REGISTRY.read_bytes())
     registry["inference_amendment_binding"]["sha256"] = _sha256(amendment_path)
     registry["protocol_binding"] = {
         "path": "protocols/route_a_confirmatory_v1.json",
@@ -602,6 +635,46 @@ def test_v2_pre_phase_is_derived_and_require_complete_fails(tmp_path):
     assert module.validate_claims(
         root=tmp_path, registry_path=registry_path, require_complete=True
     ) == ["PHASE: --require-complete requires a verified completed receipt"]
+
+
+@pytest.mark.parametrize(
+    ("relative", "message"),
+    (
+        (
+            "protocols/route_a_model_matrix_amendment_v1.json",
+            "model-matrix amendment SHA-256 changed",
+        ),
+        (
+            "protocols/route_a_model_matrix_amendment_seal_v1.json",
+            "model-matrix amendment seal SHA-256 changed",
+        ),
+        (
+            "protocols/route_a_claim_registry_v1.json",
+            "model-matrix-bound canonical claim registry SHA-256 changed",
+        ),
+    ),
+)
+def test_v2_model_matrix_claim_governance_tampering_fails_closed(
+    tmp_path: Path,
+    relative: str,
+    message: str,
+) -> None:
+    module, registry_path, _, _ = _v2_fixture(tmp_path)
+    target = tmp_path / relative
+    target.write_bytes(target.read_bytes() + b"\n")
+    with pytest.raises(module.ClaimRegistryError, match=message):
+        module.validate_claims(root=tmp_path, registry_path=registry_path)
+
+
+def test_v2_model_matrix_claim_governance_rejects_symlink(tmp_path: Path) -> None:
+    module, registry_path, _, _ = _v2_fixture(tmp_path)
+    target = tmp_path / "protocols/route_a_model_matrix_amendment_seal_v1.json"
+    alternate = tmp_path / "seal-copy.json"
+    alternate.write_bytes(target.read_bytes())
+    target.unlink()
+    target.symlink_to(alternate)
+    with pytest.raises(module.ClaimRegistryError, match="uses a symlink"):
+        module.validate_claims(root=tmp_path, registry_path=registry_path)
 
 
 def test_v2_amendment_seal_pending_and_sealed_states_fail_closed(tmp_path):
