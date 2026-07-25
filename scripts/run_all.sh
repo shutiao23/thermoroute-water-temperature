@@ -16,6 +16,11 @@ cd "$(dirname "$0")/.."
 # creating those untracked files during its own pre-flight tests or stages.
 unset PYTHONPYCACHEPREFIX
 export PYTHONDONTWRITEBYTECODE=1
+# Every formal child starts with an interpreter-selected hash secret.  Identity
+# hashes remain reproducible because the code canonicalises unordered values;
+# fixing PYTHONHASHSEED before interpreter start would disable the Stage-24
+# anti-order-dependence check rather than improve the evidence contract.
+unset PYTHONHASHSEED
 
 readonly THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-python}"
 if ! command -v "$THERMOROUTE_PYTHON" >/dev/null 2>&1; then
@@ -45,7 +50,6 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
-export PYTHONHASHSEED=0
 export WORKER_THREADS=1
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 readonly CANONICAL_USGS_PANEL="data_usgs/panel_usgs_120v2.parquet"

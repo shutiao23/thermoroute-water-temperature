@@ -495,9 +495,9 @@ def test_isolated_python_uses_random_hash_secret_but_identity_hash_is_stable():
     assert formal_numerical_policy()["python_hash_policy"].startswith(
         "canonical-sort-identity-collections"
     )
-    # The outer pytest process may intentionally be launched with
-    # PYTHONHASHSEED=0 (as run_all.sh does).  The four isolated children above,
-    # not the unrelated parent interpreter, are the contract under test.
+    # The four isolated children above, not the unrelated parent interpreter,
+    # are the contract under test.  The formal shell entrypoint likewise unsets
+    # PYTHONHASHSEED before starting any evidence-bearing Python interpreter.
 
 
 def _fixture(tmp_path: Path):
@@ -634,6 +634,8 @@ def test_stage09_run_all_manifest_and_chronology_paths_are_exactly_aligned():
         assert "v != (3, 12)" in script
         assert "assert sys.version_info" not in script
         assert re.search(r"(?<![/\w])python3(?:\s|$)", script) is None
+    assert "unset PYTHONHASHSEED" in run_all
+    assert "export PYTHONHASHSEED=0" not in run_all
     assert "SOURCE_GIT_DIRTY=()" not in release
     cleanup = release.split("cleanup() {", 1)[1].split("\n}", 1)[0]
     assert "local status=$?" in cleanup
