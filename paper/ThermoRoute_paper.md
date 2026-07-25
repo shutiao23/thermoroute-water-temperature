@@ -12,8 +12,9 @@
 > placeholder. The canonical development computation and the one-time target-period
 > evaluation are not complete. This manuscript therefore reports the frozen design,
 > audit boundary, and implementation status but no current performance result. All
-> numerical statements from the legacy cohort have been withdrawn pending a complete
-> stable-`site_no` rerun.
+> numerical statements from superseded noncanonical result artifacts have been
+> withdrawn pending a complete stable-`site_no` Route-A rerun. The separate legacy
+> three-site case is not Route-A evidence and cannot be rehabilitated by that rerun.
 
 ## Abstract
 
@@ -22,9 +23,13 @@ is strong, issue-time information must be separated from future observations, se
 records are incomplete, and nearby sites are not statistically independent. We
 describe ThermoRoute, a physics-inspired statistical predictor that combines a
 damped-persistence anchor, a learned thermal-relaxation proposal, a sparse
-horizon-conditioned variable/lag router, a causal temporal convolutional encoder,
-a regime mixture, a bounded point residual, separate three-quantile heads, and a
-split-conformal 90% interval. The
+horizon-conditioned variable/lag router, a causal (strictly left-looking,
+non-anticipating) temporal convolutional encoder, a regime mixture, a bounded
+point residual, separate three-quantile heads, and a split-conformal 90% interval. Here,
+"causal" describes time ordering only, not causal inference. The learned proposal
+and router receive no verified graph or topology inputs. They
+do not identify physical transport, travel time or residence time, regulation, or
+causal drivers. The
 canonical development data contain 657,480 site-days from 120 stable USGS site
 numbers during 2006–2020, spanning 34 states and 15 HUC2 groups. Years 2019–2020
 are development/exploratory data. A repository-internal pre-label protocol defines
@@ -62,11 +67,14 @@ uncertainty. It does not infer an energy budget, hydraulic state, or management
 utility from the architecture.
 
 The repository contains an older three-monitoring-station case study (site IDs b1,
-s2, and p3) and a larger USGS development panel. The three sites are ordinary
-monitoring stations, not reservoirs; their legacy display order does not establish
-a hydraulic cascade or travel time. Those legacy outputs are not used as current
-evidence because they were produced before stable USGS site numbers, the 120v2
-panel contract, and prediction-lineage sidecars were enforced.
+s2, and p3) and a larger USGS development panel. b1, s2, and p3 are ordinary
+monitoring stations, not reservoirs. No verified metadata establish any
+upstream/downstream ordering, hydraulic connectivity, regulation status, or travel
+time among b1, s2, and p3. This legacy three-site case is outside Route A: its
+source provenance, station-identity metadata, measurement dictionary, and
+redistribution authorization are unverified. Its older outputs also predate stable
+USGS site numbers, the 120v2 panel contract, and prediction-lineage sidecars;
+rerunning the 120v2 panel would not make the three-site case Route-A evidence.
 
 ### 1.1 Scientific context and related work
 
@@ -118,7 +126,7 @@ all 120 sites lack the provider-calendar final day in leap years 2008, 2012, 201
 and 2020. `WLEVEL`, retained only as raw evidence, is missing on 77.65% of rows.
 
 The pre-opening environmental audit records 1,345 rejected candidate stations in
-the legacy selection ledger (950 without joint WTEMP/FLOW availability, 376 with
+the committed Route-A candidate-selection ledger (950 without joint WTEMP/FLOW availability, 376 with
 low full-period coverage, and 19 with low 2019–2020 development-period coverage).
 Among retained stations, 38 share a repeated HUC code with another retained
 station and 19 have another retained station within 10 km. WTEMP and FLOW have
@@ -161,7 +169,7 @@ horizon-specific future weather forecast. This is a date-indexed retrospective
 hindcast; it does not establish that the same predictor vintages were available
 operationally at that time.
 
-Because the legacy panel lacks its original HTTP responses, a separate pre-opening
+Because the committed 2006–2020 development panel lacks its original HTTP responses, a separate pre-opening
 bridge re-fetched 2018–2020 Daymet/gridMET with the confirmation parser and compared
 every predictor on the exact site/date registry. Its committed manifest records
 `PASS_EXACT_PRODUCT_BRIDGE`. This gate can detect product-version, parsing, scaling,
@@ -208,7 +216,8 @@ coefficient.
 For each horizon, a sparse router assigns weights over the seven variables at
 lags 0–14. The sequence builder supplies a 32-day tensor, but this is a
 construction buffer rather than an effective-memory claim: the current
-two-block, kernel-three causal temporal convolutional network has a theoretical
+two-block, kernel-three strictly left-looking (non-anticipating) temporal
+convolutional network has a theoretical
 seven-step receptive field, while the router's oldest usable value is lag 14.
 Thus no input older than lag 14 can affect the current model output. A
 mixture-of-experts combines the resulting representations. The router is an
@@ -270,7 +279,7 @@ no seed; LightGBM, LSTM, and ThermoRoute use seeds 0–4. LightGBM selects among
 candidate settings separately by horizon on 2016–2017; the LSTM selects among
 three candidate architectures with seed 0 before fitting five members. These
 tuning budgets are documented but not identical. The
-temporal mechanism audit additionally freezes seven one-factor controls:
+temporal component audit additionally freezes seven one-factor controls:
 prior-only, no dynamic prior, fixed relaxation, no router, no mixture, no TCN, and
 unbounded residual. Each Stage 09 control is a seed-0-versus-seed-0, single-seed
 functionality/intervention diagnostic. It does not prove component necessity,
@@ -402,8 +411,8 @@ from the canonical authorization, intent marker, and a fully verified receipt.
 
 Before authorization, a fresh isolated process must replay all trained members,
 raw heads, transforms, development predictions, dependency versions, runtime probe,
-and source hashes without reading target-period outcomes. The replay maps legacy
-panel aliases through the frozen station registry, requires every selected
+and source hashes without reading target-period outcomes. The replay maps historical
+120-site panel aliases through the frozen station registry, requires every selected
 stable-station/target-date truth value to equal frozen-panel WTEMP, independently
 recomputes the 2006--2015 q90 thresholds and 2006--2018 seasonal event references,
 and refits CQR and Platt from the exact 2018 member-averaged rows. Thus a
@@ -480,9 +489,9 @@ Required work still outstanding at this manuscript state is:
    continuation, before creating the unique authorization;
 6. execute the fixed opening, physically replay and receipt-bind the temporal-
    coverage audit, generate the five receipt-derived statements in the sole
-   canonical Markdown result layer, and verify the clean-room release.
+   canonical Markdown result layer, and verify the local clean-room evidence archive.
 
-Until those steps finish, all legacy numeric outputs are considered stale and no
+Until those steps finish, all superseded noncanonical numeric outputs are considered stale and no
 current empirical performance conclusion is available.
 
 ## 7. Permanent limitations
@@ -550,11 +559,16 @@ and multi-hardware benchmarks; owner-controlled local evidence chronology; the
 unreplayable original 1,465-candidate discovery execution; and the absence of an
 official Air2stream calibration run.
 
-The active release namespace excludes withdrawn legacy outputs and rendered
+The active release namespace excludes withdrawn generated outputs and rendered
 manuscripts, but the self-contained Git-history bundle deliberately retains
 reachable deleted objects for chronology. It is not a byte-level purge. Those
 historical objects are provenance rather than current evidence and require a
 separate license/privacy review before public redistribution.
+
+Accordingly, the current archive profile is machine-marked local-owner evidence
+only: public redistribution and third-party transfer are disabled, and the public
+build/verification mode fails closed pending a byte-bound rights review. This
+local evidence profile must not be treated as a public software or data release.
 
 ## 8. Pre-opening results placeholder and stopping rule
 
@@ -577,6 +591,10 @@ committed Parquet artifact. Candidate, meteorological, and target-outcome reques
 are designed to retain exact raw evidence in a completed release. A DOI, public
 repository URL, data license, and verified author metadata have not yet been
 assigned and must be completed before submission.
+The three legacy CSV files identified as b1, s2, and p3 have unverified source,
+station metadata, measurement dictionary, and redistribution authorization. They
+are not current Route-A evidence and must not be redistributed publicly until
+those provenance and license questions are resolved.
 
 ## 10. Conclusion
 

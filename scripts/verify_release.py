@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Verify a ThermoRoute ZIP in an isolated temporary directory.
+"""Verify a local-only ThermoRoute evidence ZIP in an isolated directory.
 
 The default check is fast and network-free: validate the archive boundary, verify
 its checksum sidecar when present, extract it, and run the embedded provenance
 checker.  ``--run-data-smoke`` additionally executes stage 01 from the extracted
-copy, proving that the raw three-station inputs were actually shipped.
+copy, proving that the raw three-station inputs were actually shipped.  These
+archives are explicitly non-redistributable while source/rights review is open;
+public-distribution mode fails closed.
 """
 
 from __future__ import annotations
@@ -36,8 +38,8 @@ import zipfile
 
 
 ARCHIVE_ROOT = "thermoroute"
-PROFILE_FORMAT = "thermoroute.route-a-release-profile.v1"
-PROFILE_MARKER = "data_usgs/release_profile_v1.json"
+PROFILE_FORMAT = "thermoroute.route-a-local-evidence-profile.v2"
+PROFILE_MARKER = "evidence/release_profile_v2.json"
 CLAIM_AUDIT_PATH = "evidence/release_claim_audit_v1.json"
 GIT_BUNDLE_PATH = "evidence/route_a_compute_history.bundle"
 REPRODUCIBILITY_LOCK = "requirements-lock-py312-hashed.txt"
@@ -154,14 +156,83 @@ POSTOPEN_CLAIM_DOCUMENT = "paper/ThermoRoute_paper.md"
 PREOPEN_PROFILE = "PREOPEN_NOT_COMPLETE"
 POSTOPEN_PROFILE = "ROUTE_A_OPENED_COMPLETE"
 RELEASE_PROFILES = (PREOPEN_PROFILE, POSTOPEN_PROFILE)
+LOCAL_DISTRIBUTION = "LOCAL_EVIDENCE_ONLY"
+PUBLIC_DISTRIBUTION = "PUBLIC"
+DISTRIBUTION_MODES = (LOCAL_DISTRIBUTION, PUBLIC_DISTRIBUTION)
+LOCAL_EVIDENCE_DISTRIBUTION_FIELDS = {
+    "distribution_scope": "LOCAL_OWNER_EVIDENCE_ONLY",
+    "public_redistribution_authorized_by_this_release_evidence": False,
+    "third_party_transfer_authorized_by_this_release_evidence": False,
+    "contains_unverified_redistribution_material": True,
+    # This list is deliberately a minimum set of known blockers, not a rights
+    # inventory.  Public release requires review of every archive member by
+    # exact bytes; absence from this list is never evidence of permission.
+    "known_minimum_unverified_redistribution_scopes": [
+        "data/b1.csv",
+        "data/s2.csv",
+        "data/p3.csv",
+        "data_usgs/**",
+        GIT_BUNDLE_PATH,
+        "paper/agu_submission/agujournal2019.cls",
+    ],
+    "known_unverified_scopes_are_exhaustive": False,
+    "rights_review_required_for_every_archive_member_by_exact_sha256": True,
+    "repository_code_license_authorizes_data": False,
+    "public_profile_status": "BLOCKED_PENDING_RIGHTS_REVIEW",
+}
+_COMMON_PROFILE_ALLOWED_FIELDS = frozenset({
+    "format",
+    "profile",
+    "status",
+    *LOCAL_EVIDENCE_DISTRIBUTION_FIELDS,
+    "confirmatory_scoring_completed",
+    "directional_claims_allowed",
+    "supported_test_ids",
+    "supports_route_a_confirmatory_conclusions",
+    "labels_included",
+    "fully_hashed_lock_role",
+    "artifact_closure",
+    # These are added in later, ordered materialization stages.  Downstream
+    # verifiers require them when their evidence is consumed.
+    "git_history_evidence",
+    "claim_validation",
+})
+PREOPEN_PROFILE_ALLOWED_FIELDS = _COMMON_PROFILE_ALLOWED_FIELDS | {
+    "warning",
+    "forbidden_prefixes",
+    "forbidden_path_components",
+}
+PREOPEN_FORBIDDEN_PREFIXES = ("outputs/confirmatory/",)
+PREOPEN_FORBIDDEN_PATH_COMPONENTS = ("labels",)
+POSTOPEN_PROFILE_ALLOWED_FIELDS = _COMMON_PROFILE_ALLOWED_FIELDS | {
+    "inference_gate_claim_eligible",
+    "gross_plausibility_and_aggregate_sensitivity_gate_passed",
+    "opening_id",
+    "state_namespace",
+    "authorization",
+    "authorized_worktree_dirt_policy",
+    "trusted_replay_interface",
+}
 PREOPEN_WARNING = (
     "This evidence state contains no verified Route-A opening or target-label/result "
-    "evidence. It cannot support a Route-A confirmatory result or conclusion."
+    "evidence. It cannot support a Route-A confirmatory result or conclusion. "
+    "It is local owner evidence only and must not be redistributed."
 )
 HASHED_LOCK_ROLE = (
     "FULLY_HASHED_PACKAGE_PORTABILITY_AID; NOT_THE_OPENING_RUNTIME_IDENTITY "
     "UNLESS_AN_OPENING_AUTHORIZATION_EXPLICITLY_BINDS_THIS_FILE"
 )
+
+
+def assert_distribution_mode_allowed(distribution: str) -> None:
+    """Fail closed because no public redistribution-rights profile is complete."""
+    if distribution == PUBLIC_DISTRIBUTION:
+        raise ValueError(
+            "public distribution is blocked pending a byte-bound rights review; "
+            "the local evidence archive contains unverified redistribution material"
+        )
+    if distribution != LOCAL_DISTRIBUTION:
+        raise ValueError(f"unknown distribution mode: {distribution}")
 AUTHORIZATION_FORMAT = "thermoroute.route-a-opening-authorization.v1"
 AUTHORIZATION_TOP_LEVEL_FIELDS = frozenset({
     "format",
@@ -4837,7 +4908,7 @@ horizons 1/3/7 days, CPU-only deterministic execution, equal-station fixed-size
 bootstrap sampling, AdamW, the same declared maximum optimisation budget, and
 early-stopping rule. PlainMLP and PlainCausalTCN receive the seven declared
 history variables and masks. ThermoRoute additionally receives its declared
-train-fit/calendar-derived physical-anchor inputs. The feature ladder adds one
+train-fitted deviation reference and calendar-derived auxiliary inputs. The feature ladder adds one
 declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP, RHMEAN,
 DH, WDSP.
 
@@ -10551,6 +10622,7 @@ def build_release_profile(
             "format": PROFILE_FORMAT,
             "profile": PREOPEN_PROFILE,
             "status": PREOPEN_PROFILE,
+            **LOCAL_EVIDENCE_DISTRIBUTION_FIELDS,
             "confirmatory_scoring_completed": False,
             "directional_claims_allowed": False,
             "supported_test_ids": [],
@@ -10558,8 +10630,8 @@ def build_release_profile(
             "labels_included": False,
             "warning": PREOPEN_WARNING,
             "fully_hashed_lock_role": HASHED_LOCK_ROLE,
-            "forbidden_prefixes": ["outputs/confirmatory/"],
-            "forbidden_path_components": ["labels"],
+            "forbidden_prefixes": list(PREOPEN_FORBIDDEN_PREFIXES),
+            "forbidden_path_components": list(PREOPEN_FORBIDDEN_PATH_COMPONENTS),
             "artifact_closure": _category_bindings(root, categories),
         }
         return document, categories
@@ -10574,6 +10646,7 @@ def build_release_profile(
         "format": PROFILE_FORMAT,
         "profile": POSTOPEN_PROFILE,
         "status": POSTOPEN_PROFILE,
+        **LOCAL_EVIDENCE_DISTRIBUTION_FIELDS,
         **claim_status,
         "labels_included": True,
         "opening_id": authorization["opening_id"],
@@ -10633,11 +10706,7 @@ def materialize_release_profile(
         _copy_file(source_root, stage_root, path)
     marker = stage_root / PROFILE_MARKER
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(
-        json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
-        + "\n",
-        encoding="utf-8",
-    )
+    _write_canonical_json_file(marker, document)
     marker.chmod(0o644)
     return document
 
@@ -10719,11 +10788,7 @@ def materialize_claim_audit(stage_root: str | Path, profile: str) -> dict[str, A
         encoding="utf-8",
     )
     marker["claim_validation"] = _binding_for(stage_root, audit_path)
-    marker_path.write_text(
-        json.dumps(marker, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
-        + "\n",
-        encoding="utf-8",
-    )
+    _write_canonical_json_file(marker_path, marker)
     return audit
 
 
@@ -11022,11 +11087,7 @@ def materialize_git_history_evidence(
     if chronology_evidence is not None:
         evidence["prelabel_chronology"] = chronology_evidence
     marker["git_history_evidence"] = evidence
-    marker_path.write_text(
-        json.dumps(marker, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
-        + "\n",
-        encoding="utf-8",
-    )
+    _write_canonical_json_file(marker_path, marker)
     # This is a build-time trust boundary: the staged tree may execute Python
     # only after an independent replay of the just-created bundle proves that
     # every protected source/control byte is the committed byte.
@@ -14129,6 +14190,10 @@ def _verify_git_history_evidence(
         manifest = _load_json(manifest_path, label="release manifest")
         expected_release_evidence = {
             "profile": profile,
+            "distribution": {
+                key: marker.get(key)
+                for key in LOCAL_EVIDENCE_DISTRIBUTION_FIELDS
+            },
             "claim_validation": marker.get("claim_validation"),
             "git_history_evidence": dict(evidence),
             "reproducibility_lock": marker.get("artifact_closure", {}).get(
@@ -14758,13 +14823,35 @@ def validate_members(members: set[str]) -> None:
 
 
 def _read_profile_marker(root: Path) -> dict[str, Any]:
-    marker = _load_json(root / PROFILE_MARKER, label="release profile marker")
+    marker_path = root / PROFILE_MARKER
+    marker = _load_json(marker_path, label="release profile marker")
+    _require_canonical_json_file(
+        marker_path,
+        marker,
+        label="release profile marker",
+    )
     if marker.get("format") != PROFILE_FORMAT:
         raise ValueError("release carries an unsupported profile marker")
     if marker.get("profile") not in RELEASE_PROFILES:
         raise ValueError("release profile marker has an unknown profile")
+    allowed_fields = (
+        PREOPEN_PROFILE_ALLOWED_FIELDS
+        if marker.get("profile") == PREOPEN_PROFILE
+        else POSTOPEN_PROFILE_ALLOWED_FIELDS
+    )
+    unknown_fields = sorted(set(marker) - allowed_fields)
+    if unknown_fields:
+        raise ValueError(
+            "release profile marker has unknown top-level fields: "
+            + ", ".join(unknown_fields)
+        )
     if marker.get("status") != marker.get("profile"):
         raise ValueError("release profile status differs from its profile")
+    for key, expected in LOCAL_EVIDENCE_DISTRIBUTION_FIELDS.items():
+        if marker.get(key) != expected:
+            raise ValueError(
+                f"release is not an exact local-only evidence profile: {key}"
+            )
     return marker
 
 
@@ -14902,9 +14989,15 @@ def _verify_archived_revision_contract(
             raise ValueError("manifest does not bind compute/manuscript revision identities")
 
 
-def _run_trusted_replay(root: Path, marker: Mapping[str, Any]) -> None:
+def _assert_trusted_replay_interface(marker: Mapping[str, Any]) -> str:
+    """Validate the immutable replay command independently of its execution."""
     interface = marker.get("trusted_replay_interface")
-    expected_authorization = marker.get("authorization", {}).get("path")
+    authorization = marker.get("authorization")
+    if not isinstance(authorization, Mapping) or not isinstance(
+        authorization.get("path"), str
+    ):
+        raise ValueError("trusted replay authorization binding is malformed")
+    expected_authorization = str(authorization["path"])
     expected = {
         "entrypoint": "scripts/route_a_trusted_scorer.py",
         "arguments": ["--verify-release", "--authorization", expected_authorization],
@@ -14912,8 +15005,14 @@ def _run_trusted_replay(root: Path, marker: Mapping[str, Any]) -> None:
     }
     if interface != expected:
         raise ValueError("trusted replay interface is mutable or malformed")
+    return expected_authorization
+
+
+def _run_trusted_replay(root: Path, marker: Mapping[str, Any]) -> None:
+    expected_authorization = _assert_trusted_replay_interface(marker)
+    interface = marker["trusted_replay_interface"]
     entrypoint = _resolve_release_path(
-        root, expected["entrypoint"], label="trusted replay entrypoint"
+        root, interface["entrypoint"], label="trusted replay entrypoint"
     )
     authorization = _resolve_release_path(
         root, expected_authorization, label="trusted replay authorization"
@@ -14977,6 +15076,10 @@ def verify_release_profile(
             or marker.get("labels_included") is not False
             or marker.get("warning") != PREOPEN_WARNING
             or marker.get("fully_hashed_lock_role") != HASHED_LOCK_ROLE
+            or marker.get("forbidden_prefixes")
+            != list(PREOPEN_FORBIDDEN_PREFIXES)
+            or marker.get("forbidden_path_components")
+            != list(PREOPEN_FORBIDDEN_PATH_COMPONENTS)
         ):
             raise ValueError("pre-opening marker overstates its evidentiary status")
         forbidden = sorted(
@@ -15017,6 +15120,7 @@ def verify_release_profile(
     ):
         raise ValueError("opened-complete marker does not acknowledge opened labels")
     authorization_binding = marker.get("authorization")
+    _assert_trusted_replay_interface(marker)
     authorization = _add_binding(
         root, {}, "authorization", authorization_binding,
         label="release authorization",
@@ -15104,6 +15208,11 @@ def _canonical_json_bytes(value: object) -> bytes:
         )
         + "\n"
     ).encode("utf-8")
+
+
+def _write_canonical_json_file(path: Path, value: object) -> None:
+    """Write the sole accepted marker JSON representation."""
+    path.write_bytes(_canonical_json_bytes(value))
 
 
 def _inside(root: Path, relative: str, *, label: str) -> Path:
@@ -15346,7 +15455,9 @@ def verify_archive(
     *,
     run_data_smoke: bool = False,
     run_trusted_replay: bool = True,
+    distribution: str = LOCAL_DISTRIBUTION,
 ) -> str:
+    assert_distribution_mode_allowed(distribution)
     archive_path = archive_path.resolve()
     if not archive_path.is_file():
         raise FileNotFoundError(archive_path)
@@ -15410,7 +15521,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path, nargs="?")
     parser.add_argument("--run-data-smoke", action="store_true",
-                        help="also execute stage 01 inside the extracted archive")
+                        help="locally execute stage 01 on bundled legacy data")
+    parser.add_argument(
+        "--distribution",
+        choices=DISTRIBUTION_MODES,
+        default=LOCAL_DISTRIBUTION,
+        help=(
+            "LOCAL_EVIDENCE_ONLY is the sole enabled mode; PUBLIC fails closed "
+            "until redistribution rights are byte-bound"
+        ),
+    )
     parser.add_argument(
         "--materialize-profile",
         type=Path,
@@ -15439,6 +15559,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
+        assert_distribution_mode_allowed(args.distribution)
         if args.materialize_git_history is not None:
             if args.archive is not None or args.materialize_profile is not None:
                 raise ValueError("Git-history materialization is a standalone operation")
@@ -15501,11 +15622,12 @@ def main() -> int:
             args.archive,
             run_data_smoke=args.run_data_smoke,
             run_trusted_replay=True,
+            distribution=args.distribution,
         )
     except Exception as exc:
         print(f"release verification failed: {exc}", file=sys.stderr)
         return 1
-    print(f"release OK [{profile}]: {args.archive}"
+    print(f"LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; {profile}]: {args.archive}"
           f"{' + data smoke' if args.run_data_smoke else ''}")
     return 0
 

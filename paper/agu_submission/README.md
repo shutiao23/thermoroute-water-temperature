@@ -5,10 +5,11 @@ target. It is not yet a submission-ready package: empirical results are pending,
 the author block is deliberately invalid, and repository/DOI/funding/license
 metadata still require verified author input.
 
-`../ThermoRoute_paper.md` is the only prose source. `build_agu.py` converts its
-current abstract and numbered body, removes machine-only claim comments, supplies
-status-safe AGU front matter, and refuses known withdrawn legacy claims. It does
-not contain or infer numerical results.
+For the frozen PRE package, `../ThermoRoute_paper.md` is the only prose source.
+`build_agu.py` converts that exact hash-bound abstract and numbered body, removes
+machine-only claim comments, supplies status-safe AGU front matter, and refuses
+known withdrawn legacy claims. It refuses both build and `--check` after source
+hash drift or any opening state. It does not contain or infer numerical results.
 
 ## Rebuild and verify
 
@@ -31,10 +32,12 @@ unused track-changes style are intentionally excluded from this package.
    competing interests, repository URL, DOI, and redistribution/license language.
 2. Complete the frozen computation and one-time evidence chain; regenerate the
    canonical Markdown only through the verified receipt and claim renderer.
-3. After the completed evidence release is frozen, derive any result-bearing TeX
-   and PDF in a separate publication branch or export. Do not rewrite the completed
-   evidence branch, whose only canonical post-opening prose change is the
-   receipt-generated Markdown result layer. Run `--check`, compile, and visually
-   inspect every derived submission page.
+3. Implement and verify a separate, out-of-tree POST submission renderer before
+   deriving any result-bearing TeX or PDF. That renderer does not yet exist;
+   PRE-only `build_agu.py --check` is not a POST publication check. Do not rewrite
+   the completed evidence branch, whose only currently declared post-opening prose
+   change is the receipt-generated Markdown result layer. Bind the future
+   submission projection to its evidence inputs, then compile and visually inspect
+   every derived submission page.
 4. Reconcile every in-text reference with the final bibliography and current AGU
    submission requirements.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,6 +25,9 @@ PRODUCTION_INFERENCE_AMENDMENT = (
     ROOT / "protocols" / "route_a_inference_amendment_v2.json"
 )
 PRODUCTION_PROTOCOL_SEAL = ROOT / "protocols" / "route_a_protocol_seal_v1.json"
+PRODUCTION_LEGACY_SEMANTIC_NOTICE = (
+    ROOT / "protocols" / "legacy_three_site_semantics_notice_v1.md"
+)
 
 
 def _module():
@@ -50,6 +54,20 @@ def test_native_engineering_notices_are_frozen_claim_documents() -> None:
         assert registry["preopen_document_sha256"][relative] == _sha256(
             ROOT / relative
         )
+
+
+def test_every_required_preopen_document_matches_its_frozen_sha256() -> None:
+    registry = json.loads(PRODUCTION_REGISTRY.read_text(encoding="utf-8"))
+    required = registry["required_documents"]
+    frozen = registry["preopen_document_sha256"]
+    assert isinstance(required, list)
+    assert len(required) == len(set(required))
+    assert set(required) == set(frozen)
+    assert set(required) <= set(registry["documents"])
+    for relative in required:
+        path = ROOT / relative
+        assert path.is_file(), relative
+        assert frozen[relative] == _sha256(path), relative
 
 
 def _v1_registry(path: Path, *, status: str = "PENDING_SINGLE_OPENING") -> Path:
@@ -98,12 +116,26 @@ def _v2_fixture(tmp_path: Path) -> tuple[object, Path, dict, dict]:
         "path": "protocols/route_a_confirmatory_v1.json",
         "sha256": _sha256(protocol_path),
     }
+    legacy_notice_relative = registry["legacy_three_site_semantics_binding"][
+        "notice_path"
+    ]
+    legacy_notice_path = tmp_path / legacy_notice_relative
+    legacy_notice_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_notice_path.write_bytes(PRODUCTION_LEGACY_SEMANTIC_NOTICE.read_bytes())
+    legacy_notice_hash = _sha256(legacy_notice_path)
+    registry["legacy_three_site_semantics_binding"]["notice_sha256"] = (
+        legacy_notice_hash
+    )
     registry["documents"] = [
         "paper/main.md",
+        legacy_notice_relative,
         "outputs/confirmatory/route_a_*/trusted/report_v1.md",
     ]
-    registry["required_documents"] = ["paper/main.md"]
-    registry["preopen_document_sha256"] = {"paper/main.md": "0" * 64}
+    registry["required_documents"] = ["paper/main.md", legacy_notice_relative]
+    registry["preopen_document_sha256"] = {
+        "paper/main.md": "0" * 64,
+        legacy_notice_relative: legacy_notice_hash,
+    }
     for constraint in registry["permanent_constraints"]:
         constraint["claim"]["render_targets"] = ["paper/main.md"]
     for spec in registry["result_claim_specs"]:
@@ -658,6 +690,31 @@ def test_v2_pre_hash_closure_rejects_semantic_paraphrase_missed_by_lints(tmp_pat
     assert not any("LINT_UNSTRUCTURED_ROUTE_A_RESULT" in value for value in violations)
 
 
+def test_v2_legacy_semantic_lint_rejects_hash_synchronized_overclaim(tmp_path):
+    module, registry_path, registry, _ = _v2_fixture(tmp_path)
+    paper = tmp_path / "paper" / "main.md"
+    paper.write_text(
+        paper.read_text(encoding="utf-8") + "\n\nb1 drains toward s2.\n",
+        encoding="utf-8",
+    )
+    registry["preopen_document_sha256"]["paper/main.md"] = _sha256(paper)
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    violations = module.validate_claims(root=tmp_path, registry_path=registry_path)
+    assert any("LINT_LEGACY_THREE_SITE_HYDRAULIC_RELATION" in value for value in violations)
+    assert not any("DOCUMENT_INTEGRITY" in value for value in violations)
+
+
+def test_v2_legacy_semantic_notice_binding_matches_frozen_map(tmp_path):
+    module, registry_path, registry, _ = _v2_fixture(tmp_path)
+    registry["legacy_three_site_semantics_binding"]["notice_sha256"] = "f" * 64
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    with pytest.raises(
+        module.ClaimRegistryError,
+        match="legacy semantic notice binding differs",
+    ):
+        module._load_registry(registry_path)
+
+
 def test_v2_requires_every_canonical_document_and_permanent_disclosure(tmp_path):
     module, registry_path, registry, _ = _v2_fixture(tmp_path)
     extra = tmp_path / "paper" / "highlights.md"
@@ -709,11 +766,53 @@ def test_v2_orphan_namespace_and_partial_opening_are_indeterminate(tmp_path):
     with pytest.raises(module.ClaimRegistryError, match="without the canonical authorization"):
         module.resolve_phase(root=tmp_path, registry=registry)
     orphan.unlink()
+    orphan.parent.rmdir()
     _, state = _write_authorization(tmp_path, registry_document)
     intent = tmp_path / state["intent"]
     intent.parent.mkdir(parents=True)
     intent.write_text("{}\n", encoding="utf-8")
     with pytest.raises(module.ClaimRegistryError, match="intent/receipt completion is partial"):
+        module.resolve_phase(root=tmp_path, registry=registry)
+
+
+def test_v2_empty_or_symlink_namespace_and_authorization_are_not_pre(tmp_path):
+    module, registry_path, _, _ = _v2_fixture(tmp_path)
+    registry = module._load_registry(registry_path)
+    namespace_parent = tmp_path / "outputs" / "confirmatory"
+    empty_namespace = namespace_parent / f"route_a_{'b' * 24}"
+    empty_namespace.mkdir(parents=True)
+    with pytest.raises(module.ClaimRegistryError, match="without the canonical authorization"):
+        module.resolve_phase(root=tmp_path, registry=registry)
+    empty_namespace.rmdir()
+
+    broken_namespace = namespace_parent / f"route_a_{'c' * 24}"
+    broken_namespace.symlink_to(namespace_parent / "absent-target")
+    with pytest.raises(module.ClaimRegistryError, match="without the canonical authorization"):
+        module.resolve_phase(root=tmp_path, registry=registry)
+    broken_namespace.unlink()
+
+    fifo_namespace = namespace_parent / f"route_a_{'d' * 24}"
+    os.mkfifo(fifo_namespace)
+    with pytest.raises(module.ClaimRegistryError, match="without the canonical authorization"):
+        module.resolve_phase(root=tmp_path, registry=registry)
+    fifo_namespace.unlink()
+
+    authorization = (
+        tmp_path / registry["phase_resolver"]["canonical_authorization"]
+    )
+    authorization.parent.mkdir(parents=True)
+    authorization.symlink_to(authorization.parent / "absent-authorization")
+    with pytest.raises(module.ClaimRegistryError, match="authorization is not a file"):
+        module.resolve_phase(root=tmp_path, registry=registry)
+
+
+def test_v2_completed_opening_rejects_a_second_namespace(tmp_path, monkeypatch):
+    module, registry_path, registry_document, protocol = _v2_fixture(tmp_path)
+    _post_fixture(module, tmp_path, registry_document, protocol, monkeypatch)
+    registry = module._load_registry(registry_path)
+    extra = tmp_path / "outputs" / "confirmatory" / f"route_a_{'b' * 24}"
+    extra.mkdir(parents=True)
+    with pytest.raises(module.ClaimRegistryError, match="noncanonical namespace set"):
         module.resolve_phase(root=tmp_path, registry=registry)
 
 

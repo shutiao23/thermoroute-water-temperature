@@ -649,7 +649,6 @@ def build_frozen_confirmation_windows(
         training_order = _ordered_training_stations(metadata)
         ordered_sites = tuple(site for site in training_order if site in transforms.station_ids)
     C.STATIONS = ordered_sites
-    C.UPSTREAM = {site: None for site in ordered_sites}
 
     # Masks are shape-compatible only; no field is fitted through them because
     # scaler, climatology, imputer and anchor are all explicitly injected.

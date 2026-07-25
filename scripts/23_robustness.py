@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 23 — predeclared Route-A input-stress and OOD stratified evaluation.
+"""Stage 23 — predeclared Route-A synthetic input-corruption sensitivity.
 
 This is a development-period stress test, not a second blind test and not a
 counterfactual climate-impact model.  It evaluates the frozen ThermoRoute
@@ -275,7 +275,7 @@ def _write_report(summary: pd.DataFrame, path: Path, *, member_count: int,
                       (summary.cluster_level == "huc2")].sort_values(
                           ["scenario", "severity", "horizon"])
     lines = [
-        "# Route-A input robustness and OOD stratification",
+        "# Route-A synthetic input-corruption sensitivity and stratification",
         "",
         f"Run `{run_id}`; {member_count}-member ensemble mean; {n_stations} stable "
         f"USGS site numbers; {n_keys:,} common forecast keys per condition.",
@@ -283,11 +283,12 @@ def _write_report(summary: pd.DataFrame, path: Path, *, member_count: int,
         "This is a previously inspected 2019–2020 development evaluation. Positive "
         "ΔRMSE means worse performance under stress. Perturbations modify only "
         "issue-time/history inputs; y and forecast keys are fixed. Air/flow shifts "
-        "are sensitivity probes, not causal climate projections.",
+        "are synthetic data-corruption sensitivity probes, not causal climate "
+        "projections, physically coherent scenarios, or deployment-safety tests.",
         "Missingness targets optional forcing channels and preserves the mandatory "
-        "issue-time WTEMP safety anchor. Sensor noise is Gaussian in each feature's "
+        "issue-time WTEMP deviation reference. Sensor noise is Gaussian in each feature's "
         "frozen train-standardised space (after the declared log or signed-log transform); noisy issue "
-        "WTEMP is propagated into the damped anchor rather than leaving inconsistent "
+        "WTEMP is propagated into the damped reference rather than leaving inconsistent "
         "side inputs. TEMP shifts are additive train-SD offsets, while FLOW shifts "
         "are multipliers in original signed physical flow units (observed negative "
         "values remain negative, while their physical or measurement semantics "

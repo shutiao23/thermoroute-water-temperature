@@ -1076,7 +1076,7 @@ horizons 1/3/7 days, CPU-only deterministic execution, equal-station fixed-size
 bootstrap sampling, AdamW, the same declared maximum optimisation budget, and
 early-stopping rule. PlainMLP and PlainCausalTCN receive the seven declared
 history variables and masks. ThermoRoute additionally receives its declared
-train-fit/calendar-derived physical-anchor inputs. The feature ladder adds one
+train-fitted deviation reference and calendar-derived auxiliary inputs. The feature ladder adds one
 declared variable at a time in the fixed order WTEMP, FLOW, TEMP, PRCP, RHMEAN,
 DH, WDSP.
 

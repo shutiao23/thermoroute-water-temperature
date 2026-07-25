@@ -21,6 +21,7 @@ FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 EXCLUDED_NAMES = {".DS_Store"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 FIXED_MANIFEST_UTC = "1980-01-01T00:00:00+00:00"
+PROFILE_MARKER = "evidence/release_profile_v2.json"
 
 
 def _is_canonical_opened_state_member(relative: PurePosixPath) -> bool:
@@ -97,7 +98,7 @@ def create_deterministic_zip(
         if "generated_utc" not in document:
             raise ValueError("release manifest lacks generated_utc")
         document["generated_utc"] = FIXED_MANIFEST_UTC
-        profile_marker = source / "data_usgs" / "release_profile_v1.json"
+        profile_marker = source / PROFILE_MARKER
         if profile_marker.is_file():
             profile = json.loads(profile_marker.read_text(encoding="utf-8"))
             revision = profile.get("authorized_worktree_dirt_policy")
@@ -105,6 +106,20 @@ def create_deterministic_zip(
                 document["release_revision"] = revision
             document["release_evidence"] = {
                 "profile": profile.get("profile"),
+                "distribution": {
+                    key: profile.get(key)
+                    for key in (
+                        "distribution_scope",
+                        "public_redistribution_authorized_by_this_release_evidence",
+                        "third_party_transfer_authorized_by_this_release_evidence",
+                        "contains_unverified_redistribution_material",
+                        "known_minimum_unverified_redistribution_scopes",
+                        "known_unverified_scopes_are_exhaustive",
+                        "rights_review_required_for_every_archive_member_by_exact_sha256",
+                        "repository_code_license_authorizes_data",
+                        "public_profile_status",
+                    )
+                },
                 "claim_validation": profile.get("claim_validation"),
                 "git_history_evidence": profile.get("git_history_evidence"),
                 "reproducibility_lock": profile.get("artifact_closure", {}).get(

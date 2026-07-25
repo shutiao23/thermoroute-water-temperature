@@ -9,9 +9,10 @@ historical repository objects that discussed them.
 ## Correct interpretation
 
 - `b1`, `s2`, and `p3` are ordinary monitoring stations, not reservoirs.
-- Their identifiers, file order, display order, contemporaneous correlations,
-  and water-temperature or flow histories establish no upstream/downstream
-  ordering, hydraulic connectivity, regulation status, or travel time.
+  No verified metadata establish any upstream/downstream ordering, hydraulic
+  connectivity, regulation status, or travel time among b1, s2, and p3. Their
+  identifiers, file order, display order, contemporaneous correlations,
+  and water-temperature or flow histories do not supply such metadata.
 - The repository has no verified station metadata that would support a river
   graph or a physical propagation claim for these three sites.
 - The legacy three-site files are not current Route-A evidence. Their source,

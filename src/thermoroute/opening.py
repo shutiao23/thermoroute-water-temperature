@@ -6681,10 +6681,9 @@ def _confirmation_tabular_design(
     # already-validated cohort order before constructing any rows.
     from . import config as C
 
-    previous_stations, previous_upstream = C.STATIONS, C.UPSTREAM
+    previous_stations = C.STATIONS
     try:
         C.STATIONS = tuple(station_order)
-        C.UPSTREAM = {site: None for site in station_order}
         tabular = F.build_tabular(
             imputed,
             int(horizon),
@@ -6695,7 +6694,7 @@ def _confirmation_tabular_design(
             include_missingness=True,
         )
     finally:
-        C.STATIONS, C.UPSTREAM = previous_stations, previous_upstream
+        C.STATIONS = previous_stations
     target = expected[expected.horizon.eq(int(horizon))].copy()
     target = target.rename(columns={"y_true": "expected_y"})
     tabular["site_id"] = tabular.site_id.astype(str)

@@ -24,7 +24,6 @@ from thermoroute import datasets as DS
 def _legacy_monitoring_station_registry(monkeypatch):
     """Keep the legacy fixture aligned with its three ordinary station IDs."""
     monkeypatch.setattr(C, "STATIONS", tuple(C.RAW_FILES))
-    monkeypatch.setattr(C, "UPSTREAM", {station: None for station in C.RAW_FILES})
 
 
 def _bundle():

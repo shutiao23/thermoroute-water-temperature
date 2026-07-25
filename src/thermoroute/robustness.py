@@ -1,8 +1,8 @@
-"""Auditable input-stress and out-of-distribution evaluation utilities.
+"""Auditable synthetic input-corruption and outcome-stratification utilities.
 
 The functions in this module deliberately separate three questions:
 
-* *Input robustness* changes only information available at or before the issue
+* *Input-corruption sensitivity* changes only information available at or before the issue
   time (missing forcings, recent outages, sensor noise, and covariate shifts).
 * *Outcome stratification* evaluates the unchanged forecasts/labels on heat,
   low-flow, and high-flow subsets.  It is not presented as a causal experiment.
@@ -56,8 +56,10 @@ class PerturbationSpec:
         Multiplicative shift to FLOW in its original signed physical units.
 
     By default missingness affects forcing channels but preserves the mandatory
-    issue-time WTEMP safety anchor.  Sensor noise includes WTEMP and synchronises
-    the damped anchor to the noisy issue observation; it never changes future y.
+    issue-time WTEMP deviation reference. Sensor noise includes WTEMP and
+    synchronises the damped reference to the noisy issue observation; it never
+    changes future y. These scenarios are synthetic data-corruption probes, not
+    physical climate projections or deployment-safety tests.
     """
 
     scenario: str
@@ -128,7 +130,7 @@ def _default_variables(spec: PerturbationSpec, var_names: Sequence[str]) -> tupl
     if spec.variables is not None:
         selected = tuple(spec.variables)
     elif spec.scenario in {"missing_rate", "missing_block"}:
-        # WTEMP_t is the declared safety anchor, not an optional forcing sensor.
+        # WTEMP_t is the declared deviation reference, not an optional forcing sensor.
         selected = tuple(v for v in var_names if v != "WTEMP")
     elif spec.scenario == "sensor_noise":
         selected = tuple(var_names)

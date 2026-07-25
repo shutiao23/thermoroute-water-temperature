@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Build one of the two explicit Route-A release profiles.
+# Build one of the two explicit Route-A local evidence profiles.
 #
-# PREOPEN_NOT_COMPLETE (default) is development evidence only.  It contains no
+# PREOPEN_NOT_COMPLETE (default) is local development evidence only. It contains no
 # old active outputs, confirmation namespace or labels and cannot support a
 # Route-A confirmatory conclusion.  The separately verified full-history bundle
 # intentionally retains reachable deleted Git objects for chronology; this is not
-# a byte-level purge and does not make those objects current evidence.
+# a byte-level purge and does not make those objects current evidence. The
+# archive contains material with unresolved redistribution rights and MUST NOT
+# be transferred to a third party or published.
 #
 # ROUTE_A_OPENED_COMPLETE is accepted only when a production authorization and
 # its canonical one-shot namespace close over every model, pre-label input, raw
@@ -23,9 +25,10 @@ fi
   'import sys; v=sys.version_info[:2]; sys.exit(f"Route A requires Python 3.12, got {v[0]}.{v[1]}") if v != (3, 12) else None'
 PROFILE="PREOPEN_NOT_COMPLETE"
 AUTHORIZATION=""
+DISTRIBUTION=""
 
 usage() {
-  echo "usage: bash scripts/make_release_archive.sh [--profile PREOPEN_NOT_COMPLETE|ROUTE_A_OPENED_COMPLETE] [--authorization PATH]" >&2
+  echo "usage: bash scripts/make_release_archive.sh [--profile PREOPEN_NOT_COMPLETE|ROUTE_A_OPENED_COMPLETE] [--authorization PATH] [--distribution LOCAL_EVIDENCE_ONLY|PUBLIC]" >&2
 }
 
 while (( $# > 0 )); do
@@ -40,6 +43,11 @@ while (( $# > 0 )); do
       AUTHORIZATION="$2"
       shift 2
       ;;
+    --distribution)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      DISTRIBUTION="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -50,6 +58,27 @@ while (( $# > 0 )); do
       ;;
   esac
 done
+
+if [[ -z "$DISTRIBUTION" ]]; then
+  echo "archive refused: explicit --distribution is required" >&2
+  echo "use LOCAL_EVIDENCE_ONLY only on the owner-controlled machine" >&2
+  exit 2
+fi
+
+case "$DISTRIBUTION" in
+  LOCAL_EVIDENCE_ONLY)
+    ;;
+  PUBLIC)
+    echo "archive refused: PUBLIC distribution is blocked pending a byte-bound rights review" >&2
+    echo "the local evidence profile contains unverified redistribution material" >&2
+    exit 2
+    ;;
+  *)
+    echo "archive refused: unknown distribution mode: $DISTRIBUTION" >&2
+    usage
+    exit 2
+    ;;
+esac
 
 case "$PROFILE" in
   PREOPEN_NOT_COMPLETE)
@@ -154,7 +183,7 @@ done
 
 VERSION="$("$THERMOROUTE_PYTHON" -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
 DIST_DIR="$ROOT_DIR/dist"
-OUT="$DIST_DIR/thermoroute_release_v${VERSION}_${PROFILE}.zip"
+OUT="$DIST_DIR/thermoroute_LOCAL_EVIDENCE_DO_NOT_DISTRIBUTE_v${VERSION}_${PROFILE}.zip"
 SHA_FILE="${OUT}.sha256"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/thermoroute-release.XXXXXX")"
 STAGE="$TMP_ROOT/thermoroute"
@@ -208,6 +237,7 @@ PROFILE_ARGS=(
   --materialize-profile "$STAGE"
   --source-root "$ROOT_DIR"
   --profile "$PROFILE"
+  --distribution "$DISTRIBUTION"
 )
 if [[ -n "$AUTHORIZATION" ]]; then
   PROFILE_ARGS+=(--authorization "$AUTHORIZATION")
@@ -217,9 +247,10 @@ PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "${PRO
 # binding before any Python copied into the stage is allowed to execute.
 PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
   --materialize-git-history "$STAGE" --source-root "$ROOT_DIR" \
-  --profile "$PROFILE"
+  --profile "$PROFILE" --distribution "$DISTRIBUTION"
 PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py \
-  --materialize-claim-audit "$STAGE" --profile "$PROFILE"
+  --materialize-claim-audit "$STAGE" --profile "$PROFILE" \
+  --distribution "$DISTRIBUTION"
 
 # A pre-opening archive must have exactly one outputs artifact: its provenance
 # manifest.  A post-opening archive receives only the canonical namespace files
@@ -251,9 +282,11 @@ SIZE="$(ls -lh "$OUT" | awk '{print $5}')"
 
 # Production verification always invokes the fixed trusted replay interface for
 # ROUTE_A_OPENED_COMPLETE.  PREOPEN_NOT_COMPLETE never touches outcome code/data.
-PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "$OUT"
+PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/verify_release.py "$OUT" \
+  --distribution "$DISTRIBUTION"
 
 echo "profile $PROFILE"
+echo "scope   LOCAL_OWNER_EVIDENCE_ONLY — DO NOT DISTRIBUTE"
 echo "built  $OUT  ($SIZE)"
 echo "sha256 $SHA"
 echo "checksum $SHA_FILE"

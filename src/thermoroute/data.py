@@ -374,7 +374,6 @@ def prepare_dataset_from_panel(
     stations = tuple(sorted(str(s) for s in panel.site_id.unique()))
     if set_global_stations:
         C.STATIONS = stations
-        C.UPSTREAM = {s: None for s in stations}
     for v in C.ALL_VARS:
         if v in panel.columns:
             panel[f"{v}_observed"] = panel[v].notna()

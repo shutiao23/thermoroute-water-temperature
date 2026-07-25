@@ -69,6 +69,6 @@ cache reuse under the corrected source identity.
 ## Unrelated legacy-site semantics
 
 This engineering correction has no bearing on the legacy `b1`, `s2`, and `p3`
-files.  Those identifiers remain ordinary monitoring stations, not reservoirs
-or a cascade, and imply no upstream/downstream, regulation, hydraulic
-connection, or travel-time relationship.
+files. Those identifiers remain ordinary monitoring stations, not reservoirs. No
+verified metadata establish any upstream/downstream ordering, hydraulic
+connectivity, regulation status, or travel time among b1, s2, and p3.

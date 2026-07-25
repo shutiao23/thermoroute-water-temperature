@@ -944,7 +944,8 @@ def main():
                     help="equal-station bootstrap (main protocol) or natural row-frequency sensitivity")
     ap.add_argument("--ablations", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--air2stream", action="store_true", default=False,
-                    help=f"add {AIR2STREAM_DISPLAY_NAME} physical references (slower)")
+                    help=f"add {AIR2STREAM_DISPLAY_NAME} unofficial empirical "
+                         "comparators (slower)")
     ap.add_argument(
         "--out_predictions",
         default=Path(STAGE09_ARTIFACT_PATHS["predictions"]).name,

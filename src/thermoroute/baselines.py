@@ -1,5 +1,5 @@
-"""Baseline forecasters, from the unbeatable-looking persistence floor up to a
-half-physical thermal-relaxation model and LightGBM.
+"""Baseline forecasters, from persistence through an empirical
+relaxation-style recurrence and LightGBM.
 
 Each ``run_*`` returns rows in the canonical predictions schema (``results.py``)
 so baselines and ThermoRoute are scored by exactly the same code path.
@@ -90,7 +90,7 @@ def run_ridge(tabs, feature_set: str = "V3") -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- #
-# air2stream-lite: half-physical thermal relaxation (constant rate, flow-modulated)
+# air2stream-lite: empirical relaxation recurrence (constant rate, flow-modulated)
 # --------------------------------------------------------------------------- #
 def _fit_air2stream(W, TEMP, logQz):
     """Calibrate {a,b,k0,k1} on 1-step-ahead MSE.
@@ -111,7 +111,7 @@ def _fit_air2stream(W, TEMP, logQz):
 
 def run_air2stream(panel, masks, clim_air) -> pd.DataFrame:
     """Roll the calibrated relaxation forward h steps using climatological air
-    temperature for the future (a fair Track-H half-physical baseline)."""
+    temperature for the future (an unofficial empirical Track-H comparator)."""
     out = []
     tr_mask = masks.train
     for st in C.STATIONS:
@@ -146,7 +146,7 @@ def run_air2stream(panel, masks, clim_air) -> pd.DataFrame:
             valid = ~np.isnan(yhat) & ~np.isnan(tabish["y"].to_numpy(float))
             tabish = tabish[valid]
             out.append(_base_cols(tabish, h, "Air2streamLite",
-                                  yhat[valid], feature_set="phys"))
+                                  yhat[valid], feature_set="legacy_empirical"))
     return pd.concat(out, ignore_index=True)
 
 

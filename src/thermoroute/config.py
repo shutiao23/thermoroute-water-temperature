@@ -69,15 +69,14 @@ LOG1P_VARS: tuple[str, ...] = ("FLOW", "PRCP")
 
 
 # --------------------------------------------------------------------------- #
-# Legacy three-monitoring-site ordering (not used by Route A)
+# Legacy three-monitoring-site semantics (not used by Route A)
 # --------------------------------------------------------------------------- #
 # b1, s2 and p3 are ordinary monitoring-site identifiers, not reservoirs.  No
 # verified station metadata in this repository establishes a directed hydraulic
-# connection or travel time between them, so the executable configuration does
-# not encode one.  Route A likewise has no river graph and makes no routing claim.
-UPSTREAM: Mapping[str, str | None] = {"b1": None, "s2": None, "p3": None}
-FLOW_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {}
-THERMAL_TRAVEL_DAYS: Mapping[tuple[str, str], int] = {}
+# connection, ordering, regulation status, or travel time between them.  The
+# executable configuration therefore exposes no network or travel-time mapping;
+# Route A likewise has no river graph and makes no routing claim.
+LEGACY_NETWORK_METADATA_VERIFIED = False
 # WLEVEL metadata/datum comparability is unverified, so it must be standardised
 # per station and may not be interpreted as reservoir surface elevation.
 
@@ -121,7 +120,7 @@ SPLIT = TimeSplit()
 # variable schema and never consumes WLEVEL.
 # --------------------------------------------------------------------------- #
 FEATURE_SETS: Mapping[str, tuple[str, ...]] = {
-    "V1": ("WTEMP",),                                         # thermal inertia only
+    "V1": ("WTEMP",),                                         # WTEMP history only
     "V2": ("WTEMP", "FLOW", "WLEVEL", "TEMP", "PRCP"),        # + hydro + air temp
     "V3": ALL_VARS,                                           # + WDSP, RHMEAN, DH
 }
@@ -158,7 +157,7 @@ class TrainConfig:
     patience: int = 12
     grad_clip: float = 1.0
     lambda_event: float = 0.3       # weight on the exceedance BCE
-    lambda_residual: float = 1e-2   # L1 keeping the net close to the physics prior
+    lambda_residual: float = 1e-2   # L1 keeping the net close to the frozen anchor
     # Serialization compatibility only: neural quantiles are ordered by
     # construction, so the corresponding loss term is identically zero.
     lambda_crossing: float = 1.0

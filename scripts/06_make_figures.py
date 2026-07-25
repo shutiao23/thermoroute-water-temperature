@@ -2,8 +2,8 @@
 """Stage 6 — publication figures (300 dpi PNG + vector PDF) from saved artifacts.
 
 Reads the processed panel, the predictions table, the scores table and the
-mechanism arrays; writes figures to ``outputs/figures/``.  Every figure guards
-its own inputs so a partial pipeline still produces what it can.
+latent-component diagnostic arrays; writes figures to ``outputs/figures/``.
+Every figure guards its own inputs so a partial pipeline still produces what it can.
 
 Run:  PYTHONPATH=src python3 scripts/06_make_figures.py
 """
@@ -27,6 +27,13 @@ from matplotlib.patches import FancyBboxPatch
 
 from thermoroute import config as C
 
+from _legacy_site_semantics import (
+    LegacySemanticPolicy,
+    find_legacy_semantic_violations,
+    load_legacy_semantic_policy,
+    retire_legacy_figure_outputs,
+)
+
 plt.rcParams.update({
     "figure.dpi": 120, "savefig.dpi": 300, "font.size": 9,
     "axes.spines.top": False, "axes.spines.right": False,
@@ -34,6 +41,7 @@ plt.rcParams.update({
 })
 
 FIG = C.FIGURES
+_SEMANTIC_POLICY: LegacySemanticPolicy | None = None
 STCOLOR = {"b1": "#185FA5", "s2": "#0F6E56", "p3": "#993C1D"}
 MODEL_ORDER = ["Persistence", "Climatology", "DampedPersistence", "Air2streamLite",
                "Ridge", "LightGBM", "GRU", "ThermoRoute"]
@@ -44,6 +52,37 @@ MODEL_COLOR = {"Persistence": "#888780", "Climatology": "#B4B2A9",
 
 
 def _save(fig, name):
+    if _SEMANTIC_POLICY is None:
+        raise RuntimeError("legacy semantic policy was not initialized")
+    rendered_texts = [
+        text_object.get_text()
+        for text_object in fig.findobj(match=matplotlib.text.Text)
+        if text_object.get_text().strip()
+    ]
+    # Scan individual objects and the visible figure text as one context.  A
+    # title plus three separately drawn labels must not evade a sentence-level
+    # lint merely because Matplotlib stores them in different Text instances.
+    for rendered in (*rendered_texts, " ".join(rendered_texts)):
+        violations = find_legacy_semantic_violations(rendered, _SEMANTIC_POLICY)
+        if violations:
+            details = "; ".join(
+                f"{violation.lint_id}: {violation.excerpt}"
+                for violation in violations
+            )
+            raise RuntimeError(
+                f"legacy semantic guard refused figure {name}: {details}"
+            )
+    if name == "fig1_monitoring_site_identifiers" and any(
+        isinstance(
+            artist,
+            (matplotlib.patches.ConnectionPatch, matplotlib.patches.FancyArrowPatch),
+        )
+        for artist in fig.findobj()
+    ):
+        raise RuntimeError(
+            "legacy semantic guard refused figure topology geometry: "
+            "monitoring-site identifier figure cannot contain directed arrows"
+        )
     fig.savefig(FIG / f"{name}.png", bbox_inches="tight")
     fig.savefig(FIG / f"{name}.pdf", bbox_inches="tight")
     plt.close(fig)
@@ -59,9 +98,31 @@ def load():
         if (C.TABLES / "scores_all.csv").exists()
         else None
     )
-    expl = np.load(C.TABLES / "explain.npz", allow_pickle=True) \
+    expl = np.load(C.TABLES / "explain.npz", allow_pickle=False) \
         if (C.TABLES / "explain.npz").exists() else None
+    if expl is not None:
+        _validate_explain_contract(expl)
     return panel, pred, scores, expl
+
+
+def _validate_explain_contract(expl) -> None:
+    expected_scalars = {
+        "semantic_contract_version": (
+            "thermoroute.legacy-monitoring-latent-diagnostics.v1"
+        ),
+        "site_classification": "ORDINARY_MONITORING_STATIONS_NOT_RESERVOIRS",
+        "verified_network_metadata": False,
+        "topology_inference_allowed": False,
+        "physical_interpretation_allowed": False,
+        "causal_interpretation_allowed": False,
+        "analysis_role": "SINGLE_SEED_DESCRIPTIVE_DIAGNOSTIC",
+        "diagnostic_seed": 0,
+    }
+    for key, expected in expected_scalars.items():
+        if key not in expl or expl[key].shape != () or expl[key].item() != expected:
+            raise RuntimeError(f"explain.npz semantic contract mismatch: {key}")
+    if "site_ids" not in expl or tuple(expl["site_ids"].tolist()) != tuple(C.STATIONS):
+        raise RuntimeError("explain.npz semantic contract mismatch: site_ids")
 
 
 def load_legacy_site_panel() -> pd.DataFrame:
@@ -135,7 +196,7 @@ def fig_study_area(panel):
         med.set_color("white")
     axR.set_ylabel("water temperature (°C)")
     axR.grid(axis="y", alpha=0.25)
-    _save(fig, "fig1_study_area")
+    _save(fig, "fig1_monitoring_site_identifiers")
 
 
 def fig_series_climatology(panel):
@@ -242,7 +303,7 @@ def fig_trajectory(pred):
     ax.set_ylabel("WTEMP (°C)")
     ax.legend(fontsize=7, frameon=False, ncol=2)
     ax.grid(alpha=0.25)
-    _save(fig, "fig5_blindtest_trajectory")
+    _save(fig, "fig5_development_trajectory")
 
 
 def fig_reliability(scores):
@@ -282,9 +343,9 @@ def fig_lag_maps(expl):
         ax.set_xlabel("lag (days)")
         if hi == 0:
             ax.set_yticks(range(len(vn))); ax.set_yticklabels(vn)
-    fig.suptitle("Router variable×lag importance by horizon", y=1.02)
+    fig.suptitle("Router variable×lag allocations by horizon (diagnostic)", y=1.02)
     fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02, label="weight share")
-    _save(fig, "fig7_lag_importance")
+    _save(fig, "fig7_router_allocation")
 
 
 def fig_dynamic_kappa(expl):
@@ -300,17 +361,17 @@ def fig_dynamic_kappa(expl):
         mk = [kappa[sel][idx == b].mean() for b in range(len(bins) - 1)]
         a1.plot(mx, mk, "-o", ms=3, color=STCOLOR[st], label=st)
     a1.set_xlabel("standardised log-flow z(logFLOW)")
-    a1.set_ylabel("relaxation rate κ (per day)")
-    a1.set_title("a  κ vs flow regime"); a1.legend(fontsize=7, frameon=False)
+    a1.set_ylabel("learned decay coefficient κ")
+    a1.set_title("a  Latent κ by flow stratum"); a1.legend(fontsize=7, frameon=False)
     a1.grid(alpha=0.25)
     for i, st in enumerate(C.STATIONS):
         sel = station == i
         mk = [kappa[sel][months[sel] == m].mean() for m in range(1, 13)]
         a2.plot(range(1, 13), mk, "-o", ms=3, color=STCOLOR[st], label=st)
     a2.set_xticks([1, 4, 7, 10]); a2.set_xlabel("month")
-    a2.set_ylabel("relaxation rate κ"); a2.set_title("b  κ seasonality")
+    a2.set_ylabel("learned decay coefficient κ"); a2.set_title("b  Latent κ by month")
     a2.grid(alpha=0.25)
-    _save(fig, "fig8_dynamic_kappa")
+    _save(fig, "fig8_latent_decay_coefficient")
 
 
 def fig_loso(scores):
@@ -330,9 +391,9 @@ def fig_loso(scores):
     ax.bar(xs + width / 2, lr, width, color="#993C1D", label="LOSO (warm start)")
     ax.set_xticks(xs); ax.set_xticklabels(list(C.STATIONS))
     ax.set_ylabel("RMSE at h=7 d (°C)")
-    ax.set_title("Leave-one-station-out spatial transfer")
+    ax.set_title("History-dependent station holdout (not zero-shot transfer)")
     ax.legend(fontsize=8, frameon=False); ax.grid(axis="y", alpha=0.25)
-    _save(fig, "fig9_loso")
+    _save(fig, "fig9_history_dependent_station_holdout")
 
 
 def fig_flow_lagmaps(expl):
@@ -349,9 +410,9 @@ def fig_flow_lagmaps(expl):
         ax.set_xlabel("lag (days)")
         if k == 0:
             ax.set_yticks(range(len(vn))); ax.set_yticklabels(vn)
-    fig.suptitle("Router lag importance by flow regime (h = 3 d)", y=1.02)
+    fig.suptitle("Router allocations by flow stratum (h = 3 d; diagnostic)", y=1.02)
     fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02, label="weight share")
-    _save(fig, "fig10_flow_lagmaps")
+    _save(fig, "fig10_flow_stratified_router")
 
 
 def parse_args() -> argparse.Namespace:
@@ -361,7 +422,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "render only the legacy monitoring-site identifier/distribution "
-            "figure; do not touch any historical result figure"
+            "figure after retiring withdrawn semantic filenames; do not generate "
+            "any other result figure"
         ),
     )
     parser.add_argument(
@@ -374,10 +436,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main():
-    global FIG
+    global FIG, _SEMANTIC_POLICY
     args = parse_args()
     FIG = args.output_dir.resolve()
     FIG.mkdir(parents=True, exist_ok=True)
+    retired = retire_legacy_figure_outputs(FIG)
+    if retired:
+        print(f"retired {len(retired)} withdrawn legacy figure files", flush=True)
+    _SEMANTIC_POLICY = load_legacy_semantic_policy(ROOT)
     if args.fig1_only:
         fig_study_area(load_legacy_site_panel())
         print("fig1 complete", flush=True)

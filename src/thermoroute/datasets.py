@@ -1,8 +1,9 @@
 """Windowed tensors for the sequence models, with a built-in leakage guard.
 
 A sample for station *s* issued on day *t* carries a ``CONTEXT_LENGTH`` history
-ending at *t* (features), the raw water temperature and forcings at *t* (physics
-anchor), the deterministic climatology at *t* and at every target *t+h*, and the
+ending at *t* (features), the raw water temperature and environmental covariates
+at *t* (auxiliary inputs), the deterministic climatology at *t* and at every
+target *t+h*, and the
 targets ``WTEMP_{t+h}``.  ``feature_max_time == issue_time == t`` is asserted, so
 no future observation can ever enter the inputs.
 """
@@ -20,15 +21,18 @@ from . import config as C
 from . import data as D
 from . import features as F
 
-PHYS_FORCINGS = ("TEMP", "RHMEAN", "WDSP", "DH")     # drive the equilibrium T^eq
+# Historical internal identifier retained for checkpoint/schema compatibility.
+# These are environmental covariates for a statistical recurrence, not a
+# verified energy-balance or heat-transfer model.
+PHYS_FORCINGS = ("TEMP", "RHMEAN", "WDSP", "DH")
 
 
 @dataclass(frozen=True)
 class FeatureSchema:
     """One auditable declaration of every input path exposed to ThermoRoute.
 
-    Sequence channels, physics forcings, κ modulators and regime-gate channels
-    are all derived from ``variables``.  A V1 model can therefore no longer
+    Sequence channels, environmental covariates, κ modulators and regime-gate
+    channels are all derived from ``variables``.  A V1 model can therefore no longer
     receive FLOW/TEMP/PRCP through a hidden side input while claiming to use
     WTEMP only.
     """
@@ -79,7 +83,7 @@ class WindowedData:
     issue_date: np.ndarray   # [N]        datetime64
     target_date: np.ndarray  # [N, H]     datetime64; each remains in split
     target_valid: np.ndarray # [N, H]     independently observed/in-bound target
-    damped_prior: np.ndarray # [N, H]     fixed train-fit safety anchor
+    damped_prior: np.ndarray # [N, H]     fixed train-fit deviation reference
     var_names: tuple[str, ...]
     horizons: tuple[int, ...]
     scaler: D.StandardScalerPerStation

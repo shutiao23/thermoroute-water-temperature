@@ -2782,7 +2782,7 @@ def _materialize_claim_fixture(verifier, stage: Path, profile: str) -> None:
     marker_path = stage / verifier.PROFILE_MARKER
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
     marker["claim_validation"] = verifier._binding_for(stage, audit_path)
-    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    marker_path.write_bytes(verifier._canonical_json_bytes(marker))
 
 
 def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]:
@@ -5749,7 +5749,7 @@ def test_archive_python_is_not_executed_before_git_source_binding(tmp_path):
     marker_path = stage / verifier.PROFILE_MARKER
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
     marker["claim_validation"] = verifier._binding_for(stage, audit_path)
-    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    marker_path.write_bytes(verifier._canonical_json_bytes(marker))
 
     with pytest.raises(ValueError, match="Git/preregistration evidence"):
         verifier.verify_release_profile(stage, run_trusted_replay=True)
@@ -5991,9 +5991,72 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     assert document["supports_route_a_confirmatory_conclusions"] is False
     assert document["labels_included"] is False
     assert "cannot support" in document["warning"]
+    assert document["distribution_scope"] == "LOCAL_OWNER_EVIDENCE_ONLY"
+    assert (
+        document["public_redistribution_authorized_by_this_release_evidence"]
+        is False
+    )
+    assert (
+        document["third_party_transfer_authorized_by_this_release_evidence"]
+        is False
+    )
+    assert document["contains_unverified_redistribution_material"] is True
+    assert set(document["known_minimum_unverified_redistribution_scopes"]) == {
+        "data/b1.csv",
+        "data/s2.csv",
+        "data/p3.csv",
+        "data_usgs/**",
+        verifier.GIT_BUNDLE_PATH,
+        "paper/agu_submission/agujournal2019.cls",
+    }
+    assert document["known_unverified_scopes_are_exhaustive"] is False
+    assert (
+        document["rights_review_required_for_every_archive_member_by_exact_sha256"]
+        is True
+    )
+    assert document["repository_code_license_authorizes_data"] is False
+    assert document["public_profile_status"] == "BLOCKED_PENDING_RIGHTS_REVIEW"
     assert verifier.verify_release_profile(
         stage, run_trusted_replay=False
     ) == verifier.PREOPEN_PROFILE
+
+    marker_path = stage / verifier.PROFILE_MARKER
+    marker_bytes = marker_path.read_bytes()
+    assert marker_bytes == verifier._canonical_json_bytes(json.loads(marker_bytes))
+    unsafe_marker = json.loads(marker_bytes)
+    unsafe_marker[
+        "public_redistribution_authorized_by_this_release_evidence"
+    ] = True
+    marker_path.write_bytes(verifier._canonical_json_bytes(unsafe_marker))
+    with pytest.raises(ValueError, match="exact local-only evidence profile"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
+
+    unknown_marker = json.loads(marker_bytes)
+    unknown_marker["public_release_allowed"] = True
+    marker_path.write_bytes(verifier._canonical_json_bytes(unknown_marker))
+    with pytest.raises(ValueError, match="unknown top-level fields"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
+
+    duplicated = marker_bytes.replace(
+        b'"public_redistribution_authorized_by_this_release_evidence":false,',
+        b'"public_redistribution_authorized_by_this_release_evidence":true,'
+        b'"public_redistribution_authorized_by_this_release_evidence":false,',
+    )
+    assert duplicated != marker_bytes
+    marker_path.write_bytes(duplicated)
+    with pytest.raises(ValueError, match="not canonical producer JSON"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
+
+    for policy_field in ("forbidden_prefixes", "forbidden_path_components"):
+        weakened_marker = json.loads(marker_bytes)
+        weakened_marker[policy_field] = []
+        marker_path.write_bytes(verifier._canonical_json_bytes(weakened_marker))
+        with pytest.raises(ValueError, match="overstates its evidentiary status"):
+            verifier.verify_release_profile(stage, run_trusted_replay=False)
+        marker_path.write_bytes(marker_bytes)
 
     forbidden = _write_bytes(
         stage, "outputs/confirmatory/route_a_fake/trusted/statistics_v1.json", b"{}\n"
@@ -6005,6 +6068,107 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     with pytest.raises(ValueError, match="confirmation/label/result"):
         verifier.verify_release_profile(stage, run_trusted_replay=False)
     labels.unlink()
+
+
+def test_public_distribution_mode_is_unconditionally_blocked(tmp_path):
+    verifier = _load_script(VERIFY_SCRIPT, "thermoroute_distribution_gate_test")
+    verifier.assert_distribution_mode_allowed(verifier.LOCAL_DISTRIBUTION)
+    with pytest.raises(ValueError, match="public distribution is blocked"):
+        verifier.assert_distribution_mode_allowed(verifier.PUBLIC_DISTRIBUTION)
+    with pytest.raises(ValueError, match="public distribution is blocked"):
+        verifier.verify_archive(
+            tmp_path / "nonexistent.zip",
+            distribution=verifier.PUBLIC_DISTRIBUTION,
+        )
+    environment = os.environ.copy()
+    environment["THERMOROUTE_PYTHON"] = sys.executable
+    completed = subprocess.run(
+        ["bash", str(MAKE_RELEASE_SCRIPT), "--distribution", "PUBLIC"],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert "PUBLIC distribution is blocked" in completed.stderr
+
+    verifier_cli = subprocess.run(
+        [sys.executable, str(VERIFY_SCRIPT), "--distribution", "PUBLIC"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert verifier_cli.returncode == 1
+    assert (
+        "release verification failed: public distribution is blocked pending "
+        "a byte-bound rights review"
+    ) in verifier_cli.stderr
+
+    implicit = subprocess.run(
+        ["bash", str(MAKE_RELEASE_SCRIPT)],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert implicit.returncode == 2
+    assert "explicit --distribution is required" in implicit.stderr
+
+
+def test_hosted_ci_cannot_build_or_upload_local_evidence_archive() -> None:
+    workflow_paths = sorted((ROOT / ".github/workflows").glob("*.yml")) + sorted(
+        (ROOT / ".github/workflows").glob("*.yaml")
+    )
+    assert workflow_paths
+    workflows = {
+        path: path.read_text(encoding="utf-8") for path in workflow_paths
+    }
+    combined = "\n".join(workflows.values())
+    for forbidden in (
+        "actions/upload-artifact",
+        "softprops/action-gh-release",
+        "gh release",
+    ):
+        assert forbidden not in combined
+    builder_calls = [
+        line.strip()
+        for workflow in workflows.values()
+        for line in workflow.splitlines()
+        if "make_release_archive.sh" in line and not line.lstrip().startswith("#")
+    ]
+    assert builder_calls
+    assert all("--distribution PUBLIC" in line for line in builder_calls)
+    allowed_uses = {
+        "actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955",
+        "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+    }
+    uses = {
+        line.split("uses:", 1)[1].strip()
+        for workflow in workflows.values()
+        for line in workflow.splitlines()
+        if "uses:" in line and not line.lstrip().startswith("#")
+    }
+    assert uses == allowed_uses
+    assert (
+        "github.event.pull_request.head.repo.full_name == github.repository"
+        in combined
+    )
+    assert "persist-credentials: false" in combined
+    assert "Fork pull requests are intentionally fail-closed" in combined
+    assert "PUBLIC builder did not fail through the declared gate" in combined
+    assert "PUBLIC verifier did not fail through the declared gate" in combined
+
+
+def test_release_profile_v2_path_is_consistent_across_producers() -> None:
+    verifier = _load_script(VERIFY_SCRIPT, "thermoroute_profile_path_verifier_test")
+    zipper = _load_script(ZIP_SCRIPT, "thermoroute_profile_path_zipper_test")
+    manifest = _load_script(MANIFEST_SCRIPT, "thermoroute_profile_path_manifest_test")
+    assert verifier.PROFILE_MARKER == "evidence/release_profile_v2.json"
+    assert zipper.PROFILE_MARKER == verifier.PROFILE_MARKER
+    assert verifier.PROFILE_MARKER in manifest.ARTIFACT_PATTERNS
 
 
 def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
@@ -6088,13 +6252,27 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     assert replay_calls == ["git", "claims:True", "trusted"]
     marker_path = stage / verifier.PROFILE_MARKER
     marker_bytes = marker_path.read_bytes()
+    unknown_marker = json.loads(marker_bytes)
+    unknown_marker["public_release_allowed"] = True
+    marker_path.write_bytes(verifier._canonical_json_bytes(unknown_marker))
+    with pytest.raises(ValueError, match="unknown top-level fields"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
+
+    altered_interface = json.loads(marker_bytes)
+    altered_interface["trusted_replay_interface"]["entrypoint"] = "scripts/evil.py"
+    marker_path.write_bytes(verifier._canonical_json_bytes(altered_interface))
+    with pytest.raises(ValueError, match="trusted replay interface"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
+
     overstated = json.loads(marker_bytes)
     overstated["supports_route_a_confirmatory_conclusions"] = True
     overstated["directional_claims_allowed"] = True
     overstated["supported_test_ids"] = [
         _fixture_confirmatory_family()[0]["test_id"]
     ]
-    marker_path.write_text(json.dumps(overstated), encoding="utf-8")
+    marker_path.write_bytes(verifier._canonical_json_bytes(overstated))
     with pytest.raises(ValueError, match="claim status"):
         verifier.verify_release_profile(stage, run_trusted_replay=False)
     marker_path.write_bytes(marker_bytes)
@@ -7446,16 +7624,18 @@ def test_deterministic_zip_normalises_order_timestamp_modes_and_manifest_time(tm
         "path": "requirements-lock-py312-hashed.txt",
         "sha256": "d" * 64,
     }
+    profile_marker = {
+        "profile": verifier.POSTOPEN_PROFILE,
+        **verifier.LOCAL_EVIDENCE_DISTRIBUTION_FIELDS,
+        "authorized_worktree_dirt_policy": revision,
+        "claim_validation": claim_validation,
+        "git_history_evidence": history_evidence,
+        "artifact_closure": {"reproducibility_lock": lock_binding},
+    }
     _write_bytes(
         stage,
         verifier.PROFILE_MARKER,
-        json.dumps({
-            "profile": verifier.POSTOPEN_PROFILE,
-            "authorized_worktree_dirt_policy": revision,
-            "claim_validation": claim_validation,
-            "git_history_evidence": history_evidence,
-            "artifact_closure": {"reproducibility_lock": lock_binding},
-        }).encode(),
+        json.dumps(profile_marker).encode(),
     )
     first, second = tmp_path / "first.zip", tmp_path / "second.zip"
     zipper.create_deterministic_zip(stage, first)
@@ -7493,6 +7673,10 @@ def test_deterministic_zip_normalises_order_timestamp_modes_and_manifest_time(tm
         assert archived_manifest["release_revision"] == revision
         assert archived_manifest["release_evidence"] == {
             "profile": verifier.POSTOPEN_PROFILE,
+            "distribution": {
+                key: profile_marker.get(key)
+                for key in verifier.LOCAL_EVIDENCE_DISTRIBUTION_FIELDS
+            },
             "claim_validation": claim_validation,
             "git_history_evidence": history_evidence,
             "reproducibility_lock": lock_binding,

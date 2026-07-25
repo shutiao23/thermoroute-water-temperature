@@ -1,7 +1,8 @@
 """Plain neural controls for development-only architecture comparisons.
 
-The models in this module deliberately contain none of ThermoRoute's physics
-prior, dynamic lag router, mixture of experts, or bounded residual.  They use
+The models in this module deliberately contain none of ThermoRoute's
+relaxation-shaped auxiliary proposal, dynamic lag router, mixture of experts,
+or bounded residual.  They use
 only the observed history tensors ``X`` and ``Mask`` and, when explicitly
 enabled, the issue site's integer identity.  A batch may contain the remaining
 ``WindowedData.batch`` fields, including ``y``; those fields are never read.
@@ -399,7 +400,11 @@ class _CausalResidualBlock(nn.Module):
 
 
 class PlainCausalTCNForecaster(_PlainBaseline):
-    """A residual causal TCN without a router, MoE, prior, or output bound."""
+    """A residual left-looking TCN without router, MoE, prior, or output bound.
+
+    ``Causal`` in the serialized architecture identifier refers only to temporal
+    non-anticipation; this baseline does not perform causal inference.
+    """
 
     architecture_id = "plain_causal_tcn_v2"
 

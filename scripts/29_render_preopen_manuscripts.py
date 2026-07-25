@@ -26,8 +26,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from _preopen_manuscript_guard import (
+    PREOPEN_MANUSCRIPT_SOURCES,
     PreopenManuscriptGuardError,
     assert_preopen_manuscript_render_allowed,
+)
+from _legacy_site_semantics import (
+    LegacySemanticPolicy,
+    find_legacy_semantic_violations,
+    load_legacy_semantic_policy,
 )
 
 
@@ -1119,6 +1125,7 @@ def _audit_docx(
     *,
     preset: Preset,
     require_scope_sentences: bool,
+    legacy_semantics_policy: LegacySemanticPolicy,
 ) -> None:
     text = _docx_text(path)
     folded = text.casefold()
@@ -1127,6 +1134,12 @@ def _audit_docx(
     for name, pattern in LEGACY_PATTERNS.items():
         if pattern.search(text):
             raise AssertionError(f"{path}: prohibited {name}")
+    semantic_violations = find_legacy_semantic_violations(
+        text, legacy_semantics_policy
+    )
+    if semantic_violations:
+        first = semantic_violations[0]
+        raise AssertionError(f"{path}: prohibited {first.lint_id}: {first.excerpt}")
     if require_scope_sentences:
         for sentence in SCOPE_SENTENCES:
             if sentence not in text:
@@ -1211,6 +1224,25 @@ def _audit_docx(
             raise AssertionError(f"{path}: table geometry is not fixed 9360-DXA preset geometry")
 
 
+def _audit_markdown_semantics_before_render(
+    root: Path,
+    legacy_semantics_policy: LegacySemanticPolicy,
+) -> None:
+    """Reject bad source prose before any DOCX path can be overwritten."""
+    for relative in PREOPEN_MANUSCRIPT_SOURCES:
+        source = root / relative
+        text = source.read_text(encoding="utf-8")
+        violations = find_legacy_semantic_violations(
+            text,
+            legacy_semantics_policy,
+        )
+        if violations:
+            first = violations[0]
+            raise AssertionError(
+                f"{source}: prohibited {first.lint_id}: {first.excerpt}"
+            )
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1230,6 +1262,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = args.root.resolve()
     if _EARLY_GUARDED_ROOT != root:
         assert_preopen_manuscript_render_allowed(root)
+    legacy_semantics_policy = load_legacy_semantic_policy(root)
+    _audit_markdown_semantics_before_render(root, legacy_semantics_policy)
     outputs: tuple[tuple[Path, Preset], ...] = (
         (root / "paper/ThermoRoute_paper.docx", PRESETS["narrative_proposal"]),
         (root / "paper/cover_letter.docx", PRESETS["standard_business_brief"]),
@@ -1246,6 +1280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             path,
             preset=preset,
             require_scope_sentences=path.name == "ThermoRoute_paper.docx",
+            legacy_semantics_policy=legacy_semantics_policy,
         )
         print(f"PASS {path.relative_to(root)} ({path.stat().st_size} bytes)")
     return 0

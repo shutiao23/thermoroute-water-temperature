@@ -150,7 +150,7 @@ def _panel(sites=("01000001", "01000002")):
 
 
 def test_same_station_frozen_windows_use_bundle_transforms_and_confirmation_interval():
-    old_stations, old_upstream = C.STATIONS, C.UPSTREAM
+    old_stations = C.STATIONS
     try:
         metadata = _metadata()
         panel = _panel()
@@ -176,7 +176,7 @@ def test_same_station_frozen_windows_use_bundle_transforms_and_confirmation_inte
         assert len(wd.issue_date) == 2 * 9
         assert wd.target_valid.sum(axis=0).tolist() == [18, 14, 6]
     finally:
-        C.STATIONS, C.UPSTREAM = old_stations, old_upstream
+        C.STATIONS = old_stations
 
 
 def test_external_bundle_rejects_station_embedding_and_nonpooled_transforms():

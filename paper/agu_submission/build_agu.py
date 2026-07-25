@@ -24,6 +24,15 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 MARKDOWN = ROOT / "paper" / "ThermoRoute_paper.md"
 OUTPUT = HERE / "ThermoRoute_WRR.tex"
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from _legacy_site_semantics import (  # noqa: E402
+    find_legacy_semantic_violations,
+    load_legacy_semantic_policy,
+)
+from _preopen_manuscript_guard import (  # noqa: E402
+    assert_preopen_manuscript_render_allowed,
+)
 
 WITHDRAWN_PATTERNS = {
     "legacy 40-site cohort": re.compile(r"\b40\s+(?:public\s+)?USGS stations\b", re.I),
@@ -131,6 +140,11 @@ def _validate_markdown(markdown: str) -> None:
         label for label, pattern in WITHDRAWN_PATTERNS.items()
         if pattern.search(markdown)
     ]
+    semantic_policy = load_legacy_semantic_policy(ROOT)
+    violations.extend(
+        violation.lint_id
+        for violation in find_legacy_semantic_violations(markdown, semantic_policy)
+    )
     if violations:
         raise ValueError(f"withdrawn claims remain in canonical Markdown: {violations}")
 
@@ -308,6 +322,10 @@ def main() -> None:
         help="verify checked-in TeX bytes without modifying the repository",
     )
     args = parser.parse_args()
+    # Refuse both writes and read-only freshness claims once the frozen PRE
+    # sources drift or any opening state exists.  The future submission view
+    # requires a separate POST renderer; this PRE builder must never mutate it.
+    assert_preopen_manuscript_render_allowed(ROOT)
     rendered = _render(MARKDOWN.read_text(encoding="utf-8"))
     if args.check:
         if not OUTPUT.is_file() or OUTPUT.read_text(encoding="utf-8") != rendered:

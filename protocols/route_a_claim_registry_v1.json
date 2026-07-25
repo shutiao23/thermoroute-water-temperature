@@ -16,6 +16,27 @@
       "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
     }
   },
+  "legacy_three_site_semantics_binding": {
+    "format": "thermoroute.legacy-three-site-semantics-binding.v1",
+    "constraint_id": "P09_LEGACY_THREE_SITE_NO_UNVERIFIED_TOPOLOGY",
+    "notice_path": "protocols/legacy_three_site_semantics_notice_v1.md",
+    "notice_sha256": "2a41271ad7f9d927cb4f1a5f23b9c0abb786353e98ce15e581065e64eb87122f",
+    "site_ids": [
+      "b1",
+      "s2",
+      "p3"
+    ],
+    "site_classification": "ORDINARY_MONITORING_STATIONS_NOT_RESERVOIRS",
+    "verified_network_metadata": false,
+    "topology_inference_allowed": false,
+    "hydraulic_connectivity_inference_allowed": false,
+    "regulation_inference_allowed": false,
+    "travel_time_inference_allowed": false,
+    "route_a_evidence": false,
+    "source_provenance_status": "UNVERIFIED",
+    "measurement_dictionary_status": "UNVERIFIED",
+    "public_redistribution_authorization_status": "UNVERIFIED_BLOCKED"
+  },
   "documents": [
     "README.md",
     "paper/ThermoRoute_paper.md",
@@ -38,14 +59,14 @@
     "protocols/legacy_three_site_semantics_notice_v1.md"
   ],
   "preopen_document_sha256": {
-    "README.md": "e53a8e70b6c3749b32be20451ff197dddd4d3c6cbe7f1b829a8da8ba35ced891",
-    "paper/ThermoRoute_paper.md": "09ab716110a4606b70236b19fd43fd7e637ec94eb3d123eb6b1dd7b584c6aa74",
+    "README.md": "3e0556224aea78f16d56706a989409fd4055182fa47f1b2d3b787a743b3039fc",
+    "paper/ThermoRoute_paper.md": "98cfb6d38556c1e14f48f757c50ada4d0d51bc2889e41b1f19355b010f69815b",
     "paper/highlights.md": "a2bae78002e63e088ce61eb752f597b883e45af9f96d65429b1367fda924a342",
-    "paper/cover_letter.md": "bfb79bc6cdab31f5a4d0ec275839c859dd14aee9cfc8ba7c8b34f3d88e0cf820",
-    "paper/agu_submission/ThermoRoute_WRR.tex": "52e2cdba84075a787eaec46b792a5b17ce9ff498d8a5539e7b7adbd8c37a9d6c",
-    "protocols/route_a_native_thread_enforcement_notice_v1.md": "fd0487df218def582c096855a66eb8f0220987442f251fb0f4c8cfb8d01fde72",
-    "protocols/route_a_native_artifact_publication_notice_v1.md": "e1ff940228a1d549a566d823702880d1278d276e8b7c891356104eb64f04f878",
-    "protocols/legacy_three_site_semantics_notice_v1.md": "f6e815453b98968b9e391b6b46ceaeab62e892b0d3b5228d4017df6da93c3f25"
+    "paper/cover_letter.md": "c9b1821434e78b0aef7836d846fc55edcc9568f2af4bed7ba33e1509880c625d",
+    "paper/agu_submission/ThermoRoute_WRR.tex": "1712d67271439cb16d5738754a9a8acb2b6b612d33393adea3d9e9da8c45dead",
+    "protocols/route_a_native_thread_enforcement_notice_v1.md": "f2b60bf9dbe7108ae1498a322e86d66033c6cc82a3febcda11271d67ea40977e",
+    "protocols/route_a_native_artifact_publication_notice_v1.md": "3e2075a5ee3af6f4216ad96ab0d647c3d63ea16be2fd6e43df5754d8e299d81f",
+    "protocols/legacy_three_site_semantics_notice_v1.md": "2a41271ad7f9d927cb4f1a5f23b9c0abb786353e98ce15e581065e64eb87122f"
   },
   "postopen_document_transform": {
     "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
@@ -544,6 +565,28 @@
     "h1_interpretation": "margin-0 superiority for the named comparison only",
     "h2_interpretation": "satisfies only the preregistered +0.05 degrees C numerical non-inferiority ceiling; never equivalence or parity"
   },
+  "legacy_semantics_sentence_allowlist": [
+    {
+      "allow_id": "ALLOW_LEGACY_THREE_SITE_EXPLICIT_DENIAL_PREFIX",
+      "regex": "(?:It is false that κ identifies residence time|We reject the claim that κ identifies residence time|We reject the claim that p3 was a reservoir|There is no evidence that the router reveals physical drivers)[.]?"
+    },
+    {
+      "allow_id": "ALLOW_LEGACY_THREE_SITE_EPISTEMIC_TOPOLOGY_LIMIT",
+      "regex": "No verified metadata establish any upstream/downstream ordering, hydraulic connectivity, regulation status, or travel time among b1, s2, and p3[.]?"
+    },
+    {
+      "allow_id": "ALLOW_LEGACY_THREE_SITE_HISTORICAL_CORRECTION",
+      "regex": "Those objects incorrectly described the three sites as a regulated multi-reservoir system and interpreted statistical lag or correlation patterns as a directed physical connection and propagation time[.]?"
+    },
+    {
+      "allow_id": "ALLOW_LEGACY_THREE_SITE_ORDINARY_MONITORING_CORRECTION",
+      "regex": "(?:- )?b1, s2, and p3 are ordinary monitoring stations, not reservoirs[.]?"
+    },
+    {
+      "allow_id": "ALLOW_LEGACY_THREE_SITE_STRUCTURED_NEGATED_PREDICATE",
+      "regex": "(?:κ does not identify residence time|κ does not directly identify residence time|κ cannot reliably estimate travel time|The router does not reveal physical drivers|The router does not empirically reveal physical drivers|The router cannot reliably reveal causal mechanisms)[.]?"
+    }
+  ],
   "free_text_lints": [
     {
       "lint_id": "LINT_2019_2020_NOT_BLIND",
@@ -556,7 +599,79 @@
     {
       "lint_id": "LINT_PROBABILITY_DECISION_OVERCLAIM",
       "regex": "conditionally calibrated|guaranteed coverage|optimal management value|proven economic benefit"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_CASCADE_DESCRIPTOR",
+      "regex": "(?<![-\\w])three[-\\s]+(?:monitoring[-\\s]+)?(?:sites?|stations?|gauges?)\\b.{0,120}\\b(?:cascade|reservoir system|hydraulic (?:chain|sequence|system|network)|river (?:chain|sequence|system|network)|(?:connected|linked) in series)\\b|(?=[^.]{0,300}\\bb1\\b)(?=[^.]{0,300}\\bs2\\b)(?=[^.]{0,300}\\bp3\\b)[^.]{0,300}(?:\\breservoir cascade\\b|\\b(?:form|constitute|comprise)\\b.{0,80}\\b(?:reservoirs?|impoundments?|cascade|reservoir system|hydraulic chain|hydraulic sequence|river sequence|connected in series|linked in series)\\b|\\b(?:is|was|are|were)\\s+(?:an?\\s+|the\\s+)?(?:hydraulic\\s+|hydrologic\\s+|reservoir\\s+)?cascade\\b)"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_CHINESE_OVERCLAIM",
+      "regex": "(?:(?<![A-Za-z0-9_])b1(?![A-Za-z0-9_]).{0,30}(?<![A-Za-z0-9_])s2(?![A-Za-z0-9_]).{0,30}(?<![A-Za-z0-9_])p3(?![A-Za-z0-9_]).{0,40}(?:构成|组成|形成).{0,20}(?:水库|级联|水力网络)|(?<![A-Za-z0-9_])(?:b1|s2|p3)(?![A-Za-z0-9_]).{0,20}(?<!不)(?:是|作为|充当)(?:一座|一个)?(?:水库|大坝|上游站|下游站)|(?<![A-Za-z0-9_])(?:b1|s2|p3)(?![A-Za-z0-9_]).{0,20}(?:流向|汇入|排入).{0,20}(?<![A-Za-z0-9_])(?:b1|s2|p3)(?![A-Za-z0-9_])|(?<![A-Za-z0-9_])(?:b1|s2|p3)(?![A-Za-z0-9_]).{0,15}(?:位于|在).{0,15}(?<![A-Za-z0-9_])(?:b1|s2|p3)(?![A-Za-z0-9_]).{0,8}(?:上游|下游))"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_DIRECTED_ARROW",
+      "regex": "\\b(?:b1|s2|p3)\\b\\s*(?:→|⇒|⟶|⟹|-+>|=+>|<-+|&(?:rarr|Rightarrow);|&#(?:8594|8658);|\\\\(?:to|rightarrow|Rightarrow))\\s*\\b(?:b1|s2|p3)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_FLOW_PATH_SYNONYM",
+      "regex": "\\b(?:b1|s2|p3)\\b.{0,80}\\b(?:supplies?|contributes?)\\s+(?:water|flow|discharge)\\s+(?:to|into|toward)\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,60}\\b(?:is|was)?\\s*(?:hydrologically|hydraulically)[-\\s]+(?:linked|connected|coupled)[-\\s]+(?:to|with)\\s+\\b(?:b1|s2|p3)\\b|\\bfrom\\s+\\b(?:b1|s2|p3)\\b.{0,80}\\b(?:via|through)\\s+\\b(?:b1|s2|p3)\\b.{0,80}\\b(?:to|toward|reaches?)\\s+\\b(?:b1|s2|p3)\\b|\\b(?:thermal anomalies|temperature anomalies|thermal signal|temperature signal)\\b.{0,40}\\b(?:travel|propagate|move)s?\\s+from\\s+\\b(?:b1|s2|p3)\\b.{0,40}\\b(?:to|toward|through)\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:receives?|gets?)\\b.{0,30}\\b(?:b1|s2|p3)\\b.{0,20}\\b(?:flow|water|discharge|releases?)\\b|\\b(?:b1|s2|p3)\\b.{0,50}\\bgets?\\s+(?:flow|water|discharge)\\s+from\\s+\\b(?:b1|s2|p3)\\b|\\b(?:flow|water|discharge)\\s+from\\s+\\b(?:b1|s2|p3)\\b.{0,40}\\breaches?\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,40}\\b(?:comes?|occurs?)\\s+(?:before|after)\\s+\\b(?:b1|s2|p3)\\b.{0,30}\\b(?:hydrologically|hydraulically)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_FLOW_KAPPA_CAUSAL",
+      "regex": "(?:\\bFLOW\\b.{0,60}\\b(?:causes?|drives?|determines?|controls?|increases?|decreases?)\\b.{0,60}(?:κ|\\bkappa\\b)|(?:κ|\\bkappa\\b).{0,60}\\b(?:caused|driven|determined|controlled|increased|decreased)\\s+by\\s+FLOW\\b)"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_DIRECT_SEMANTIC_SYNONYM",
+      "regex": "\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:is|was)\\s+(?:fed|supplied)\\s+by\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,50}\\bconveys?\\s+(?:water|flow|discharge)\\s+(?:to|into|toward)\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:denotes?|corresponds?\\s+to)\\s+(?:an?\\s+|the\\s+)?reservoir\\b|(?=[^.]{0,300}\\bb1\\b)(?=[^.]{0,300}\\bs2\\b)(?=[^.]{0,300}\\bp3\\b)[^.]{0,300}\\b(?:is|was|are|were)\\s+(?:an?\\s+|the\\s+)?(?:hydraulic\\s+|hydrologic\\s+|reservoir\\s+)?cascade\\b|(?:\\b1\\s*/\\s*(?:κ|kappa)|\\binverse\\s+(?:of\\s+)?(?:κ|kappa))\\b.{0,40}(?:=|is|equals?)?\\s*\\d+(?:[.]\\d+)?\\s*(?:d|days?)\\b|(?:\\bκ\\b|\\bkappa\\b).{0,40}\\b(?:units?|dimensions?)\\s+(?:of\\s+)?(?:day|d)\\s*\\^?[-−]1\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_HYDRAULIC_RELATION",
+      "regex": "\\b(?:b1|s2|p3)\\b.{0,80}\\b(?:feeds?|flows?\\s+(?:into|to|toward)|drains?\\s+(?:into|to|toward)|empt(?:y|ies)\\s+(?:into|to|toward)|receives?\\s+(?:(?:dam|reservoir)\\s+)?(?:releases?|flow|water|discharge)\\s+from|discharges?\\s+(?:into|to|toward)|routes?\\s+(?:water|flow|discharge)?\\s*(?:into|to|toward)|releases?\\s+(?:water|flow|discharge)?\\s*(?:into|to|toward)|(?:hydraulically|hydrologically)\\s+(?:precedes?|follows?|above|below)|precedes?|follows?|(?:is|lies?|sits?)\\s+(?:hydraulically|hydrologically)\\s+(?:above|below)|is\\s+(?:a\\s+)?tributary\\s+of)\\b.{0,80}\\b(?:b1|s2|p3)\\b|\\b(?:flow|water|discharge|heat|temperature|thermal signal|temperature signal)\\b.{0,40}\\b(?:propagates?|travels?|moves?|routes?|flows?|drains?)\\b.{0,40}\\bfrom\\s+\\b(?:b1|s2|p3)\\b.{0,40}\\b(?:to|toward|into|past)\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,40}\\b(?:b1|s2|p3)\\b.{0,60}\\b(?:(?:are|were|is|was)\\s+)?(?:(?:hydraulically|hydrologically)\\s+)?(?:connected|linked|coupled)\\b|\\b(?:b1|s2|p3)\\b.{0,40}\\b(?:b1|s2|p3)\\b.{0,60}\\b(?:encode|show|reveal|prove|trace)s?\\b.{0,40}\\b(?:downstream|upstream|hydraulic|hydrologic|flow|thermal)\\b.{0,30}\\b(?:propagation|pathways?|routing|connection)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_KAPPA_PHYSICAL_TIME",
+      "regex": "(?:(?:\\b1\\s*/\\s*(?:κ|kappa)\\b|\\binverse\\s+(?:of\\s+)?(?:κ|kappa)\\b|\\bκ\\b|\\bkappa\\b).{0,100}\\b(?:travel[-\\s]+time|residence[-\\s]+time|propagation[-\\s]+time|turnover[-\\s]+time|retention[-\\s]+time|transit[-\\s]+time|dwell[-\\s]+time|routing[-\\s]+time|time[-\\s]+constant|e[-\\s]*folding[-\\s]+time|physical[-\\s]+memory|thermal[-\\s]+memory|physical[-\\s]+timescale|hydraulic[-\\s]+timescale|units?\\s+of\\s+days)\\b|\\b(?:travel[-\\s]+time|residence[-\\s]+time|propagation[-\\s]+time|turnover[-\\s]+time|retention[-\\s]+time|transit[-\\s]+time|dwell[-\\s]+time|routing[-\\s]+time|time[-\\s]+constant|e[-\\s]*folding[-\\s]+time|physical[-\\s]+memory|thermal[-\\s]+memory|physical[-\\s]+timescale|hydraulic[-\\s]+timescale|units?\\s+of\\s+days)\\b.{0,100}(?:\\b1\\s*/\\s*(?:κ|kappa)\\b|\\binverse\\s+(?:of\\s+)?(?:κ|kappa)\\b|\\bκ\\b|\\bkappa\\b))"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_LATENT_PHYSICAL_SYNONYM",
+      "regex": "\\b(?:κ|kappa|1\\s*/\\s*kappa|inverse\\s+(?:of\\s+)?(?:κ|kappa))\\b.{0,100}\\b(?:residence duration|transit duration|retention duration|propagation delay)\\b|\\b(?:residence duration|transit duration|retention duration|propagation delay)\\b.{0,100}\\b(?:κ|kappa|dominant[-\\s]+lag|largest[-\\s]+allocated[-\\s]+lag|router)\\b|\\b(?:dominant[-\\s]+lag|largest[-\\s]+allocated[-\\s]+lag)\\b.{0,100}\\b(?:propagation delay|travel[-\\s]+time|hydraulic delay)\\b|\\blearned (?:thermal[-\\s]+relaxation[-\\s]+)?proposal\\b.{0,100}\\b(?:represents?|recovers?|identifies?|is)\\b.{0,50}\\b(?:heat[-\\s]+transfer(?:[-\\s]+model)?|causal[-\\s]+physics|physical[-\\s]+process|energy[-\\s]+balance[-\\s]+model)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_MULTI_ROLE",
+      "regex": "(?=[^.]{0,300}\\bb1\\b)(?=[^.]{0,300}\\bs2\\b)(?=[^.]{0,300}\\bp3\\b)[^.]{0,300}\\b(?:reservoirs?|impoundments?|dams?|regulated|headwaters?|outlets?|storage facilities|control structures)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_ORDERING",
+      "regex": "(?=[^.]{0,300}\\bb1\\b)(?=[^.]{0,300}\\bs2\\b)(?=[^.]{0,300}\\bp3\\b)(?=[^.]{0,300}\\b(?:ordered|arranged|sequence|chain|series|follow)\\b)(?=[^.]{0,300}\\b(?:upstream|downstream|river|channel|reach|hydraulic|hydrologic|flow path)\\b)[^.]{0,300}"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_RESERVOIR_ROLE_SYNONYM",
+      "regex": "\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:represents?|constitutes?)\\s+(?:an?\\s+|the\\s+)?(?:(?:upper|lower|upstream|downstream|regulated)[-\\s]+)?(?:reservoir|impoundment|dam|regulated[-\\s]+(?:site|station|reach|pool))\\b|\\b(?:b1|s2|p3)[-\\s]+(?:reservoir|impoundment|dam|tailwater|tailrace)(?:[-\\s]+(?:station|site|reach))?\\b|\\b(?:regulated|reservoir|impoundment|dam|tailwater|tailrace)[-\\s]+(?:station|site|reach)?[-\\s]*\\b(?:b1|s2|p3)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_ROUTER_CAUSAL_DRIVER",
+      "regex": "\\b(?:router(?:[-\\s]+weights?)?|allocation[-\\s]+weights?|lag[-\\s]+weights?|dominant[-\\s]+lag|largest[-\\s]+allocated[-\\s]+lag)\\b.{0,120}\\b(?:travel[-\\s]+time|residence[-\\s]+time|physical[-\\s]+drivers?|causal[-\\s]+(?:drivers?|mechanisms?|influence|importance)|feature[-\\s]+importance|physical[-\\s]+memory|flow[-\\s]+pathways?|physical[-\\s]+pathways?|routing[-\\s]+paths?|hydraulic[-\\s]+connectivity|river[-\\s]+network(?:[-\\s]+topology)?|connectivity|mechanistically[-\\s]+interpretable|physical[-\\s]+interpretability)\\b|\\b(?:travel[-\\s]+time|residence[-\\s]+time|physical[-\\s]+drivers?|causal[-\\s]+(?:drivers?|mechanisms?)|flow[-\\s]+pathways?|hydraulic[-\\s]+connectivity)\\b.{0,120}\\b(?:revealed|identified|recovered|encoded|quantified)\\s+by\\s+(?:the\\s+)?(?:router|allocation[-\\s]+weights?)\\b|\\blearned (?:thermal[-\\s]+relaxation[-\\s]+)?proposal\\b.{0,80}\\b(?:identifies|recovers|represents|is)\\b.{0,50}\\b(?:physical|causal|mechanistic|energy[-\\s]+balance)\\b(?:[-\\s]+(?:mechanisms?|drivers?|model))?"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_RELAXATION_PHYSICAL_MODEL",
+      "regex": "\\blearned\\s+(?:thermal[-\\s]+)?(?:relaxation|proposal)\\b.{0,100}\\b(?:is|represents?|recovers?|identifies?)\\b.{0,60}\\b(?:semi[-\\s]+physical|physical|mechanistic|heat[-\\s]+transfer|energy[-\\s]+balance)\\b.{0,40}\\b(?:model|process|mechanism|physics)?\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_ROLE_SHORTHAND",
+      "regex": "(?=[^.]{0,300}\\bb1\\b)(?=[^.]{0,300}\\bs2\\b)(?=[^.]{0,300}\\bp3\\b)(?=[^.]{0,300}\\b(?:upstream|midstream|downstream|upper|middle|lower|headwater|outlet)\\b)[^.]{0,300}"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_SINGLE_ROLE",
+      "regex": "\\b(?:b1|s2|p3)\\b.{0,60}\\b(?:(?:serves?|acts?|functions?|operates?)\\s+as|is\\s+part\\s+of|is|was|lies?|sits?|located|situated)\\b.{0,40}\\b(?:an?\\s+|the\\s+)?(?:reservoir|impoundment|dam|regulated|upstream|downstream|headwater|outlet|tailwater|tailrace|storage facility|control structure)\\b|\\b(?:reservoir|impoundment|dam|headwater|outlet|tailwater|tailrace)\\b.{0,30}\\b(?:at|named|called)\\s+\\b(?:b1|s2|p3)\\b|\\b(?:b1|s2|p3)\\b.{0,40}\\b(?:regulates?|impounds?|stores?)\\b.{0,30}\\b(?:flow|water|discharge|releases?)\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_TOPOLOGY_SYNONYM",
+      "regex": "(?=.{0,300}\\bb1\\b)(?=.{0,300}\\bs2\\b)(?=.{0,300}\\bp3\\b).{0,300}\\b(?:form|constitute|comprise)\\b.{0,80}\\b(?:hydrologic|hydraulic|river|reservoir)[-\\s]+(?:network|chain|sequence|pathways?)\\b|\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:above|below)\\b.{0,50}\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:river|channel|reach|flow path)\\b|\\b(?:river|channel|reach|flow path)\\b.{0,50}\\b(?:b1|s2|p3)\\b.{0,50}\\b(?:above|below)\\b.{0,50}\\b(?:b1|s2|p3)\\b|\\bflow[-\\s]+path\\b.{0,80}\\b(?:runs?|follows?)\\b.{0,30}\\bb1\\b.{0,30}\\bs2\\b.{0,30}\\bp3\\b|\\b(?:river|channel|reach)\\b.{0,60}\\bconnects?\\b.{0,30}\\bb1\\b.{0,30}\\bs2\\b.{0,30}\\bp3\\b|(?=.{0,240}\\bb1\\b)(?=.{0,240}\\bs2\\b)(?=.{0,240}\\bp3\\b).{0,240}\\bfollow\\b.{0,40}\\bflow[-\\s]+direction\\b"
+    },
+    {
+      "lint_id": "LINT_LEGACY_THREE_SITE_CHINESE_ORDER_PATH",
+      "regex": "(?=.{0,300}(?<![A-Za-z0-9_])b1(?![A-Za-z0-9_]))(?=.{0,300}(?<![A-Za-z0-9_])s2(?![A-Za-z0-9_]))(?=.{0,300}(?<![A-Za-z0-9_])p3(?![A-Za-z0-9_])).{0,300}(?:(?:依次|分别).{0,80}(?:上游|上、中、下游|上中下游)|(?:水|水流|径流|流量).{0,30}(?:从|由).{0,30}(?:经过|流经|途经).{0,40}(?:到达|流向|汇入))"
     }
   ],
-  "free_text_policy": "REQUIRED_PREOPEN_DOCUMENT_BYTES_ARE_SHA256_FROZEN; POST MAY ONLY APPEND THE DETERMINISTIC RESULT SUFFIX TO DECLARED TARGETS; STRUCTURED_CLAIM_BLOCKS_ARE_AUTHORITATIVE; regexes are defense-in-depth lint only"
+  "free_text_policy": "REQUIRED_PREOPEN_DOCUMENT_BYTES_ARE_SHA256_FROZEN; POST MAY ONLY APPEND THE DETERMINISTIC RESULT SUFFIX TO DECLARED TARGETS; STRUCTURED_CLAIM_BLOCKS_AND_LEGACY_SEMANTIC_BINDING_ARE_AUTHORITATIVE; finite English/Chinese abbreviation-aware publication regexes and the exact correction allowlist are defense-in-depth only"
 }

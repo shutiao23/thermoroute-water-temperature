@@ -3,14 +3,16 @@
 The strict model separates two objects that must not be conflated:
 
 * ``damped_prior`` is fitted on the training partition and then frozen.  It is
-  the auditable safety anchor supplied by :mod:`thermoroute.datasets`.
+  the auditable deviation reference supplied by :mod:`thermoroute.datasets`.
 * ``DynamicThermalRelaxationPrior`` is a learned proposal.  It may improve the
-  forecast and remains interpretable, but it is *not* used as the reference in
-  the bounded-deviation guarantee.
+  forecast and exposes inspectable latent coefficients, but it is *not* used as the reference in
+  the bounded-deviation identity.
 
-With a finite ``delta_scale`` the final point forecast is therefore guaranteed
-to lie within ``±delta_scale`` of the fixed damped-persistence forecast.  Setting
-``delta_scale=None`` gives the otherwise identical unbounded sensitivity model.
+With a finite ``delta_scale`` the final point forecast lies algebraically within
+``±delta_scale`` of the fixed damped-persistence forecast.  This is not a bound
+on truth error, tail risk, or deployment safety.  ``safety_anchor`` is retained
+only as a legacy checkpoint/configuration key. Setting ``delta_scale=None`` gives
+the otherwise identical unbounded sensitivity model.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from . import config as C
 
 
 # --------------------------------------------------------------------------- #
-# Sparse normalisation (sparsemax) — yields interpretable, sparse lag weights
+# Sparse normalisation (sparsemax) — yields inspectable, sparse allocation weights
 # --------------------------------------------------------------------------- #
 def sparsemax(z: Tensor, dim: int = -1) -> Tensor:
     """Martins & Astudillo (2016) sparsemax along ``dim``."""
@@ -40,19 +42,22 @@ def sparsemax(z: Tensor, dim: int = -1) -> Tensor:
 
 
 # --------------------------------------------------------------------------- #
-# Module 1: dynamic thermal-relaxation physics prior
+# Module 1: learned thermal-relaxation proposal (statistical inductive bias)
 # --------------------------------------------------------------------------- #
 class DynamicThermalRelaxationPrior(nn.Module):
     """Anomaly relaxation around the horizon-shifted climatology:
 
         a_t   = W_t − C_t                      (today's thermal anomaly)
-        e_t   = g(weather)                     (weather-driven equilibrium anomaly)
+        e_t   = g(covariates)                  (conditioned latent reference anomaly)
         a_h   = e_t + (1−κ)^h (a_t − e_t)      (anomaly relaxes toward e_t)
         Ŵ_{t+h} = C_{t+h} + a_h
 
-    κ is the *daily relaxation rate* — small κ ⇒ long thermal memory.  With e_t=0
-    and κ=1−φ this reduces **exactly** to damped persistence toward climatology,
-    so the strong baseline is a special case.  Route A lets κ depend on FLOW and
+    κ is a learned per-update decay coefficient.  It is dimensionless within this
+    discrete statistical recurrence and is not a measured residence time, travel
+    time, heat-transfer coefficient, or causal mechanism; ``1/κ`` must not be
+    reported as any of those quantities.  With e_t=0 and κ=1−φ the recurrence
+    reduces **exactly** to damped persistence toward climatology, so the strong
+    baseline is a special case.  Route A lets κ depend statistically on FLOW and
     season.  A separately declared ``use_wlevel`` mode exists for legacy feature
     schemas, but Route A fixes it off because gage height is provenance-only.
     """
@@ -97,7 +102,8 @@ class DynamicThermalRelaxationPrior(nn.Module):
         decay = (1.0 - kappa).unsqueeze(-1) ** h.unsqueeze(0)        # [B,H]
         a_h = e_t.unsqueeze(-1) + decay * (a_t - e_t).unsqueeze(-1)  # [B,H] anomaly
         prior = batch["clim_tgt"] + a_h                             # [B,H]
-        teq = batch["clim_t"] + e_t                                 # interpretable T^eq
+        # Inspectable equilibrium-like latent proposal, not a measured physical state.
+        teq = batch["clim_t"] + e_t
         return prior, kappa, teq
 
 
@@ -152,7 +158,7 @@ class DynamicLagRouter(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
-# Module 3: causal TCN encoder (global context)
+# Module 3: strictly left-looking (non-anticipating) TCN encoder
 # --------------------------------------------------------------------------- #
 class CausalTCN(nn.Module):
     def __init__(self, n_vars: int, d: int, blocks: int, kernel: int, dropout: float):
@@ -239,7 +245,7 @@ class ThermoRouteOutputs:
     lag_weights: Tensor
     pi: Tensor
     # Learned proposal, exposed separately so analyses cannot accidentally call
-    # it the safety reference.  Non-ThermoRoute baselines leave this as ``None``.
+    # it the deviation reference. Non-ThermoRoute baselines leave this as ``None``.
     internal_prior: Tensor | None = None
 
 
@@ -254,11 +260,15 @@ class ThermoRoute(nn.Module):
                  safety_anchor: str = "damped", use_wlevel: bool = False):
         super().__init__()
         if safety_anchor not in {"internal", "damped", "none"}:
-            raise ValueError("safety_anchor must be 'internal', 'damped', or 'none'")
+            raise ValueError(
+                "legacy safety_anchor key must be 'internal', 'damped', or 'none'"
+            )
         if delta_scale is not None and delta_scale <= 0:
             raise ValueError("delta_scale must be positive or None for an unbounded model")
         if safety_anchor == "none" and delta_scale is not None:
-            raise ValueError("a finite residual bound requires a named safety anchor")
+            raise ValueError(
+                "a finite algebraic residual bound requires a named deviation reference"
+            )
         d = cfg.d_model
         self.horizons = horizons
         self.H = len(horizons)
@@ -350,12 +360,12 @@ class ThermoRoute(nn.Module):
         if self.safety_anchor == "damped":
             if "damped_prior" not in batch:
                 raise KeyError(
-                    "strict safety_anchor='damped' requires batch['damped_prior']; "
+                    "legacy safety_anchor='damped' requires batch['damped_prior']; "
                     "build batches through datasets.build_windows")
             anchor = batch["damped_prior"]
         elif self.safety_anchor == "internal":
             if internal_prior is None:
-                raise ValueError("internal safety anchor requires use_prior=True")
+                raise ValueError("internal deviation reference requires use_prior=True")
             anchor = internal_prior
         else:
             anchor = None
@@ -391,13 +401,14 @@ class ThermoRoute(nn.Module):
             neural_proposal = self.head_delta(rep).squeeze(-1)
 
         # This proposal is independently parameterised from the MSE point
-        # proposal.  Both may use the same frozen physical anchor, but neither
+        # proposal.  Both may use the same frozen damped-persistence anchor, but neither
         # head is derived from or sorted with the other.
         q50_proposal = self.head_q50(rep).squeeze(-1)
 
         # In strict mode the learned dynamic prior is a proposal only.  Even an
         # arbitrarily drifting internal prior cannot move the final prediction
-        # outside the fixed damped anchor's certified band.
+        # outside the fixed damped reference's algebraic deviation interval.
+        # This interval does not certify truth error or deployment safety.
         point_proposal = neural_proposal
         if internal_prior is not None:
             if anchor is None:
@@ -408,7 +419,7 @@ class ThermoRoute(nn.Module):
                 point_proposal = point_proposal + prior_displacement
                 q50_proposal = q50_proposal + prior_displacement
         if anchor is None:
-            point = point_proposal                # pure-neural, no safety claim
+            point = point_proposal                # pure-neural, no deviation bound
             q50 = q50_proposal
             prior_out = torch.full_like(point, float("nan"))
         else:

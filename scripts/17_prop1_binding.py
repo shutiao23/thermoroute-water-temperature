@@ -170,7 +170,7 @@ def main() -> None:
         "# Strict bounded-deviation contract audit\n",
         "The saved Route-A seed-0 model was evaluated on the already-inspected "
         "2019–2020 development partition. Its named reference is the frozen, "
-        "train-fitted damped-persistence anchor; the learned physics component "
+        "train-fitted damped-persistence anchor; the learned relaxation proposal "
         "is not the reference.\n",
         f"- Pointwise anchor contract: {contract_fraction * 100:.2f}%.",
         f"- Derived pointwise error inequality: {error_bound_fraction * 100:.2f}%.",

@@ -14,7 +14,9 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 import numpy as np
 import pandas as pd
@@ -25,8 +27,21 @@ from thermoroute import data as D
 from thermoroute import features as F
 from thermoroute import results as R
 
+from _legacy_site_semantics import (
+    EPISTEMIC_TOPOLOGY_SENTENCE,
+    ORDINARY_MONITORING_SENTENCE,
+    find_legacy_semantic_violations,
+    load_legacy_semantic_policy,
+    retire_legacy_data_audit_output,
+    write_atomic_text,
+)
+
 
 def main() -> None:
+    # Replace historical topology/travel-time prose before the first data read.
+    # If any later step fails, this safe tombstone remains authoritative.
+    out = retire_legacy_data_audit_output(C.REPORTS)
+    semantic_policy = load_legacy_semantic_policy(ROOT)
     bundle = D.prepare_dataset()
     panel, masks = bundle["panel"], bundle["masks"]
     panel_raw = bundle["panel_raw"]
@@ -106,9 +121,11 @@ def main() -> None:
         flow_r = contemporaneous_correlation(Fp[first], Fp[second])
         wtemp_r = contemporaneous_correlation(Wp[first], Wp[second])
         w(f"| {first} / {second} | {flow_r:.3f} | {wtemp_r:.3f} |")
-    w("\n_b1, s2 and p3 are ordinary monitoring-site identifiers, not reservoirs. "
-      "Shared seasonality and autocorrelation can produce strong pairwise association; "
-      "these values establish neither hydraulic connectivity nor travel time._\n")
+    w(
+        f"\n_{ORDINARY_MONITORING_SENTENCE} {EPISTEMIC_TOPOLOGY_SENTENCE} "
+        "Shared seasonality and autocorrelation can produce strong pairwise "
+        "association; these values provide no physical-network evidence._\n"
+    )
 
     # 6. raw-channel association QC; legacy WLEVEL units/datum are unknown
     w("## 6. Raw FLOW–WLEVEL association (QC only)\n")
@@ -148,8 +165,15 @@ def main() -> None:
       f"index but a data-dictionary check is required before any DH-based claim.")
     w("")
 
-    out = C.REPORTS / "data_audit.md"
-    out.write_text("\n".join(L))
+    report_text = "\n".join(L)
+    violations = find_legacy_semantic_violations(report_text, semantic_policy)
+    if violations:
+        first = violations[0]
+        raise RuntimeError(
+            "legacy semantic guard refused data audit: "
+            f"{first.lint_id}: {first.excerpt}"
+        )
+    write_atomic_text(out, report_text)
     print("wrote", out, f"({len(L)} lines)")
 
 

@@ -15,9 +15,10 @@ journal.
 The planned study evaluates daily water-temperature hindcasts at 1-, 3-, and
 7-day horizons on a stable 120-site USGS development panel. The method combines a
 damped-persistence anchor, a learned relaxation proposal, a sparse variable/lag
-router, a causal temporal convolutional encoder, a regime mixture, bounded
-residuals, a separate MSE point head, three pinball-trained quantile heads, and a
-split-conformal 90% interval. Signed raw CQR offsets remain auditable, while the
+router, a strictly left-looking (non-anticipating) temporal convolutional
+encoder, a regime mixture, bounded residuals, a separate MSE point head, three
+pinball-trained quantile heads, and a split-conformal 90% interval. Signed raw
+CQR offsets remain auditable, while the
 deployed offset is clipped below at zero so calibration cannot shrink the nominal
 interval or change q50. The evaluation design emphasizes
 common target keys, station-balanced effects, clustered spatial inference, frozen

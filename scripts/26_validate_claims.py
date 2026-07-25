@@ -26,6 +26,17 @@ import sys
 import tempfile
 from typing import Any, Mapping, Sequence, cast
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from _legacy_site_semantics import (  # noqa: E402
+    LINT_PREFIX as LEGACY_SEMANTIC_LINT_PREFIX,
+    LegacySemanticGuardError,
+    compile_legacy_semantic_policy,
+    find_legacy_semantic_violations,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY = ROOT / "protocols" / "route_a_claim_registry_v1.json"
@@ -112,6 +123,7 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         "scope",
         "protocol_binding",
         "inference_amendment_binding",
+        "legacy_three_site_semantics_binding",
         "documents",
         "phase_resolver",
         "permanent_constraints",
@@ -121,6 +133,7 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         "required_postopen_coverage",
         "required_permanent_coverage",
         "decision_rule",
+        "legacy_semantics_sentence_allowlist",
         "free_text_lints",
         "free_text_policy",
         "preopen_document_sha256",
@@ -206,6 +219,17 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         raise ClaimRegistryError(
             "pre-opening document SHA-256 registry is not an exact required-document map"
         )
+    legacy_binding = document.get("legacy_three_site_semantics_binding")
+    if (
+        not isinstance(legacy_binding, Mapping)
+        or legacy_binding.get("notice_path")
+        not in preopen_document_sha256
+        or legacy_binding.get("notice_sha256")
+        != preopen_document_sha256.get(legacy_binding.get("notice_path"))
+    ):
+        raise ClaimRegistryError(
+            "legacy semantic notice binding differs from the frozen document map"
+        )
     if document.get("postopen_document_transform") != {
         "mode": "EXACT_PREOPEN_BYTES_PLUS_DETERMINISTIC_RESULT_SUFFIX",
         "heading": "# Route-A receipt-derived results",
@@ -258,11 +282,16 @@ def _load_registry(path: Path) -> Mapping[str, Any]:
         raise ClaimRegistryError("result specs and exact coverage order differ")
     if not isinstance(lints, list) or not lints:
         raise ClaimRegistryError("free-text lint registry is empty")
+    try:
+        compile_legacy_semantic_policy(document)
+    except LegacySemanticGuardError as exc:
+        raise ClaimRegistryError(str(exc)) from exc
     if document.get("free_text_policy") != (
         "REQUIRED_PREOPEN_DOCUMENT_BYTES_ARE_SHA256_FROZEN; POST MAY ONLY "
         "APPEND THE DETERMINISTIC RESULT SUFFIX TO DECLARED TARGETS; "
-        "STRUCTURED_CLAIM_BLOCKS_ARE_AUTHORITATIVE; regexes are "
-        "defense-in-depth lint only"
+        "STRUCTURED_CLAIM_BLOCKS_AND_LEGACY_SEMANTIC_BINDING_ARE_AUTHORITATIVE; "
+        "finite English/Chinese abbreviation-aware publication regexes and the "
+        "exact correction allowlist are defense-in-depth only"
     ):
         raise ClaimRegistryError("formal-result/free-text trust boundary changed")
     expected_decision_rule = {
@@ -742,14 +771,13 @@ def _canonical_state(authorization: Mapping[str, Any], *, root: Path) -> Mapping
     return {str(key): str(value) for key, value in state.items()}
 
 
-def _namespace_entries(root: Path, namespace_glob: str) -> list[Path]:
-    entries: list[Path] = []
-    for directory in root.glob(namespace_glob):
-        if directory.is_file():
-            entries.append(directory)
-        elif directory.is_dir():
-            entries.extend(path for path in directory.rglob("*") if path.is_file())
-    return sorted(entries)
+def _namespace_roots(root: Path, namespace_glob: str) -> list[Path]:
+    """Return every lexical namespace root, including empty dirs/symlinks."""
+    return sorted(
+        candidate
+        for candidate in root.glob(namespace_glob)
+        if os.path.lexists(candidate)
+    )
 
 
 def resolve_phase(*, root: Path, registry: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -758,15 +786,16 @@ def resolve_phase(*, root: Path, registry: Mapping[str, Any]) -> Mapping[str, An
     resolver = registry["phase_resolver"]
     authorization_relative = resolver["canonical_authorization"]
     authorization_path = _inside(root, authorization_relative)
-    namespace_entries = _namespace_entries(root, resolver["namespace_glob"])
-    if not authorization_path.exists():
-        if namespace_entries:
+    authorization_lexical = root / authorization_relative
+    namespace_roots = _namespace_roots(root, resolver["namespace_glob"])
+    if not os.path.lexists(authorization_lexical):
+        if namespace_roots:
             raise ClaimRegistryError(
                 "Route-A phase is INDETERMINATE: namespace artifacts exist without "
                 "the canonical authorization"
             )
         return {"phase": PRE_PHASE, "authorization": None, "receipt": None}
-    if not authorization_path.is_file():
+    if authorization_lexical.is_symlink() or not authorization_path.is_file():
         raise ClaimRegistryError("Route-A phase is INDETERMINATE: authorization is not a file")
     authorization = _load_json(authorization_path, label="canonical authorization")
     source = authorization.get("source")
@@ -793,7 +822,7 @@ def resolve_phase(*, root: Path, registry: Mapping[str, Any]) -> Mapping[str, An
             "Route-A phase is INDETERMINATE: intent/receipt completion is partial"
         )
     if not intent_exists:
-        if namespace_entries:
+        if namespace_roots:
             raise ClaimRegistryError(
                 "Route-A phase is INDETERMINATE: namespace artifacts exist before intent"
             )
@@ -811,6 +840,16 @@ def resolve_phase(*, root: Path, registry: Mapping[str, Any]) -> Mapping[str, An
     receipt = _validate_completed_receipt(
         authorization_path, root=root, allow_gitless_archive=allow_gitless
     )
+    expected_namespace = root / state["run_directory"]
+    if (
+        namespace_roots != [expected_namespace]
+        or expected_namespace.is_symlink()
+        or not expected_namespace.is_dir()
+    ):
+        raise ClaimRegistryError(
+            "Route-A phase is INDETERMINATE: completed opening has a noncanonical "
+            "namespace set"
+        )
     return {
         "phase": POST_PHASE,
         "authorization": authorization,
@@ -1994,11 +2033,14 @@ def validate_claims(
     for lint in registry["free_text_lints"]:
         if not isinstance(lint, Mapping) or set(lint) != {"lint_id", "regex"}:
             raise ClaimRegistryError("free-text lint schema is malformed")
-        lint_groups.append((str(lint["lint_id"]), str(lint["regex"])))
+        lint_id = str(lint["lint_id"])
+        if not lint_id.startswith(LEGACY_SEMANTIC_LINT_PREFIX):
+            lint_groups.append((lint_id, str(lint["regex"])))
     compiled = [
         (lint_id, pattern, _compile_lint(pattern, lint_id=lint_id))
         for lint_id, pattern in lint_groups
     ]
+    semantic_policy = compile_legacy_semantic_policy(registry)
     for path, outside in outside_by_path.items():
         lint_text = outside
         for template in limitation_templates:
@@ -2008,6 +2050,14 @@ def validate_claims(
             if match is not None:
                 line = lint_text.count("\n", 0, match.start()) + 1
                 violations.append(f"LINT {lint_id}: {path.relative_to(root)}:{line}: {pattern}")
+        for semantic_violation in find_legacy_semantic_violations(
+            lint_text, semantic_policy
+        ):
+            line = lint_text.count("\n", 0, semantic_violation.start) + 1
+            violations.append(
+                f"LINT {semantic_violation.lint_id}: "
+                f"{path.relative_to(root)}:{line}: {semantic_violation.excerpt}"
+            )
     return violations
 
 

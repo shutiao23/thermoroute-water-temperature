@@ -3,13 +3,14 @@
 
 Fixes the two blockers of the strong-accept review:
   B1 — transfer was never benchmarked vs LightGBM (only persistence/damped).
-  B2 — "unseen basins" was a RANDOM station split; here whole HUC2 regions are
-       held out so no gage on a held-out river/region is in training.
+  B2 — "unseen basins" was a RANDOM station split; here coarse HUC2 regions are
+       held out. This does not establish independent rivers, river networks, or
+       ungauged prediction because target-site WTEMP history remains an input.
 
 Design: verified HUC2 regions are greedily packed into 4 folds (~30 stations each), each
 fold holds out whole regions. Under this protocol we train, per fold, a
 station-agnostic ThermoRoute AND a global LightGBM on the in-fold regions and
-forecast the held-out region stations. Persistence / damped persistence are
+forecast the held-out coarse-region stations. Persistence / damped persistence are
 training-free so their per-station test RMSE is read from the v2 predictions.
 Then descriptive per-station paired effects with whole-HUC2 bootstrap intervals
 compare TR with LightGBM, alongside a skill-versus-distance diagnostic.  This arm

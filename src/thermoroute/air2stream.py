@@ -1,13 +1,13 @@
-"""Air2stream-style hybrid water-temperature baseline (a *variant* of Toffolon &
+"""Unofficial empirical Air2stream-style comparator (a *variant* of Toffolon &
 Piccolroaz, 2015 — NOT the official implementation; see the caveat below).
 
 The original *air2stream-lite* in ``baselines.py`` was a one-parameter relaxation
-prior. This module implements a fuller discrete-time thermal model in two variants:
+prior. This module implements a fuller fitted discrete-time recurrence in two variants:
 
-* **4-parameter (a1..a4)** — minimal version (no seasonal forcing, no discharge
-  modulation of the relaxation time-constant).
-* **8-parameter (a1..a8)** — adds a discharge-dependent thermal capacity
-  (θ^a4), a sinusoidal seasonal forcing (a5 amplitude, a6 phase), and a
+* **4-parameter (a1..a4)** — minimal version (no seasonal term and no discharge
+  modulation of the fitted step multiplier).
+* **8-parameter (a1..a8)** — adds a discharge-dependent fitted multiplier
+  (θ^a4), a sinusoidal seasonal term (a5 amplitude, a6 phase), and a
   discharge-modulated daily lower-bound (a7,a8) that limits cold-season drift.
 
 **Caveat (fair-baseline disclosure).** This is a *variant*, not the published
@@ -16,25 +16,27 @@ air2stream: the parameter semantics differ from Toffolon & Piccolroaz (2015)
 original), and calibration uses deterministic multi-start bounded least-squares
 rather than the official particle-swarm global search. It is calibrated on
 observed-target training days only and forecast under Track-H with the observed
-air temperature driving the first step. It is offered as a *physical reference
-point*, and any comparison against it is stated as such — not as a claim against
-the official air2stream. To claim superiority over the published model one must
-run the official code (a documented future-work item).
+air temperature driving the first step. It is offered only as an *unofficial
+empirical comparator*, not as a claim against the official air2stream and not as
+an identified physical model. To claim superiority over the published model one
+must run the official code (a documented future-work item).
 
 The discharge ratio in this variant is defined only for positive FLOW. Signed
 tidal/backwater values are preserved by the main data pipeline, but Air2stream
 does not reinterpret them: those issue/transition rows are excluded from this
-development-only physical-reference baseline.
+development-only empirical comparator.
 
 Daily discrete-time form (e.g. Piccolroaz et al. 2016, eq. 5; cf. Toffolon &
 Piccolroaz 2015):
 
     θ_t = Q_t / Q̄                                            (normalised discharge)
-    1/τ_t = θ_t ^ a4                                          (thermal "speed")
-    T_{t+1} = T_t + (1/τ_t) [ a1 + a2·Ta_t − a3·T_t
+    r_t = θ_t ^ a4                                            (fitted multiplier)
+    T_{t+1} = T_t + r_t [ a1 + a2·Ta_t − a3·T_t
                               + a5·cos( 2π·(t/365 − a6) ) ]   (8-param)
               − a7·(T_t − a8·θ_t)·1{T_t < some_threshold}      (low-T correction)
 
+Here ``r_t`` and all fitted coefficients are statistical parameters of this
+variant; they are not identified heat capacity, travel time, or residence time.
 The 4-parameter version sets a5=a6=a7=a8=0. Calibration is per-station, on the
 training-fold day-of-year–air-temperature–discharge–water-temperature record,
 minimising 1-step-ahead squared error with bounded least-squares.
@@ -42,8 +44,8 @@ minimising 1-step-ahead squared error with bounded least-squares.
 For multi-step forecasts under Track-H, the FIRST step is driven by the air
 temperature observed at issue time (Ta_t, available under Track-H); steps t+2…t+h
 fall back to climatology, and discharge is held flat (Q_{t+h} ≈ Q_t). This gives
-the physical baseline the same observed-at-issue forcing the learned baselines
-receive, rather than starving its first step of information.
+the comparator the same observed-at-issue covariate available to the learned
+baselines, rather than starving its first step of information.
 """
 
 from __future__ import annotations
@@ -86,7 +88,7 @@ _A8_DEFAULT_STARTS: tuple[tuple[float, ...], ...] = (
 def _step(T: float, Ta: float, theta: float, doy: int, params: np.ndarray,
           variant: str) -> float:
     a1, a2, a3, a4 = params[:4]
-    # discharge-dependent inverse thermal capacity, clipped against 0/inf
+    # Fitted discharge-dependent recurrence multiplier, clipped against 0/inf.
     th = max(theta, 1e-3)
     inv_tau = th ** a4
     drive = a1 + a2 * Ta - a3 * T
@@ -116,7 +118,7 @@ def _residual(params, Ta, Q, T, doy, Qbar, variant, obs=None):
     if obs is not None:
         # Both the recursive state at t and the target at t+1 must be measured.
         # Requiring only obs[1:] would allow an imputed water temperature to
-        # seed a nominally observation-calibrated physical transition.
+        # seed a nominally observation-calibrated recurrence transition.
         eligible &= obs[:-1] & obs[1:]
     indices = np.flatnonzero(eligible)
     predictions = np.asarray([
@@ -456,8 +458,8 @@ def run_air2stream(panel: pd.DataFrame, masks, clim_air: F.HarmonicClimatology,
         T = sub["WTEMP"].to_numpy(float)
         doy = pd.to_datetime(sub["DATE"]).dt.dayofyear.to_numpy()
         # The shared panel is fold-safely imputed for learned models.  A
-        # process-style reference must not silently relabel those replacements
-        # as measured physical drivers, so restore missing TEMP/FLOW to NaN for
+        # empirical comparator must not silently relabel those replacements as
+        # measured covariates, so restore missing TEMP/FLOW to NaN for
         # calibration and use the explicit observation flags at issue time.
         wt_obs = (sub["WTEMP_observed"].to_numpy(bool) if "WTEMP_observed" in sub
                   else ~np.isnan(T))
@@ -520,7 +522,8 @@ def run_air2stream(panel: pd.DataFrame, masks, clim_air: F.HarmonicClimatology,
                 for issue, target in zip(issue_dates, target_dates)
             ], dtype=object)
             out_frames.append(R.make_pred_frame(
-                model=f"Air2stream-{variant}", scope="per_station", feature_set="phys",
+                model=f"Air2stream-{variant}", scope="per_station",
+                feature_set="unofficial_empirical_air2stream_style",
                 seed=0, site_id=np.full(len(issue_dates), st),
                 horizon=np.full(len(issue_dates), h), split=splits,
                 issue_date=issue_dates, target_date=target_dates,

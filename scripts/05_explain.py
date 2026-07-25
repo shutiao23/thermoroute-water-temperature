@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Stage 5 — mechanism analysis of a trained ThermoRoute model.
+"""Stage 5 — exploratory latent-component diagnostics for ThermoRoute.
 
-Trains one ThermoRoute (seed 0, V3, joint), then extracts the interpretable
-internals the paper relies on:
+Trains one ThermoRoute (seed 0, V3, joint), then extracts the inspectable
+internal allocation summaries used only for software and sensitivity checks:
 
-* horizon-conditioned variable×lag importance maps (overall, by season, by flow
-  regime) from the sparse router;
-* the dynamic relaxation rate κ and its dependence on flow / level / season;
+* horizon-conditioned variable×lag allocation maps (overall, by season, by flow
+  stratum) from the sparse router;
+* the learned decay coefficient κ and its descriptive association with flow
+  stratum / level / season;
 * the mixture-of-experts gate occupancy.
+
+The legacy identifiers b1, s2, and p3 are ordinary monitoring stations.  This
+script encodes no river network, reservoir cascade, hydraulic ordering, or travel
+time.  Its learned coefficients and allocation weights are descriptive latent
+quantities, not physical parameters, feature importance, or causal effects.
 
 All arrays are saved to ``outputs/tables/explain.npz`` for the figure stage, and
 the model state to ``outputs/models/thermoroute_explain.pt``.
@@ -38,6 +44,14 @@ from thermoroute import results as R
 from thermoroute.thermoroute import ThermoRoute
 from thermoroute.train import fit_model
 
+from _legacy_site_semantics import (
+    EPISTEMIC_TOPOLOGY_SENTENCE,
+    ORDINARY_MONITORING_SENTENCE,
+    find_legacy_semantic_violations,
+    load_legacy_semantic_policy,
+    retire_legacy_report_output,
+)
+
 
 def season_of(month: np.ndarray) -> np.ndarray:
     lut = {12: "DJF", 1: "DJF", 2: "DJF", 3: "MAM", 4: "MAM", 5: "MAM",
@@ -46,6 +60,10 @@ def season_of(month: np.ndarray) -> np.ndarray:
 
 
 def main() -> None:
+    # Retire the misleading old filename before any model/data operation, so a
+    # failed or partial rerun cannot leave a stale physical-mechanism claim.
+    legacy_output = retire_legacy_report_output(C.REPORTS)
+    semantic_policy = load_legacy_semantic_policy(ROOT)
     bundle = D.prepare_dataset()
     panel, masks = bundle["panel"], bundle["masks"]
     clim = F.HarmonicClimatology.fit(panel, masks.train)
@@ -62,7 +80,7 @@ def main() -> None:
     print("trained explain model:", res.epochs + 1, "epochs, val_rmse",
           round(res.best_val, 4), flush=True)
 
-    # run on all non-train splits for a rich, leak-free interpretation sample
+    # Run on non-training splits as a development-only diagnostic sample.
     idx = np.concatenate([wd.idx("val"), wd.idx("calib"), wd.idx("test")])
     model.eval()
     with torch.no_grad():
@@ -98,23 +116,43 @@ def main() -> None:
         flow_maps=np.stack([by_flow[r] for r in ("low", "mid", "high")]),
         kappa=kappa, logflowz=logflowz, wlevelz=wlevelz, teq=teq,
         station=station, months=months, pi=pi,
+        semantic_contract_version=np.array(
+            "thermoroute.legacy-monitoring-latent-diagnostics.v1"
+        ),
+        site_ids=np.array(C.STATIONS),
+        site_classification=np.array(
+            "ORDINARY_MONITORING_STATIONS_NOT_RESERVOIRS"
+        ),
+        verified_network_metadata=np.array(False),
+        topology_inference_allowed=np.array(False),
+        physical_interpretation_allowed=np.array(False),
+        causal_interpretation_allowed=np.array(False),
+        analysis_role=np.array("SINGLE_SEED_DESCRIPTIVE_DIAGNOSTIC"),
+        diagnostic_seed=np.array(0, dtype=np.int64),
     )
     print("saved explain.npz", flush=True)
 
-    # quick text summary for the report
-    L = ["# Mechanism summary (ThermoRoute, seed 0)\n"]
+    # Quick exploratory summary.  Keep the interpretation boundary inside the
+    # generated artifact so it cannot be separated from the diagnostic numbers.
+    L = ["# Latent-component diagnostic summary (ThermoRoute, seed 0)\n"]
+    L.append(
+        f"**Interpretation boundary.** {ORDINARY_MONITORING_SENTENCE} "
+        f"{EPISTEMIC_TOPOLOGY_SENTENCE} This exploratory single-seed diagnostic "
+        "does not identify physical parameters, feature importance, or causal "
+        "effects.\n"
+    )
     L.append(f"- Trained {res.epochs + 1} epochs, params={model.n_params()}, "
              f"val median-RMSE={res.best_val:.4f} °C\n")
-    L.append("## Dynamic relaxation rate κ (per-day memory)\n")
-    L.append("| station | mean κ | κ low-flow | κ high-flow | implied memory 1/κ (d) |")
-    L.append("|---|---|---|---|---|")
+    L.append("## Learned decay coefficient κ (latent diagnostic)\n")
+    L.append("| station | mean κ | κ low-flow stratum | κ high-flow stratum |")
+    L.append("|---|---|---|---|")
     for i, st in enumerate(C.STATIONS):
         sel = station == i
         kl = kappa[sel & (regime == "low")].mean()
         kh = kappa[sel & (regime == "high")].mean()
         km = kappa[sel].mean()
-        L.append(f"| {st} | {km:.3f} | {kl:.3f} | {kh:.3f} | {1 / km:.1f} |")
-    L.append("\n## Top variable×lag drivers by horizon (router weight share)\n")
+        L.append(f"| {st} | {km:.3f} | {kl:.3f} | {kh:.3f} |")
+    L.append("\n## Largest variable×lag allocations by horizon (router weight share)\n")
     vn = list(C.FEATURE_SETS["V3"])
     for hi, h in enumerate(C.HORIZONS):
         var_imp = overall[hi].sum(axis=1)        # sum over lags -> [V]
@@ -122,9 +160,21 @@ def main() -> None:
         top = ", ".join(f"{vn[v]} ({var_imp[v]*100:.0f}%)" for v in order)
         # dominant lag for WTEMP
         wlag = overall[hi, vn.index("WTEMP")].argmax()
-        L.append(f"- **h={h}d**: {top}; dominant WTEMP lag = {wlag} d")
-    (C.REPORTS / "mechanism_summary.md").write_text("\n".join(L))
-    print("wrote mechanism_summary.md", flush=True)
+        L.append(
+            f"- **h={h}d**: {top}; largest allocated WTEMP lag index = {wlag} "
+            "(diagnostic index, not propagation time)"
+        )
+    output = C.REPORTS / "latent_component_diagnostics.md"
+    report_text = "\n".join(L)
+    violations = find_legacy_semantic_violations(report_text, semantic_policy)
+    if violations:
+        details = "; ".join(
+            f"{violation.lint_id}: {violation.excerpt}"
+            for violation in violations
+        )
+        raise RuntimeError(f"legacy semantic guard refused diagnostic report: {details}")
+    output.write_text(report_text, encoding="utf-8")
+    print(f"wrote {output.name} and withdrawal tombstone {legacy_output.name}", flush=True)
 
 
 if __name__ == "__main__":

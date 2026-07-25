@@ -88,6 +88,7 @@ ARTIFACT_PATTERNS = (
     "data_usgs/*.json",
     "data_usgs/raw_snapshots/**/*",
     "data_usgs/rejected_sites*.csv",
+    "evidence/release_profile_v2.json",
     "protocols/*.md",
     "protocols/*.json",
     "outputs/predictions/**/*.parquet",

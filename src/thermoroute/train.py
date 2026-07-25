@@ -3,7 +3,8 @@
 The RMSE point head is trained by MSE.  Separate q05/q50/q95 heads are trained
 by pinball loss, with q05 and q95 constructed around q50 so they cannot cross.
 The remaining terms are exceedance BCE and an L1 leash from the point forecast
-to the frozen physical safety anchor.  All weights are fixed in
+to the frozen damped-persistence anchor. This is a bounded-deviation reference,
+not a physical or safety guarantee. All weights are fixed in
 ``config.TrainConfig`` and selected on the validation years only.
 """
 

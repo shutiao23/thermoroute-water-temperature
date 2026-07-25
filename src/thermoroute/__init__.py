@@ -1,4 +1,4 @@
-"""ThermoRoute: physics-guided, dynamic-lag, calibrated multi-station river
+"""ThermoRoute: physics-inspired, dynamic-lag, calibrated multi-station river
 water-temperature forecasting.
 
 A compact, leakage-safe research codebase for 1/3/7-day daily water-temperature

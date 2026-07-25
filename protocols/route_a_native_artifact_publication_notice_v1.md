@@ -116,6 +116,6 @@ change to the target interval. The sealed base protocol is not silently edited.
 ## Unrelated legacy-site semantics
 
 This engineering correction has no bearing on `b1`, `s2`, or `p3`. They are
-ordinary monitoring stations, not reservoirs or a cascade. Their identifiers
-and display order imply no upstream/downstream ordering, regulation, hydraulic
-connection, or travel time.
+ordinary monitoring stations, not reservoirs. No verified metadata establish any
+upstream/downstream ordering, hydraulic connectivity, regulation status, or
+travel time among b1, s2, and p3.

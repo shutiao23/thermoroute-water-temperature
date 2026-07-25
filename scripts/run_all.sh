@@ -72,7 +72,7 @@ if (( INCLUDE_LEGACY_MONITORING_CASE == 1 )); then
   "$THERMOROUTE_PYTHON" scripts/01_prepare_data.py
   echo "[legacy 2/6] experiment matrix"
   "$THERMOROUTE_PYTHON" scripts/04_run_experiments.py
-  echo "[legacy 3/6] mechanism analysis"
+  echo "[legacy 3/6] exploratory latent-component diagnostics"
   "$THERMOROUTE_PYTHON" scripts/05_explain.py
   echo "[legacy 4/6] figures"
   "$THERMOROUTE_PYTHON" scripts/06_make_figures.py
@@ -133,7 +133,7 @@ echo "[22/27] adaptive conformal diagnostics (no conditional-coverage claim)"
 "$THERMOROUTE_PYTHON" scripts/22_adaptive_conformal.py
 echo "[23/27] predeclared input-stress/OOD robustness (frozen ensemble; common keys)"
 "$THERMOROUTE_PYTHON" scripts/23_robustness.py --panel "${USGS_PANEL}"
-echo "[24/27] USGS calibration/REV/mechanism and claim statistics"
+echo "[24/27] USGS calibration/REV/latent diagnostics and claim statistics"
 "$THERMOROUTE_PYTHON" scripts/10_usgs_analysis.py
 "$THERMOROUTE_PYTHON" scripts/12_claim_stats.py
 echo "[25/27] station-agnostic pooled external suite (development data only)"

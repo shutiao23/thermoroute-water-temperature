@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 
@@ -13,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_SCRIPT = ROOT / "scripts" / "_preopen_manuscript_guard.py"
 RENDER_SCRIPT = ROOT / "scripts" / "29_render_preopen_manuscripts.py"
+AGU_BUILD_SCRIPT = ROOT / "paper" / "agu_submission" / "build_agu.py"
 GUARD_SPEC = importlib.util.spec_from_file_location(
     "preopen_manuscript_guard_test", GUARD_SCRIPT
 )
@@ -180,3 +182,28 @@ def test_preopen_guard_runs_before_python_docx_import():
     )
     docx_import = source.index("from docx import Document")
     assert guard_call < docx_import
+
+
+def test_agu_builder_guard_runs_before_read_render_or_write(tmp_path, monkeypatch):
+    namespace = runpy.run_path(str(AGU_BUILD_SCRIPT))
+    main = namespace["main"]
+    output = tmp_path / "ThermoRoute_WRR.tex"
+    output.write_bytes(b"sentinel-preopen-tex\n")
+    missing_markdown = tmp_path / "must-not-be-read.md"
+    calls: list[Path] = []
+
+    def refuse(root: Path) -> None:
+        calls.append(Path(root))
+        raise RuntimeError("opening state blocks PRE TeX rendering")
+
+    main.__globals__["OUTPUT"] = output
+    main.__globals__["MARKDOWN"] = missing_markdown
+    main.__globals__["assert_preopen_manuscript_render_allowed"] = refuse
+    main.__globals__["_render"] = lambda _text: pytest.fail(
+        "render ran before PRE guard"
+    )
+    monkeypatch.setattr(sys, "argv", [str(AGU_BUILD_SCRIPT)])
+    with pytest.raises(RuntimeError, match="opening state blocks"):
+        main()
+    assert calls == [ROOT]
+    assert output.read_bytes() == b"sentinel-preopen-tex\n"

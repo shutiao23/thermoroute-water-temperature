@@ -4,7 +4,8 @@ ThermoRoute is a research repository for a retrospective daily river-water-
 temperature hindcasting benchmark at 1-, 3-, and 7-day horizons. It does not yet
 establish an as-issued operational forecast. The model combines a damped-persistence anchor,
 a learned thermal-relaxation proposal, a horizon-conditioned variable/lag router,
-a causal temporal convolutional encoder, a regime mixture, bounded residuals, and
+a strictly left-looking (non-anticipating) temporal convolutional encoder, a
+regime mixture, bounded residuals, and
 a separate MSE point head, three pinball-trained quantile heads, and split-conformal
 calibration of the nominal 90% interval.
 
@@ -15,7 +16,8 @@ statements in this section describe the evidence state at that seal; they are
 not a mutable dashboard.  After any valid one-time opening, the authoritative
 source-tree status is the verified canonical opening receipt together with the
 deterministic POST result suffix in `paper/ThermoRoute_paper.md`; a completed
-release archive additionally carries a verified `data_usgs/release_profile_v1.json`.
+local evidence archive additionally carries a verified
+`evidence/release_profile_v2.json`.
 Those generated records supersede this readiness snapshot without rewriting it.
 
 At the PRE-stage seal, the repository is in a **pre-opening reconstruction
@@ -147,10 +149,11 @@ For issue time `t` and horizon `h`, the point forecast has four main pieces:
 1. A damped-persistence/climatology anchor supplies a strong conservative
    reference trajectory.
 2. A learned flow- and season-conditioned relaxation proposal changes the thermal
-   memory, but remains a statistical component rather than an energy-balance
-   estimate.
+   statistical decay behavior, but remains a statistical component rather than
+   an energy-balance estimate or measured physical timescale.
 3. A sparse horizon-conditioned router selects among predeclared variables and
-   lags; a causal TCN and regime mixture encode recent history.
+   lags; a strictly left-looking (non-anticipating) TCN and regime mixture encode
+   recent history.
 4. A `tanh`-bounded residual limits the point prediction's deviation from its
    anchor. This is an algebraic bounded-deviation property, not a deployment or
    tail-risk guarantee.
@@ -378,9 +381,38 @@ It does not protect against an owner rewriting local Git history. No remote push
 public registration, or external artifact publication is performed by this
 workflow.
 
-The release archive produced by `scripts/make_release_archive.sh` is a local
-verification artifact, not permission to redistribute every bundled dataset and
-not a public release. Zenodo deposit metadata is intentionally disabled while
+### Existing public-remote governance stop
+
+As checked on 2026-07-22, the configured GitHub repository is already publicly
+readable, and its remote branches have not received the safeguards in this local
+worktree. They still expose legacy data, generated outputs, and reachable history
+containing withdrawn three-site interpretations. Public readability is not
+evidence of redistribution authorization. The local `PUBLIC` archive gate cannot
+recall bytes that were already exposed, invalidate clones or caches, or repair
+remote history.
+
+This is a release-blocking governance incident. Before any further public release,
+the repository owner and a qualified rights/data-governance reviewer must preserve
+an audit copy, restrict remote access, inventory every exposed byte by digest,
+determine rights and privacy status, and follow the hosting provider's history and
+cached-content remediation process. Rewriting or deleting remote refs without that
+authorization is not performed by this workflow and would not by itself establish
+removal from clones, forks, or caches.
+
+The archive produced by `scripts/make_release_archive.sh` is named
+`thermoroute_LOCAL_EVIDENCE_DO_NOT_DISTRIBUTE_...`. It is local owner evidence,
+not permission to transfer or redistribute any bundled material and not a public
+release. The builder and verifier accept only
+`--distribution LOCAL_EVIDENCE_ONLY`; `--distribution PUBLIC` fails closed
+before staging or extraction while the byte-bound rights review is incomplete.
+The builder has no default distribution mode: creating even the local evidence
+archive requires that local-only mode to be supplied explicitly.
+The profile marker records that neither public redistribution nor third-party
+transfer is authorized by this release evidence, a deliberately non-exhaustive
+minimum set of known unresolved scopes, and the requirement to review every
+archive member by exact SHA-256. Absence from that minimum set never implies
+permission. Zenodo
+deposit metadata is intentionally disabled while
 creator identities and the redistribution terms for each data category remain
 unverified. Historical Git objects include a withdrawn `.zenodo.json` whose
 claims of open/MIT data redistribution, safety, and prediction without
@@ -388,6 +420,16 @@ target-site history are not authorized by the current evidence and must not be
 reused or treated as metadata for this project. A new `.zenodo.json` may be added
 only after verified creators,
 accurate scope claims, and separate data-license metadata are available.
+
+Hosted CI checks that public mode stays fail-closed and runs its model smoke test
+on generated synthetic series. It deliberately does not construct the local
+evidence archive on a third-party runner. Full local archive construction and
+verification therefore remain an owner-machine acceptance test; a synthetic
+clean-room archive fixture is still needed before equivalent hosted end-to-end
+coverage can be claimed. Fork pull requests are also fail-closed because arbitrary
+fork code must not execute in a checkout containing material with unresolved
+redistribution rights; a future fork-safe CI job must check out code-only content
+and use synthetic fixtures under an enforced network policy.
 
 The archive's active member namespace excludes withdrawn outputs, generated
 figures, and rendered PDF/DOCX files. Its self-contained Git-history bundle is

@@ -11,6 +11,12 @@ permissions:
 
 jobs:
   test:
+    # Fork pull requests are intentionally fail-closed: arbitrary fork code must
+    # never execute in a checkout that contains data whose redistribution rights
+    # remain unresolved. A future fork-safe job must use synthetic fixtures only.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +30,8 @@ jobs:
     steps:
       # Immutable upstream revisions: checkout v4.3.0, setup-python v5.6.0.
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
@@ -63,6 +71,10 @@ jobs:
         if: ${{ matrix.deps == 'locked' }}
         env:
           PYTHONPATH: src
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          NUMEXPR_NUM_THREADS: "1"
         run: |
           pytest \
             tests/test_repro.py \
@@ -80,6 +92,7 @@ jobs:
       - name: Canonical Markdown to AGU TeX is current
         if: ${{ matrix.deps == 'locked' }}
         run: |
+          python scripts/26_validate_claims.py --root "$PWD"
           PINNED_PANDOC="$(python -c \
             "from pathlib import Path; import pypandoc; print(Path(pypandoc.__file__).resolve().parent / 'files' / 'pandoc')")"
           test -x "$PINNED_PANDOC"
@@ -99,23 +112,54 @@ jobs:
           PYTHONPATH: src
         run: |
           python -c "from thermoroute.usgs import build_station, fetch_nwis_daily, fetch_daymet, fetch_gridmet_wind; print('usgs module OK')"
-      - name: Smoke experiment (3-station, 1 seed, asserts on numbers)
+      - name: Synthetic smoke experiment (3 stations, 1 seed)
         if: ${{ matrix.deps == 'locked' }}
         env:
           PYTHONPATH: src
+          PYTHONHASHSEED: "0"
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          NUMEXPR_NUM_THREADS: "1"
         run: |
-          # A tiny end-to-end run that trains ThermoRoute for a few epochs on the
-          # shipped 3-station data and asserts the pipeline produces sane numbers:
+          # A tiny end-to-end run that trains ThermoRoute for a few epochs on
+          # deterministic generated data and asserts sane numerical behavior.
+          # It does not read legacy files with unresolved redistribution rights.
           # persistence-beating skill sign is NOT required on the near-deterministic
-          # legacy three-monitoring-site series, but conformal coverage must be in a
-          # sane band and the
-          # identical-keys invariant must hold. Guards against silent pipeline rot.
+          # synthetic series, but conformal coverage must be in a sane band and
+          # the identical-keys invariant must hold. Guards against pipeline rot.
           python scripts/ci_smoke.py
-      - name: Build and verify clean-room release
+      - name: Public distribution remains fail-closed
         if: ${{ matrix.deps == 'locked' }}
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          bash scripts/make_release_archive.sh
-          python scripts/verify_release.py dist/thermoroute_release_v*.zip \
-            --run-data-smoke
+          builder_log="$(mktemp)"
+          set +e
+          bash scripts/make_release_archive.sh --distribution PUBLIC \
+            >"$builder_log" 2>&1
+          builder_status=$?
+          set -e
+          if [ "$builder_status" -ne 2 ] || \
+             ! grep -Fq \
+               "archive refused: PUBLIC distribution is blocked pending a byte-bound rights review" \
+               "$builder_log"; then
+            sed -n '1,120p' "$builder_log" >&2
+            echo "PUBLIC builder did not fail through the declared gate" >&2
+            exit 1
+          fi
+
+          verifier_log="$(mktemp)"
+          set +e
+          python scripts/verify_release.py --distribution PUBLIC \
+            >"$verifier_log" 2>&1
+          verifier_status=$?
+          set -e
+          if [ "$verifier_status" -ne 1 ] || \
+             ! grep -Fq \
+               "release verification failed: public distribution is blocked pending a byte-bound rights review" \
+               "$verifier_log"; then
+            sed -n '1,120p' "$verifier_log" >&2
+            echo "PUBLIC verifier did not fail through the declared gate" >&2
+            exit 1
+          fi
