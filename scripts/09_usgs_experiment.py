@@ -147,6 +147,7 @@ from thermoroute.checkpoint import (
 from thermoroute.model_suite import (
     ABLATION_INTERVENTIONS,
     MANDATORY_ABLATIONS,
+    STAGE9_ABLATION_SEEDS,
     STAGE9_AIR2STREAM_DISPLAY_NAME,
     STAGE9_AIR2STREAM_MODELS,
     STAGE9_COMPLETION_RECEIPT_PATH,
@@ -317,25 +318,19 @@ def resolve_stage09_publication_paths(
     }
 
 
-def seed0_ablation_diagnostic_frames(
+def multiseed_ablation_diagnostic_frames(
     frame: pd.DataFrame,
     *,
     controls: tuple[str, ...] = MANDATORY_ABLATIONS,
+    seeds: tuple[int, ...] = STAGE9_ABLATION_SEEDS,
     split: str = "test",
 ) -> dict[str, pd.DataFrame]:
-    """Return strictly paired seed-0 frames for the Stage-9 diagnostic table.
-
-    The formal Stage-9 controls are deliberately single-member interventions.
-    Their descriptive table must therefore compare each control with the same
-    ThermoRoute member, never with the five-member headline ensemble.  Refuse
-    publication unless every control contains seed 0 only and its exact
-    forecast-key registry and serialized target values equal ThermoRoute seed 0.
-    """
+    """Return complete same-seed, same-key Stage-9 intervention frames."""
     required = {"model", "split", "seed", "y_true", "y_pred", *FORECAST_KEY}
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(
-            f"seed0 ablation diagnostic lacks required columns: {missing}"
+            f"multi-seed ablation diagnostic lacks required columns: {missing}"
         )
 
     normal = frame.copy()
@@ -350,7 +345,7 @@ def seed0_ablation_diagnostic_frames(
         or pd.api.types.is_bool_dtype(normal["horizon"].dtype)
         or not pd.api.types.is_integer_dtype(normal["horizon"].dtype)
     ):
-        raise ValueError("seed0 ablation diagnostic has noncanonical key dtypes")
+        raise ValueError("multi-seed ablation diagnostic has noncanonical key dtypes")
     for column in ("issue_date", "target_date"):
         if (
             str(normal[column].dtype) != "datetime64[ns]"
@@ -358,7 +353,7 @@ def seed0_ablation_diagnostic_frames(
             or not normal[column].dt.normalize().equals(normal[column])
         ):
             raise ValueError(
-                f"seed0 ablation diagnostic has noncanonical {column}"
+                f"multi-seed ablation diagnostic has noncanonical {column}"
             )
     if (
         not set(normal["split"].tolist())
@@ -373,7 +368,7 @@ def seed0_ablation_diagnostic_frames(
         or normal.duplicated(["model", "seed", *FORECAST_KEY, "split"]).any()
     ):
         raise ValueError(
-            "seed0 ablation diagnostic has invalid split, value, or duplicate key"
+            "multi-seed ablation diagnostic has invalid split, value, or duplicate key"
         )
     expected_split = np.full(len(normal), "none", dtype=object)
     for split_name, (lower, upper) in C.SPLIT.as_dict().items():
@@ -391,48 +386,52 @@ def seed0_ablation_diagnostic_frames(
         )
     ):
         raise ValueError(
-            "seed0 ablation diagnostic split/date/horizon contract changed"
+            "multi-seed ablation diagnostic split/date/horizon contract changed"
         )
     test_rows = normal[normal["split"].eq(split)]
 
     full_rows = test_rows[test_rows["model"].eq("ThermoRoute")]
-    full_seeds = pd.to_numeric(full_rows["seed"], errors="coerce")
-    full = full_rows.loc[full_seeds.eq(0)].copy()
-    if full.empty:
-        raise ValueError(f"ThermoRoute seed=0 is absent from split={split!r}")
-    if full.duplicated(list(FORECAST_KEY)).any():
-        raise ValueError("ThermoRoute seed=0 has duplicate forecast keys")
+    full_seed_values = pd.to_numeric(full_rows["seed"], errors="coerce")
+    if full_rows.empty or full_seed_values.isna().any() or set(
+        full_seed_values.astype(int)
+    ) != set(seeds):
+        raise ValueError(
+            f"ThermoRoute lacks the exact ablation seed registry {seeds}"
+        )
+    full = full_rows.copy()
+    paired_key_columns = ["seed", *FORECAST_KEY]
+    if full.duplicated(paired_key_columns).any():
+        raise ValueError("ThermoRoute has duplicate seed×forecast keys")
 
-    key_columns = list(FORECAST_KEY)
-    full_keys = set(full[key_columns].itertuples(index=False, name=None))
+    full_keys = set(full[paired_key_columns].itertuples(index=False, name=None))
     if not full_keys:
-        raise ValueError("ThermoRoute seed=0 has no forecast keys")
+        raise ValueError("ThermoRoute has no multi-seed forecast keys")
     result = {"ThermoRoute": full.reset_index(drop=True)}
 
     for name in controls:
         all_control = normal[normal["model"].eq(name)]
-        seeds = pd.to_numeric(all_control["seed"], errors="coerce")
+        control_seeds = pd.to_numeric(all_control["seed"], errors="coerce")
         if (
             all_control.empty
-            or seeds.isna().any()
-            or not seeds.eq(0).all()
+            or control_seeds.isna().any()
+            or set(control_seeds.astype(int)) != set(seeds)
         ):
-            raise ValueError(f"{name} must contain exact seed=0 rows only")
+            raise ValueError(f"{name} must contain the exact seed registry {seeds}")
         control = all_control[all_control["split"].eq(split)].copy()
         if control.empty:
             raise ValueError(f"{name} is absent from split={split!r}")
-        if control.duplicated(key_columns).any():
-            raise ValueError(f"{name} seed=0 has duplicate forecast keys")
+        if control.duplicated(paired_key_columns).any():
+            raise ValueError(f"{name} has duplicate seed×forecast keys")
         control_keys = set(
-            control[key_columns].itertuples(index=False, name=None)
+            control[paired_key_columns].itertuples(index=False, name=None)
         )
         if control_keys != full_keys:
             raise ValueError(
-                f"{name} seed=0 forecast keys differ from ThermoRoute seed=0"
+                f"{name} same-seed forecast keys differ from ThermoRoute"
             )
-        aligned = full[key_columns + ["y_true"]].merge(
-            control[key_columns + ["y_true"]],
-            on=key_columns,
+        aligned = full[paired_key_columns + ["y_true"]].merge(
+            control[paired_key_columns + ["y_true"]],
+            on=paired_key_columns,
             how="inner",
             validate="one_to_one",
             suffixes=("_thermoroute", "_control"),
@@ -450,7 +449,7 @@ def seed0_ablation_diagnostic_frames(
             or not np.array_equal(full_truth, control_truth)
         ):
             raise ValueError(
-                f"{name} seed=0 y_true differs from ThermoRoute seed=0"
+                f"{name} same-seed y_true differs from ThermoRoute"
             )
         result[name] = control.reset_index(drop=True)
     return result
@@ -988,6 +987,11 @@ def main():
     args = ap.parse_args()
     if args.seeds < 1 or args.seeds > len(C.USGS_SEEDS):
         ap.error(f"--seeds must be between 1 and {len(C.USGS_SEEDS)}")
+    if args.ablations and args.seeds != len(STAGE9_ABLATION_SEEDS):
+        ap.error(
+            "--ablations requires the complete five-seed ThermoRoute ensemble; "
+            "use --no-ablations for a reduced-seed exploratory diagnostic"
+        )
 
     panel_path = Path(args.panel).resolve()
     registry_path = ROOT / "data_usgs" / "station_registry_v1.csv"
@@ -1051,6 +1055,7 @@ def main():
         "train_config": asdict(CFG),
         "thermoroute_seeds": C.USGS_SEEDS[:args.seeds],
         "lightgbm_seeds": C.USGS_SEEDS,
+        "ablation_seeds": STAGE9_ABLATION_SEEDS,
         "delta_scale": args.delta_scale,
         "station_sampling": args.station_sampling,
         "selection_metric": ("station_macro" if args.station_sampling == "balanced"
@@ -1280,84 +1285,117 @@ def main():
         chunks.append(lgo_held)
         log(f"  LGO ({len(trainset)}→{len(hold)}): {time.time()-te:.0f}s")
 
-    # ---- large-sample module ablations (single seed) -------------------- #
-    ablation_members = {}
-    ablation_predictions = {}
-    ablation_architecture = {}
+    # ---- large-sample module ablations (same five seeds) ---------------- #
+    ablation_members: dict[str, dict[str, object]] = {}
+    ablation_predictions: dict[str, pd.DataFrame] = {}
+    ablation_architecture: dict[str, dict[str, object]] = {}
     if args.ablations:
         # Each control changes one declared factor.  In particular noMoE keeps
         # both routed and TCN representations, and noRouter keeps the TCN path.
-        abl = {
-            "TR-noDynamicPrior": dict(use_prior=False),
-            "TR-fixedKappa": dict(fixed_kappa=True),
-            "TR-noRouter": dict(use_router=False),
-            "TR-noMoE": dict(use_moe=False),
-            "TR-noTCN": dict(use_tcn=False),
-            "TR-unbounded": dict(delta_scale=None),
-            "DampedPriorOnly": dict(use_prior=False, residual_model=False),
-        }
-        for name, kw in abl.items():
-            af = prediction_cache / f"ablation_{name}.parquet"
-            ab = ablation_cache / name
-            cached_ablation = read_prediction_cache(af, identity)
-            cached_weights = read_member_bundle(ab, identity, name)
-            model_kw = dict(kw)
+        for name in MANDATORY_ABLATIONS:
+            model_kw = dict(ABLATION_INTERVENTIONS[name])
             model_kw.setdefault("delta_scale", args.delta_scale)
-            if cached_ablation is not None and cached_weights is not None:
-                assert_formal_numerical_policy()
-                chunks.append(cached_ablation)
-                ablation_predictions[name] = cached_ablation
-                ablation_members[name] = cached_weights
-                ablation_architecture[name] = model_kw
-                log(f"  {name}: verified content cache")
-                continue
-            te = time.time()
-            factory = lambda model_kw=model_kw: ThermoRoute(
-                n_vars=len(wd.var_names), n_stations=len(stations),
-                n_phys=wd.n_phys, safety_anchor="damped", **model_kw)
-            r = fit_model(factory, wd, thr, cfg=CFG, seed=0, model_name=name,
-                          device=resolved_device, eval_batch_size=args.eval_batch_size,
-                          scope="ablation_usgs", feature_set="USGS",
-                          station_balanced=args.station_sampling == "balanced",
-                          selection_metric=("station_macro" if args.station_sampling == "balanced"
-                                            else "micro"),
-                          checkpoint_path=training_checkpoints / f"ablation_{name}.pt",
-                          run_id=identity.run_id,
-                          resolved_config={**run_config, "arm": name, "seed": 0,
-                                           "model_kwargs": model_kw},
-                          artifact_publication_guard=assert_formal_numerical_policy)
-            r.pred["seed"] = 0
-            write_prediction_artifact(
-                r.pred, af, identity, kind="thermoroute_ablation_predictions",
-                publication_guard=assert_formal_numerical_policy,
-            )
-            (
-                ablation_offsets,
-                ablation_offset_audit,
-                ablation_calibrators,
-            ) = calibration_artifacts(r.pred, thr)
-            save_inference_bundle(
-                ab,
-                members={name: r.model},
-                metadata=bundle_metadata(
-                    identity, wd, clim, imputer, thr, event_reference,
-                    args.delta_scale,
-                    ablation_offsets, ablation_offset_audit,
-                    ablation_calibrators,
-                    training_device=resolved_device,
-                    architecture_overrides=model_kw,
-                ),
-                expected_member_count=1,
-                publication_guard=assert_formal_numerical_policy,
-            )
-            ablation_predictions[name] = r.pred
-            ablation_members[name] = {
-                key: value.detach().cpu().contiguous()
-                for key, value in r.model.state_dict().items()
-            }
             ablation_architecture[name] = model_kw
-            chunks.append(r.pred)
-            log(f"  {name}: {time.time()-te:.0f}s val={r.best_val:.4f}")
+            member_states: dict[str, object] = {}
+            member_predictions: list[pd.DataFrame] = []
+            for seed in STAGE9_ABLATION_SEEDS:
+                member_name = f"seed{seed}"
+                prediction_path = (
+                    prediction_cache / f"ablation_{name}_{member_name}.parquet"
+                )
+                member_bundle = ablation_cache / name / member_name
+                cached_prediction = read_prediction_cache(prediction_path, identity)
+                cached_weights = read_member_bundle(
+                    member_bundle, identity, member_name
+                )
+                if cached_prediction is not None and cached_weights is not None:
+                    assert_formal_numerical_policy()
+                    member_predictions.append(cached_prediction)
+                    member_states[member_name] = cached_weights
+                    log(f"  {name} {member_name}: verified content cache")
+                    continue
+                started = time.time()
+                def factory(model_kw=model_kw):
+                    return ThermoRoute(
+                        n_vars=len(wd.var_names), n_stations=len(stations),
+                        n_phys=wd.n_phys, safety_anchor="damped", **model_kw,
+                    )
+                result = fit_model(
+                    factory,
+                    wd,
+                    thr,
+                    cfg=CFG,
+                    seed=seed,
+                    model_name=name,
+                    device=resolved_device,
+                    eval_batch_size=args.eval_batch_size,
+                    scope="ablation_usgs",
+                    feature_set="USGS",
+                    station_balanced=args.station_sampling == "balanced",
+                    selection_metric=(
+                        "station_macro"
+                        if args.station_sampling == "balanced" else "micro"
+                    ),
+                    checkpoint_path=(
+                        training_checkpoints / f"ablation_{name}_{member_name}.pt"
+                    ),
+                    run_id=identity.run_id,
+                    resolved_config={
+                        **run_config,
+                        "arm": name,
+                        "seed": seed,
+                        "model_kwargs": model_kw,
+                    },
+                    artifact_publication_guard=assert_formal_numerical_policy,
+                )
+                result.pred["seed"] = seed
+                write_prediction_artifact(
+                    result.pred,
+                    prediction_path,
+                    identity,
+                    kind="thermoroute_ablation_seed_predictions",
+                    publication_guard=assert_formal_numerical_policy,
+                )
+                seed_offsets, seed_offset_audit, seed_calibrators = (
+                    calibration_artifacts(result.pred, thr)
+                )
+                save_inference_bundle(
+                    member_bundle,
+                    members={member_name: result.model},
+                    metadata=bundle_metadata(
+                        identity,
+                        wd,
+                        clim,
+                        imputer,
+                        thr,
+                        event_reference,
+                        args.delta_scale,
+                        seed_offsets,
+                        seed_offset_audit,
+                        seed_calibrators,
+                        training_device=resolved_device,
+                        architecture_overrides=model_kw,
+                    ),
+                    expected_member_count=1,
+                    publication_guard=assert_formal_numerical_policy,
+                )
+                member_predictions.append(result.pred)
+                member_states[member_name] = {
+                    key: value.detach().cpu().contiguous()
+                    for key, value in result.model.state_dict().items()
+                }
+                log(
+                    f"  {name} {member_name}: {time.time()-started:.0f}s "
+                    f"val={result.best_val:.4f}"
+                )
+            combined = pd.concat(member_predictions, ignore_index=True)
+            if set(member_states) != {
+                f"seed{seed}" for seed in STAGE9_ABLATION_SEEDS
+            }:
+                raise RuntimeError(f"{name} lacks the complete ablation ensemble")
+            ablation_predictions[name] = combined
+            ablation_members[name] = member_states
+            chunks.append(combined)
 
     # Re-check the live native pools after every long-running fit and before
     # any canonical artifact can be published.
@@ -1374,8 +1412,8 @@ def main():
     )
     log(f"sample registry: {audit.common_unique} exact keys across {audit.models}; "
         f"dropped {audit.dropped_rows} non-shared rows (before={audit.before_unique})")
-    seed0_diagnostic = (
-        seed0_ablation_diagnostic_frames(allp) if args.ablations else {}
+    ablation_diagnostic = (
+        multiseed_ablation_diagnostic_frames(allp) if args.ablations else {}
     )
 
     # The registry audit above first proves that every primary path refers to
@@ -1528,8 +1566,9 @@ def main():
         ),
     )
 
-    # Freeze every mandatory one-factor architecture control.  Cached
-    # predictions alone are never accepted as a model artifact.
+    # Freeze every mandatory one-factor architecture control as a complete
+    # five-seed ensemble.  Cached predictions alone are never accepted as a
+    # model artifact.
     ablation_deployments = {}
     if args.ablations and set(ablation_members) == set(MANDATORY_ABLATIONS):
         for name in MANDATORY_ABLATIONS:
@@ -1540,7 +1579,7 @@ def main():
             destination = C.MODELS / f"{name.lower()}_bundle_{identity.run_id}"
             save_inference_bundle(
                 destination,
-                members={name: ablation_members[name]},
+                members=ablation_members[name],
                 metadata=bundle_metadata(
                     identity, wd, clim, imputer, thr, event_reference,
                     args.delta_scale,
@@ -1552,14 +1591,17 @@ def main():
                         max_abs_difference=parity_atol, atol=parity_atol,
                     ),
                 ),
-                expected_member_count=1,
+                expected_member_count=len(STAGE9_ABLATION_SEEDS),
                 publication_guard=assert_formal_numerical_policy,
             )
             difference = verify_sequence_prediction_parity(
                 destination, wd=wd, expected=pred,
                 model_factory=lambda _member, metadata:
                     thermoroute_factory_from_metadata(metadata),
-                member_seeds={name: 0}, atol=parity_atol,
+                member_seeds={
+                    f"seed{seed}": seed for seed in STAGE9_ABLATION_SEEDS
+                },
+                atol=parity_atol,
                 batch_size=args.eval_batch_size,
                 publication_guard=assert_formal_numerical_policy,
             )
@@ -1597,7 +1639,8 @@ def main():
         for name in MANDATORY_ABLATIONS:
             component_entries.append(torch_entry(
                 ROOT, model_id=name, executor="thermoroute_bundle",
-                directory=ablation_deployments[name], member_count=1,
+                directory=ablation_deployments[name],
+                member_count=len(STAGE9_ABLATION_SEEDS),
                 raw_feature_order=wd.var_names,
                 intervention=ABLATION_INTERVENTIONS[name],
             ))
@@ -1685,17 +1728,17 @@ def main():
 
     # ---- ablation summary (median per-station RMSE) --------------------- #
     abl_models = ("ThermoRoute", *MANDATORY_ABLATIONS)
-    L += ["", f"## Module ablations (single-seed functionality/intervention "
-          f"diagnostic; seed0-vs-seed0; median per-station RMSE, "
+    L += ["", f"## Module ablations (five-seed deletion/intervention "
+          f"sensitivity; ensemble-mean median per-station RMSE, "
           f"delta_scale={args.delta_scale})\n",
-          "Audit: every mandatory control is exact seed=0 and is paired with "
-          "ThermoRoute seed=0 on identical forecast keys and exact y_true. "
-          "Interpretation: this is a single-seed functionality/intervention "
-          "diagnostic, seed0-vs-seed0; not evidence of module necessity, causal "
-          "mechanism, or cross-seed stability.\n",
+          "Audit: every mandatory control contains seeds 0--4 and uses the "
+          "same five seeds as ThermoRoute, with identical forecast keys and "
+          "exact y_true within each paired seed. Interpretation: this is a "
+          "five-seed deletion/intervention sensitivity, not evidence of module "
+          "necessity, causal mechanism, or capacity-matched attribution.\n",
           "| variant | h1 | h3 | h7 |", "|---|---|---|---|"]
     for m in abl_models:
-        sub = seed0_diagnostic.get(m)
+        sub = ablation_diagnostic.get(m)
         if sub is None:
             continue
         meds = []
@@ -1801,7 +1844,7 @@ def main():
             publish_pointers=publish_pointers,
             publish_receipt=publish_receipt,
         )
-        log("saved formal Stage-9 model components: TR5 + LGB5 + 7 controls")
+        log("saved formal Stage-9 model components: TR5 + LGB5 + 7x5 controls")
         log(f"saved Stage-9 completion receipt: {receipt_path.relative_to(ROOT)}")
     else:
         write_report()

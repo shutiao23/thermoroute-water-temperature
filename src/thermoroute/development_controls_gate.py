@@ -3,7 +3,8 @@
 The gate replays data preparation and window construction from the frozen
 2006--2020 panel.  It then validates every semantic prediction field, derives
 metrics again, regenerates the report byte-for-byte, and proves that the
-combined Parquet is a full-column copy of all 31 immutable member artifacts.
+combined Parquet is a full-column copy of every immutable member artifact in
+the declared arm/seed contract.
 Each member prediction is also regenerated from the safely loaded checkpoint
 ``best_model_state``.  The gate makes no full training-trajectory replay claim.
 """
@@ -191,8 +192,8 @@ def _assert_prediction_arrow_schema(path: Path) -> None:
 
 def expected_stage09b_members() -> tuple[tuple[str, int], ...]:
     members = expected_member_registry()
-    if len(members) != 31:
-        raise DevelopmentControlsGateError("Stage-09b member contract is not 31 members")
+    if not members:
+        raise DevelopmentControlsGateError("Stage-09b member contract is empty")
     return members
 
 
@@ -390,7 +391,9 @@ def _validate_formal_configuration(value: object) -> dict[str, Any]:
         or not isinstance(bridge, Mapping)
         or set(bridge) != {"path", "sha256"}
     ):
-        raise DevelopmentControlsGateError("Stage-09b is not the exact formal 31-member run")
+        raise DevelopmentControlsGateError(
+            "Stage-09b is not the exact formal arm/seed run"
+        )
     _validate_formal_policy(value.get("formal_numerical_policy"))
     return value
 
@@ -919,7 +922,9 @@ def _validate_member_predictions(
         summaries.append(recompute_metric_summary({member: normalised}))
         station_parts.append(recompute_station_rmse({member: normalised}))
     if tuple(observed) != expected:
-        raise DevelopmentControlsGateError("Stage-09b receipt does not bind exactly 31 members")
+        raise DevelopmentControlsGateError(
+            "Stage-09b receipt does not bind the exact declared members"
+        )
     summary = pd.concat(summaries, ignore_index=True).sort_values(
         ["arm_id", "seed", "split", "horizon"], kind="mergesort"
     ).reset_index(drop=True)
@@ -1126,7 +1131,9 @@ def build_stage09b_completion_receipt(
         raise DevelopmentControlsGateError("Stage-09b run id differs from manifest")
     expected = expected_stage09b_members()
     if set(member_paths) != set(expected) or len(member_paths) != len(expected):
-        raise DevelopmentControlsGateError("Stage-09b receipt requires exactly 31 members")
+        raise DevelopmentControlsGateError(
+            "Stage-09b receipt requires the exact declared members"
+        )
     final = {
         "run_manifest": Path(run_manifest),
         "frozen_panel_spec": Path(frozen_panel_spec),
@@ -1261,8 +1268,12 @@ def validate_stage09b_completion_receipt(
         raise DevelopmentControlsGateError("Stage-09b config binds another predictor bridge")
     contract = _validate_data_contract(root=root, paths=paths, identity=identity)
     members = receipt.get("member_registry")
-    if not isinstance(members, list) or len(members) != 31:
-        raise DevelopmentControlsGateError("Stage-09b receipt does not contain 31 members")
+    expected_members = expected_stage09b_members()
+    expected_member_count = len(expected_members)
+    if not isinstance(members, list) or len(members) != expected_member_count:
+        raise DevelopmentControlsGateError(
+            "Stage-09b receipt does not contain the exact declared members"
+        )
     parents = {
         "frozen_panel": identity["panel_sha256"],
         "frozen_station_registry": identity["registry_sha256"],
@@ -1275,16 +1286,16 @@ def validate_stage09b_completion_receipt(
         publication_guard=publication_guard,
     )
     audit = receipt.get("matrix_audit")
-    expected_members = expected_stage09b_members()
     if (
         not isinstance(audit, Mapping)
         or set(audit) != {
             "expected_members", "prediction_rows", "common_forecast_keys",
             "splits", "reference_member",
         }
-        or audit.get("expected_members") != 31
+        or audit.get("expected_members") != expected_member_count
         or audit.get("common_forecast_keys") != len(contract.registry)
-        or audit.get("prediction_rows") != len(contract.registry) * 31
+        or audit.get("prediction_rows")
+        != len(contract.registry) * expected_member_count
         or audit.get("prediction_rows") != sum(counts.values())
         or audit.get("splits") != ["calib", "test", "val"]
         or audit.get("reference_member")

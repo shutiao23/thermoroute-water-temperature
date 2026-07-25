@@ -141,16 +141,17 @@ STAGE25_ARTIFACT_LABELS = (
     "development_predictor_bridge",
     "model_files",
 )
+STAGE09B_SEEDS = (0, 1, 2, 3, 4)
 STAGE09B_ARM_SEEDS = (
-    ("PlainMLP-7var", (0, 1, 2, 3, 4)),
-    ("PlainCausalTCN-7var", (0, 1, 2, 3, 4)),
-    ("ThermoRoute-ladder-01_WTEMP", (0, 1, 2)),
-    ("ThermoRoute-ladder-02_plus_FLOW", (0, 1, 2)),
-    ("ThermoRoute-ladder-03_plus_TEMP", (0, 1, 2)),
-    ("ThermoRoute-ladder-04_plus_PRCP", (0, 1, 2)),
-    ("ThermoRoute-ladder-05_plus_RHMEAN", (0, 1, 2)),
-    ("ThermoRoute-ladder-06_plus_DH", (0, 1, 2)),
-    ("ThermoRoute-ladder-07_plus_WDSP", (0, 1, 2)),
+    ("PlainMLP-7var", STAGE09B_SEEDS),
+    ("PlainCausalTCN-7var", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-01_WTEMP", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-02_plus_FLOW", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-03_plus_TEMP", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-04_plus_PRCP", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-05_plus_RHMEAN", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-06_plus_DH", STAGE09B_SEEDS),
+    ("ThermoRoute-ladder-07_plus_WDSP", STAGE09B_SEEDS),
 )
 STAGE09B_MEMBERS = tuple(
     (arm_id, seed)
@@ -161,13 +162,20 @@ STAGE09B_MEMBERS = tuple(
 
 def _stage09b_scientific_comparison_registry() -> list[dict[str, Any]]:
     full = "ThermoRoute-ladder-07_plus_WDSP"
+    arm_seeds = dict(STAGE09B_ARM_SEEDS)
+
+    def common_seeds(candidate: str, reference: str) -> list[int]:
+        if arm_seeds[reference] != arm_seeds[candidate]:
+            raise ChronologyError("Stage-09b paired arm seed contracts differ")
+        return list(arm_seeds[candidate])
+
     controls = [
         {
             "comparison_family": "full_vs_control",
             "comparison_id": f"{full}-minus-{reference}",
             "candidate_arm_id": full,
             "reference_arm_id": reference,
-            "seeds": [0, 1, 2],
+            "seeds": common_seeds(full, reference),
         }
         for reference in ("PlainMLP-7var", "PlainCausalTCN-7var")
     ]
@@ -178,7 +186,7 @@ def _stage09b_scientific_comparison_registry() -> list[dict[str, Any]]:
             "comparison_id": f"{candidate}-minus-{reference}",
             "candidate_arm_id": candidate,
             "reference_arm_id": reference,
-            "seeds": [0, 1, 2],
+            "seeds": common_seeds(candidate, reference),
         }
         for reference, candidate in zip(
             ladder_arms[:-1], ladder_arms[1:], strict=True,
@@ -263,7 +271,7 @@ def _validate_stage09b_scientific_summary(value: object) -> None:
             seed, split, horizon,
         )
         for comparison in comparisons
-        for seed in (0, 1, 2)
+        for seed in comparison["seeds"]
         for split in ("calib", "test", "val")
         for horizon in (1, 3, 7)
     ]
@@ -1694,7 +1702,9 @@ def _collect_preopening_receipts(
             raise ChronologyError("Stage-09b artifact paths are noncanonical")
         members = receipt.get("member_registry")
         if not isinstance(members, list) or len(members) != len(STAGE09B_MEMBERS):
-            raise ChronologyError("Stage-09b receipt does not bind 31 exact members")
+            raise ChronologyError(
+                "Stage-09b receipt does not bind the exact declared members"
+            )
         member_paths: dict[tuple[str, int], tuple[str, str, str, str]] = {}
         for member, expected_member in zip(members, STAGE09B_MEMBERS):
             if (

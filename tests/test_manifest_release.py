@@ -124,6 +124,21 @@ def _load_script(path: Path, name: str):
     return module
 
 
+def test_stage09b_independent_release_mirror_matches_central_contract() -> None:
+    """Prevent the archive-independent verifier from drifting from Stage-09b."""
+    from thermoroute.chronology import STAGE09B_MEMBERS
+    from thermoroute.development_controls import expected_member_registry
+
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_stage09b_member_contract_test",
+    )
+    producer_members = expected_member_registry()
+    release_members = verifier._stage09b_release_members()
+    assert len(producer_members) == 45
+    assert release_members == producer_members
+    assert tuple(STAGE09B_MEMBERS) == producer_members
+
+
 def _write_fixture(root: Path) -> Path:
     files = {
         "src/thermoroute/config.py": (
@@ -326,7 +341,9 @@ def _write_development_model_fixtures(
             if model in builtins:
                 entries.append({"model_id": model, "executor": "builtin"})
                 continue
-            members = 5 if model in {"LightGBM", "LSTM", "ThermoRoute"} else 1
+            members = verifier.DEVELOPMENT_REPLAY_MODEL_CONTRACTS[cohort][
+                model
+            ][1]
             executor = (
                 "lightgbm_bundle" if model == "LightGBM"
                 else "lstm_bundle" if model == "LSTM"
@@ -1563,6 +1580,7 @@ def test_release_truth_binding_accepts_stage09_float32_round_trip(tmp_path):
         "execution_flags", "fresh_pycache", "execution_environment",
         "execution_command", "interpreter", "model_missing", "model_duplicate",
         "model_reordered", "wrong_executor", "wrong_members", "failed_status",
+        "wrong_ablation_members",
         "difference_over_tolerance", "entrypoint_binding", "suite_binding",
         "suite_missing_cohorts", "inflated_atol", "reduced_rows",
         "coordinated_inflated_atol", "coordinated_reduced_rows",
@@ -1658,6 +1676,12 @@ def test_release_verifier_rejects_forged_development_replay_receipt(
         models[0]["executor"] = "thermoroute_bundle"
     elif attack == "wrong_members":
         models[0]["members"] = 4
+    elif attack == "wrong_ablation_members":
+        next(
+            row for row in models
+            if row["cohort"] == "temporal"
+            and row["model"] == "TR-noRouter"
+        )["members"] = 4
     elif attack == "failed_status":
         models[0]["status"] = "FAIL"
     elif attack == "difference_over_tolerance":
@@ -3143,8 +3167,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             f"outputs/runs/09b_development_controls/{identity['run_id']}"
         )
         matrix_audit = {
-            "expected_members": 31,
-            "prediction_rows": 31 * 9,
+            "expected_members": len(expected_members),
+            "prediction_rows": len(expected_members) * 9,
             "common_forecast_keys": 9,
             "splits": ["calib", "test", "val"],
             "reference_member": "PlainMLP-7var/seed0",
@@ -7133,7 +7157,7 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(
     verifier._validate_preopening_completion_gates(
         source, {}, suite, development, suite["numerical_runtime_sha256"]
     )
-    assert paired_recompute_calls == [31]
+    assert paired_recompute_calls == [len(verifier._stage09b_release_members())]
 
     missing = json.loads(json.dumps(suite))
     missing["preopening_gates"].pop("stage09b_development_controls")
@@ -7308,7 +7332,7 @@ def test_release_verifier_requires_both_receipts_and_exact_control_members(
     suite["preopening_gates"]["stage09b_development_controls"] = _binding(
         verifier, source, controls_binding["path"]
     )
-    with pytest.raises(ValueError, match="matrix audit|31 members"):
+    with pytest.raises(ValueError, match="matrix audit|declared members"):
         verifier._validate_preopening_completion_gates(
             source, {}, suite, development, suite["numerical_runtime_sha256"]
         )
@@ -7563,7 +7587,7 @@ def test_independent_release_paired_recompute_rejects_registry_attacks(
         ].copy()
     else:
         station.loc[station["horizon"].eq(7), "horizon"] = 5
-    with pytest.raises(ValueError, match="registry|31 members"):
+    with pytest.raises(ValueError, match="registry|declared members"):
         verifier._stage09b_recompute_paired_effects(station)
 
 
@@ -8837,8 +8861,8 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         })
 
     stage09b_matrix = {
-        "expected_members": 31,
-        "prediction_rows": 93,
+        "expected_members": len(stage09b_members),
+        "prediction_rows": len(stage09b_members) * 3,
         "common_forecast_keys": 3,
         "splits": ["calib", "test", "val"],
         "reference_member": "PlainMLP-7var/seed0",
@@ -8864,7 +8888,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             "median_paired_station_rmse_difference_c": 0.0,
         }
         for comparison in verifier._stage09b_paired_comparison_registry()
-        for seed in (0, 1, 2)
+        for seed in comparison["seeds"]
         for split in ("calib", "test", "val")
         for horizon in (1, 3, 7)
     ]

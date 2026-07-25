@@ -74,13 +74,13 @@ DEVELOPMENT_REPLAY_MODEL_CONTRACTS = {
         "LightGBM": ("lightgbm_bundle", 5, 1e-12),
         "LSTM": ("lstm_bundle", 5, 1e-5),
         "ThermoRoute": ("thermoroute_bundle", 5, 1e-5),
-        "DampedPriorOnly": ("thermoroute_bundle", 1, 1e-5),
-        "TR-noDynamicPrior": ("thermoroute_bundle", 1, 1e-5),
-        "TR-fixedKappa": ("thermoroute_bundle", 1, 1e-5),
-        "TR-noRouter": ("thermoroute_bundle", 1, 1e-5),
-        "TR-noMoE": ("thermoroute_bundle", 1, 1e-5),
-        "TR-noTCN": ("thermoroute_bundle", 1, 1e-5),
-        "TR-unbounded": ("thermoroute_bundle", 1, 1e-5),
+        "DampedPriorOnly": ("thermoroute_bundle", 5, 1e-5),
+        "TR-noDynamicPrior": ("thermoroute_bundle", 5, 1e-5),
+        "TR-fixedKappa": ("thermoroute_bundle", 5, 1e-5),
+        "TR-noRouter": ("thermoroute_bundle", 5, 1e-5),
+        "TR-noMoE": ("thermoroute_bundle", 5, 1e-5),
+        "TR-noTCN": ("thermoroute_bundle", 5, 1e-5),
+        "TR-unbounded": ("thermoroute_bundle", 5, 1e-5),
     },
     "external": {
         "LightGBM": ("lightgbm_bundle", 5, 1e-12),
@@ -3844,18 +3844,30 @@ def _validate_authorized_suite_model_order(
     return expected
 
 
-def _stage09b_release_members() -> tuple[tuple[str, int], ...]:
-    ladder = (
-        "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
-        "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
-    )
+_STAGE09B_RELEASE_SEEDS = (0, 1, 2, 3, 4)
+_STAGE09B_RELEASE_LADDER = (
+    "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
+    "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
+)
+
+
+def _stage09b_release_arm_seeds() -> tuple[tuple[str, tuple[int, ...]], ...]:
+    """Mirror the frozen Stage-09b arm/seed contract without archive imports."""
     return (
-        *(("PlainMLP-7var", seed) for seed in range(5)),
-        *(("PlainCausalTCN-7var", seed) for seed in range(5)),
+        ("PlainMLP-7var", _STAGE09B_RELEASE_SEEDS),
+        ("PlainCausalTCN-7var", _STAGE09B_RELEASE_SEEDS),
         *(
-            (f"ThermoRoute-ladder-{rung}", seed)
-            for rung in ladder for seed in range(3)
+            (f"ThermoRoute-ladder-{rung}", _STAGE09B_RELEASE_SEEDS)
+            for rung in _STAGE09B_RELEASE_LADDER
         ),
+    )
+
+
+def _stage09b_release_members() -> tuple[tuple[str, int], ...]:
+    return tuple(
+        (arm_id, seed)
+        for arm_id, seeds in _stage09b_release_arm_seeds()
+        for seed in seeds
     )
 
 
@@ -3882,18 +3894,18 @@ def _stage09b_formal_configuration(
         {
             "arm_id": "PlainMLP-7var", "family": "PlainMLP",
             "feature_set": "all_7_variables", "variables": full,
-            "seeds": [0, 1, 2, 3, 4],
+            "seeds": list(_STAGE09B_RELEASE_SEEDS),
         },
         {
             "arm_id": "PlainCausalTCN-7var", "family": "PlainCausalTCN",
             "feature_set": "all_7_variables", "variables": full,
-            "seeds": [0, 1, 2, 3, 4],
+            "seeds": list(_STAGE09B_RELEASE_SEEDS),
         },
         *[
             {
                 "arm_id": f"ThermoRoute-ladder-{rung}", "family": "ThermoRoute",
                 "feature_set": f"feature_ladder_{rung}", "variables": list(variables),
-                "seeds": [0, 1, 2],
+                "seeds": list(_STAGE09B_RELEASE_SEEDS),
             }
             for rung, variables in ladder
         ],
@@ -4587,28 +4599,31 @@ def _stage09b_recompute_station_rmse(
 
 def _stage09b_paired_comparison_registry() -> list[dict[str, object]]:
     full = "ThermoRoute-ladder-07_plus_WDSP"
-    ladder = (
-        "01_WTEMP", "02_plus_FLOW", "03_plus_TEMP", "04_plus_PRCP",
-        "05_plus_RHMEAN", "06_plus_DH", "07_plus_WDSP",
-    )
+    arm_seeds = dict(_stage09b_release_arm_seeds())
+
+    def common_seeds(candidate: str, reference: str) -> list[int]:
+        if arm_seeds[candidate] != arm_seeds[reference]:
+            raise ValueError("Stage-09b paired arm seed contracts differ")
+        return list(arm_seeds[candidate])
+
     controls = [
         {
             "comparison_family": "full_vs_control",
             "comparison_id": f"{full}-minus-{reference}",
             "candidate_arm_id": full,
             "reference_arm_id": reference,
-            "seeds": [0, 1, 2],
+            "seeds": common_seeds(full, reference),
         }
         for reference in ("PlainMLP-7var", "PlainCausalTCN-7var")
     ]
-    arms = [f"ThermoRoute-ladder-{rung}" for rung in ladder]
+    arms = [f"ThermoRoute-ladder-{rung}" for rung in _STAGE09B_RELEASE_LADDER]
     adjacent = [
         {
             "comparison_family": "adjacent_feature_ladder",
             "comparison_id": f"{candidate}-minus-{reference}",
             "candidate_arm_id": candidate,
             "reference_arm_id": reference,
-            "seeds": [0, 1, 2],
+            "seeds": common_seeds(candidate, reference),
         }
         for reference, candidate in zip(arms[:-1], arms[1:], strict=True)
     ]
@@ -4625,7 +4640,7 @@ def _stage09b_recompute_paired_effects(station_metrics: Any) -> Any:
         strict=True,
     ))
     if observed_members != set(_stage09b_release_members()):
-        raise ValueError("Stage-09b paired effects lack the exact 31 members")
+        raise ValueError("Stage-09b paired effects lack the exact declared members")
     if set(station_metrics["split"].astype(str)) != {"val", "calib", "test"}:
         raise ValueError("Stage-09b paired-effect split registry changed")
     if set(station_metrics["horizon"].astype(int)) != {1, 3, 7}:
@@ -4688,7 +4703,7 @@ def _stage09b_recompute_paired_effects(station_metrics: Any) -> Any:
             seed, split, horizon,
         )
         for comparison in _stage09b_paired_comparison_registry()
-        for seed in (0, 1, 2)
+        for seed in comparison["seeds"]
         for split in ("calib", "test", "val")
         for horizon in (1, 3, 7)
     ]
@@ -4796,7 +4811,7 @@ def _stage09b_validate_scientific_summary_document(value: object) -> None:
             seed, split, horizon,
         )
         for comparison in _stage09b_paired_comparison_registry()
-        for seed in (0, 1, 2)
+        for seed in comparison["seeds"]
         for split in ("calib", "test", "val")
         for horizon in (1, 3, 7)
     ]
@@ -6490,7 +6505,7 @@ def _validate_preopening_completion_gates(
     """Independently verify all four pre-opening admission receipts.
 
     This verifier deliberately does not import or execute archive Python.  It
-    checks the receipt schemas, self hashes, byte bindings, 31-member registry,
+    checks the receipt schemas, self hashes, byte bindings, declared member registry,
     sidecar/run alignment and architecture-budget registry with the standard
     library before any trusted replay is considered.
     """
@@ -6591,6 +6606,8 @@ def _validate_preopening_completion_gates(
     config = _stage09b_formal_configuration(
         config, expected_bridge=development.get("predictor_bridge")
     )
+    expected_members = _stage09b_release_members()
+    expected_member_count = len(expected_members)
     identity_fields = {
         "run_id", "panel_sha256", "registry_sha256", "config_sha256",
         "source_sha256", "runtime_sha256", "schema_version",
@@ -6724,7 +6741,7 @@ def _validate_preopening_completion_gates(
             or created.utcoffset() is None
             or not isinstance(metadata.get("parents"), Mapping)
             or not isinstance(extra, Mapping)
-            or extra.get("expected_members") != 31
+            or extra.get("expected_members") != expected_member_count
             or extra.get("development_only") is not True
             or extra.get("blind_or_confirmatory") is not False
             or extra.get("evidence_scope") != "best_model_state_prediction_replay"
@@ -6765,20 +6782,20 @@ def _validate_preopening_completion_gates(
 
     audit = controls.get("matrix_audit")
     members = controls.get("member_registry")
-    expected_members = _stage09b_release_members()
     if (
         not isinstance(audit, Mapping)
         or set(audit) != {
             "expected_members", "prediction_rows", "common_forecast_keys",
             "splits", "reference_member",
         }
-        or audit.get("expected_members") != 31
+        or audit.get("expected_members") != expected_member_count
         or audit.get("common_forecast_keys") != len(canonical_evaluation)
-        or audit.get("prediction_rows") != 31 * audit["common_forecast_keys"]
+        or audit.get("prediction_rows")
+        != expected_member_count * audit["common_forecast_keys"]
         or audit.get("splits") != ["calib", "test", "val"]
         or audit.get("reference_member") != "PlainMLP-7var/seed0"
         or not isinstance(members, list)
-        or len(members) != 31
+        or len(members) != expected_member_count
     ):
         raise ValueError("authorized Stage-09b matrix audit is incomplete")
     observed: list[tuple[str, int]] = []
@@ -6907,7 +6924,9 @@ def _validate_preopening_completion_gates(
         ):
             raise ValueError("authorized Stage-09b member sidecar changed")
     if tuple(observed) != expected_members:
-        raise ValueError("authorized Stage-09b receipt does not bind exactly 31 members")
+        raise ValueError(
+            "authorized Stage-09b receipt does not bind the exact declared members"
+        )
 
     expected_final_parents = {
         "frozen_panel": identity["panel_sha256"],
@@ -7179,7 +7198,7 @@ def _validate_preopening_completion_gates(
         or semantic.get("matrix_audit") != audit
         or semantic_self != _sha256_json(semantic_stable)
         or not isinstance(semantic_members, list)
-        or len(semantic_members) != 31
+        or len(semantic_members) != expected_member_count
         or not isinstance(canonical_window, Mapping)
         or set(canonical_window)
         != {
@@ -12593,6 +12612,8 @@ def _git_preopening_gate_dependency_paths(
                 ),
             }
             audit = receipt.get("matrix_audit")
+            expected_members = _stage09b_release_members()
+            expected_member_count = len(expected_members)
             common_keys = audit.get("common_forecast_keys") if isinstance(
                 audit, Mapping
             ) else None
@@ -12611,10 +12632,11 @@ def _git_preopening_gate_dependency_paths(
                     "expected_members", "prediction_rows", "common_forecast_keys",
                     "splits", "reference_member",
                 }
-                or audit.get("expected_members") != 31
+                or audit.get("expected_members") != expected_member_count
                 or type(common_keys) is not int
                 or common_keys < 1
-                or audit.get("prediction_rows") != 31 * common_keys
+                or audit.get("prediction_rows")
+                != expected_member_count * common_keys
                 or audit.get("splits") != ["calib", "test", "val"]
                 or audit.get("reference_member") != "PlainMLP-7var/seed0"
             ):
@@ -12648,7 +12670,6 @@ def _git_preopening_gate_dependency_paths(
         if gate_name != "stage09b_development_controls":
             continue
         members = receipt.get("member_registry")
-        expected_members = _stage09b_release_members()
         if not isinstance(members, list) or len(members) != len(expected_members):
             raise ValueError("Git Stage-09b member registry changed")
         member_descriptors: dict[

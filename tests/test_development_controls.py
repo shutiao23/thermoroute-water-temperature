@@ -101,14 +101,15 @@ def _tiny_predictions(arm, seed: int, *, site: str = "01234567") -> pd.DataFrame
 def test_declared_registry_and_parameter_budgets_are_exact() -> None:
     arms = DC.declared_arms()
     members = DC.expected_member_registry(arms)
+    expected_member_count = len(arms) * len(DC.C.USGS_SEEDS)
     assert len(arms) == 9
-    assert len(members) == 31
-    assert len(set(members)) == 31
+    assert len(DC.C.USGS_SEEDS) == 5
+    assert len(members) == expected_member_count == 45
+    assert len(set(members)) == expected_member_count
     assert [arm.variables for arm in arms[2:]] == [
         variables for _name, variables in DC.FEATURE_LADDER
     ]
-    assert arms[0].seeds == (0, 1, 2, 3, 4)
-    assert all(arm.seeds == (0, 1, 2) for arm in arms[2:])
+    assert all(arm.seeds == DC.C.USGS_SEEDS for arm in arms)
 
     counts = DC.assert_parameter_budgets(arms, n_stations=120)
     assert counts["PlainMLP-7var"] == 38_545
@@ -347,7 +348,10 @@ def test_same_seed_station_paired_effects_and_ladder_semantics_are_exact() -> No
         _paired_station_metric_fixture(),
         exact_common_forecast_keys_verified=True,
     )
-    assert len(effects) == 8 * 3 * 3 * 3
+    expected_effects = sum(
+        len(comparison.seeds) for comparison in DC.paired_comparison_registry()
+    ) * 3 * len(DC.C.HORIZONS)
+    assert len(effects) == expected_effects
     control = effects.loc[
         effects["candidate_arm_id"].eq(DC.FULL_LADDER_ARM_ID)
         & effects["reference_arm_id"].eq("PlainMLP-7var")
@@ -399,7 +403,9 @@ def test_paired_effect_registry_rejects_missing_or_replaced_units(attack: str) -
         ].copy()
     else:
         station.loc[station["horizon"].eq(7), "horizon"] = 5
-    with pytest.raises(DevelopmentControlsContractError, match="registry|31-member"):
+    with pytest.raises(
+        DevelopmentControlsContractError, match="registry|declared member"
+    ):
         DC.recompute_paired_effect_summary(
             station, exact_common_forecast_keys_verified=True,
         )
@@ -522,7 +528,7 @@ def test_combined_publication_streams_without_pandas_full_table_reads(
     assert list(combined.columns) == R.PRED_COLS
 
 
-def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
+def test_tiny_mocked_training_runs_exact_declared_matrix_and_publishes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     arms = DC.declared_arms()
@@ -582,8 +588,8 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         )
     expected = set(DC.expected_member_registry(arms))
     assert set(calls) == expected
-    assert len(calls) == 5 + 5 + 21
-    assert len(paths) == 31
+    assert len(calls) == len(expected)
+    assert len(paths) == len(expected)
     assert all(path.is_file() and sidecar_path(path).is_file() for path in paths)
 
     def forbidden_fit(*_args, **_kwargs):
@@ -647,7 +653,7 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         eval_batch_size=2,
         allowed_sites={"01234567"},
     )
-    assert audit.expected_members == 31
+    assert audit.expected_members == len(expected)
     assert audit.common_forecast_keys == 9
     budget = DC.architecture_budget_rows(arms, n_stations=120, train_examples=3)
     incomplete_members = dict(members)
@@ -686,10 +692,12 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
         publication_guard=lambda: None,
     ))
     combined_frame = pd.read_parquet(combined)
-    assert len(combined_frame) == 31 * 9
-    assert len(combined_frame[["model", "seed"]].drop_duplicates()) == 31
+    assert len(combined_frame) == len(expected) * 9
+    assert len(combined_frame[["model", "seed"]].drop_duplicates()) == len(expected)
     assert len(pd.read_csv(budget_path, float_precision="round_trip")) == 9
-    assert len(pd.read_csv(summary_path, float_precision="round_trip")) == 31 * 3 * 3
+    assert len(pd.read_csv(summary_path, float_precision="round_trip")) == (
+        len(expected) * 3 * len(DC.C.HORIZONS)
+    )
     report = report_path.read_text(encoding="utf-8")
     assert "not a blind or confirmatory test" in report
     assert "historical_tuning_budget_equalized" in report
@@ -701,7 +709,9 @@ def test_tiny_mocked_training_runs_exact_5_5_21_matrix_and_publishes(
     )
     assert len(
         semantic["scientific_summary"]["paired_descriptive_effects"]["records"]
-    ) == 8 * 3 * 3 * 3
+    ) == sum(
+        len(comparison.seeds) for comparison in DC.paired_comparison_registry()
+    ) * 3 * len(DC.C.HORIZONS)
     for output in (combined, budget_path, summary_path, report_path, semantic_audit_path):
         metadata = json.loads(sidecar_path(output).read_text(encoding="utf-8"))
         assert metadata["extra"]["suite_pointer_written"] is False

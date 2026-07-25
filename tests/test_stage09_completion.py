@@ -23,6 +23,7 @@ from thermoroute.checkpoint import save_training_checkpoint  # noqa: E402
 from thermoroute.model_suite import (  # noqa: E402
     ABLATION_INTERVENTIONS,
     MANDATORY_ABLATIONS,
+    STAGE9_ABLATION_SEEDS,
     ModelSuiteError,
     build_stage09_completion_receipt,
     file_binding,
@@ -150,18 +151,23 @@ def _fixture_prediction_frame(*, air2stream: bool) -> pd.DataFrame:
             ):
                 if model == MODEL_SUITE.STAGE9_LGO_MODEL and site != sites[0]:
                     continue
-                rows.append({
-                    "model": model,
-                    "scope": "fixture",
-                    "feature_set": "USGS",
-                    "seed": 0,
-                    **common,
-                    "y_pred": y_true + errors[model],
-                    "q05": np.nan,
-                    "q50": np.nan,
-                    "q95": np.nan,
-                    "p_exceed": np.nan,
-                })
+                model_seeds = (
+                    STAGE9_ABLATION_SEEDS
+                    if model in MANDATORY_ABLATIONS else (0,)
+                )
+                for seed in model_seeds:
+                    rows.append({
+                        "model": model,
+                        "scope": "fixture",
+                        "feature_set": "USGS",
+                        "seed": seed,
+                        **common,
+                        "y_pred": y_true + errors[model] + 0.01 * seed,
+                        "q05": np.nan,
+                        "q50": np.nan,
+                        "q95": np.nan,
+                        "p_exceed": np.nan,
+                    })
             for model, base_error in (("ThermoRoute", 0.40), ("LightGBM", 0.55)):
                 for seed in C.USGS_SEEDS:
                     rows.append({
@@ -243,14 +249,14 @@ def _fixture_report(frame: pd.DataFrame, *, air2stream: bool) -> str:
         )
     lines += [
         "",
-        "## Module ablations (single-seed functionality/intervention diagnostic; "
-        "seed0-vs-seed0; median per-station RMSE, delta_scale=1.0)",
+        "## Module ablations (five-seed deletion/intervention sensitivity; "
+        "ensemble-mean median per-station RMSE, delta_scale=1.0)",
         "",
-        "Audit: every mandatory control is exact seed=0 and is paired with "
-        "ThermoRoute seed=0 on identical forecast keys and exact y_true. "
-        "Interpretation: this is a single-seed functionality/intervention "
-        "diagnostic, seed0-vs-seed0; not evidence of module necessity, causal "
-        "mechanism, or cross-seed stability.",
+        "Audit: every mandatory control contains seeds 0--4 and uses the same "
+        "five seeds as ThermoRoute on identical forecast keys and exact y_true. "
+        "Interpretation: this is five-seed deletion/intervention sensitivity, "
+        "not evidence of module necessity, causal mechanism, or capacity-matched "
+        "attribution.",
         "",
         "| variant | h1 | h3 | h7 |",
         "|---|---|---|---|",
@@ -306,6 +312,7 @@ def _stage09_fixture(
         "train_config": MODEL_SUITE.STAGE9_FORMAL_TRAIN_CONFIG,
         "thermoroute_seeds": list(C.USGS_SEEDS),
         "lightgbm_seeds": list(C.USGS_SEEDS),
+        "ablation_seeds": list(STAGE9_ABLATION_SEEDS),
         "time_split": C.SPLIT.as_dict(),
         "ablations": True,
         "air2stream": air2stream,
@@ -415,7 +422,7 @@ def _stage09_fixture(
             "model_id": name,
             "executor": "thermoroute_bundle",
             "raw_feature_order": feature_order,
-            "member_count": 1,
+            "member_count": len(STAGE9_ABLATION_SEEDS),
             "intervention": ABLATION_INTERVENTIONS[name],
             "artifact": {
                 "path": directory.relative_to(root).as_posix(),
@@ -574,12 +581,11 @@ def test_thermoroute_ensemble_summary_retains_target_date():
     assert STAGE09.rmse_per_station(summary, 1) == {"site-a": 0.5}
 
 
-def _seed0_ablation_predictions() -> pd.DataFrame:
+def _multiseed_ablation_predictions() -> pd.DataFrame:
     issue = pd.Timestamp("2020-01-01")
     rows = []
     for model in ("ThermoRoute", *MANDATORY_ABLATIONS):
-        seeds = (0, 1) if model == "ThermoRoute" else (0,)
-        for seed in seeds:
+        for seed in STAGE9_ABLATION_SEEDS:
             for offset in (0, 1):
                 rows.append({
                     "model": model,
@@ -595,40 +601,51 @@ def _seed0_ablation_predictions() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_seed0_ablation_diagnostic_is_paired_not_ensemble_mean():
-    frames = STAGE09.seed0_ablation_diagnostic_frames(
-        _seed0_ablation_predictions()
+def test_multiseed_ablation_diagnostic_accepts_complete_paired_grid():
+    frames = STAGE09.multiseed_ablation_diagnostic_frames(
+        _multiseed_ablation_predictions()
     )
     assert tuple(frames) == ("ThermoRoute", *MANDATORY_ABLATIONS)
-    assert set(frames["ThermoRoute"]["seed"]) == {0}
-    assert frames["ThermoRoute"]["y_pred"].tolist() == [9.0, 10.0]
-    assert all(set(frames[name]["seed"]) == {0} for name in MANDATORY_ABLATIONS)
+    assert set(frames["ThermoRoute"]["seed"]) == set(STAGE9_ABLATION_SEEDS)
+    assert all(
+        set(frames[name]["seed"]) == set(STAGE9_ABLATION_SEEDS)
+        for name in MANDATORY_ABLATIONS
+    )
+    assert all(len(frames[name]) == 10 for name in frames)
 
 
-def test_seed0_ablation_diagnostic_rejects_nonzero_control_seed():
-    frame = _seed0_ablation_predictions()
+def test_multiseed_ablation_diagnostic_rejects_missing_control_seed():
+    frame = _multiseed_ablation_predictions()
     control = MANDATORY_ABLATIONS[0]
-    frame.loc[frame["model"].eq(control), "seed"] = 1
-    with pytest.raises(ValueError, match=f"{control} must contain exact seed=0"):
-        STAGE09.seed0_ablation_diagnostic_frames(frame)
+    frame = frame.loc[
+        ~(frame["model"].eq(control) & frame["seed"].eq(
+            STAGE9_ABLATION_SEEDS[-1]
+        ))
+    ].copy()
+    with pytest.raises(ValueError, match=f"{control} must contain the exact seed"):
+        STAGE09.multiseed_ablation_diagnostic_frames(frame)
 
 
-def test_seed0_ablation_diagnostic_rejects_different_control_keys():
-    frame = _seed0_ablation_predictions()
+def test_multiseed_ablation_diagnostic_rejects_same_seed_key_drift():
+    frame = _multiseed_ablation_predictions()
     control = MANDATORY_ABLATIONS[1]
-    row = frame.index[frame["model"].eq(control)][0]
+    row = frame.index[
+        frame["model"].eq(control) & frame["seed"].eq(2)
+    ][0]
     frame.loc[row, "site_id"] = "site-other"
-    with pytest.raises(ValueError, match=f"{control} seed=0 forecast keys differ"):
-        STAGE09.seed0_ablation_diagnostic_frames(frame)
+    with pytest.raises(ValueError, match=f"{control} same-seed forecast keys differ"):
+        STAGE09.multiseed_ablation_diagnostic_frames(frame)
 
 
-def test_seed0_ablation_diagnostic_rejects_different_y_true():
-    frame = _seed0_ablation_predictions()
+def test_multiseed_ablation_diagnostic_rejects_same_seed_y_true_drift():
+    frame = _multiseed_ablation_predictions()
     control = MANDATORY_ABLATIONS[2]
-    row = frame.index[frame["model"].eq(control)][0]
+    row = frame.index[
+        frame["model"].eq(control) & frame["seed"].eq(3)
+    ][0]
     frame.loc[row, "y_true"] += 0.25
-    with pytest.raises(ValueError, match=f"{control} seed=0 y_true differs"):
-        STAGE09.seed0_ablation_diagnostic_frames(frame)
+    with pytest.raises(ValueError, match=f"{control} same-seed y_true differs"):
+        STAGE09.multiseed_ablation_diagnostic_frames(frame)
 
 
 def test_air2stream_display_is_explicitly_unofficial_and_non_primary():
@@ -777,7 +794,7 @@ def test_stage09_receipt_writer_guard_failure_preserves_authoritative_bytes(
     )
 
 
-def test_stage09_receipt_rejects_old_ensemble_vs_single_seed_ablation_report(
+def test_stage09_receipt_rejects_single_seed_ablation_report_claim(
     tmp_path,
 ):
     fixture = _stage09_fixture(tmp_path)
@@ -785,21 +802,59 @@ def test_stage09_receipt_rejects_old_ensemble_vs_single_seed_ablation_report(
     document = json.loads(before)
     report_text = fixture["report"].read_text(encoding="utf-8")
     report_text = report_text.replace(
-        "## Module ablations (single-seed functionality/intervention "
-        "diagnostic; seed0-vs-seed0; median per-station RMSE, delta_scale=1.0)",
-        "## Module ablations (median per-station RMSE)",
+        "## Module ablations (five-seed deletion/intervention sensitivity; "
+        "ensemble-mean median per-station RMSE, delta_scale=1.0)",
+        "## Module ablations (single-seed diagnostic; seed0-vs-seed0)",
     ).replace(
-        "Audit: every mandatory control is exact seed=0 and is paired with "
-        "ThermoRoute seed=0 on identical forecast keys and exact y_true. "
-        "Interpretation: not evidence of module necessity, causal mechanism, "
-        "or cross-seed stability.\n\n",
-        "",
+        "Audit: every mandatory control contains seeds 0--4 and uses the same "
+        "five seeds as ThermoRoute on identical forecast keys and exact y_true. "
+        "Interpretation: this is five-seed deletion/intervention sensitivity, "
+        "not evidence of module necessity, causal mechanism, or capacity-matched "
+        "attribution.",
+        "Audit: seed0-only diagnostic.",
     )
     fixture["report"].write_text(report_text, encoding="utf-8")
     document["artifacts"]["report"] = file_binding(tmp_path, fixture["report"])
     _rehash_receipt(document)
 
-    with pytest.raises(ModelSuiteError, match="seed0 ablation diagnostic contract"):
+    with pytest.raises(ModelSuiteError, match="five-seed ablation contract"):
+        publish_stage09_completion_receipt(
+            fixture["receipt"],
+            document,
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+            publication_guard=lambda: None,
+        )
+    assert fixture["receipt"].read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "required_disclosure",
+    (
+        "every mandatory control contains seeds 0--4",
+        (
+            "not evidence of module necessity, causal mechanism, or "
+            "capacity-matched attribution"
+        ),
+    ),
+)
+def test_stage09_receipt_requires_five_seed_and_noncausal_disclosure(
+    tmp_path,
+    required_disclosure,
+):
+    fixture = _stage09_fixture(tmp_path)
+    before = fixture["receipt"].read_bytes()
+    document = json.loads(before)
+    report_text = fixture["report"].read_text(encoding="utf-8")
+    assert required_disclosure in report_text
+    fixture["report"].write_text(
+        report_text.replace(required_disclosure, "disclosure removed"),
+        encoding="utf-8",
+    )
+    document["artifacts"]["report"] = file_binding(tmp_path, fixture["report"])
+    _rehash_receipt(document)
+
+    with pytest.raises(ModelSuiteError, match="five-seed ablation contract"):
         publish_stage09_completion_receipt(
             fixture["receipt"],
             document,
@@ -821,6 +876,30 @@ def test_stage09_receipt_roundtrip_and_stage24_gate(tmp_path):
     )
     assert stage9["run_id"] == fixture["run_id"]
     assert receipt_binding == file_binding(tmp_path, fixture["receipt"])
+
+
+def test_stage09_receipt_rejects_control_bundle_missing_a_seed(tmp_path):
+    fixture = _stage09_fixture(tmp_path)
+    components = json.loads(fixture["components"].read_text(encoding="utf-8"))
+    control = next(
+        entry for entry in components["models"]
+        if entry["model_id"] == MANDATORY_ABLATIONS[0]
+    )
+    control["member_count"] = len(STAGE9_ABLATION_SEEDS) - 1
+    atomic_write_json(fixture["components"], components)
+    document = json.loads(fixture["receipt"].read_text(encoding="utf-8"))
+    document["artifacts"]["components_pointer"] = file_binding(
+        tmp_path, fixture["components"]
+    )
+    _rehash_receipt(document)
+
+    with pytest.raises(ModelSuiteError, match="component registry changed"):
+        validate_stage09_completion_receipt(
+            fixture["receipt"],
+            root=tmp_path,
+            stage9_pointer=fixture["components"],
+            document=document,
+        )
 
 
 def test_stage09_score_reader_preserves_shortest_decimal_roundtrip(tmp_path):
@@ -1022,6 +1101,7 @@ def test_stage09_receipt_binds_canonical_panel_bytes(tmp_path):
     ("horizons", [1, 3]),
     ("context_length", C.CONTEXT_LENGTH + 1),
     ("seeds", len(C.USGS_SEEDS) - 1),
+    ("ablation_seeds", list(STAGE9_ABLATION_SEEDS[:-1])),
     ("selection_metric", "micro"),
     ("air2stream", True),
     ("device", "mps"),

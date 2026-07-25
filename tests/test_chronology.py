@@ -89,7 +89,7 @@ def _stage09b_scientific_summary() -> dict[str, Any]:
             "median_paired_station_rmse_difference_c": 0.0,
         }
         for comparison in comparisons
-        for seed in (0, 1, 2)
+        for seed in comparison["seeds"]
         for split in ("calib", "test", "val")
         for horizon in (1, 3, 7)
     ]
@@ -638,8 +638,8 @@ def _seed_model_commit(
         _write(root, relative, f"stage09b {label}\n")
 
     matrix_audit = {
-        "expected_members": 31,
-        "prediction_rows": 93,
+        "expected_members": len(STAGE09B_MEMBERS),
+        "prediction_rows": len(STAGE09B_MEMBERS) * 3,
         "common_forecast_keys": 3,
         "splits": ["calib", "test", "val"],
         "reference_member": "PlainMLP-7var/seed0",

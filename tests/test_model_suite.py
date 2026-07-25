@@ -69,6 +69,15 @@ from thermoroute.repro import (  # noqa: E402
 )
 
 
+def test_stage09_formal_ablation_registry_is_complete_five_seed_ensemble():
+    assert MODEL_SUITE.STAGE9_ABLATION_SEEDS == tuple(C.USGS_SEEDS)
+    temporal = MODEL_SUITE.DEVELOPMENT_REPLAY_MODEL_CONTRACTS["temporal"]
+    assert all(
+        temporal[model] == ("thermoroute_bundle", 5, 1e-5)
+        for model in MODEL_SUITE.MANDATORY_ABLATIONS
+    )
+
+
 def _lgb_metadata(columns):
     offsets, offset_audit = finalise_cqr_offsets({
         ("__pooled__", horizon): 0.0 for horizon in (1, 3, 7)

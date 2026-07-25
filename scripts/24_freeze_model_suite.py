@@ -5,7 +5,7 @@ The current pointer is written only when Stage 9, Stage 16 and the pooled
 external training stage have all produced complete, checksum-valid components.
 Stage 9, Stage 16, the separate Stage-09b matched-control matrix and Stage 25
 are accepted only with their final content-bound completion receipts.  A missing report,
-incomplete 31-member matrix or external model closure, key/budget drift,
+incomplete declared arm/seed matrix or external model closure, key/budget drift,
 interrupted transaction or stale receipt fails closed.  All four accepted
 receipt paths and checksums become part of the frozen suite identity.
 This command performs no fitting and has no network or post-2020 input path.
@@ -199,7 +199,7 @@ def _load_verified_stage9(
 def _load_verified_stage09b(
     receipt_path: Path, *, root: Path = ROOT,
 ) -> tuple[dict, dict[str, str]]:
-    """Require the exact 31-member control closure before suite freezing."""
+    """Require the exact declared control closure before suite freezing."""
     try:
         receipt = validate_stage09b_completion_receipt(
             receipt_path,

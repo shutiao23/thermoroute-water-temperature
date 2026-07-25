@@ -56,7 +56,12 @@ FORBIDDEN_CONFIRMATION_READ_PATHS = (
     "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1/response.bin",
     "outputs/confirmatory/route_a_fixture/opening_receipt_v1.json",
 )
-from thermoroute.model_suite import ModelSuiteError  # noqa: E402
+from thermoroute.model_suite import (  # noqa: E402
+    DEVELOPMENT_REPLAY_MODEL_CONTRACTS,
+    MANDATORY_ABLATIONS,
+    STAGE9_ABLATION_SEEDS,
+    ModelSuiteError,
+)
 from thermoroute.repro import (  # noqa: E402
     numerical_runtime_contract,
     sha256_file,
@@ -75,15 +80,16 @@ def _receipt(root: Path, suite: Path) -> dict:
         ("external", LEARNED_EXTERNAL),
     ):
         for model in models:
+            executor, members, atol = DEVELOPMENT_REPLAY_MODEL_CONTRACTS[
+                cohort
+            ][model]
             rows.append({
                 "cohort": cohort,
                 "model": model,
-                "executor": "lightgbm_bundle" if model == "LightGBM"
-                else "thermoroute_bundle",
-                "members": 5 if model in {"LightGBM", "LSTM", "ThermoRoute"}
-                else 1,
+                "executor": executor,
+                "members": members,
                 "rows": 12,
-                "atol": 1e-5,
+                "atol": atol,
                 "max_abs_difference": 0.0,
                 "status": "PASS",
             })
@@ -324,12 +330,23 @@ def test_member_seed_mapping_is_explicit_and_fails_on_ambiguity():
         ["seed0", "seed2"], {"seeds": [0, 2]}, model_id="ThermoRoute"
     ) == {"seed0": 0, "seed2": 2}
     assert _member_seeds(
-        ["TR-noRouter"], {"seeds": [0]}, model_id="TR-noRouter"
-    ) == {"TR-noRouter": 0}
+        [f"seed{seed}" for seed in STAGE9_ABLATION_SEEDS],
+        {"seeds": list(STAGE9_ABLATION_SEEDS)},
+        model_id="TR-noRouter",
+    ) == {f"seed{seed}": seed for seed in STAGE9_ABLATION_SEEDS}
     with pytest.raises(ModelSuiteError, match="cannot be matched"):
         _member_seeds(
             ["member-a", "member-b"], {"seeds": [0, 1]}, model_id="fixture"
         )
+
+
+def test_formal_ablation_replay_contract_requires_all_five_seeds():
+    temporal = DEVELOPMENT_REPLAY_MODEL_CONTRACTS["temporal"]
+    assert tuple(STAGE9_ABLATION_SEEDS) == tuple(range(5))
+    assert all(
+        temporal[model][:2] == ("thermoroute_bundle", 5)
+        for model in MANDATORY_ABLATIONS
+    )
 
 
 @pytest.mark.parametrize("relative", FORBIDDEN_CONFIRMATION_READ_PATHS)

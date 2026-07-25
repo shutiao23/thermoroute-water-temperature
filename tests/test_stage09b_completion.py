@@ -655,14 +655,15 @@ def fixture(stage09b_base: Path, tmp_path: Path) -> dict[str, Any]:
     }
 
 
-def test_stage09b_receipt_requires_exact_31_member_closure(fixture) -> None:
+def test_stage09b_receipt_requires_exact_declared_member_closure(fixture) -> None:
     receipt = validate_stage09b_completion_receipt(
         fixture["receipt"], root=fixture["root"]
     )
-    assert len(expected_stage09b_members()) == 31
-    assert receipt["matrix_audit"]["expected_members"] == 31
+    expected_member_count = len(expected_stage09b_members())
+    assert expected_member_count == len(DC.declared_arms()) * len(DC.C.USGS_SEEDS) == 45
+    assert receipt["matrix_audit"]["expected_members"] == expected_member_count
     assert receipt["matrix_audit"]["prediction_rows"] == (
-        31 * receipt["matrix_audit"]["common_forecast_keys"]
+        expected_member_count * receipt["matrix_audit"]["common_forecast_keys"]
     )
     assert receipt["best_model_state_prediction_replay_verified"] is True
     assert receipt["training_replay_verified"] is False
@@ -682,7 +683,7 @@ def test_stage09b_receipt_requires_exact_31_member_closure(fixture) -> None:
     incomplete = json.loads(json.dumps(receipt))
     incomplete["member_registry"].pop()
     _rehash(incomplete)
-    with pytest.raises(DevelopmentControlsGateError, match="31 members"):
+    with pytest.raises(DevelopmentControlsGateError, match="declared members"):
         validate_stage09b_completion_receipt(
             fixture["receipt"], root=fixture["root"], document=incomplete
         )

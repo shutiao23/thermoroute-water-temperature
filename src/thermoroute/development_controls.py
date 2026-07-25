@@ -45,7 +45,7 @@ FEATURE_LADDER: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("07_plus_WDSP", FULL_VARIABLES),
 )
 CONTROL_SEEDS: tuple[int, ...] = C.USGS_SEEDS
-LADDER_SEEDS: tuple[int, ...] = C.USGS_SEEDS[:3]
+LADDER_SEEDS: tuple[int, ...] = C.USGS_SEEDS
 TRAIN_CONFIG = C.TrainConfig(batch_size=1536)
 MLP_HIDDEN_DIM = 70
 TCN_CHANNELS = 54
@@ -166,10 +166,10 @@ def paired_comparison_registry() -> tuple[PairedComparison, ...]:
     """Return the frozen same-seed descriptive-comparison registry.
 
     The full ThermoRoute arm is compared with both matched neural controls on
-    seeds 0--2.  Each feature-ladder rung is compared only with its immediately
-    preceding rung on those same seeds.  The latter comparisons are therefore
-    fixed-order, path-dependent contrasts, not independent feature importance
-    or causal effects.
+    every seed declared by the Stage-09b arm contract.  Each feature-ladder
+    rung is compared only with its immediately preceding rung on those same
+    seeds.  The latter comparisons are therefore fixed-order, path-dependent
+    contrasts, not independent feature importance or causal effects.
     """
     controls = tuple(
         PairedComparison(
@@ -812,7 +812,7 @@ def recompute_paired_effect_summary(
     ))
     if observed_members != set(expected_member_registry()):
         raise DevelopmentControlsContractError(
-            "paired effects require the exact 31-member registry"
+            "paired effects require the exact declared member registry"
         )
     if set(station_metrics["split"].astype(str)) != {"val", "calib", "test"}:
         raise DevelopmentControlsContractError("paired-effect split registry changed")
@@ -893,7 +893,7 @@ def recompute_paired_effect_summary(
             horizon,
         )
         for comparison in paired_comparison_registry()
-        for seed in LADDER_SEEDS
+        for seed in comparison.seeds
         for split in ("calib", "test", "val")
         for horizon in C.HORIZONS
     ]

@@ -11,7 +11,7 @@ The complete default matrix is:
 
 * PlainMLP and PlainCausalTCN on all seven Route-A variables, all five frozen
   USGS seeds, with parameter counts closely matched to ThermoRoute; and
-* a cumulative ThermoRoute feature ladder on three declared seeds per rung.
+* a cumulative ThermoRoute feature ladder on every declared Stage-09b seed.
 
 Each arm has a safe resumable training checkpoint and a create-only prediction
 artifact.  Combined artifacts are published only after the exact arm/seed
@@ -176,6 +176,7 @@ from thermoroute.development_controls import (  # noqa: E402
     declared_arms,
     expected_member_registry,
     normalise_prediction_frame,
+    paired_comparison_registry,  # noqa: F401 - public paired-effect contract
     parameter_count,
     physics_count,
     prediction_content_digest,

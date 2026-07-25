@@ -264,7 +264,7 @@ STAGE9_FORMAL_TRAIN_CONFIG = asdict(C.TrainConfig(batch_size=1536))
 STAGE9_FORMAL_CONFIG_FIELDS = frozenset({
     "stage", "protocol", "panel", "station_registry", "variables",
     "horizons", "context_length", "seeds", "time_split", "train_config",
-    "thermoroute_seeds", "lightgbm_seeds", "delta_scale",
+    "thermoroute_seeds", "lightgbm_seeds", "ablation_seeds", "delta_scale",
     "station_sampling", "selection_metric", "ablations", "air2stream",
     "device", "training_device", "execution_role",
     "development_predictor_bridge", "eval_batch_size",
@@ -279,6 +279,7 @@ MANDATORY_ABLATIONS = (
     "DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
     "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded",
 )
+STAGE9_ABLATION_SEEDS = tuple(int(seed) for seed in C.USGS_SEEDS)
 ABLATION_INTERVENTIONS: dict[str, dict[str, Any]] = {
     "DampedPriorOnly": {"use_prior": False, "residual_model": False},
     "TR-noDynamicPrior": {"use_prior": False},
@@ -301,7 +302,7 @@ DEVELOPMENT_REPLAY_MODEL_CONTRACTS = {
         "LSTM": ("lstm_bundle", 5, 1e-5),
         "ThermoRoute": ("thermoroute_bundle", 5, 1e-5),
         **{
-            model: ("thermoroute_bundle", 1, 1e-5)
+            model: ("thermoroute_bundle", len(STAGE9_ABLATION_SEEDS), 1e-5)
             for model in MANDATORY_ABLATIONS
         },
     },
@@ -2865,6 +2866,7 @@ def _stage09_formal_configuration(run_manifest: Mapping[str, Any]) -> dict[str, 
         or resolved["train_config"] != STAGE9_FORMAL_TRAIN_CONFIG
         or resolved["thermoroute_seeds"] != list(C.USGS_SEEDS)
         or resolved["lightgbm_seeds"] != list(C.USGS_SEEDS)
+        or resolved["ablation_seeds"] != list(STAGE9_ABLATION_SEEDS)
         or type(resolved["delta_scale"]) is not float
         or resolved["delta_scale"] != C.DELTA_SCALE
         or resolved["station_sampling"] != "balanced"
@@ -3250,23 +3252,26 @@ def _validate_stage09_prediction_frame(
     _require_exact_seed_grid(frame, "ThermoRoute", five_seeds)
     _require_exact_seed_grid(frame, "LightGBM", five_seeds)
     for model in (
-        "Persistence", "DampedPersistence", "Climatology",
-        *MANDATORY_ABLATIONS, STAGE9_LGO_MODEL,
+        "Persistence", "DampedPersistence", "Climatology", STAGE9_LGO_MODEL,
         *(STAGE9_AIR2STREAM_MODELS if air2stream else ()),
     ):
         _require_exact_seed_grid(frame, model, (0,))
 
-    full_seed0 = frame[
-        frame["model"].eq("ThermoRoute") & frame["seed"].eq(0)
-    ]
-    full_registry = _key_truth_registry(full_seed0)
+    for model in MANDATORY_ABLATIONS:
+        _require_exact_seed_grid(frame, model, STAGE9_ABLATION_SEEDS)
+
+    full_all_seeds = frame[frame["model"].eq("ThermoRoute")]
+    full_registry = _key_truth_registry(full_all_seeds)
     for control in MANDATORY_ABLATIONS:
         registry = _key_truth_registry(frame[frame["model"].eq(control)])
         if registry != full_registry:
             raise ModelSuiteError(
-                f"Stage-9 {control} seed0 keys/y_true differ from ThermoRoute seed0"
+                f"Stage-9 {control} five-seed keys/y_true differ from ThermoRoute"
             )
 
+    full_seed0 = frame[
+        frame["model"].eq("ThermoRoute") & frame["seed"].eq(0)
+    ]
     full_test_registry = _key_truth_registry(
         full_seed0[full_seed0["split"].eq("test")]
     )
@@ -3443,12 +3448,19 @@ def _expected_stage09_module_rows(
 ) -> dict[str, tuple[str, ...]]:
     rows: dict[str, tuple[str, ...]] = {}
     for model in ("ThermoRoute", *MANDATORY_ABLATIONS):
-        values = _station_rmse_from_predictions(frame, model, seed=0)
+        selected = frame[frame["model"].eq(model) & frame["split"].eq("test")]
+        ensemble = selected.groupby(
+            list(FORECAST_KEY), as_index=False, sort=True
+        ).agg(y_true=("y_true", "first"), y_pred=("y_pred", "mean"))
         cells = []
         for horizon in C.HORIZONS:
+            current = ensemble[ensemble["horizon"].eq(horizon)]
             horizon_values = [
-                value for (value_horizon, _site), value in values.items()
-                if value_horizon == horizon
+                float(np.sqrt(np.mean(np.square(
+                    group["y_pred"].to_numpy(float)
+                    - group["y_true"].to_numpy(float)
+                ))))
+                for _site, group in current.groupby("site_id")
             ]
             if not horizon_values:
                 raise ModelSuiteError(f"Stage-9 {model} module rows are absent")
@@ -3715,13 +3727,13 @@ def _validate_stage09_report_outputs(
         "\n## ", maxsplit=1
     )[0]
     required_ablation_contract = {
-        "single-seed functionality/intervention diagnostic",
-        "seed0-vs-seed0",
-        "every mandatory control is exact seed=0",
+        "five-seed deletion/intervention sensitivity",
+        "same five seeds",
+        "every mandatory control contains seeds 0--4",
         "identical forecast keys and exact y_true",
         (
             "not evidence of module necessity, causal mechanism, or "
-            "cross-seed stability"
+            "capacity-matched attribution"
         ),
     }
     if any(
@@ -3729,7 +3741,7 @@ def _validate_stage09_report_outputs(
         for fragment in required_ablation_contract
     ):
         raise ModelSuiteError(
-            "Stage-9 report lacks the mandatory seed0 ablation diagnostic contract"
+            "Stage-9 report lacks the mandatory five-seed ablation contract"
         )
     try:
         score_frame = _read_stage09_score_frame(scores)
@@ -3748,13 +3760,13 @@ def _validate_stage09_report_outputs(
     if stage09_air2stream_report_status(air2stream) not in report_text:
         raise ModelSuiteError("Stage-9 Air2stream report status is inconsistent")
     expected_module_heading = (
-        "## Module ablations (single-seed functionality/intervention diagnostic; "
-        "seed0-vs-seed0; median per-station RMSE, "
+        "## Module ablations (five-seed deletion/intervention sensitivity; "
+        "ensemble-mean median per-station RMSE, "
         f"delta_scale={configuration['delta_scale']})"
     )
     if expected_module_heading not in report_text:
         raise ModelSuiteError(
-            "Stage-9 report lacks the mandatory seed0 ablation diagnostic contract"
+            "Stage-9 report lacks the mandatory five-seed ablation contract"
         )
     expected_sites = prediction_frame.loc[
         prediction_frame["model"].eq("ThermoRoute")
@@ -4029,7 +4041,8 @@ def validate_stage09_completion_receipt(
         or int(by_id["ThermoRoute"].get("member_count", 0)) != 5
         or int(by_id["LightGBM"].get("member_count", 0)) != 5
         or any(
-            int(by_id[name].get("member_count", 0)) != 1
+            int(by_id[name].get("member_count", 0))
+            != len(STAGE9_ABLATION_SEEDS)
             or by_id[name].get("intervention") != ABLATION_INTERVENTIONS[name]
             for name in MANDATORY_ABLATIONS
         )
@@ -7019,8 +7032,14 @@ def validate_model_suite_document(
             )
             if by_id[model_id].get("executor") != expected_executor:
                 raise ModelSuiteError(f"{name}/{model_id} has wrong executor")
-            if model_id in MANDATORY_ABLATIONS and int(by_id[model_id].get("member_count", 0)) != 1:
-                raise ModelSuiteError(f"{model_id} must be a one-member exploratory control")
+            if (
+                model_id in MANDATORY_ABLATIONS
+                and int(by_id[model_id].get("member_count", 0))
+                != len(STAGE9_ABLATION_SEEDS)
+            ):
+                raise ModelSuiteError(
+                    f"{model_id} must contain the complete five-seed control ensemble"
+                )
             if model_id in MANDATORY_ABLATIONS:
                 intervention = by_id[model_id].get("intervention")
                 if intervention != ABLATION_INTERVENTIONS[model_id]:

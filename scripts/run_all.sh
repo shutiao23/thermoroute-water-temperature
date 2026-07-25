@@ -98,8 +98,8 @@ echo "      using panel: ${USGS_PANEL}"
 "$THERMOROUTE_PYTHON" scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --seeds 5 \
     --device cpu \
     --out_predictions usgs_predictions_stage9_v2.parquet
-echo "[9/27] matched-budget neural controls + exact 31-member feature ladder"
-# Stage 09b publishes its content-bound receipt only after all 31 member
+echo "[9/27] matched-budget neural controls + complete declared-seed feature ladder"
+# Stage 09b publishes its content-bound receipt only after every declared member
 # predictions, their sidecars, the common-key audit, budget, combined
 # predictions and report validate.  Stage 24 requires and revalidates it.
 "$THERMOROUTE_PYTHON" scripts/09b_development_controls.py --panel "${USGS_PANEL}"
