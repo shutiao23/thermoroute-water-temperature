@@ -15211,6 +15211,32 @@ def _reconstruct_model_dependency_paths(
     return output
 
 
+_FORMAL_PRELABEL_SNAPSHOT_PROVIDERS = frozenset({
+    "ornl-daymet-single-pixel-route-a",
+    "gridmet-ncss-route-a",
+    "gridmet-opendap-schema-route-a",
+})
+_FORMAL_PRELABEL_RETRIEVAL_SEMANTICS = frozenset({
+    "DIRECT_HTTP_RESPONSE",
+    "BYTE_IDENTICAL_REFETCH_COMPLETED_RESPONSE_ONLY_TRANSACTION",
+})
+_FORMAL_PRELABEL_SOURCE_CONTRACTS = {
+    "ORNL Daymet single-pixel daily data": (
+        "ornl-daymet-single-pixel-route-a",
+        ("TEMP", "PRCP", "RHMEAN", "DH"),
+    ),
+    "gridMET daily mean wind via NWK NCSS": (
+        "gridmet-ncss-route-a",
+        ("WDSP",),
+    ),
+    "gridMET OPeNDAP dataset attributes": (
+        "gridmet-opendap-schema-route-a",
+        ("WDSP",),
+    ),
+}
+_FORMAL_PRELABEL_NORMALIZED_SOURCE = "site-to-request normalization map"
+
+
 def _validate_candidate_snapshot_metadata(
     *,
     record: Mapping[str, Any],
@@ -15320,6 +15346,118 @@ def _validate_candidate_snapshot_metadata(
     ):
         raise ValueError("Git candidate snapshot paths are not content addressed")
     return state_values[0], retrieved
+
+
+def _validate_formal_prelabel_snapshot_metadata(
+    *,
+    record: Mapping[str, Any],
+    metadata_payload: bytes,
+    response_payload: bytes,
+    expected_provider: str,
+    index_path: str,
+) -> datetime:
+    """Independently validate one formal weather-only SnapshotStore record."""
+    if expected_provider not in _FORMAL_PRELABEL_SNAPSHOT_PROVIDERS:
+        raise ValueError("Git formal pre-label snapshot provider is not approved")
+    metadata = _strict_json_object_bytes(
+        metadata_payload, label=f"Git formal pre-label metadata from {index_path}"
+    )
+    request = record.get("request")
+    response_headers = metadata.get("response_headers")
+    request_headers = request.get("headers") if isinstance(request, Mapping) else None
+    if (
+        metadata_payload != _canonical_json_bytes(metadata)
+        or set(metadata) != {
+            "schema_version", "request", "request_sha256", "retrieved_at_utc",
+            "http_status", "response_headers", "byte_count", "response_sha256",
+            "response_file", "final_url", "retrieval_semantics",
+        }
+        or type(request) is not dict
+        or set(request) != {
+            "schema_version", "provider", "method", "url", "headers",
+        }
+        or type(request.get("schema_version")) is not int
+        or request.get("schema_version") != 1
+        or request.get("provider") != expected_provider
+        or request.get("method") != "GET"
+        or type(request.get("url")) is not str
+        or type(request_headers) is not dict
+        or request_headers != {
+            "User-Agent": "ThermoRoute/1.0 Route-A pre-label meteorology"
+        }
+        or type(response_headers) is not dict
+        or any(
+            type(key) is not str or type(value) is not str
+            for key, value in response_headers.items()
+        )
+    ):
+        raise ValueError("Git formal pre-label metadata/request contract changed")
+    parsed = urlparse(str(request["url"]))
+    expected_host, expected_path = {
+        "ornl-daymet-single-pixel-route-a": (
+            "daymet.ornl.gov", "/single-pixel/api/data",
+        ),
+        "gridmet-ncss-route-a": (
+            "thredds.northwestknowledge.net", "/thredds/ncss/",
+        ),
+        "gridmet-opendap-schema-route-a": (
+            "thredds.northwestknowledge.net", "/thredds/dodsC/",
+        ),
+    }[expected_provider]
+    path_matches = (
+        parsed.path == expected_path
+        if expected_provider == "ornl-daymet-single-pixel-route-a"
+        else parsed.path.startswith(expected_path)
+    )
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != expected_host
+        or parsed.params
+        or parsed.fragment
+        or not path_matches
+        or (
+            expected_provider == "gridmet-opendap-schema-route-a"
+            and (parsed.query or not parsed.path.endswith(".das"))
+        )
+    ):
+        raise ValueError("Git formal pre-label snapshot URL/provider changed")
+    request_document = dict(request)
+    request_sha = hashlib.sha256(_canonical_json_bytes(request_document)).hexdigest()
+    response_sha = hashlib.sha256(response_payload).hexdigest()
+    retrieved = _require_utc_transport_timestamp(
+        metadata.get("retrieved_at_utc"),
+        label=f"Git formal pre-label retrieval from {index_path}",
+    )
+    if (
+        record.get("provider") != expected_provider
+        or record.get("request_sha256") != request_sha
+        or record.get("response_sha256") != response_sha
+        or record.get("byte_count") != len(response_payload)
+        or record.get("retrieved_at_utc") != metadata.get("retrieved_at_utc")
+        or type(metadata.get("schema_version")) is not int
+        or metadata.get("schema_version") != 2
+        or metadata.get("request") != request_document
+        or metadata.get("request_sha256") != request_sha
+        or type(metadata.get("http_status")) is not int
+        or metadata.get("http_status") != 200
+        or type(metadata.get("byte_count")) is not int
+        or metadata.get("byte_count") != len(response_payload)
+        or metadata.get("response_sha256") != response_sha
+        or metadata.get("response_file") != "response.bin"
+        or metadata.get("final_url") != request["url"]
+        or metadata.get("retrieval_semantics")
+        not in _FORMAL_PRELABEL_RETRIEVAL_SEMANTICS
+    ):
+        raise ValueError("Git formal pre-label SnapshotStore-v2 metadata changed")
+    expected_base = PurePosixPath(expected_provider) / request_sha
+    if (
+        PurePosixPath(str(record.get("metadata_path", "")))
+        != expected_base / "metadata.json"
+        or PurePosixPath(str(record.get("response_path", "")))
+        != expected_base / "response.bin"
+    ):
+        raise ValueError("Git formal pre-label snapshot paths are not content addressed")
+    return retrieved
 
 
 def _require_exact_git_blob_namespace(
@@ -15470,9 +15608,15 @@ def _snapshot_dependency_paths(
     bare: Path, commit: str, index_path: str, *,
     require_metadata_binding: bool = False,
     require_candidate_metadata_contract: bool = False,
+    require_formal_prelabel_metadata_contract: bool = False,
+    expected_provider: str | None = None,
 ) -> set[str]:
     if require_candidate_metadata_contract and not require_metadata_binding:
         raise ValueError("candidate metadata contract requires index metadata binding")
+    if require_formal_prelabel_metadata_contract and not require_metadata_binding:
+        raise ValueError("formal pre-label metadata contract requires index metadata binding")
+    if expected_provider is not None and not require_formal_prelabel_metadata_contract:
+        raise ValueError("expected provider requires formal pre-label validation")
     index_payload = _git_blob_bytes(
         bare, commit, index_path, label="snapshot index"
     )
@@ -15499,6 +15643,12 @@ def _snapshot_dependency_paths(
     candidate_states: set[str] = set()
     candidate_retrievals: list[datetime] = []
     candidate_metadata_paths: list[str] = []
+    formal_metadata_paths: list[str] = []
+    if (
+        require_formal_prelabel_metadata_contract
+        and PurePosixPath(index_path).name != "snapshot_index.json"
+    ):
+        raise ValueError("Git formal pre-label snapshot index path changed")
     for record in records:
         if not isinstance(record, Mapping):
             raise ValueError("Git snapshot-index record is malformed")
@@ -15569,6 +15719,17 @@ def _snapshot_dependency_paths(
             candidate_states.add(state)
             candidate_retrievals.append(retrieved)
             candidate_metadata_paths.append(str(record["metadata_path"]))
+        elif require_formal_prelabel_metadata_contract:
+            if expected_provider is None:  # pragma: no cover - guarded above
+                raise ValueError("Git formal pre-label provider is absent")
+            _validate_formal_prelabel_snapshot_metadata(
+                record=record,
+                metadata_payload=payloads["metadata_path"],
+                response_payload=payloads["response_path"],
+                expected_provider=expected_provider,
+                index_path=index_path,
+            )
+            formal_metadata_paths.append(str(record["metadata_path"]))
     if require_candidate_metadata_contract and (
         candidate_metadata_paths != sorted(candidate_metadata_paths)
         or max(candidate_retrievals) - min(candidate_retrievals)
@@ -15576,6 +15737,15 @@ def _snapshot_dependency_paths(
     ):
         raise ValueError("Git candidate acquisition ordering/session changed")
     if require_candidate_metadata_contract:
+        _require_exact_git_blob_namespace(
+            bare,
+            commit,
+            PurePosixPath(index_path).parent.as_posix(),
+            expected_namespace,
+        )
+    if require_formal_prelabel_metadata_contract:
+        if formal_metadata_paths != sorted(formal_metadata_paths):
+            raise ValueError("Git formal pre-label snapshot record order changed")
         _require_exact_git_blob_namespace(
             bare,
             commit,
@@ -15991,8 +16161,10 @@ def _reconstruct_input_evidence_sets(
             if field == "cohort_tables":
                 newly_acquired.add(relative)
     evidence = manifest.get("source_evidence")
-    if not isinstance(evidence, list) or not evidence:
+    if not isinstance(evidence, list) or len(evidence) != 4:
         raise ValueError("Git actual-input manifest lacks source evidence")
+    seen_snapshot_sources: set[str] = set()
+    normalized_source_count = 0
     for index, item in enumerate(evidence):
         if (
             not isinstance(item, Mapping)
@@ -16009,11 +16181,42 @@ def _reconstruct_input_evidence_sets(
         output.add(relative)
         newly_acquired.add(relative)
         if item.get("evidence_type") == "snapshot_index":
-            dependencies = _snapshot_dependency_paths(bare, commit, relative)
+            source = item.get("source")
+            if (
+                not isinstance(source, str)
+                or source not in _FORMAL_PRELABEL_SOURCE_CONTRACTS
+                or source in seen_snapshot_sources
+            ):
+                raise ValueError("Git actual-input snapshot source registry changed")
+            provider, expected_fields = _FORMAL_PRELABEL_SOURCE_CONTRACTS[source]
+            if tuple(item.get("fields", ())) != expected_fields:
+                raise ValueError("Git actual-input snapshot field registry changed")
+            seen_snapshot_sources.add(source)
+            dependencies = _snapshot_dependency_paths(
+                bare,
+                commit,
+                relative,
+                require_metadata_binding=True,
+                require_formal_prelabel_metadata_contract=True,
+                expected_provider=provider,
+            )
             output |= dependencies
             newly_acquired |= dependencies
         elif item.get("evidence_type") != "normalized_immutable_snapshot":
             raise ValueError("Git actual-input evidence type changed")
+        else:
+            if (
+                item.get("source") != _FORMAL_PRELABEL_NORMALIZED_SOURCE
+                or set(item.get("fields", ()))
+                != {"TEMP", "PRCP", "RHMEAN", "DH", "WDSP"}
+            ):
+                raise ValueError("Git actual-input normalized source registry changed")
+            normalized_source_count += 1
+    if (
+        seen_snapshot_sources != set(_FORMAL_PRELABEL_SOURCE_CONTRACTS)
+        or normalized_source_count != 1
+    ):
+        raise ValueError("Git actual-input source evidence set is incomplete")
     return output, newly_acquired
 
 

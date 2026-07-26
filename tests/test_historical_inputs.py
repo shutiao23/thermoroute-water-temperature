@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -19,8 +20,13 @@ from thermoroute.historical_inputs import (
     PRELABEL_FIELDS,
     USER_AGENT,
     acquire_historical_inputs,
+    validate_historical_protocol,
 )
-from thermoroute.opening import validate_prelabel_inputs
+from thermoroute.opening import (
+    OpeningContractError,
+    _verify_snapshot_index,
+    validate_prelabel_inputs,
+)
 from thermoroute.provenance import (
     ProvenanceError,
     SnapshotStore,
@@ -117,7 +123,7 @@ def _seed_snapshot(root: Path, *, provider: str, url: str, payload: bytes) -> No
     base.mkdir(parents=True, exist_ok=False)
     (base / "response.bin").write_bytes(payload)
     (base / "metadata.json").write_bytes(canonical_json_bytes({
-        "schema_version": 1,
+        "schema_version": 2,
         "request": request,
         "request_sha256": request_sha,
         "retrieved_at_utc": "2026-07-21T00:00:00+00:00",
@@ -126,6 +132,8 @@ def _seed_snapshot(root: Path, *, provider: str, url: str, payload: bytes) -> No
         "byte_count": len(payload),
         "response_sha256": sha256_bytes(payload),
         "response_file": "response.bin",
+        "final_url": url,
+        "retrieval_semantics": "DIRECT_HTTP_RESPONSE",
     }))
 
 
@@ -200,8 +208,9 @@ class _FakeResponse:
     status = 200
     headers = {"Content-Type": "text/csv"}
 
-    def __init__(self, payload: bytes) -> None:
+    def __init__(self, payload: bytes, *, final_url: str) -> None:
         self._payload = payload
+        self._final_url = final_url
 
     def __enter__(self):
         return self
@@ -211,6 +220,9 @@ class _FakeResponse:
 
     def read(self) -> bytes:
         return self._payload
+
+    def geturl(self) -> str:
+        return self._final_url
 
 
 def _tree_file_state(root: Path) -> dict[str, tuple[str, int, int, int]]:
@@ -222,6 +234,31 @@ def _tree_file_state(root: Path) -> dict[str, tuple[str, int, int, int]]:
         state[path.relative_to(root).as_posix()] = (
             sha256_file(path), info.st_ino, info.st_mtime_ns, info.st_nlink,
         )
+    return state
+
+
+def _whole_tree_state(root: Path) -> dict[str, tuple[object, ...]]:
+    """Bind the complete path set plus inode/mtime and all regular-file bytes."""
+    state: dict[str, tuple[object, ...]] = {}
+    for path in (root, *sorted(root.rglob("*"))):
+        info = path.lstat()
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        if path.is_symlink():
+            state[relative] = (
+                "symlink", info.st_ino, info.st_mtime_ns, os.readlink(path),
+            )
+        elif path.is_file():
+            state[relative] = (
+                "file", info.st_ino, info.st_mtime_ns, info.st_size,
+                info.st_nlink, sha256_file(path),
+            )
+        elif path.is_dir():
+            state[relative] = (
+                "directory", info.st_ino, info.st_mtime_ns,
+                tuple(sorted(entry.name for entry in path.iterdir())),
+            )
+        else:
+            state[relative] = ("other", info.st_ino, info.st_mtime_ns)
     return state
 
 
@@ -247,6 +284,16 @@ def test_meteorology_parsers_keep_complete_calendar_and_exact_schema():
     assert contract == {"units": "m/s", "scale_factor": 0.1, "add_offset": 0.0}
     with pytest.raises(ValueError, match="scale_factor changed"):
         parse_gridmet_wind_metadata(_gridmet_schema_payload(scale=1.0))
+
+
+def test_real_frozen_pretty_protocol_remains_accepted() -> None:
+    protocol = ROOT / "protocols" / "route_a_confirmatory_v1.json"
+    assert protocol.read_bytes() != canonical_json_bytes(
+        json.loads(protocol.read_text(encoding="utf-8"))
+    )
+    validated = validate_historical_protocol(protocol, trusted_root=ROOT)
+    assert validated["sha256"] == sha256_file(protocol)
+    assert validated["target_start"] == pd.Timestamp("2021-01-01")
 
 
 def test_daymet_leap_calendar_keeps_feb29_and_omits_dec31():
@@ -324,6 +371,22 @@ def test_offline_fixture_freezes_opening_compatible_inputs(tmp_path, monkeypatch
     assert manifest["retrospective_provisional_vintage_reconstructable"] is False
     assert manifest["secondary_nwp_resolution"] == "EXPLICITLY_NOT_USED"
     assert manifest["history_start"] == "2020-11-30"
+
+    for provider in ("daymet-v1", "gridmet-v1", "gridmet-schema-v1"):
+        provider_root = snapshot_root / provider
+        index = json.loads(
+            (provider_root / "snapshot_index.json").read_text(encoding="utf-8")
+        )
+        assert index["schema_version"] == 2
+        assert not (provider_root / "snapshot_index_v2.json").exists()
+        for record in index["records"]:
+            metadata_path = provider_root / record["metadata_path"]
+            assert record["metadata_sha256"] == sha256_file(metadata_path)
+            assert record["metadata_byte_count"] == metadata_path.stat().st_size
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            assert metadata["schema_version"] == 2
+            assert metadata["final_url"] == metadata["request"]["url"]
+            assert metadata["retrieval_semantics"] == "DIRECT_HTTP_RESPONSE"
 
     expected_columns = {"site_no", "DATE", *PRELABEL_FIELDS}
     for cohort in ("temporal", "external"):
@@ -406,7 +469,7 @@ def test_raw_response_only_crash_resumes_by_byte_comparison(
 
     def fake_urlopen(request, **_kwargs):
         calls.append(request.full_url)
-        return _FakeResponse(expected_payload)
+        return _FakeResponse(expected_payload, final_url=request.full_url)
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
@@ -444,6 +507,12 @@ def test_raw_response_only_crash_resumes_by_byte_comparison(
     manifest = acquire_historical_inputs(**fixture)
     assert manifest["status"] == "FROZEN_PRELABEL_NO_OUTCOMES"
     assert metadata_path.is_file()
+    recovered_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert recovered_metadata["schema_version"] == 2
+    assert recovered_metadata["final_url"] == url
+    assert recovered_metadata["retrieval_semantics"] == (
+        "BYTE_IDENTICAL_REFETCH_COMPLETED_RESPONSE_ONLY_TRANSACTION"
+    )
     assert response_state == (
         sha256_file(response_path), response_path.stat().st_ino,
         response_path.stat().st_mtime_ns,
@@ -457,7 +526,10 @@ def test_raw_response_resume_rejects_provider_byte_drift(
     fixture = _input_fixture(tmp_path, omit_final_gridmet=True)
     first_payload = _gridmet_payload(offset=1.0)
     monkeypatch.setattr(
-        "urllib.request.urlopen", lambda *_args, **_kwargs: _FakeResponse(first_payload)
+        "urllib.request.urlopen",
+        lambda request, **_kwargs: _FakeResponse(
+            first_payload, final_url=request.full_url
+        ),
     )
 
     def crash(stage: str, _path: Path) -> None:
@@ -475,7 +547,9 @@ def test_raw_response_resume_rejects_provider_byte_drift(
     original = response.read_bytes()
     monkeypatch.setattr(
         "urllib.request.urlopen",
-        lambda *_args, **_kwargs: _FakeResponse(_gridmet_payload(offset=9.0)),
+        lambda request, **_kwargs: _FakeResponse(
+            _gridmet_payload(offset=9.0), final_url=request.full_url
+        ),
     )
 
     with pytest.raises(ProvenanceError, match="differs from incomplete snapshot"):
@@ -529,7 +603,7 @@ def test_check_existing_is_fully_offline_and_publishes_nothing(
 ) -> None:
     fixture = _input_fixture(tmp_path)
     expected = acquire_historical_inputs(**fixture)
-    before = _tree_file_state(tmp_path)
+    before = _whole_tree_state(tmp_path)
     monkeypatch.setattr(
         "urllib.request.urlopen",
         lambda *_args, **_kwargs: pytest.fail("--check-existing attempted network"),
@@ -539,7 +613,7 @@ def test_check_existing_is_fully_offline_and_publishes_nothing(
         check_existing=True,
     )
     assert checked == expected
-    assert _tree_file_state(tmp_path) == before
+    assert _whole_tree_state(tmp_path) == before
 
 
 def test_check_existing_never_completes_a_missing_manifest(
@@ -603,6 +677,210 @@ def test_existing_state_tamper_and_extra_entries_fail_closed(
 
     assert attacked_path.exists()
     assert _tree_file_state(tmp_path) == before
+
+
+@pytest.mark.parametrize(
+    "attack",
+    (
+        "headers",
+        "header_type",
+        "retrieved_at",
+        "final_url",
+        "extra_key",
+        "whitespace",
+        "duplicate_key",
+        "metadata_v1",
+    ),
+)
+def test_formal_metadata_tamper_fails_closed(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    fixture = _input_fixture(tmp_path)
+    acquire_historical_inputs(**fixture)
+    metadata_path = next(
+        Path(fixture["snapshot_root"]).glob("daymet-v1/*/*/metadata.json")
+    )
+    document = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if attack == "headers":
+        document["response_headers"] = {"Content-Type": "application/attacker"}
+        attacked = canonical_json_bytes(document)
+    elif attack == "header_type":
+        document["response_headers"] = {"Content-Type": 7}
+        attacked = canonical_json_bytes(document)
+    elif attack == "retrieved_at":
+        document["retrieved_at_utc"] = "2026-07-21T00:00:01+00:00"
+        attacked = canonical_json_bytes(document)
+    elif attack == "final_url":
+        document["final_url"] = f"{document['final_url']}&redirected=1"
+        attacked = canonical_json_bytes(document)
+    elif attack == "extra_key":
+        document["attacker"] = False
+        attacked = canonical_json_bytes(document)
+    elif attack == "whitespace":
+        attacked = metadata_path.read_bytes() + b" "
+    elif attack == "duplicate_key":
+        attacked = b'{"schema_version":2,' + metadata_path.read_bytes()[1:]
+    else:
+        document["schema_version"] = 1
+        del document["final_url"]
+        del document["retrieval_semantics"]
+        attacked = canonical_json_bytes(document)
+    metadata_path.chmod(0o600)
+    metadata_path.write_bytes(attacked)
+    before = _whole_tree_state(tmp_path)
+
+    with pytest.raises((HistoricalInputError, ProvenanceError)):
+        acquire_historical_inputs(**fixture, check_existing=True)
+
+    assert _whole_tree_state(tmp_path) == before
+
+
+def test_formal_snapshot_index_v1_is_rejected(tmp_path: Path) -> None:
+    fixture = _input_fixture(tmp_path)
+    acquire_historical_inputs(**fixture)
+    index_path = (
+        Path(fixture["snapshot_root"]) / "daymet-v1" / "snapshot_index.json"
+    )
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    legacy_records = [
+        {
+            key: value
+            for key, value in record.items()
+            if key not in {"metadata_sha256", "metadata_byte_count"}
+        }
+        for record in index["records"]
+    ]
+    index_path.chmod(0o600)
+    index_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "snapshot_count": len(legacy_records),
+        "records": legacy_records,
+    }))
+    before = _whole_tree_state(tmp_path)
+
+    with pytest.raises(HistoricalInputError, match="snapshot index changed"):
+        acquire_historical_inputs(**fixture, check_existing=True)
+
+    assert _whole_tree_state(tmp_path) == before
+
+
+@pytest.mark.parametrize(
+    "attack", ("legacy_index_v1", "redirected_final_url", "extra_blob")
+)
+def test_opening_independently_rejects_formal_snapshot_attacks(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    fixture = _input_fixture(tmp_path)
+    acquire_historical_inputs(**fixture)
+    provider_root = Path(fixture["snapshot_root"]) / "daymet-v1"
+    index_path = provider_root / "snapshot_index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    if attack == "legacy_index_v1":
+        index["schema_version"] = 1
+        index_path.chmod(0o600)
+        index_path.write_bytes(canonical_json_bytes(index))
+    elif attack == "redirected_final_url":
+        record = index["records"][0]
+        metadata_path = provider_root / record["metadata_path"]
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["final_url"] = "https://example.invalid/redirected"
+        metadata_payload = canonical_json_bytes(metadata)
+        metadata_path.chmod(0o600)
+        metadata_path.write_bytes(metadata_payload)
+        record["metadata_sha256"] = sha256_bytes(metadata_payload)
+        record["metadata_byte_count"] = len(metadata_payload)
+        index_path.chmod(0o600)
+        index_path.write_bytes(canonical_json_bytes(index))
+    else:
+        (provider_root / "unindexed.bin").write_bytes(b"extra\n")
+
+    with pytest.raises(OpeningContractError):
+        _verify_snapshot_index(tmp_path, index_path, prelabel=True)
+
+
+def test_http_redirect_is_rejected_before_any_raw_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _input_fixture(tmp_path, omit_final_gridmet=True)
+    expected_url = build_gridmet_wind_url(
+        41.0, -104.0, "2020-11-30", "2023-12-31"
+    )
+
+    def redirected(request, **_kwargs):
+        assert request.full_url == expected_url
+        return _FakeResponse(
+            _gridmet_payload(offset=1.0),
+            final_url=f"{request.full_url}&provider_redirect=1",
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", redirected)
+    before = _whole_tree_state(tmp_path)
+    with pytest.raises(ProvenanceError, match="failed to acquire"):
+        acquire_historical_inputs(**fixture, retries=1)
+    assert _whole_tree_state(tmp_path) == before
+
+
+def test_historical_transaction_rejects_concurrent_process(
+    tmp_path: Path,
+) -> None:
+    fixture = _input_fixture(tmp_path)
+    acquire_historical_inputs(**fixture)
+    before = _whole_tree_state(tmp_path)
+    code = """
+import sys
+from pathlib import Path
+from thermoroute.provenance import candidate_publication_lock
+root = Path(sys.argv[1])
+with candidate_publication_lock(
+    root / 'protocols' / 'route_a_confirmatory_v1.json',
+    trusted_root=root,
+):
+    print('LOCKED', flush=True)
+    sys.stdin.readline()
+"""
+    environment = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": os.pathsep.join(filter(None, (
+            str(ROOT / "src"), os.environ.get("PYTHONPATH", ""),
+        ))),
+    }
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, str(tmp_path)],
+        cwd=ROOT,
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None
+        assert process.stdout.readline().strip() == "LOCKED"
+        with pytest.raises(ProvenanceError, match="transaction is busy"):
+            acquire_historical_inputs(**fixture, check_existing=True)
+    finally:
+        assert process.stdin is not None
+        process.stdin.write("release\n")
+        process.stdin.flush()
+        _, stderr = process.communicate(timeout=10)
+        assert process.returncode == 0, stderr
+    assert _whole_tree_state(tmp_path) == before
+
+
+def test_historical_transaction_requires_fixed_protocol_path(tmp_path: Path) -> None:
+    fixture = _input_fixture(tmp_path)
+    alternate = tmp_path / "protocols" / "alternate.json"
+    alternate.write_bytes(Path(fixture["protocol_path"]).read_bytes())
+    before = _whole_tree_state(tmp_path)
+
+    with pytest.raises(HistoricalInputError, match="fixed canonical"):
+        acquire_historical_inputs(**{**fixture, "protocol_path": alternate})
+
+    assert _whole_tree_state(tmp_path) == before
 
 
 def test_existing_symlink_and_hardlink_evidence_fail_closed(

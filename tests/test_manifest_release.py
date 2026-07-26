@@ -216,6 +216,70 @@ def _binding(verifier, root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "sha256": verifier.sha256_file(path)}
 
 
+def _write_formal_meteorology_snapshot(
+    verifier,
+    root: Path,
+    index_path: str,
+    *,
+    provider: str,
+    url: str,
+    payload: bytes,
+) -> set[str]:
+    request = {
+        "schema_version": 1,
+        "provider": provider,
+        "method": "GET",
+        "url": url,
+        "headers": {
+            "User-Agent": "ThermoRoute/1.0 Route-A pre-label meteorology"
+        },
+    }
+    request_sha = hashlib.sha256(
+        verifier._canonical_json_bytes(request)
+    ).hexdigest()
+    base = PurePosixPath(index_path).parent
+    transaction = base / provider / request_sha
+    metadata_path = (transaction / "metadata.json").as_posix()
+    response_path = (transaction / "response.bin").as_posix()
+    retrieved = "2026-07-26T00:00:00+00:00"
+    metadata_payload = verifier._canonical_json_bytes({
+        "schema_version": 2,
+        "request": request,
+        "request_sha256": request_sha,
+        "retrieved_at_utc": retrieved,
+        "http_status": 200,
+        "response_headers": {},
+        "byte_count": len(payload),
+        "response_sha256": hashlib.sha256(payload).hexdigest(),
+        "response_file": "response.bin",
+        "final_url": url,
+        "retrieval_semantics": "DIRECT_HTTP_RESPONSE",
+    })
+    _write_bytes(root, metadata_path, metadata_payload)
+    _write_bytes(root, response_path, payload)
+    _write_bytes(
+        root,
+        index_path,
+        verifier._canonical_json_bytes({
+            "schema_version": 2,
+            "snapshot_count": 1,
+            "records": [{
+                "provider": provider,
+                "request_sha256": request_sha,
+                "response_sha256": hashlib.sha256(payload).hexdigest(),
+                "metadata_sha256": hashlib.sha256(metadata_payload).hexdigest(),
+                "metadata_byte_count": len(metadata_payload),
+                "retrieved_at_utc": retrieved,
+                "byte_count": len(payload),
+                "request": request,
+                "metadata_path": PurePosixPath(metadata_path).relative_to(base).as_posix(),
+                "response_path": PurePosixPath(response_path).relative_to(base).as_posix(),
+            }],
+        }),
+    )
+    return {index_path, metadata_path, response_path}
+
+
 def _write_development_panel_fixture(root: Path) -> tuple[str, str, str]:
     """Write a small canonical panel spanning every frozen fit interval."""
     panel_relative = "data_usgs/panel_usgs_120v2.parquet"
@@ -1743,6 +1807,140 @@ def test_release_candidate_snapshot_dependencies_require_metadata_bound_v2(
             require_metadata_binding=True,
             require_candidate_metadata_contract=True,
         )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "legacy_index_v1",
+        "redirected_final_url",
+        "fabricated_semantics",
+        "noncanonical_metadata",
+        "wrong_expected_provider",
+        "extra_blob",
+        "unindexed_symlink",
+        "unindexed_submodule",
+    ],
+)
+def test_release_formal_meteorology_requires_semantic_metadata_v2(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_formal_meteorology_{attack}_test"
+    )
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "fixture@example.test"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Fixture"],
+        cwd=repository,
+        check=True,
+    )
+    index_path = "raw/daymet-v1/snapshot_index.json"
+    provider = "ornl-daymet-single-pixel-route-a"
+    url = "https://daymet.ornl.gov/single-pixel/api/data?lat=40.00000000"
+    paths = _write_formal_meteorology_snapshot(
+        verifier,
+        repository,
+        index_path,
+        provider=provider,
+        url=url,
+        payload=b"formal meteorology\n",
+    )
+    index_file = repository / index_path
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    record = index["records"][0]
+    metadata_relative = (
+        PurePosixPath(index_path).parent / record["metadata_path"]
+    ).as_posix()
+    metadata_path = repository / metadata_relative
+    if attack == "legacy_index_v1":
+        index["schema_version"] = 1
+        index_file.write_bytes(verifier._canonical_json_bytes(index))
+    elif attack in {
+        "redirected_final_url", "fabricated_semantics", "noncanonical_metadata"
+    }:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if attack == "redirected_final_url":
+            metadata["final_url"] = "https://example.invalid/redirected"
+            metadata_payload = verifier._canonical_json_bytes(metadata)
+        elif attack == "fabricated_semantics":
+            metadata["retrieval_semantics"] = "FABRICATED"
+            metadata_payload = verifier._canonical_json_bytes(metadata)
+        else:
+            metadata_payload = verifier._canonical_json_bytes(metadata) + b" "
+        metadata_path.write_bytes(metadata_payload)
+        record["metadata_sha256"] = hashlib.sha256(metadata_payload).hexdigest()
+        record["metadata_byte_count"] = len(metadata_payload)
+        index_file.write_bytes(verifier._canonical_json_bytes(index))
+    elif attack == "extra_blob":
+        _write_bytes(repository, "raw/daymet-v1/unindexed.bin", b"extra\n")
+    elif attack == "unindexed_symlink":
+        (repository / "raw/daymet-v1/unindexed-link").symlink_to(
+            "snapshot_index.json"
+        )
+    elif attack == "unindexed_submodule":
+        submodule = repository / "raw/daymet-v1/unindexed-submodule"
+        submodule.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=submodule, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.test"],
+            cwd=submodule,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Fixture"],
+            cwd=submodule,
+            check=True,
+        )
+        _write_bytes(submodule, "payload.txt", b"submodule\n")
+        subprocess.run(["git", "add", "payload.txt"], cwd=submodule, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "submodule fixture"],
+            cwd=submodule,
+            check=True,
+        )
+    subprocess.run(["git", "add", "raw"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", f"formal attack {attack}"],
+        cwd=repository,
+        check=True,
+    )
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    expected_provider = (
+        "gridmet-ncss-route-a"
+        if attack == "wrong_expected_provider"
+        else provider
+    )
+    with pytest.raises(
+        ValueError,
+        match=r"(?i)(formal|snapshot|metadata|provider|namespace|non-file)",
+    ):
+        verifier._snapshot_dependency_paths(
+            repository,
+            commit,
+            index_path,
+            require_metadata_binding=True,
+            require_formal_prelabel_metadata_contract=True,
+            expected_provider=expected_provider,
+        )
+    assert paths <= {
+        path.relative_to(repository).as_posix()
+        for path in repository.rglob("*")
+        if path.is_file() and ".git" not in path.parts
+    }
 
 
 def test_release_truth_binding_accepts_stage09_float32_round_trip(tmp_path):
@@ -10054,30 +10252,49 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     temporal_table = "data_usgs/confirmatory_predictors/temporal.parquet"
     external_table = "data_usgs/confirmatory_predictors/external.parquet"
     request_map = "data_usgs/confirmatory_predictors/source_request_map_v1.json"
-    met_index = (
-        "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/daymet-v1/"
-        "snapshot_index.json"
-    )
-    met_metadata = str(PurePosixPath(met_index).parent / "record.json")
-    met_response = str(PurePosixPath(met_index).parent / "response.txt")
     for relative, payload in (
         (temporal_table, b"temporal\n"),
         (external_table, b"external\n"),
-        (met_response, b"meteorology\n"),
     ):
         _write_bytes(source, relative, payload)
     write_json(request_map, {})
-    write_json(met_metadata, {})
-    write_json(
-        met_index,
-        {
-            "records": [{
-                "metadata_path": "record.json",
-                "response_path": "response.txt",
-                "response_sha256": verifier.sha256_file(source / met_response),
-            }]
-        },
-    )
+    meteorology_contracts = {
+        "ORNL Daymet single-pixel daily data": (
+            "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+            "daymet-v1/snapshot_index.json",
+            "ornl-daymet-single-pixel-route-a",
+            "https://daymet.ornl.gov/single-pixel/api/data?lat=40.00000000",
+            ["TEMP", "PRCP", "RHMEAN", "DH"],
+        ),
+        "gridMET daily mean wind via NWK NCSS": (
+            "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+            "gridmet-v1/snapshot_index.json",
+            "gridmet-ncss-route-a",
+            "https://thredds.northwestknowledge.net/thredds/ncss/MET/wind.nc"
+            "?var=daily_mean_wind_speed",
+            ["WDSP"],
+        ),
+        "gridMET OPeNDAP dataset attributes": (
+            "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+            "gridmet-schema-v1/snapshot_index.json",
+            "gridmet-opendap-schema-route-a",
+            "https://thredds.northwestknowledge.net/thredds/dodsC/"
+            "MET/wind.nc.das",
+            ["WDSP"],
+        ),
+    }
+    meteorology_paths: set[str] = set()
+    for source_name, (index_path, provider, url, _fields) in (
+        meteorology_contracts.items()
+    ):
+        meteorology_paths |= _write_formal_meteorology_snapshot(
+            verifier,
+            source,
+            index_path,
+            provider=provider,
+            url=url,
+            payload=f"{source_name} fixture\n".encode("utf-8"),
+        )
     write_json(
         input_paths["input_manifest"],
         {
@@ -10099,16 +10316,24 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
                 ),
             },
             "source_evidence": [
+                *[
+                    {
+                        "source": source_name,
+                        "evidence_type": "snapshot_index",
+                        "contains_outcome": False,
+                        "contains_outcome_labels": False,
+                        "fields": fields,
+                        "artifact": _binding(verifier, source, index_path),
+                    }
+                    for source_name, (index_path, _provider, _url, fields)
+                    in meteorology_contracts.items()
+                ],
                 {
-                    "evidence_type": "snapshot_index",
-                    "contains_outcome": False,
-                    "contains_outcome_labels": False,
-                    "artifact": _binding(verifier, source, met_index),
-                },
-                {
+                    "source": "site-to-request normalization map",
                     "evidence_type": "normalized_immutable_snapshot",
                     "contains_outcome": False,
                     "contains_outcome_labels": False,
+                    "fields": ["TEMP", "PRCP", "RHMEAN", "DH", "WDSP"],
                     "artifact": _binding(verifier, source, request_map),
                 },
             ],
@@ -10123,9 +10348,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         temporal_table,
         external_table,
         request_map,
-        met_index,
-        met_metadata,
-        met_response,
+        *meteorology_paths,
     }
     input_commit = commit("freeze outcome-free input evidence")
 

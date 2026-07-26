@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -28,9 +29,14 @@ import pandas as pd
 from . import config as C
 from .provenance import (
     SnapshotStore,
+    candidate_publication_lock,
     canonical_json_bytes,
+    create_single_link_regular,
+    read_single_link_regular,
+    require_canonical_utc,
     sha256_bytes,
     sha256_file,
+    strict_canonical_json_object,
 )
 from .usgs import (
     build_daymet_url,
@@ -57,6 +63,23 @@ ROUTE_A_TARGET_START = pd.Timestamp("2021-01-01")
 ROUTE_A_TARGET_END = pd.Timestamp("2023-12-31")
 ROUTE_A_CONTEXT_LENGTH = 32
 SITE_PATTERN = re.compile(r"^[0-9]{8,15}$")
+SNAPSHOT_METADATA_V2_FIELDS = frozenset({
+    "schema_version",
+    "request",
+    "request_sha256",
+    "retrieved_at_utc",
+    "http_status",
+    "response_headers",
+    "byte_count",
+    "response_sha256",
+    "response_file",
+    "final_url",
+    "retrieval_semantics",
+})
+SNAPSHOT_RETRIEVAL_SEMANTICS = frozenset({
+    "DIRECT_HTTP_RESPONSE",
+    "BYTE_IDENTICAL_REFETCH_COMPLETED_RESPONSE_ONLY_TRANSACTION",
+})
 
 
 class HistoricalInputError(RuntimeError):
@@ -152,6 +175,45 @@ def _binding(repo_root: Path, path: Path) -> dict[str, str]:
         repo_root, path, label="bound artifact", final_kind="file"
     )
     return {"path": _relative(repo_root, path), "sha256": sha256_file(path)}
+
+
+def _strict_json_object(payload: bytes, *, label: str) -> dict[str, Any]:
+    """Decode duplicate-free finite JSON without imposing producer whitespace.
+
+    The already frozen Route-A protocol is intentionally pretty-printed and
+    hash-bound, so it cannot be rewritten into the compact snapshot encoding.
+    New snapshot metadata and indexes use ``strict_canonical_json_object``;
+    this compatibility reader is only for immutable pre-existing documents.
+    """
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-finite JSON constant {value}")
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"non-finite JSON number {value}")
+        return parsed
+
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        document: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in document:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            document[key] = value
+        return document
+
+    try:
+        document = json.loads(
+            payload.decode("utf-8", errors="strict"),
+            parse_constant=reject_constant,
+            parse_float=finite_float,
+            object_pairs_hook=unique_object,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise HistoricalInputError(f"{label} is not strict JSON") from exc
+    if not isinstance(document, dict):
+        raise HistoricalInputError(f"{label} is not a JSON object")
+    return document
 
 
 def _exclusive_create(path: Path, payload: bytes) -> None:
@@ -255,12 +317,25 @@ def load_coordinate_registry(
     )
 
 
-def validate_historical_protocol(protocol_path: str | Path) -> dict[str, Any]:
+def validate_historical_protocol(
+    protocol_path: str | Path,
+    *,
+    trusted_root: str | Path | None = None,
+) -> dict[str, Any]:
     """Resolve the exact label-free calendar and schema from the protocol."""
     path = Path(protocol_path).resolve()
     try:
-        protocol = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        payload = (
+            read_single_link_regular(
+                path,
+                label="Route-A protocol",
+                trusted_root=trusted_root,
+            )
+            if trusted_root is not None
+            else path.read_bytes()
+        )
+        protocol = _strict_json_object(payload, label="Route-A protocol")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise HistoricalInputError(f"cannot read Route-A protocol: {path}") from exc
     if protocol.get("schema_version") != 1 or protocol.get("status") not in {
         "FROZEN_NOT_ACQUIRED", "REGISTRY_FROZEN_LABELS_SEALED",
@@ -406,6 +481,78 @@ def _expected_raw_plan(
     return plan
 
 
+def _read_verified_snapshot_metadata(
+    store: SnapshotStore,
+    *,
+    response_path: Path,
+    metadata_path: Path,
+    request_sha256: str,
+    expected_request: Mapping[str, object],
+) -> tuple[bytes, dict[str, Any], bytes, Any]:
+    """Replay one formal raw snapshot and enforce the exact metadata contract."""
+    expected_url = expected_request.get("url")
+    if type(expected_url) is not str:
+        raise HistoricalInputError("formal snapshot request URL is malformed")
+    payload, record = store._read_verified(
+        response_path,
+        metadata_path,
+        request_sha256,
+        expected_final_url=expected_url,
+    )
+    metadata_bytes = (
+        read_single_link_regular(
+            metadata_path,
+            label="historical snapshot metadata",
+            trusted_root=store.trusted_root,
+        )
+        if store.trusted_root is not None
+        else metadata_path.read_bytes()
+    )
+    metadata = strict_canonical_json_object(
+        metadata_bytes, label="historical snapshot metadata"
+    )
+    response_headers = metadata.get("response_headers")
+    request = metadata.get("request")
+    request_headers = request.get("headers") if isinstance(request, Mapping) else None
+    if (
+        set(metadata) != SNAPSHOT_METADATA_V2_FIELDS
+        or metadata.get("schema_version") != 2
+        or type(request) is not dict
+        or request != dict(expected_request)
+        or type(request_headers) is not dict
+        or any(
+            type(key) is not str or type(value) is not str
+            for key, value in request_headers.items()
+        )
+        or metadata.get("request_sha256") != request_sha256
+        or type(metadata.get("http_status")) is not int
+        or metadata.get("http_status") != 200
+        or type(response_headers) is not dict
+        or any(
+            type(key) is not str or type(value) is not str
+            for key, value in response_headers.items()
+        )
+        or type(metadata.get("byte_count")) is not int
+        or metadata.get("byte_count") != len(payload)
+        or metadata.get("response_sha256") != sha256_bytes(payload)
+        or metadata.get("response_file") != "response.bin"
+        or metadata.get("final_url") != expected_url
+        or metadata.get("retrieval_semantics")
+        not in SNAPSHOT_RETRIEVAL_SEMANTICS
+        or record.request != dict(expected_request)
+        or record.provider != str(expected_request.get("provider", ""))
+    ):
+        raise HistoricalInputError(
+            f"formal snapshot metadata contract changed: {metadata_path}"
+        )
+    require_canonical_utc(
+        metadata.get("retrieved_at_utc"),
+        label="historical snapshot retrieved_at_utc",
+    )
+    _assert_safe_meteorology_url(expected_url)
+    return metadata_bytes, metadata, payload, record
+
+
 def _validate_snapshot_store_namespace(
     store: SnapshotStore,
     *,
@@ -428,17 +575,16 @@ def _validate_snapshot_store_namespace(
     if len(providers) != 1:
         raise HistoricalInputError("one snapshot store received multiple providers")
     provider_name = next(iter(providers))
-    allowed_top = {provider_name, "snapshot_index.json", "snapshot_index_v2.json"}
+    allowed_top = {provider_name, "snapshot_index.json"}
     top_entries = {entry.name: entry for entry in store.root.iterdir()}
     if set(top_entries) - allowed_top:
         raise HistoricalInputError(
             f"raw snapshot store contains an extra entry: {store.root}"
         )
-    for index_name in ("snapshot_index.json", "snapshot_index_v2.json"):
-        if index_name in top_entries:
-            _assert_single_link_file(
-                top_entries[index_name], label=f"raw {index_name}"
-            )
+    if "snapshot_index.json" in top_entries:
+        _assert_single_link_file(
+            top_entries["snapshot_index.json"], label="raw snapshot_index.json"
+        )
     provider_path = store.root / provider_name
     if not os.path.lexists(provider_path):
         if any(name.startswith("snapshot_index") for name in top_entries):
@@ -475,45 +621,44 @@ def _validate_snapshot_store_namespace(
             states[request_sha] = 1
         if response_present and metadata_present:
             try:
-                _payload, record = store._read_verified(
-                    entries["response.bin"], entries["metadata.json"], request_sha
+                _metadata_bytes, _metadata, _payload, _record = (
+                    _read_verified_snapshot_metadata(
+                        store,
+                        response_path=entries["response.bin"],
+                        metadata_path=entries["metadata.json"],
+                        request_sha256=request_sha,
+                        expected_request=expected_request,
+                    )
                 )
-                metadata_bytes = entries["metadata.json"].read_bytes()
-                metadata = json.loads(metadata_bytes.decode("utf-8"))
             except Exception as exc:
                 if isinstance(exc, HistoricalInputError):
                     raise
                 raise HistoricalInputError(
                     f"raw snapshot cannot be verified: {request_path}"
                 ) from exc
-            if (
-                metadata_bytes != canonical_json_bytes(metadata)
-                or metadata.get("request") != expected_request
-                or record.provider != SnapshotStore._provider_name(provider)
-            ):
-                raise HistoricalInputError(
-                    f"raw snapshot request identity changed: {request_path}"
-                )
             states[request_sha] = 2
         if states[request_sha] != 2 and not allow_incomplete:
             raise HistoricalInputError(f"raw snapshot is incomplete: {request_path}")
-    if "snapshot_index_v2.json" in top_entries and "snapshot_index.json" not in top_entries:
-        raise HistoricalInputError("raw v2 index exists without immutable v1 index")
     if "snapshot_index.json" in top_entries and any(state != 2 for state in states.values()):
         raise HistoricalInputError("raw snapshot index exists before request completion")
     if "snapshot_index.json" in top_entries:
-        expected_v1 = canonical_json_bytes(_build_snapshot_index(store))
-        if top_entries["snapshot_index.json"].read_bytes() != expected_v1:
+        expected_v2 = canonical_json_bytes(_build_snapshot_index(
+            store,
+            bind_metadata_bytes=True,
+            require_metadata_schema_v2=True,
+        ))
+        observed_index = (
+            read_single_link_regular(
+                top_entries["snapshot_index.json"],
+                label="historical snapshot index",
+                trusted_root=store.trusted_root,
+            )
+            if store.trusted_root is not None
+            else top_entries["snapshot_index.json"].read_bytes()
+        )
+        if observed_index != expected_v2:
             raise HistoricalInputError(
                 f"immutable snapshot index changed: {top_entries['snapshot_index.json']}"
-            )
-    if "snapshot_index_v2.json" in top_entries:
-        expected_v2 = canonical_json_bytes(
-            _build_snapshot_index(store, bind_metadata_bytes=True)
-        )
-        if top_entries["snapshot_index_v2.json"].read_bytes() != expected_v2:
-            raise HistoricalInputError(
-                f"immutable v2 snapshot index changed: {top_entries['snapshot_index_v2.json']}"
             )
     return states
 
@@ -573,6 +718,7 @@ def _acquire_cohort(
             headers=headers,
             retries=retries,
             resume_incomplete=resume_incomplete,
+            expected_final_url=daymet_url,
             _fault_injector=fault_injector,
         )
         gridmet_payload, gridmet_record = gridmet_store.fetch(
@@ -581,6 +727,7 @@ def _acquire_cohort(
             headers=headers,
             retries=retries,
             resume_incomplete=resume_incomplete,
+            expected_final_url=gridmet_url,
             _fault_injector=fault_injector,
         )
         daymet = parse_daymet_daily(daymet_payload, start=start_text, end=end_text)
@@ -625,27 +772,54 @@ def _acquire_cohort(
 
 
 def _build_snapshot_index(
-    store: SnapshotStore, *, bind_metadata_bytes: bool = False,
+    store: SnapshotStore,
+    *,
+    bind_metadata_bytes: bool = False,
+    require_metadata_schema_v2: bool = False,
 ) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     for metadata_path in sorted(store.root.glob("*/*/metadata.json")):
         response_path = metadata_path.parent / "response.bin"
         try:
-            metadata_bytes = metadata_path.read_bytes()
-            metadata = json.loads(metadata_bytes.decode("utf-8"))
-            response, _record = store._read_verified(
-                response_path, metadata_path, metadata_path.parent.name
+            metadata_bytes = (
+                read_single_link_regular(
+                    metadata_path,
+                    label="snapshot metadata",
+                    trusted_root=store.trusted_root,
+                )
+                if store.trusted_root is not None
+                else metadata_path.read_bytes()
+            )
+            metadata = strict_canonical_json_object(
+                metadata_bytes, label="snapshot metadata"
             )
         except Exception as exc:
             raise HistoricalInputError(f"incomplete raw snapshot: {metadata_path}") from exc
-        if metadata_bytes != canonical_json_bytes(metadata):
-            raise HistoricalInputError(
-                f"raw snapshot metadata is not canonical: {metadata_path}"
-            )
         request = metadata.get("request")
-        if not isinstance(request, Mapping):
+        if type(request) is not dict:
             raise HistoricalInputError(f"snapshot lacks a canonical request: {metadata_path}")
         request_sha = sha256_bytes(canonical_json_bytes(request))
+        try:
+            if require_metadata_schema_v2:
+                metadata_bytes, metadata, response, _record = (
+                    _read_verified_snapshot_metadata(
+                        store,
+                        response_path=response_path,
+                        metadata_path=metadata_path,
+                        request_sha256=request_sha,
+                        expected_request=request,
+                    )
+                )
+            else:
+                response, _record = store._read_verified(
+                    response_path, metadata_path, request_sha
+                )
+        except Exception as exc:
+            if isinstance(exc, HistoricalInputError):
+                raise
+            raise HistoricalInputError(
+                f"incomplete raw snapshot: {metadata_path}"
+            ) from exc
         response_sha = sha256_bytes(response)
         expected = {
             "request_sha256": request_sha,
@@ -657,8 +831,25 @@ def _build_snapshot_index(
                  if metadata.get(key) != value}
         if metadata_path.parent.name != request_sha or wrong:
             raise HistoricalInputError(f"raw snapshot identity mismatch: {metadata_path}")
-        retrieved = pd.to_datetime(metadata.get("retrieved_at_utc"), errors="coerce", utc=True)
-        if pd.isna(retrieved) or int(metadata.get("http_status", -1)) != 200:
+        try:
+            require_canonical_utc(
+                metadata.get("retrieved_at_utc"),
+                label="snapshot retrieved_at_utc",
+            )
+        except Exception as exc:
+            raise HistoricalInputError(
+                f"raw snapshot retrieval time is noncanonical: {metadata_path}"
+            ) from exc
+        response_headers = metadata.get("response_headers")
+        if (
+            type(metadata.get("http_status")) is not int
+            or metadata.get("http_status") != 200
+            or type(response_headers) is not dict
+            or any(
+                type(key) is not str or type(value) is not str
+                for key, value in response_headers.items()
+            )
+        ):
             raise HistoricalInputError(f"raw snapshot lacks a successful retrieval: {metadata_path}")
         _assert_safe_meteorology_url(str(request.get("url", "")))
         record = {
@@ -689,11 +880,17 @@ def freeze_snapshot_index(
     *,
     expected_request_sha256: set[str],
     allow_create: bool = True,
+    bind_metadata_bytes: bool = False,
+    require_metadata_schema_v2: bool = False,
     fault_stage: str | None = None,
     fault_injector: Callable[[str, Path], object] | None = None,
 ) -> Path:
     """Create once, or byte-verify, a deterministic raw-snapshot index."""
-    document = _build_snapshot_index(store)
+    document = _build_snapshot_index(
+        store,
+        bind_metadata_bytes=bind_metadata_bytes,
+        require_metadata_schema_v2=require_metadata_schema_v2,
+    )
     actual = {str(record["request_sha256"]) for record in document["records"]}
     if actual != expected_request_sha256:
         raise HistoricalInputError(
@@ -703,12 +900,29 @@ def freeze_snapshot_index(
     path = store.root / "snapshot_index.json"
     if os.path.lexists(path):
         _assert_single_link_file(path, label="immutable snapshot index")
-        if path.read_bytes() != payload:
+        observed = (
+            read_single_link_regular(
+                path,
+                label="immutable snapshot index",
+                trusted_root=store.trusted_root,
+            )
+            if store.trusted_root is not None
+            else path.read_bytes()
+        )
+        if observed != payload:
             raise HistoricalInputError(f"immutable snapshot index changed: {path}")
         return path
     if not allow_create:
         raise HistoricalInputError(f"required immutable snapshot index is absent: {path}")
-    _exclusive_create(path, payload)
+    if store.trusted_root is not None:
+        create_single_link_regular(
+            path,
+            payload,
+            trusted_root=store.trusted_root,
+            mode=0o444,
+        )
+    else:
+        _exclusive_create(path, payload)
     if fault_injector is not None and fault_stage is not None:
         fault_injector(fault_stage, path)
     return path
@@ -1039,7 +1253,7 @@ def _manifest_document(
     }
 
 
-def acquire_historical_inputs(
+def _acquire_historical_inputs_locked(
     *,
     repo_root: str | Path,
     protocol_path: str | Path,
@@ -1115,7 +1329,7 @@ def acquire_historical_inputs(
         raise HistoricalInputError("--check-existing requires the complete manifest")
     derived_exists = bundle_exists or manifest_exists
     effective_offline = bool(offline or check_existing or derived_exists)
-    protocol = validate_historical_protocol(protocol_path)
+    protocol = validate_historical_protocol(protocol_path, trusted_root=root)
     temporal = load_coordinate_registry(
         temporal_registry_path, cohort="temporal", expected_count=expected_temporal_sites
     )
@@ -1126,10 +1340,20 @@ def acquire_historical_inputs(
     if overlap:
         raise HistoricalInputError(f"external registry overlaps temporal sites: {sorted(overlap)[:5]}")
 
-    daymet_store = SnapshotStore(snapshot_root / "daymet-v1", offline=effective_offline)
-    gridmet_store = SnapshotStore(snapshot_root / "gridmet-v1", offline=effective_offline)
+    daymet_store = SnapshotStore(
+        snapshot_root / "daymet-v1",
+        offline=effective_offline,
+        trusted_root=root,
+    )
+    gridmet_store = SnapshotStore(
+        snapshot_root / "gridmet-v1",
+        offline=effective_offline,
+        trusted_root=root,
+    )
     gridmet_schema_store = SnapshotStore(
-        snapshot_root / "gridmet-schema-v1", offline=effective_offline
+        snapshot_root / "gridmet-schema-v1",
+        offline=effective_offline,
+        trusted_root=root,
     )
     headers = {"User-Agent": USER_AGENT}
     registries = (temporal, external)
@@ -1180,6 +1404,7 @@ def acquire_historical_inputs(
         headers=headers,
         retries=max(1, int(retries)),
         resume_incomplete=not effective_offline,
+        expected_final_url=schema_url,
         _fault_injector=_fault_injector,
     )
     gridmet_contract = parse_gridmet_wind_metadata(schema_payload)
@@ -1219,6 +1444,8 @@ def acquire_historical_inputs(
         daymet_store,
         expected_request_sha256=daymet_requests,
         allow_create=not derived_exists and not check_existing,
+        bind_metadata_bytes=True,
+        require_metadata_schema_v2=True,
         fault_stage="after_daymet_index_publish",
         fault_injector=_fault_injector,
     )
@@ -1226,6 +1453,8 @@ def acquire_historical_inputs(
         gridmet_store,
         expected_request_sha256=gridmet_requests,
         allow_create=not derived_exists and not check_existing,
+        bind_metadata_bytes=True,
+        require_metadata_schema_v2=True,
         fault_stage="after_gridmet_index_publish",
         fault_injector=_fault_injector,
     )
@@ -1233,12 +1462,11 @@ def acquire_historical_inputs(
         gridmet_schema_store,
         expected_request_sha256={str(schema_record.request_sha256)},
         allow_create=not derived_exists and not check_existing,
+        bind_metadata_bytes=True,
+        require_metadata_schema_v2=True,
         fault_stage="after_gridmet_schema_index_publish",
         fault_injector=_fault_injector,
     )
-    for store in (daymet_store, gridmet_store, gridmet_schema_store):
-        _validate_optional_snapshot_index_v2(store)
-
     request_map = _request_map_document(
         protocol=protocol,
         request_records=request_records,
@@ -1287,3 +1515,58 @@ def acquire_historical_inputs(
         if _fault_injector is not None:
             _fault_injector("after_manifest_publish", manifest_path)
     return manifest
+
+
+def acquire_historical_inputs(
+    *,
+    repo_root: str | Path,
+    protocol_path: str | Path,
+    temporal_registry_path: str | Path,
+    external_registry_path: str | Path,
+    snapshot_root: str | Path,
+    output_dir: str | Path,
+    manifest_path: str | Path,
+    offline: bool = False,
+    retries: int = 3,
+    request_interval: float = 0.0,
+    secondary_nwp_resolution: str = "EXPLICITLY_NOT_USED",
+    expected_temporal_sites: int = 120,
+    expected_external_sites: int = 30,
+    check_existing: bool = False,
+    _fault_injector: Callable[[str, Path], object] | None = None,
+) -> dict[str, Any]:
+    """Freeze or replay one historical-input transaction under the protocol lock.
+
+    The fixed, already committed Route-A protocol is the read-only advisory
+    lock anchor.  Writers take an exclusive lock; ``check_existing`` takes a
+    shared lock and performs no publication.  This serializes cooperating
+    same-host processes without claiming an external custodian or timestamp.
+    """
+    root = Path(repo_root).resolve()
+    canonical_protocol = root / "protocols" / "route_a_confirmatory_v1.json"
+    if _lexical(protocol_path) != canonical_protocol:
+        raise HistoricalInputError(
+            "historical input transaction requires the fixed canonical Route-A protocol"
+        )
+    with candidate_publication_lock(
+        canonical_protocol,
+        trusted_root=root,
+        shared=check_existing,
+    ):
+        return _acquire_historical_inputs_locked(
+            repo_root=root,
+            protocol_path=canonical_protocol,
+            temporal_registry_path=temporal_registry_path,
+            external_registry_path=external_registry_path,
+            snapshot_root=snapshot_root,
+            output_dir=output_dir,
+            manifest_path=manifest_path,
+            offline=offline,
+            retries=retries,
+            request_interval=request_interval,
+            secondary_nwp_resolution=secondary_nwp_resolution,
+            expected_temporal_sites=expected_temporal_sites,
+            expected_external_sites=expected_external_sites,
+            check_existing=check_existing,
+            _fault_injector=_fault_injector,
+        )

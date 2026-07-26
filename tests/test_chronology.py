@@ -247,6 +247,66 @@ def _snapshot(
     )
 
 
+def _formal_meteorology_snapshot(
+    root: Path,
+    index_path: str,
+    *,
+    provider: str,
+    url: str,
+    payload: bytes,
+) -> None:
+    base = Path(index_path).parent
+    request = {
+        "schema_version": 1,
+        "provider": provider,
+        "method": "GET",
+        "url": url,
+        "headers": {
+            "User-Agent": "ThermoRoute/1.0 Route-A pre-label meteorology"
+        },
+    }
+    request_sha = _sha(_canonical_json_bytes(request))
+    transaction = base / provider / request_sha
+    metadata = (transaction / "metadata.json").as_posix()
+    response = (transaction / "response.bin").as_posix()
+    retrieved = "2020-01-01T00:00:00+00:00"
+    metadata_payload = _canonical_json_bytes({
+        "schema_version": 2,
+        "request": request,
+        "request_sha256": request_sha,
+        "retrieved_at_utc": retrieved,
+        "http_status": 200,
+        "response_headers": {},
+        "byte_count": len(payload),
+        "response_sha256": _sha(payload),
+        "response_file": "response.bin",
+        "final_url": url,
+        "retrieval_semantics": "DIRECT_HTTP_RESPONSE",
+    })
+    _write(root, metadata, metadata_payload)
+    _write(root, response, payload)
+    _write(
+        root,
+        index_path,
+        _canonical_json_bytes({
+            "schema_version": 2,
+            "snapshot_count": 1,
+            "records": [{
+                "provider": provider,
+                "request_sha256": request_sha,
+                "response_sha256": _sha(payload),
+                "metadata_sha256": _sha(metadata_payload),
+                "metadata_byte_count": len(metadata_payload),
+                "retrieved_at_utc": retrieved,
+                "byte_count": len(payload),
+                "request": request,
+                "metadata_path": str(Path(metadata).relative_to(base)),
+                "response_path": str(Path(response).relative_to(base)),
+            }],
+        }),
+    )
+
+
 def _candidate_snapshot(root: Path, index_path: str) -> dict[str, Any]:
     payload = (
         "agency_cd\tsite_no\tstation_nm\tsite_tp_cd\tdec_lat_va\t"
@@ -367,6 +427,84 @@ def test_chronology_rejects_adversarial_candidate_git_raw_contract(
             index_path,
             require_metadata_binding=True,
             require_candidate_metadata_contract=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "legacy_v1",
+        "redirected_final_url",
+        "fabricated_semantics",
+        "noncanonical_metadata",
+        "wrong_expected_provider",
+        "extra_blob",
+    ],
+)
+def test_chronology_rejects_adversarial_formal_meteorology_contract(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    root = tmp_path / "historical-git"
+    root.mkdir()
+    _run(root, "init", "-q")
+    _run(root, "config", "user.email", "fixture@example.invalid")
+    _run(root, "config", "user.name", "Fixture")
+    index_path = (
+        "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+        "daymet-v1/snapshot_index.json"
+    )
+    provider = "ornl-daymet-single-pixel-route-a"
+    url = "https://daymet.ornl.gov/single-pixel/api/data?lat=40.00000000"
+    _formal_meteorology_snapshot(
+        root,
+        index_path,
+        provider=provider,
+        url=url,
+        payload=b"formal meteorology\n",
+    )
+    index_file = root / index_path
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    record = index["records"][0]
+    metadata_path = root / Path(index_path).parent / record["metadata_path"]
+    if attack == "legacy_v1":
+        index["schema_version"] = 1
+        index_file.write_bytes(_canonical_json_bytes(index))
+    elif attack in {
+        "redirected_final_url", "fabricated_semantics", "noncanonical_metadata"
+    }:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if attack == "redirected_final_url":
+            metadata["final_url"] = "https://example.invalid/redirected"
+            metadata_payload = _canonical_json_bytes(metadata)
+        elif attack == "fabricated_semantics":
+            metadata["retrieval_semantics"] = "FABRICATED"
+            metadata_payload = _canonical_json_bytes(metadata)
+        else:
+            metadata_payload = _canonical_json_bytes(metadata) + b" "
+        metadata_path.write_bytes(metadata_payload)
+        record["metadata_sha256"] = _sha(metadata_payload)
+        record["metadata_byte_count"] = len(metadata_payload)
+        index_file.write_bytes(_canonical_json_bytes(index))
+    elif attack == "extra_blob":
+        _write(root, Path(index_path).parent / "unindexed.bin", b"extra\n")
+    commit = _commit(root, f"formal meteorology attack {attack}")
+    expected_provider = (
+        "gridmet-ncss-route-a"
+        if attack == "wrong_expected_provider"
+        else provider
+    )
+    with pytest.raises(
+        ChronologyError, match=r"(?i)(formal|snapshot|metadata|provider|namespace)"
+    ):
+        _collect_snapshot_files(
+            {},
+            root,
+            commit,
+            index_path,
+            require_metadata_binding=True,
+            require_formal_prelabel_metadata_contract=True,
+            expected_provider=expected_provider,
         )
 
 
@@ -1319,11 +1457,39 @@ def _seed_evidence_commit(
     _write(root, temporal_table, b"temporal met")
     _write(root, external_table, b"external met")
     _write(root, request_map, "{}\n")
-    met_index = (
-        "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/daymet-v1/"
-        "snapshot_index.json"
-    )
-    _snapshot(root, met_index, payload=b"meteorology")
+    meteorology_indexes = {
+        "ORNL Daymet single-pixel daily data": (
+            "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+            "daymet-v1/snapshot_index.json",
+            "ornl-daymet-single-pixel-route-a",
+            "https://daymet.ornl.gov/single-pixel/api/data?lat=40.00000000",
+            ["TEMP", "PRCP", "RHMEAN", "DH"],
+        ),
+        "gridMET daily mean wind via NWK NCSS": (
+            "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+            "gridmet-v1/snapshot_index.json",
+            "gridmet-ncss-route-a",
+            "https://thredds.northwestknowledge.net/thredds/ncss/MET/wind.nc"
+            "?var=daily_mean_wind_speed",
+            ["WDSP"],
+        ),
+        "gridMET OPeNDAP dataset attributes": (
+            "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1/"
+            "gridmet-schema-v1/snapshot_index.json",
+            "gridmet-opendap-schema-route-a",
+            "https://thredds.northwestknowledge.net/thredds/dodsC/"
+            "MET/wind.nc.das",
+            ["WDSP"],
+        ),
+    }
+    for source, (index_path, provider, url, _fields) in meteorology_indexes.items():
+        _formal_meteorology_snapshot(
+            root,
+            index_path,
+            provider=provider,
+            url=url,
+            payload=f"{source} fixture\n".encode("utf-8"),
+        )
     manifest = {
         "format": "thermoroute.route-a-prelabel-inputs.v1",
         "status": "FROZEN_PRELABEL_NO_OUTCOMES",
@@ -1345,16 +1511,24 @@ def _seed_evidence_commit(
             },
         },
         "source_evidence": [
+            *[
+                {
+                    "source": source,
+                    "evidence_type": "snapshot_index",
+                    "contains_outcome": False,
+                    "contains_outcome_labels": False,
+                    "fields": fields,
+                    "artifact": _binding(root, index_path),
+                }
+                for source, (index_path, _provider, _url, fields)
+                in meteorology_indexes.items()
+            ],
             {
-                "evidence_type": "snapshot_index",
-                "contains_outcome": False,
-                "contains_outcome_labels": False,
-                "artifact": _binding(root, met_index),
-            },
-            {
+                "source": "site-to-request normalization map",
                 "evidence_type": "normalized_immutable_snapshot",
                 "contains_outcome": False,
                 "contains_outcome_labels": False,
+                "fields": ["TEMP", "PRCP", "RHMEAN", "DH", "WDSP"],
                 "artifact": _binding(root, request_map),
             },
         ],

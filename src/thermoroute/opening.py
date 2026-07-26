@@ -154,6 +154,7 @@ from .quantiles import (
 from .provenance import (
     ProvenanceError,
     canonical_json_bytes,
+    read_single_link_regular,
     require_canonical_utc,
     sha256_file,
 )
@@ -2375,14 +2376,70 @@ def _verify_snapshot_index(
     *,
     prelabel: bool,
 ) -> list[Mapping[str, Any]]:
-    document = _load_json(path, label="snapshot index")
-    if document.get("schema_version") != 1:
+    try:
+        index_payload = (
+            read_single_link_regular(
+                path,
+                label="pre-label snapshot index",
+                trusted_root=root,
+            )
+            if prelabel
+            else path.read_bytes()
+        )
+    except (OSError, ProvenanceError) as exc:
+        raise OpeningContractError("cannot read snapshot index safely") from exc
+    document = _strict_json_object_bytes(index_payload, label="snapshot index")
+    expected_index_schema = 2 if prelabel else 1
+    if document.get("schema_version") != expected_index_schema:
         raise OpeningContractError("unsupported snapshot-index schema")
+    if prelabel and (
+        path.name != "snapshot_index.json"
+        or set(document) != {"schema_version", "snapshot_count", "records"}
+        or index_payload != canonical_json_bytes(document)
+    ):
+        raise OpeningContractError(
+            "pre-label snapshot index is not exact canonical schema v2"
+        )
     records = document.get("records")
-    if not isinstance(records, list) or int(document.get("snapshot_count", -1)) != len(records):
+    if (
+        not isinstance(records, list)
+        or not records
+        or type(document.get("snapshot_count")) is not int
+        or document["snapshot_count"] != len(records)
+    ):
         raise OpeningContractError("snapshot index count is inconsistent")
     snapshot_root = path.parent.resolve()
     request_ids: set[str] = set()
+    metadata_order: list[str] = []
+
+    def read_member(raw: object, *, label: str) -> tuple[Path, bytes]:
+        if type(raw) is not str:
+            raise OpeningContractError(f"{label} path is not a string")
+        relative = Path(raw)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or relative.as_posix() != raw
+        ):
+            raise OpeningContractError(f"{label} path is noncanonical")
+        member = Path(os.path.abspath(snapshot_root / relative))
+        if snapshot_root not in member.parents:
+            raise OpeningContractError(f"{label} path escapes its snapshot store")
+        try:
+            payload = (
+                read_single_link_regular(
+                    member,
+                    label=label,
+                    trusted_root=root,
+                )
+                if prelabel
+                else member.read_bytes()
+            )
+        except (OSError, ProvenanceError) as exc:
+            raise OpeningContractError(f"cannot read {label} safely") from exc
+        return member, payload
+
     for record in records:
         if not isinstance(record, Mapping):
             raise OpeningContractError("snapshot index record is not an object")
@@ -2390,41 +2447,78 @@ def _verify_snapshot_index(
             "provider", "request_sha256", "response_sha256", "retrieved_at_utc",
             "byte_count", "request", "metadata_path", "response_path",
         }
-        if required - set(record):
+        expected_record_fields = (
+            required | {"metadata_sha256", "metadata_byte_count"}
+            if prelabel
+            else required
+        )
+        record_fields_invalid = (
+            set(record) != expected_record_fields
+            if prelabel
+            else bool(required - set(record))
+        )
+        if (
+            record_fields_invalid
+            or type(record.get("byte_count")) is not int
+            or record["byte_count"] < 1
+            or not isinstance(record.get("request_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", str(record["request_sha256"])) is None
+            or not isinstance(record.get("response_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", str(record["response_sha256"])) is None
+            or (
+                prelabel
+                and (
+                    type(record.get("metadata_byte_count")) is not int
+                    or record["metadata_byte_count"] < 1
+                    or not isinstance(record.get("metadata_sha256"), str)
+                    or re.fullmatch(
+                        r"[0-9a-f]{64}", str(record["metadata_sha256"])
+                    )
+                    is None
+                )
+            )
+        ):
             raise OpeningContractError("snapshot index record is incomplete")
-        response = (snapshot_root / str(record.get("response_path", ""))).resolve()
-        if snapshot_root not in response.parents or not response.is_file():
-            raise OpeningContractError("snapshot response path escapes or is missing")
-        payload = response.read_bytes()
+        response, payload = read_member(
+            record.get("response_path"), label="snapshot response"
+        )
         response_sha = hashlib.sha256(payload).hexdigest()
         if response_sha != record.get("response_sha256"):
             raise OpeningContractError("snapshot response checksum mismatch")
-        if int(record.get("byte_count", -1)) != len(payload):
+        if record.get("byte_count") != len(payload):
             raise OpeningContractError("snapshot response byte count mismatch")
-        metadata_path = (
-            snapshot_root / str(record.get("metadata_path", ""))
-        ).resolve()
-        if snapshot_root not in metadata_path.parents or not metadata_path.is_file():
-            raise OpeningContractError("snapshot metadata path escapes or is missing")
+        metadata_path, metadata_payload = read_member(
+            record.get("metadata_path"), label="snapshot metadata"
+        )
         request = record.get("request")
-        if not isinstance(request, Mapping):
+        if type(request) is not dict:
             raise OpeningContractError("snapshot record lacks canonical request")
         request_sha = hashlib.sha256(canonical_json_bytes(dict(request))).hexdigest()
         if request_sha != record.get("request_sha256"):
             raise OpeningContractError("snapshot request fingerprint mismatch")
+        provider = record.get("provider")
+        relative_metadata = metadata_path.relative_to(snapshot_root)
+        relative_response = response.relative_to(snapshot_root)
         if (
             metadata_path.parent != response.parent
             or metadata_path.name != "metadata.json"
             or response.name != "response.bin"
             or metadata_path.parent.name != request_sha
+            or type(provider) is not str
+            or not provider
+            or relative_metadata.parts != (provider, request_sha, "metadata.json")
+            or relative_response.parts != (provider, request_sha, "response.bin")
         ):
             raise OpeningContractError("snapshot files do not use canonical request layout")
         if request_sha in request_ids:
             raise OpeningContractError("snapshot index duplicates a canonical request")
         request_ids.add(request_sha)
-        metadata = _load_json(metadata_path, label="snapshot metadata")
-        expected_metadata = {
-            "schema_version": 1,
+        metadata_order.append(str(record["metadata_path"]))
+        metadata = _strict_json_object_bytes(
+            metadata_payload, label="snapshot metadata"
+        )
+        expected_metadata: dict[str, Any] = {
+            "schema_version": expected_index_schema,
             "request": dict(request),
             "request_sha256": request_sha,
             "response_sha256": response_sha,
@@ -2432,6 +2526,10 @@ def _verify_snapshot_index(
             "http_status": 200,
             "response_file": response.name,
         }
+        if prelabel:
+            expected_metadata |= {
+                "final_url": request.get("url"),
+            }
         wrong_metadata = {
             key: metadata.get(key)
             for key, expected in expected_metadata.items()
@@ -2443,9 +2541,56 @@ def _verify_snapshot_index(
             )
         if metadata.get("retrieved_at_utc") != record.get("retrieved_at_utc"):
             raise OpeningContractError("snapshot retrieval timestamp mismatch")
-        provider = str(record.get("provider", ""))
-        if not provider or request.get("provider") != provider:
+        try:
+            require_canonical_utc(
+                record.get("retrieved_at_utc"), label="snapshot retrieval timestamp"
+            )
+        except ProvenanceError as exc:
+            raise OpeningContractError(str(exc)) from exc
+        if request.get("provider") != provider:
             raise OpeningContractError("snapshot provider identity mismatch")
+        request_headers = request.get("headers")
+        if (
+            set(request) != {"schema_version", "provider", "method", "url", "headers"}
+            or type(request.get("schema_version")) is not int
+            or request.get("schema_version") != 1
+            or request.get("method") != "GET"
+            or type(request.get("url")) is not str
+            or type(request_headers) is not dict
+            or any(
+                type(key) is not str or type(value) is not str
+                for key, value in request_headers.items()
+            )
+        ):
+            raise OpeningContractError("snapshot request schema/types changed")
+        if prelabel:
+            response_headers = metadata.get("response_headers")
+            expected_metadata_fields = {
+                "schema_version", "request", "request_sha256", "retrieved_at_utc",
+                "http_status", "response_headers", "byte_count", "response_sha256",
+                "response_file", "final_url", "retrieval_semantics",
+            }
+            if (
+                metadata_payload != canonical_json_bytes(metadata)
+                or set(metadata) != expected_metadata_fields
+                or type(metadata.get("http_status")) is not int
+                or type(metadata.get("byte_count")) is not int
+                or type(response_headers) is not dict
+                or any(
+                    type(key) is not str or type(value) is not str
+                    for key, value in response_headers.items()
+                )
+                or metadata.get("retrieval_semantics") not in {
+                    "DIRECT_HTTP_RESPONSE",
+                    "BYTE_IDENTICAL_REFETCH_COMPLETED_RESPONSE_ONLY_TRANSACTION",
+                }
+                or record.get("metadata_sha256")
+                != hashlib.sha256(metadata_payload).hexdigest()
+                or record.get("metadata_byte_count") != len(metadata_payload)
+            ):
+                raise OpeningContractError(
+                    "pre-label snapshot metadata contract changed"
+                )
         if not prelabel and provider == CONFIRMATORY_NWIS_PROVIDER:
             expected_record_fields = required | {
                 "attempt_number", "metadata_sha256", "series_registry",
@@ -2481,10 +2626,6 @@ def _verify_snapshot_index(
                 raise OpeningContractError(
                     "opened NWIS series/value/qualifier column registry changed"
                 )
-        if request.get("schema_version") != 1 or request.get("method") != "GET":
-            raise OpeningContractError("snapshot request method/schema is unsupported")
-        if not isinstance(request.get("headers"), Mapping):
-            raise OpeningContractError("snapshot request headers are not canonical")
         parsed = urlsplit(str(request.get("url", "")))
         if parsed.scheme.lower() != "https" or not parsed.hostname:
             raise OpeningContractError("snapshot request is not an HTTPS provider URL")
@@ -2497,6 +2638,53 @@ def _verify_snapshot_index(
         ):
             raise OpeningContractError(
                 "pre-label input evidence contains an outcome/history endpoint"
+            )
+    if prelabel and metadata_order != sorted(metadata_order):
+        raise OpeningContractError("pre-label snapshot index record order changed")
+    if prelabel:
+        expected_files = {"snapshot_index.json"}
+        for record in records:
+            expected_files.update({
+                str(record["metadata_path"]),
+                str(record["response_path"]),
+            })
+        expected_directories: set[str] = set()
+        for relative in expected_files - {"snapshot_index.json"}:
+            parent = Path(relative).parent
+            while parent != Path("."):
+                expected_directories.add(parent.as_posix())
+                parent = parent.parent
+        actual_files: set[str] = set()
+        actual_directories: set[str] = set()
+        for directory, names, files in os.walk(snapshot_root, followlinks=False):
+            directory_path = Path(directory)
+            for name in names:
+                member = directory_path / name
+                member_stat = member.lstat()
+                relative = member.relative_to(snapshot_root).as_posix()
+                if not stat.S_ISDIR(member_stat.st_mode):
+                    raise OpeningContractError(
+                        f"pre-label snapshot directory is unsafe: {relative}"
+                    )
+                actual_directories.add(relative)
+            for name in files:
+                member = directory_path / name
+                member_stat = member.lstat()
+                relative = member.relative_to(snapshot_root).as_posix()
+                if (
+                    not stat.S_ISREG(member_stat.st_mode)
+                    or member_stat.st_nlink != 1
+                ):
+                    raise OpeningContractError(
+                        f"pre-label snapshot file is linked/unsafe: {relative}"
+                    )
+                actual_files.add(relative)
+        if (
+            actual_files != expected_files
+            or actual_directories != expected_directories
+        ):
+            raise OpeningContractError(
+                "pre-label snapshot store namespace is not exact"
             )
     return records
 
