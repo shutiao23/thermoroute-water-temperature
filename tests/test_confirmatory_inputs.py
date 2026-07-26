@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -137,6 +138,315 @@ def test_discovery_freeze_command_calls_existing_holdout_script(tmp_path):
     assert command[command.index("--selection-seed") + 1] == (
         "route-a-confirmatory-v1-public-seed"
     )
+
+    check_command = module.holdout_freeze_command(
+        candidates=tmp_path / "candidates.csv",
+        snapshot_index=tmp_path / "snapshot_index.json",
+        candidate_provenance=tmp_path / "candidate.provenance.json",
+        out_registry=tmp_path / "registry.csv",
+        out_lock=tmp_path / "lock.json",
+        protocol=tmp_path / "protocol.json",
+        n_sites=30,
+        selection_seed="route-a-confirmatory-v1-public-seed",
+        check_existing=True,
+    )
+    assert "check-candidates" in check_command
+
+
+def _candidate_publication_fixture(tmp_path: Path):
+    discovery = _load_script(
+        f"discover_candidate_resume_{tmp_path.name}",
+        "scripts/data_usgs/discover_confirmatory_candidates.py",
+    )
+    holdout = _load_script(
+        f"confirmatory_holdout_resume_{tmp_path.name}",
+        "scripts/data_usgs/confirmatory_holdout.py",
+    )
+    discovery.ROOT = tmp_path
+    discovery.ROUTE_A_STATE_UNIVERSE = ("CO",)
+    holdout.ROOT = tmp_path
+
+    data_root = tmp_path / "data_usgs"
+    snapshot_root = data_root / "raw_snapshots" / "confirmatory-candidates-v1"
+    candidate_path = data_root / "confirmatory_candidate_sites_v1.csv"
+    provenance_path = candidate_path.with_suffix(".provenance.json")
+    registry_path = data_root / "confirmatory_site_registry_v1.csv"
+    lock_path = data_root / "confirmatory_site_registry_v1.lock.json"
+    protocol_path = tmp_path / "protocols" / "route_a_confirmatory_v1.json"
+    protocol_path.parent.mkdir(parents=True)
+    selection_seed = "route-a-confirmatory-v1-public-seed"
+    protocol_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "status": "PLANNED_NOT_ACQUIRED",
+        "protocol_id": "route-a-fixture",
+        "authoritative_protocol_commit": "b" * 40,
+        "pre_label_amendments": [],
+        "new_site_external_validation": {
+            "status": "PLANNED_NOT_ACQUIRED",
+            "planned_site_count": 1,
+            "selection_seed": selection_seed,
+        },
+        "metadata_candidate_contract": {"state_universe": ["CO"]},
+        "time_holdout": {"start": "2021-01-01", "end": "2023-12-31"},
+    }))
+
+    development_registry = data_root / "station_registry_v1.csv"
+    development_registry.parent.mkdir(parents=True, exist_ok=True)
+    development = pd.DataFrame({
+        "site_no": [f"{70_000_000 + index:08d}" for index in range(120)],
+        "legacy_site_id": [f"n{index + 1:03d}" for index in range(120)],
+        "station_nm": [f"Development River {index + 1}" for index in range(120)],
+        "lat": [39.5 + index / 1000 for index in range(120)],
+        "lon": [-104.5 - index / 1000 for index in range(120)],
+        "state": ["CO"] * 120,
+        "huc_cd": ["10190005"] * 120,
+        "huc2": ["10"] * 120,
+        "huc_metadata_status": ["USGS_SNAPSHOT_SITE_NO_MATCH"] * 120,
+    })
+    development_registry.write_text(
+        development.to_csv(
+            index=False,
+            float_format="%.17g",
+            lineterminator="\n",
+        ),
+        encoding="utf-8",
+    )
+    source_metadata = data_root / "stations_meta_120v2.csv"
+    source_metadata.write_text("fixture\n", encoding="utf-8")
+    development_spec = data_root / "frozen_panel_v1.json"
+    development_spec.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "station_registry": {
+            "path": development_registry.name,
+            "sha256": sha256_file(development_registry),
+            "source_metadata_path": source_metadata.name,
+            "source_metadata_sha256": sha256_file(source_metadata),
+            "station_count": 120,
+        },
+    }))
+
+    raw_payload = _candidate_payload()
+    request = {
+        "schema_version": 1,
+        "provider": CANDIDATE_PROVIDER,
+        "method": "GET",
+        "url": build_usgs_candidate_url("CO"),
+        "headers": {"User-Agent": CANDIDATE_USER_AGENT},
+    }
+    request_sha = sha256_bytes(canonical_json_bytes(request))
+    response_sha = sha256_bytes(raw_payload)
+    transaction = snapshot_root / CANDIDATE_PROVIDER / request_sha
+    transaction.mkdir(parents=True)
+    response_path = transaction / "response.bin"
+    metadata_path = transaction / "metadata.json"
+    response_path.write_bytes(raw_payload)
+    metadata_path.write_bytes(canonical_json_bytes({
+        "schema_version": 1,
+        "request": request,
+        "request_sha256": request_sha,
+        "retrieved_at_utc": "2026-01-01T00:00:00+00:00",
+        "http_status": 200,
+        "response_headers": {},
+        "byte_count": len(raw_payload),
+        "response_sha256": response_sha,
+        "response_file": "response.bin",
+    }))
+
+    discovery_args = SimpleNamespace(
+        states=["CO"],
+        snapshot_dir=snapshot_root,
+        out=candidate_path,
+        protocol=protocol_path,
+        offline=True,
+        check_existing=False,
+        retries=1,
+        freeze_selection=True,
+        out_registry=registry_path,
+        out_lock=lock_path,
+        n_sites=1,
+    )
+    holdout_args = SimpleNamespace(
+        protocol=protocol_path,
+        development_spec=development_spec,
+        candidates=candidate_path,
+        candidate_snapshot_index=snapshot_root / "snapshot_index.json",
+        candidate_provenance=provenance_path,
+        out_registry=registry_path,
+        out_lock=lock_path,
+        n_sites=1,
+        selection_seed=selection_seed,
+    )
+
+    def local_holdout(command, **_kwargs):
+        check_only = "check-candidates" in command
+        holdout.publish_or_validate(holdout_args, check_only=check_only)
+        return SimpleNamespace(returncode=0)
+
+    discovery.subprocess = SimpleNamespace(run=local_holdout)
+    paths = {
+        "table": candidate_path,
+        "index": snapshot_root / "snapshot_index.json",
+        "provenance": provenance_path,
+        "registry": registry_path,
+        "lock": lock_path,
+    }
+    return discovery, holdout, discovery_args, holdout_args, paths
+
+
+@pytest.mark.parametrize(
+    ("boundary", "published_count"),
+    [("table", 1), ("index", 2), ("provenance", 3)],
+)
+def test_candidate_discovery_resumes_each_derived_publication_boundary(
+    tmp_path, monkeypatch, boundary, published_count,
+):
+    discovery, _holdout, args, _holdout_args, paths = (
+        _candidate_publication_fixture(tmp_path)
+    )
+    args.freeze_selection = False
+    ordered = [paths["table"], paths["index"], paths["provenance"]]
+    original_create = discovery.atomic_create
+
+    def publish_then_interrupt(path, payload):
+        original_create(path, payload)
+        if path == paths[boundary]:
+            raise RuntimeError(f"injected interruption after {boundary}")
+
+    monkeypatch.setattr(discovery, "atomic_create", publish_then_interrupt)
+    with pytest.raises(RuntimeError, match="injected interruption"):
+        discovery.discover(args)
+    assert [path.exists() for path in ordered] == [
+        index < published_count for index in range(3)
+    ]
+
+    monkeypatch.setattr(discovery, "atomic_create", original_create)
+    discovery.discover(args)
+    assert all(path.is_file() for path in ordered)
+    before = {path: path.read_bytes() for path in ordered}
+    discovery.discover(args)
+    assert {path: path.read_bytes() for path in ordered} == before
+
+
+@pytest.mark.parametrize("boundary", ["registry", "lock"])
+def test_holdout_resumes_each_registry_publication_boundary(
+    tmp_path, monkeypatch, boundary,
+):
+    discovery, holdout, args, holdout_args, paths = (
+        _candidate_publication_fixture(tmp_path)
+    )
+    args.freeze_selection = False
+    discovery.discover(args)
+    original_write = holdout.atomic_write
+
+    def publish_then_interrupt(path, payload):
+        original_write(path, payload)
+        if path == paths[boundary]:
+            raise RuntimeError(f"injected interruption after {boundary}")
+
+    monkeypatch.setattr(holdout, "atomic_write", publish_then_interrupt)
+    with pytest.raises(RuntimeError, match="injected interruption"):
+        holdout.publish_or_validate(holdout_args, check_only=False)
+    assert paths["registry"].exists()
+    assert paths["lock"].exists() is (boundary == "lock")
+
+    monkeypatch.setattr(holdout, "atomic_write", original_write)
+    holdout.publish_or_validate(holdout_args, check_only=False)
+    before = {
+        paths["registry"]: paths["registry"].read_bytes(),
+        paths["lock"]: paths["lock"].read_bytes(),
+    }
+    holdout.publish_or_validate(holdout_args, check_only=True)
+    assert {path: path.read_bytes() for path in before} == before
+
+
+def test_candidate_check_existing_is_network_free_and_write_free(
+    tmp_path, monkeypatch,
+):
+    discovery, holdout, args, _holdout_args, paths = (
+        _candidate_publication_fixture(tmp_path)
+    )
+    discovery.discover(args)
+    before = {path: path.read_bytes() for path in paths.values()}
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("check-existing attempted a network or write operation")
+
+    monkeypatch.setattr("urllib.request.urlopen", forbidden)
+    monkeypatch.setattr(discovery, "atomic_create", forbidden)
+    monkeypatch.setattr(holdout, "atomic_write", forbidden)
+    args.check_existing = True
+    args.offline = True
+    discovery.discover(args)
+    assert {path: path.read_bytes() for path in paths.values()} == before
+
+
+@pytest.mark.parametrize(
+    "artifact", ["table", "index", "provenance", "registry", "lock"]
+)
+def test_candidate_resume_rejects_tampered_publication(
+    tmp_path, artifact,
+):
+    discovery, _holdout, args, _holdout_args, paths = (
+        _candidate_publication_fixture(tmp_path)
+    )
+    discovery.discover(args)
+    target = paths[artifact]
+    target.write_bytes(target.read_bytes() + b"\n")
+    args.check_existing = True
+    with pytest.raises(RuntimeError):
+        discovery.discover(args)
+
+
+@pytest.mark.parametrize(
+    ("artifact", "link_kind"),
+    [("table", "symlink"), ("registry", "symlink"),
+     ("table", "hardlink"), ("registry", "hardlink")],
+)
+def test_candidate_resume_rejects_symlink_and_hardlink_publications(
+    tmp_path, artifact, link_kind,
+):
+    discovery, _holdout, args, _holdout_args, paths = (
+        _candidate_publication_fixture(tmp_path)
+    )
+    discovery.discover(args)
+    target = paths[artifact]
+    alias = tmp_path / f"{artifact}-{link_kind}-alias"
+    if link_kind == "symlink":
+        alias.write_bytes(target.read_bytes())
+        target.unlink()
+        target.symlink_to(alias)
+    else:
+        os.link(target, alias)
+    args.check_existing = True
+    with pytest.raises(RuntimeError, match="regular single-link"):
+        discovery.discover(args)
+
+
+def test_candidate_resume_rejects_extra_snapshot_and_partial_temp(
+    tmp_path,
+):
+    discovery, _holdout, args, _holdout_args, paths = (
+        _candidate_publication_fixture(tmp_path)
+    )
+    discovery.discover(args)
+    extra = args.snapshot_dir / "unexpected.bin"
+    extra.write_bytes(b"unexpected")
+    args.check_existing = True
+    with pytest.raises(RuntimeError, match="extra nodes"):
+        discovery.discover(args)
+
+    extra.unlink()
+    paths["provenance"].unlink()
+    paths["registry"].unlink()
+    paths["lock"].unlink()
+    partial = paths["provenance"].with_name(
+        f".{paths['provenance'].name}.interrupted.tmp"
+    )
+    partial.write_bytes(b"{")
+    args.check_existing = False
+    args.freeze_selection = False
+    with pytest.raises(RuntimeError, match="temporary evidence"):
+        discovery.discover(args)
 
 
 def test_holdout_freezer_replays_raw_candidate_evidence(tmp_path):
