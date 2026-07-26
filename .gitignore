@@ -19,6 +19,7 @@ outputs/logs/
 outputs/.stage19-probabilistic.lock
 outputs/.stage16-lstm.lock
 outputs/.stage25-external.lock
+outputs/.stage09b-parent.lock
 data/processed/
 
 # Per-station intermediate downloads (the combined panels are committed instead)
@@ -44,6 +45,10 @@ data_usgs/raw_snapshots/*
 # Mutable advisory-lock diagnostics sit beside content-addressed run
 # directories; scientific run manifests/checkpoints remain trackable.
 outputs/runs/**/.*.formal-run.lock
+# Stage-09 member locks are execution-only and intentionally persist after the
+# corresponding process exits. Resume checkpoints and staging objects are not
+# ignored: an abnormal leftover must remain visible to clean-tree validation.
+outputs/runs/**/.stage09-control-member-locks/*.lock
 
 # LaTeX build artifacts
 *.aux

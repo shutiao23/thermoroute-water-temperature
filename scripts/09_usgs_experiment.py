@@ -19,13 +19,17 @@ Run:  python3 scripts/09_usgs_experiment.py --seeds 5 --device cpu
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
-from typing import Callable
+import threading
+from typing import Callable, Mapping
 
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
@@ -140,6 +144,8 @@ from thermoroute import datasets as DS
 from thermoroute import results as R
 from thermoroute import conformal as CF
 from thermoroute.checkpoint import (
+    CHECKPOINT_METADATA_VERSION,
+    CHECKPOINT_VERSION,
     load_inference_bundle,
     neural_output_head_schema,
     save_inference_bundle,
@@ -185,6 +191,22 @@ from thermoroute.input_closure import (
     compose_input_closure_digest,
     resolve_development_input_closure,
 )
+from thermoroute.stage09_parallel import (
+    DEFAULT_CONTROL_WORKERS,
+    MAX_CONTROL_WORKERS,
+    RECOMMENDED_MAX_CONTROL_WORKERS,
+    SEMANTIC_VALIDATION_FORMAT,
+    Stage09ParallelError,
+    execute_work_orders_bounded,
+    extracted_member_payload,
+    freeze_control_matrix_receipt,
+    freeze_control_plan,
+    materialize_member_resume_checkpoint,
+    member_work_order_map,
+    publish_control_member,
+    validate_live_work_order,
+    validate_stage09_model_matrix_gate,
+)
 from thermoroute.repro import (
     assert_formal_numerical_policy,
     atomic_write_bytes,
@@ -196,6 +218,8 @@ from thermoroute.repro import (
     seal_artifact,
     sha256_file,
     sidecar_path,
+    source_tree_hash,
+    validate_artifact_sidecar,
 )
 from thermoroute.registry import (
     FORECAST_KEY,
@@ -633,6 +657,575 @@ def read_member_bundle(directory, identity, member_name):
     return weights[member_name]
 
 
+def _assert_exact_repository_json(path: Path, value: Mapping[str, object]) -> None:
+    expected = (
+        json.dumps(
+            dict(value),
+            sort_keys=True,
+            indent=2,
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    if path.read_bytes() != expected:
+        raise Stage09ParallelError(
+            f"Stage-09 semantic JSON is not canonical: {path.name}"
+        )
+
+
+def _normalise_control_semantic_frame(
+    frame: pd.DataFrame,
+    *,
+    model_id: str,
+    seed: int,
+    scope: str,
+) -> pd.DataFrame:
+    if tuple(frame.columns) != tuple(R.PRED_COLS) or frame.empty:
+        raise Stage09ParallelError(
+            f"{model_id} seed{seed} prediction schema/order is not exact"
+        )
+    try:
+        R.validate_predictions(frame)
+    except ValueError as exc:
+        raise Stage09ParallelError(
+            f"{model_id} seed{seed} predictions fail the canonical schema"
+        ) from exc
+    expected_literals = {
+        "model": model_id,
+        "scope": scope,
+        "feature_set": "USGS",
+    }
+    if any(
+        not frame[column].map(
+            lambda value, expected=expected: type(value) is str
+            and value == expected
+        ).all()
+        for column, expected in expected_literals.items()
+    ):
+        raise Stage09ParallelError(
+            f"{model_id} seed{seed} model/scope/feature_set changed"
+        )
+    seed_values = pd.to_numeric(frame["seed"], errors="coerce")
+    if (
+        seed_values.isna().any()
+        or pd.api.types.is_bool_dtype(frame["seed"].dtype)
+        or not pd.api.types.is_integer_dtype(frame["seed"].dtype)
+        or not np.equal(seed_values.to_numpy(dtype=float), float(seed)).all()
+    ):
+        raise Stage09ParallelError(f"{model_id} seed identity changed")
+    if (
+        pd.api.types.is_bool_dtype(frame["horizon"].dtype)
+        or not pd.api.types.is_integer_dtype(frame["horizon"].dtype)
+        or not frame["site_id"].map(
+            lambda value: type(value) is str
+            and bool(value)
+            and value == value.strip()
+        ).all()
+        or not set(frame["split"].tolist()) <= {"val", "calib", "test"}
+    ):
+        raise Stage09ParallelError(
+            f"{model_id} seed{seed} forecast registry dtype changed"
+        )
+    for date_column in ("issue_date", "target_date"):
+        if (
+            str(frame[date_column].dtype) != "datetime64[ns]"
+            or frame[date_column].isna().any()
+            or not frame[date_column].dt.normalize().equals(frame[date_column])
+        ):
+            raise Stage09ParallelError(
+                f"{model_id} seed{seed} {date_column} is not canonical"
+            )
+    if frame.duplicated(list(FORECAST_KEY)).any():
+        raise Stage09ParallelError(
+            f"{model_id} seed{seed} has duplicate forecast keys"
+        )
+    return frame.sort_values(list(FORECAST_KEY), kind="mergesort").reset_index(
+        drop=True
+    )
+
+
+def _forecast_key_and_truth_digests(
+    frame: pd.DataFrame,
+) -> tuple[str, str]:
+    key_digest = hashlib.sha256()
+    truth_digest = hashlib.sha256()
+    columns = [*FORECAST_KEY, "y_true"]
+    for site_id, horizon, issue_date, target_date, y_true in frame[
+        columns
+    ].itertuples(index=False, name=None):
+        site_bytes = str(site_id).encode("utf-8", errors="strict")
+        key_bytes = b"".join(
+            (
+                len(site_bytes).to_bytes(4, "big", signed=False),
+                site_bytes,
+                int(horizon).to_bytes(8, "big", signed=True),
+                int(pd.Timestamp(issue_date).value).to_bytes(
+                    8, "big", signed=True
+                ),
+                int(pd.Timestamp(target_date).value).to_bytes(
+                    8, "big", signed=True
+                ),
+            )
+        )
+        key_digest.update(key_bytes)
+        truth_digest.update(key_bytes)
+        truth_digest.update(np.asarray([y_true], dtype="<f4").tobytes())
+    return key_digest.hexdigest(), truth_digest.hexdigest()
+
+
+def _validate_control_checkpoint_semantics(
+    payload: Path,
+    validated,
+) -> tuple[dict[str, object], dict[str, torch.Tensor]]:
+    checkpoint = payload / "training_checkpoint.pt"
+    sidecar = payload / "training_checkpoint.pt.meta.json"
+    try:
+        sidecar_value = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise Stage09ParallelError(
+            "Stage-09 control checkpoint sidecar is invalid"
+        ) from exc
+    if not isinstance(sidecar_value, dict):
+        raise Stage09ParallelError(
+            "Stage-09 control checkpoint sidecar is not an object"
+        )
+    _assert_exact_repository_json(sidecar, sidecar_value)
+    expected_sidecar_fields = {
+        "format",
+        "checkpoint_format",
+        "run_id",
+        "epoch",
+        "checkpoint_bytes",
+        "checkpoint_sha256",
+        "resolved_config_sha256",
+        "extra_sha256",
+        "model_class",
+        "optimizer_class",
+        "scheduler_class",
+        "scheduler_present",
+    }
+    if (
+        set(sidecar_value) != expected_sidecar_fields
+        or sidecar_value.get("format") != CHECKPOINT_METADATA_VERSION
+        or sidecar_value.get("checkpoint_format") != CHECKPOINT_VERSION
+        or sidecar_value.get("run_id") != validated.identity.run_id
+        or sidecar_value.get("checkpoint_sha256") != sha256_file(checkpoint)
+        or sidecar_value.get("checkpoint_bytes") != checkpoint.stat().st_size
+    ):
+        raise Stage09ParallelError(
+            "Stage-09 control checkpoint sidecar lineage changed"
+        )
+    validated.assert_unchanged()
+    try:
+        checkpoint_value = torch.load(
+            checkpoint,
+            map_location="cpu",
+            weights_only=True,
+        )
+    except Exception as exc:
+        raise Stage09ParallelError(
+            "Stage-09 control checkpoint cannot be safely loaded"
+        ) from exc
+    validated.assert_unchanged()
+    checkpoint_fields = {
+        "format",
+        "run_id",
+        "resolved_config_json",
+        "resolved_config_sha256",
+        "extra_json",
+        "extra_sha256",
+        "epoch",
+        "best_epoch",
+        "best_metric",
+        "model_class",
+        "optimizer_class",
+        "scheduler_class",
+        "model_state",
+        "best_model_state",
+        "optimizer_state",
+        "scheduler_present",
+        "scheduler_state",
+        "rng_state",
+    }
+    if not isinstance(checkpoint_value, dict) or set(checkpoint_value) != checkpoint_fields:
+        raise Stage09ParallelError(
+            "Stage-09 control checkpoint payload schema changed"
+        )
+    resolved = validated.authorization["resolved_config"]
+    scientific = validated.document["scientific_member_config"]
+    if not isinstance(resolved, Mapping) or not isinstance(scientific, Mapping):
+        raise Stage09ParallelError("Stage-09 checkpoint authority is malformed")
+    intervention = scientific.get("model_kwargs_intervention")
+    if not isinstance(intervention, Mapping):
+        raise Stage09ParallelError("Stage-09 checkpoint intervention is malformed")
+    model_kwargs = dict(intervention)
+    model_kwargs.setdefault("delta_scale", resolved["delta_scale"])
+    expected_resolved = {
+        **dict(resolved),
+        "arm": validated.member.arm_id,
+        "seed": validated.member.seed,
+        "model_kwargs": model_kwargs,
+    }
+    expected_resolved_json = json.dumps(
+        expected_resolved,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    best_epoch = checkpoint_value.get("best_epoch")
+    best_metric = checkpoint_value.get("best_metric")
+    epoch = checkpoint_value.get("epoch")
+    model_state = checkpoint_value.get("model_state")
+    best_state = checkpoint_value.get("best_model_state")
+    extra_json = checkpoint_value.get("extra_json")
+    try:
+        decoded_extra = json.loads(extra_json) if isinstance(extra_json, str) else None
+        canonical_extra = (
+            json.dumps(
+                decoded_extra,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            if isinstance(decoded_extra, dict)
+            else None
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        canonical_extra = None
+
+    def safe_tensor_state(value: object) -> bool:
+        return bool(
+            isinstance(value, dict)
+            and value
+            and all(type(key) is str for key in value)
+            and all(
+                isinstance(tensor, torch.Tensor)
+                and tensor.device.type == "cpu"
+                and (
+                    not (tensor.is_floating_point() or tensor.is_complex())
+                    or bool(torch.isfinite(tensor).all().item())
+                )
+                for tensor in value.values()
+            )
+        )
+
+    if (
+        checkpoint_value.get("format") != CHECKPOINT_VERSION
+        or checkpoint_value.get("run_id") != validated.identity.run_id
+        or checkpoint_value.get("resolved_config_json")
+        != expected_resolved_json
+        or checkpoint_value.get("resolved_config_sha256")
+        != hashlib.sha256(expected_resolved_json.encode("utf-8")).hexdigest()
+        or sidecar_value.get("resolved_config_sha256")
+        != checkpoint_value.get("resolved_config_sha256")
+        or type(extra_json) is not str
+        or canonical_extra != extra_json
+        or checkpoint_value.get("extra_sha256")
+        != hashlib.sha256(extra_json.encode("utf-8")).hexdigest()
+        or sidecar_value.get("extra_sha256")
+        != checkpoint_value.get("extra_sha256")
+        or checkpoint_value.get("model_class")
+        != "thermoroute.thermoroute.ThermoRoute"
+        or sidecar_value.get("model_class") != checkpoint_value.get("model_class")
+        or checkpoint_value.get("optimizer_class")
+        != "torch.optim.adamw.AdamW"
+        or checkpoint_value.get("scheduler_class")
+        != "torch.optim.lr_scheduler.ReduceLROnPlateau"
+        or checkpoint_value.get("scheduler_present") is not True
+        or sidecar_value.get("optimizer_class")
+        != checkpoint_value.get("optimizer_class")
+        or sidecar_value.get("scheduler_class")
+        != checkpoint_value.get("scheduler_class")
+        or sidecar_value.get("scheduler_present")
+        != checkpoint_value.get("scheduler_present")
+        or type(epoch) is not int
+        or epoch < 0
+        or sidecar_value.get("epoch") != epoch
+        or type(best_epoch) is not int
+        or best_epoch < 0
+        or best_epoch > epoch
+        or isinstance(best_metric, bool)
+        or not isinstance(best_metric, (int, float))
+        or not np.isfinite(float(best_metric))
+        or not safe_tensor_state(model_state)
+        or not safe_tensor_state(best_state)
+        or set(model_state) != set(best_state)
+        or not isinstance(checkpoint_value.get("optimizer_state"), dict)
+        or not isinstance(checkpoint_value.get("scheduler_state"), dict)
+        or not isinstance(checkpoint_value.get("rng_state"), dict)
+    ):
+        raise Stage09ParallelError(
+            "Stage-09 control checkpoint scientific lineage changed"
+        )
+    return (
+        {
+            "checkpoint_payload_sha256": sha256_file(checkpoint),
+            "checkpoint_sidecar_sha256": sha256_file(sidecar),
+            "checkpoint_best_epoch_index": int(best_epoch),
+            "checkpoint_best_selection_metric_value": float(best_metric),
+            "checkpoint_weights_safely_loaded": True,
+        },
+        dict(best_state),
+    )
+
+
+def _validate_stage09_control_payload_semantics(
+    payload: Path,
+    validated,
+    *,
+    replay_wd=None,
+    prediction_replay: Callable[[Path, pd.DataFrame, object], float] | None = None,
+) -> dict[str, object]:
+    """Safely load and pair one control with exact same-seed ThermoRoute truth."""
+    member = validated.member
+    prediction = payload / "predictions.parquet"
+    prediction_sidecar = sidecar_path(prediction)
+    try:
+        lineage = validate_artifact_sidecar(
+            prediction,
+            identity=validated.identity,
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            kind="thermoroute_ablation_seed_predictions",
+        )
+    except (OSError, ValueError) as exc:
+        raise Stage09ParallelError(
+            f"{member.member_id} prediction lineage changed"
+        ) from exc
+    _assert_exact_repository_json(prediction_sidecar, lineage)
+    try:
+        control = pd.read_parquet(prediction)
+    except Exception as exc:
+        raise Stage09ParallelError(
+            f"{member.member_id} prediction parquet cannot be loaded"
+        ) from exc
+    control = _normalise_control_semantic_frame(
+        control,
+        model_id=member.arm_id,
+        seed=member.seed,
+        scope="ablation_usgs",
+    )
+
+    member_name = f"seed{member.seed}"
+    bundle = payload / "bundle"
+    try:
+        weights, metadata = load_inference_bundle(
+            bundle,
+            expected_member_count=1,
+            map_location="cpu",
+            publication_guard=validated.assert_unchanged,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise Stage09ParallelError(
+            f"{member.member_id} inference bundle cannot be safely loaded"
+        ) from exc
+    metadata_path = bundle / "metadata.json"
+    weights_path = bundle / "weights.pt"
+    _assert_exact_repository_json(metadata_path, metadata)
+    scientific = validated.document["scientific_member_config"]
+    if not isinstance(scientific, Mapping):
+        raise Stage09ParallelError("Stage-09 scientific member config is malformed")
+    intervention = scientific.get("model_kwargs_intervention")
+    architecture = metadata.get("architecture")
+    if (
+        not isinstance(intervention, Mapping)
+        or not isinstance(architecture, Mapping)
+        or set(architecture) != {"class", "kwargs", "train_config"}
+        or architecture.get("class")
+        != "thermoroute.thermoroute.ThermoRoute"
+        or architecture.get("train_config") != scientific.get("train_config")
+        or not isinstance(architecture.get("kwargs"), Mapping)
+    ):
+        raise Stage09ParallelError(
+            f"{member.member_id} bundle architecture metadata changed"
+        )
+    kwargs = dict(architecture["kwargs"])
+    n_phys = kwargs.get("n_phys")
+    expected_kwargs = {
+        "n_vars": len(USGS_VARS),
+        "n_stations": len(C.STATIONS),
+        "n_phys": n_phys,
+        "station_agnostic": False,
+        "use_prior": True,
+        "use_router": True,
+        "use_moe": True,
+        "sparse_router": True,
+        "fixed_kappa": False,
+        "delta_scale": validated.authorization["resolved_config"]["delta_scale"],
+        "use_tcn": True,
+        "residual_model": True,
+        "safety_anchor": "damped",
+        "use_wlevel": False,
+    }
+    expected_kwargs.update(dict(intervention))
+    identity_fields = {
+        "run_id": validated.identity.run_id,
+        "source_sha256": validated.identity.source_sha256,
+        "panel_sha256": validated.identity.panel_sha256,
+        "registry_sha256": validated.identity.registry_sha256,
+        "config_sha256": validated.identity.config_sha256,
+        "runtime_sha256": validated.identity.runtime_sha256,
+        "input_closure_sha256": validated.identity.input_closure_sha256,
+    }
+    state = weights.get(member_name)
+    if (
+        type(n_phys) is not int
+        or n_phys < 1
+        or kwargs != expected_kwargs
+        or any(metadata.get(key) != value for key, value in identity_fields.items())
+        or metadata.get("feature_order") != list(USGS_VARS)
+        or metadata.get("horizons") != list(C.HORIZONS)
+        or metadata.get("station_to_index")
+        != {station: index for index, station in enumerate(C.STATIONS)}
+        or metadata.get("training_device") != "cpu"
+        or metadata.get("members") != [member_name]
+        or metadata.get("member_count") != 1
+        or not isinstance(state, dict)
+        or not state
+        or any(
+            not isinstance(value, torch.Tensor)
+            or value.device.type != "cpu"
+            or (
+                (value.is_floating_point() or value.is_complex())
+                and not bool(torch.isfinite(value).all().item())
+            )
+            for value in state.values()
+        )
+    ):
+        raise Stage09ParallelError(
+            f"{member.member_id} bundle identity/intervention changed"
+        )
+
+    reference = (
+        validated.run_directory
+        / "predictions"
+        / f"thermoroute_seed{member.seed}.parquet"
+    )
+    reference_sidecar = sidecar_path(reference)
+    try:
+        reference_lineage = validate_artifact_sidecar(
+            reference,
+            identity=validated.identity,
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            kind="thermoroute_seed_predictions",
+        )
+    except (OSError, ValueError) as exc:
+        raise Stage09ParallelError(
+            f"ThermoRoute seed{member.seed} reference lineage changed"
+        ) from exc
+    _assert_exact_repository_json(reference_sidecar, reference_lineage)
+    try:
+        reference_frame = pd.read_parquet(reference)
+    except Exception as exc:
+        raise Stage09ParallelError(
+            f"ThermoRoute seed{member.seed} reference parquet cannot be loaded"
+        ) from exc
+    reference_frame = _normalise_control_semantic_frame(
+        reference_frame,
+        model_id="ThermoRoute",
+        seed=member.seed,
+        scope="joint_usgs",
+    )
+    if (
+        len(control) != len(reference_frame)
+        or not control.loc[:, list(FORECAST_KEY)].equals(
+            reference_frame.loc[:, list(FORECAST_KEY)]
+        )
+        or not np.array_equal(
+            control["split"].to_numpy(dtype=object),
+            reference_frame["split"].to_numpy(dtype=object),
+        )
+        or not np.array_equal(
+            control["y_true"].to_numpy(dtype=np.float32),
+            reference_frame["y_true"].to_numpy(dtype=np.float32),
+        )
+    ):
+        raise Stage09ParallelError(
+            f"{member.member_id} differs from same-seed ThermoRoute keys/truth"
+        )
+    key_digest, truth_digest = _forecast_key_and_truth_digests(control)
+    checkpoint, checkpoint_best_state = _validate_control_checkpoint_semantics(
+        payload, validated
+    )
+    if set(state) != set(checkpoint_best_state) or any(
+        not torch.equal(state[name], checkpoint_best_state[name])
+        for name in state
+    ):
+        raise Stage09ParallelError(
+            f"{member.member_id} bundle differs from checkpoint best state"
+        )
+    if replay_wd is not None and prediction_replay is not None:
+        raise Stage09ParallelError("Stage-09 prediction replay authority is ambiguous")
+    try:
+        if prediction_replay is not None:
+            replay_difference = prediction_replay(bundle, control, validated)
+        elif replay_wd is not None:
+            replay_difference = verify_sequence_prediction_parity(
+                bundle,
+                wd=replay_wd,
+                expected=control,
+                model_factory=lambda _member, metadata:
+                    thermoroute_factory_from_metadata(metadata),
+                member_seeds={member_name: member.seed},
+                atol=0.0,
+                batch_size=int(
+                    validated.authorization["resolved_config"]["eval_batch_size"]
+                ),
+                publication_guard=validated.assert_unchanged,
+            )
+        else:
+            raise Stage09ParallelError(
+                "Stage-09 control validation lacks prediction replay data"
+            )
+    except Stage09ParallelError:
+        raise
+    except Exception as exc:
+        raise Stage09ParallelError(
+            f"{member.member_id} bundle prediction replay failed"
+        ) from exc
+    if (
+        isinstance(replay_difference, bool)
+        or not isinstance(replay_difference, (int, float))
+        or not np.isfinite(float(replay_difference))
+        or float(replay_difference) != 0.0
+    ):
+        raise Stage09ParallelError(
+            f"{member.member_id} bundle prediction replay is not exact"
+        )
+    return {
+        "format": SEMANTIC_VALIDATION_FORMAT,
+        "model_id": member.arm_id,
+        "seed": member.seed,
+        "scope": "ablation_usgs",
+        "feature_set": "USGS",
+        "prediction_schema": R.PREDICTION_SCHEMA_VERSION,
+        "prediction_artifact_sha256": sha256_file(prediction),
+        "prediction_sidecar_sha256": sha256_file(prediction_sidecar),
+        "bundle_metadata_sha256": sha256_file(metadata_path),
+        "bundle_weights_sha256": sha256_file(weights_path),
+        "bundle_member_id": member_name,
+        **checkpoint,
+        "same_seed_reference_prediction_sha256": sha256_file(reference),
+        "same_seed_reference_sidecar_sha256": sha256_file(reference_sidecar),
+        "forecast_record_count": len(control),
+        "forecast_key_sha256": key_digest,
+        "truth_float32_sha256": truth_digest,
+        "prediction_sidecar_run_identity_exact": True,
+        "bundle_metadata_identity_exact": True,
+        "bundle_member_registry_exact": True,
+        "bundle_intervention_exact": True,
+        "bundle_weights_safely_loaded": True,
+        "bundle_matches_checkpoint_best_state_exact": True,
+        "same_seed_forecast_keys_exact": True,
+        "same_seed_split_exact": True,
+        "same_seed_y_true_float32_exact": True,
+        "full_prediction_replay_equivalence_proved": True,
+        "full_prediction_replay_max_abs_difference": 0.0,
+    }
+
+
 def ensemble_prediction_frame(predictions):
     keys = ["model", "scope", "feature_set", "site_id", "horizon", "split",
             "issue_date", "target_date"]
@@ -948,6 +1541,289 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
     )
 
 
+def _run_stage09_control_member(work_order_path: Path) -> int:
+    """Execute exactly one independently authorized control member."""
+    validated = validate_live_work_order(
+        root=ROOT,
+        work_order_path=work_order_path,
+    )
+    resolved = validated.authorization["resolved_config"]
+    scientific = validated.document["scientific_member_config"]
+    if not isinstance(resolved, dict) or not isinstance(scientific, dict):
+        raise Stage09ParallelError("authorized Stage-09 worker config is malformed")
+    if resolved["train_config"] != asdict(CFG):
+        raise Stage09ParallelError("authorized Stage-09 TrainConfig changed")
+    member = validated.member
+    intervention = scientific["model_kwargs_intervention"]
+    if (
+        not isinstance(intervention, dict)
+        or intervention != ABLATION_INTERVENTIONS[member.arm_id]
+    ):
+        raise Stage09ParallelError(
+            "authorized Stage-09 control intervention changed"
+        )
+    model_kw = dict(intervention)
+    model_kw.setdefault("delta_scale", resolved["delta_scale"])
+    panel_path = ROOT / "data_usgs" / "panel_usgs_120v2.parquet"
+    scientific_context: dict[str, object] = {}
+
+    def resolve_scientific_context():
+        if scientific_context:
+            return (
+                scientific_context["panel"],
+                scientific_context["panel_imp"],
+                scientific_context["masks"],
+                scientific_context["clim"],
+                scientific_context["stations"],
+                scientific_context["imputer"],
+                scientific_context["wd"],
+                scientific_context["thresholds"],
+                scientific_context["event_reference"],
+            )
+        panel, panel_imp, masks, clim, stations, imputer = prep(str(panel_path))
+        wd = DS.build_windows(
+            panel_imp,
+            masks,
+            clim,
+            variables=USGS_VARS,
+            require_observed_target=True,
+        )
+        thresholds = {
+            station: float(
+                panel.loc[masks.train]
+                .query("site_id==@station")
+                .WTEMP.quantile(0.9)
+            )
+            for station in stations
+        }
+        event_reference = fit_frozen_seasonal_event_reference(
+            panel,
+            thresholds,
+            pooled=False,
+            fit_interval=("2006-01-01", "2018-12-31"),
+        )
+        scientific_context.update(
+            {
+                "panel": panel,
+                "panel_imp": panel_imp,
+                "masks": masks,
+                "clim": clim,
+                "stations": stations,
+                "imputer": imputer,
+                "wd": wd,
+                "thresholds": thresholds,
+                "event_reference": event_reference,
+            }
+        )
+        return (
+            panel,
+            panel_imp,
+            masks,
+            clim,
+            stations,
+            imputer,
+            wd,
+            thresholds,
+            event_reference,
+        )
+
+    def produce(payload: Path) -> dict[str, object]:
+        (
+            _panel,
+            _panel_imp,
+            _masks,
+            clim,
+            stations,
+            imputer,
+            wd,
+            thr,
+            event_reference,
+        ) = resolve_scientific_context()
+
+        def factory():
+            return ThermoRoute(
+                n_vars=len(wd.var_names),
+                n_stations=len(stations),
+                n_phys=wd.n_phys,
+                safety_anchor="damped",
+                **model_kw,
+            )
+
+        # The native-policy callback is kept literal inside fit_model because
+        # checkpoint save/recovery executes there.  The complete source/input/
+        # matrix guard brackets each larger scientific transaction below.
+        validated.assert_unchanged()
+        result = fit_model(
+            factory,
+            wd,
+            thr,
+            cfg=CFG,
+            seed=member.seed,
+            model_name=member.arm_id,
+            device="cpu",
+            eval_batch_size=int(resolved["eval_batch_size"]),
+            scope="ablation_usgs",
+            feature_set="USGS",
+            station_balanced=True,
+            selection_metric="station_macro",
+            checkpoint_path=validated.resume_checkpoint_path,
+            run_id=validated.identity.run_id,
+            resolved_config={
+                **resolved,
+                "arm": member.arm_id,
+                "seed": member.seed,
+                "model_kwargs": model_kw,
+            },
+            artifact_publication_guard=assert_formal_numerical_policy,
+        )
+        validated.assert_unchanged()
+        result.pred["seed"] = member.seed
+        write_prediction_artifact(
+            result.pred,
+            payload / "predictions.parquet",
+            validated.identity,
+            kind="thermoroute_ablation_seed_predictions",
+            publication_guard=validated.assert_unchanged,
+        )
+        validated.assert_unchanged()
+        offsets, offset_audit, calibrators = calibration_artifacts(
+            result.pred, thr
+        )
+        member_name = f"seed{member.seed}"
+        save_inference_bundle(
+            payload / "bundle",
+            members={member_name: result.model},
+            metadata=bundle_metadata(
+                validated.identity,
+                wd,
+                clim,
+                imputer,
+                thr,
+                event_reference,
+                float(resolved["delta_scale"]),
+                offsets,
+                offset_audit,
+                calibrators,
+                training_device="cpu",
+                architecture_overrides=model_kw,
+            ),
+            expected_member_count=1,
+            publication_guard=validated.assert_unchanged,
+        )
+        validated.assert_unchanged()
+        materialize_member_resume_checkpoint(
+            validated=validated,
+            payload=payload,
+        )
+        validated.assert_unchanged()
+        return {
+            "best_epoch_index": int(result.epochs),
+            "best_selection_metric_value": float(result.best_val),
+        }
+
+    def validate_payload(payload: Path, view) -> Mapping[str, object]:
+        replay_wd = resolve_scientific_context()[6]
+        return _validate_stage09_control_payload_semantics(
+            payload,
+            view,
+            replay_wd=replay_wd,
+        )
+
+    archive, reused = publish_control_member(
+        validated=validated,
+        producer=produce,
+        semantic_validator=validate_payload,
+    )
+    state = "verified reuse" if reused else "new create-only publication"
+    log(f"  {member.arm_id} seed{member.seed}: {state} at {archive.name}")
+    return 0
+
+
+class _Stage09WorkerLauncher:
+    """Own and terminate the isolated member processes for one scheduler run."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._active: dict[int, subprocess.Popen[bytes]] = {}
+        self._stopping = False
+
+    @staticmethod
+    def _signal_group(process: subprocess.Popen[bytes], value: int) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, value)
+        except ProcessLookupError:
+            return
+
+    def __call__(self, work_order_path: Path) -> int:
+        """Launch one clean interpreter in its own cancellable process group."""
+        with tempfile.TemporaryDirectory(
+            prefix="thermoroute-stage09-member-pycache-"
+        ) as cache:
+            cache_path = Path(cache).resolve()
+            if any(cache_path.iterdir()):
+                raise RuntimeError(
+                    "Stage-09 member pycache was not initially empty"
+                )
+            nonce = secrets.token_hex(32)
+            (cache_path / ".controller-nonce").write_text(
+                nonce, encoding="utf-8"
+            )
+            environment = _formal_worker_environment(cache_path, nonce)
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    "-X",
+                    f"pycache_prefix={cache}",
+                    str(Path(__file__).resolve()),
+                    _WORKER_ARGUMENT,
+                    "--_control-member-work-order",
+                    str(work_order_path.resolve()),
+                ],
+                cwd=ROOT,
+                env=environment,
+                start_new_session=True,
+            )
+            with self._lock:
+                stopping = self._stopping
+                if not stopping:
+                    self._active[process.pid] = process
+            if stopping:
+                self._signal_group(process, signal.SIGTERM)
+            try:
+                return int(process.wait())
+            finally:
+                with self._lock:
+                    self._active.pop(process.pid, None)
+
+    def terminate_all(self) -> None:
+        """Stop and reap every active process after failure or interruption."""
+        with self._lock:
+            self._stopping = True
+            active = tuple(self._active.values())
+        for process in active:
+            self._signal_group(process, signal.SIGTERM)
+        for process in active:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                self._signal_group(process, signal.SIGKILL)
+        for process in active:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired as exc:  # pragma: no cover - OS fault
+                raise RuntimeError(
+                    f"Stage-09 worker process would not terminate: {process.pid}"
+                ) from exc
+
+
+def _launch_stage09_control_member(work_order_path: Path) -> int:
+    """Compatibility wrapper for one independently owned member launch."""
+    return _Stage09WorkerLauncher()(work_order_path)
+
+
 def main():
     runtime_policy = assert_formal_numerical_policy()
     ap = argparse.ArgumentParser()
@@ -991,7 +1867,46 @@ def main():
             "content-addressed outputs/runs directory"
         ),
     )
+    ap.add_argument(
+        "--control-workers",
+        type=int,
+        default=DEFAULT_CONTROL_WORKERS,
+        help=(
+            "execution-only Stage-09 control-member concurrency (1--"
+            f"{MAX_CONTROL_WORKERS}, default {DEFAULT_CONTROL_WORKERS}); "
+            f"memory-safe recommendation <= {RECOMMENDED_MAX_CONTROL_WORKERS}; "
+            "never enters scientific RunIdentity"
+        ),
+    )
+    ap.add_argument(
+        "--_control-member-work-order",
+        help=argparse.SUPPRESS,
+    )
     args = ap.parse_args()
+    if args._control_member_work_order is not None:
+        # This mode accepts no ambient scientific override.  Every value is
+        # recovered from and checked against the parent-frozen work order.
+        if sys.argv[1:] != [
+            "--_control-member-work-order",
+            args._control_member_work_order,
+        ]:
+            ap.error(
+                "the internal control-member worker accepts only its exact "
+                "work-order argument"
+            )
+        return _run_stage09_control_member(
+            Path(args._control_member_work_order)
+        )
+    if not 1 <= args.control_workers <= MAX_CONTROL_WORKERS:
+        ap.error(
+            f"--control-workers must be between 1 and {MAX_CONTROL_WORKERS}"
+        )
+    if args.control_workers > RECOMMENDED_MAX_CONTROL_WORKERS:
+        log(
+            "WARNING: --control-workers above "
+            f"{RECOMMENDED_MAX_CONTROL_WORKERS} may exceed memory capacity; "
+            "formal safety is preserved but the run may be killed by the OS"
+        )
     if args.seeds < 1 or args.seeds > len(C.USGS_SEEDS):
         ap.error(f"--seeds must be between 1 and {len(C.USGS_SEEDS)}")
     if args.ablations and args.seeds != len(STAGE9_ABLATION_SEEDS):
@@ -1039,6 +1954,11 @@ def main():
         delta_scale=args.delta_scale,
         ablations=args.ablations,
         air2stream=args.air2stream,
+    )
+    stage09_matrix_gate = (
+        validate_stage09_model_matrix_gate(ROOT)
+        if formal_configuration_complete
+        else None
     )
     predictor_bridge = (
         development_predictor_bridge_binding(
@@ -1114,6 +2034,19 @@ def main():
         assert_formal_numerical_policy()
         if development_input_closure is not None:
             development_input_closure.assert_unchanged()
+        if source_tree_hash(ROOT) != identity.source_sha256:
+            raise RuntimeError("Stage-09 source tree changed during execution")
+        if stage09_matrix_gate is not None:
+            for label in ("amendment", "seal"):
+                binding = stage09_matrix_gate.binding[label]
+                if (
+                    sha256_file(ROOT / binding["path"]) != binding["sha256"]
+                    or (ROOT / binding["path"]).stat().st_size
+                    != binding["bytes"]
+                ):
+                    raise RuntimeError(
+                        f"Stage-09 model-matrix {label} bytes changed"
+                    )
     if formal_configuration_complete:
         # Establish canonical data/source eligibility before any canonical
         # result path can be selected or mutated.  A failed formal preflight is
@@ -1143,6 +2076,21 @@ def main():
         },
         publication_guard=assert_formal_numerical_policy,
     )
+    if formal_configuration_complete:
+        if stage09_matrix_gate is None:  # pragma: no cover - construction above
+            raise AssertionError("formal Stage-09 lacks its model-matrix gate")
+        control_authorization_path, control_work_orders = freeze_control_plan(
+            root=ROOT,
+            run_directory=run_dir,
+            identity=identity,
+            resolved_config=run_config,
+            matrix_gate=stage09_matrix_gate,
+            interventions=ABLATION_INTERVENTIONS,
+            publication_guard=assert_stage09_publication_inputs,
+        )
+    else:
+        control_authorization_path = None
+        control_work_orders = ()
     publication_paths = resolve_stage09_publication_paths(
         root=ROOT,
         run_dir=run_dir,
@@ -1322,6 +2270,68 @@ def main():
     ablation_members: dict[str, dict[str, object]] = {}
     ablation_predictions: dict[str, pd.DataFrame] = {}
     ablation_architecture: dict[str, dict[str, object]] = {}
+    precomputed_controls: dict[
+        tuple[str, int], tuple[pd.DataFrame, dict[str, torch.Tensor]]
+    ] = {}
+    if args.ablations and formal_configuration_complete:
+        if control_authorization_path is None:
+            raise AssertionError("formal Stage-09 control authority is absent")
+        assert_stage09_publication_inputs()
+        control_launcher = _Stage09WorkerLauncher()
+        execute_work_orders_bounded(
+            control_work_orders,
+            max_workers=args.control_workers,
+            launch=control_launcher,
+            publication_guard=assert_stage09_publication_inputs,
+            terminate=control_launcher.terminate_all,
+        )
+        freeze_control_matrix_receipt(
+            root=ROOT,
+            authorization_path=control_authorization_path,
+            work_orders=control_work_orders,
+            thermoroute_references={
+                seed: {
+                    "prediction": (
+                        prediction_cache / f"thermoroute_seed{seed}.parquet"
+                    ),
+                    "bundle": member_cache / f"seed{seed}",
+                }
+                for seed in C.USGS_SEEDS
+            },
+            semantic_validator=lambda payload, validated:
+                _validate_stage09_control_payload_semantics(
+                    payload,
+                    validated,
+                    replay_wd=wd,
+                ),
+            publication_guard=assert_stage09_publication_inputs,
+        )
+        ordered_work_orders = member_work_order_map(control_work_orders)
+        for name in MANDATORY_ABLATIONS:
+            for seed in STAGE9_ABLATION_SEEDS:
+                work_order = ordered_work_orders[(name, seed)]
+                with extracted_member_payload(
+                    root=ROOT,
+                    work_order_path=work_order,
+                ) as payload:
+                    prediction = read_prediction_cache(
+                        payload / "predictions.parquet", identity
+                    )
+                    weights = read_member_bundle(
+                        payload / "bundle", identity, f"seed{seed}"
+                    )
+                if prediction is None or weights is None:
+                    raise RuntimeError(
+                        f"verified Stage-09 archive failed semantic load: "
+                        f"{name} seed{seed}"
+                    )
+                precomputed_controls[(name, seed)] = (prediction, weights)
+        if set(precomputed_controls) != {
+            (name, seed)
+            for name in MANDATORY_ABLATIONS
+            for seed in STAGE9_ABLATION_SEEDS
+        }:
+            raise RuntimeError("Stage-09 precompute load is not exact 7x5")
     if args.ablations:
         # Each control changes one declared factor.  In particular noMoE keeps
         # both routed and TCN representations, and noRouter keeps the TCN path.
@@ -1333,6 +2343,12 @@ def main():
             member_predictions: list[pd.DataFrame] = []
             for seed in STAGE9_ABLATION_SEEDS:
                 member_name = f"seed{seed}"
+                if precomputed_controls:
+                    prediction, weights = precomputed_controls[(name, seed)]
+                    member_predictions.append(prediction)
+                    member_states[member_name] = weights
+                    log(f"  {name} {member_name}: verified member archive")
+                    continue
                 prediction_path = (
                     prediction_cache / f"ablation_{name}_{member_name}.parquet"
                 )
@@ -1862,6 +2878,7 @@ def main():
                 lightgbm_pointer=lightgbm_pointer,
                 components_pointer=components_pointer,
             )
+            assert_formal_numerical_policy()
             assert_stage09_publication_inputs()
             publish_stage09_completion_receipt(
                 receipt_path,
