@@ -31,6 +31,9 @@ from thermoroute.chronology import (  # noqa: E402
     REQUIRED_GATE_PATHS,
     STAGE09_ARTIFACT_PATHS,
     STAGE09B_MEMBERS,
+    _canonical_json_bytes,
+    _sha256_json,
+    _strict_json_object_bytes,
     _stage09b_scientific_comparison_registry,
     freeze_prelabel_chronology,
     validate_prelabel_chronology,
@@ -1240,6 +1243,17 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     chronology_paths = {
         str(binding["path"]) for binding in document["model_freeze_artifacts"]
     }
+    assert [
+        str(binding["path"])
+        for binding in document["required_gate_files_at_model_freeze"]
+    ] == list(REQUIRED_GATE_PATHS)
+    for field in (
+        "model_source_control_artifacts",
+        "model_freeze_artifacts",
+        "input_evidence_artifacts",
+    ):
+        paths = [str(binding["path"]) for binding in document[field]]
+        assert paths == sorted(paths)
     assert stage16_paths <= chronology_paths
     assert len(stage16["artifacts"]["model_files"]) == 2
     assert len(stage16["artifacts"]["lstm_seed_prediction_files"]) == 10
@@ -1356,6 +1370,54 @@ def test_gitless_archive_replays_current_chronology_bound_bytes(tmp_path):
         validate_prelabel_chronology(
             receipt, root=archive, allow_gitless_archive=True
         )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "required_gate_files_at_model_freeze",
+        "model_source_control_artifacts",
+        "model_freeze_artifacts",
+        "input_evidence_artifacts",
+    ),
+)
+def test_gitless_archive_rejects_resealed_chronology_list_reordering(
+    tmp_path, field
+):
+    state = _repository(tmp_path)
+    _freeze(state)
+    _publish_receipt(state)
+    archive = tmp_path / f"archive-{field}"
+    shutil.copytree(state["root"], archive, ignore=shutil.ignore_patterns(".git"))
+    receipt = archive / "outputs/prelabel/route_a_prelabel_chronology_v1.json"
+    attacked = json.loads(receipt.read_text(encoding="utf-8"))
+    attacked[field].reverse()
+    stable = dict(attacked)
+    stable.pop("receipt_self_sha256")
+    attacked["receipt_self_sha256"] = _sha256_json(stable)
+    receipt.chmod(0o644)
+    receipt.write_bytes(_canonical_json_bytes(attacked))
+
+    with pytest.raises(ChronologyError, match="canonical producer order"):
+        validate_prelabel_chronology(
+            receipt, root=archive, allow_gitless_archive=True
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b'{"x":1,"x":1}',
+        b'{"x":NaN}',
+        b'{"x":Infinity}',
+        b'{"x":-Infinity}',
+        b'{"x":1e9999}',
+        b'{"x":-1e9999}',
+    ),
+)
+def test_chronology_strict_json_rejects_aliases_and_nonfinite_numbers(payload):
+    with pytest.raises(ChronologyError, match="duplicate JSON key|non-finite"):
+        _strict_json_object_bytes(payload, label="chronology attack")
 
 
 def test_chronology_rejects_worktree_artifact_tamper(tmp_path):

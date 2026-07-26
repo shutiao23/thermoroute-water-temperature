@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -366,15 +367,53 @@ def _secure_directory_chain(path: Path, *, create: bool) -> Iterator[int]:
         os.close(descriptor)
 
 
-def _load_json(path: str | Path, *, label: str) -> dict[str, Any]:
-    path = Path(path)
+def _strict_json_object_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
+    """Decode one UTF-8 JSON object without aliases or non-finite numbers."""
+
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise OpeningContractError(
+                    f"{label} contains duplicate JSON key: {key}"
+                )
+            value[key] = item
+        return value
+
+    def reject_constant(value: str) -> Any:
+        raise OpeningContractError(
+            f"{label} contains non-finite JSON number: {value}"
+        )
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise OpeningContractError(
+                f"{label} contains non-finite JSON number: {value}"
+            )
+        return parsed
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
-        raise OpeningContractError(f"cannot read {label}: {path}") from exc
+        value = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=object_pairs,
+            parse_constant=reject_constant,
+            parse_float=finite_float,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OpeningContractError(f"cannot decode strict JSON object: {label}") from exc
     if not isinstance(value, dict):
         raise OpeningContractError(f"{label} must be a JSON object")
     return value
+
+
+def _load_json(path: str | Path, *, label: str) -> dict[str, Any]:
+    path = Path(path)
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise OpeningContractError(f"cannot read {label}: {path}") from exc
+    return _strict_json_object_bytes(payload, label=label)
 
 
 def _resolve_inside(root: Path, relative: object, *, kind: str = "file") -> Path:
@@ -3996,6 +4035,8 @@ def _validate_prelabel_chronology_for_opening(
         raise OpeningContractError("prelabel chronology status/scope changed")
     expected_paths = {
         "protocol_seal": _relative(root, protocol_info["seal"]["path"]),
+        "model_matrix_amendment": MODEL_MATRIX_AMENDMENT_RELATIVE,
+        "model_matrix_amendment_seal": MODEL_MATRIX_AMENDMENT_SEAL_RELATIVE,
         "model_suite": _relative(root, model_suite),
         "development_replay": _relative(root, development_replay_receipt),
         "candidate_table": _relative(root, registries["candidate_table"]),
@@ -7763,17 +7804,14 @@ def _build_outcome_quality_audit(
                 row_status = str(status.loc[row_index])
                 if row_status == "MULTIPLE_FINITE_SERIES_CONFLICT":
                     constituent_ids = str(conflict_ids.loc[row_index]).split("|")
-                    try:
-                        constituent_qualifiers = json.loads(
-                            str(conflict_qualifiers.loc[row_index])
-                        )
-                        constituent_provenance = json.loads(
-                            str(conflict_provenance.loc[row_index])
-                        )
-                    except json.JSONDecodeError as exc:
-                        raise OpeningContractError(
-                            "conflicting NWIS constituent registry is malformed"
-                        ) from exc
+                    constituent_qualifiers = _strict_json_object_bytes(
+                        str(conflict_qualifiers.loc[row_index]).encode("utf-8"),
+                        label="conflicting NWIS constituent qualifier registry",
+                    )
+                    constituent_provenance = _strict_json_object_bytes(
+                        str(conflict_provenance.loc[row_index]).encode("utf-8"),
+                        label="conflicting NWIS constituent provenance registry",
+                    )
                     if (
                         not isinstance(constituent_qualifiers, dict)
                         or not isinstance(constituent_provenance, dict)
@@ -10596,16 +10634,10 @@ def _inspect_or_recover_preintent_temp(
                 payload = handle.read()
             complete = not metadata.st_mode & 0o222
             if complete:
-                try:
-                    document = json.loads(payload.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise OpeningContractError(
-                        "complete pre-intent temporary JSON is malformed"
-                    ) from exc
-                if (
-                    not isinstance(document, dict)
-                    or payload != canonical_json_bytes(document)
-                ):
+                document = _strict_json_object_bytes(
+                    payload, label="complete pre-intent temporary JSON"
+                )
+                if payload != canonical_json_bytes(document):
                     raise OpeningContractError(
                         "complete pre-intent temporary JSON is noncanonical"
                     )

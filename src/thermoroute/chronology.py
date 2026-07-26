@@ -553,17 +553,39 @@ def _strict_json_object_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
     def reject_constant(value: str) -> Any:
         raise ChronologyError(f"{label} contains non-finite JSON number: {value}")
 
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ChronologyError(
+                f"{label} contains non-finite JSON number: {value}"
+            )
+        return parsed
+
     try:
         value = json.loads(
             payload.decode("utf-8"),
             object_pairs_hook=object_pairs,
             parse_constant=reject_constant,
+            parse_float=finite_float,
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ChronologyError(f"{label} is not valid strict UTF-8 JSON") from exc
     if not isinstance(value, dict):
         raise ChronologyError(f"{label} is not a JSON object")
     return value
+
+
+def _require_canonical_binding_order(field: str, paths: list[str]) -> None:
+    """Require the one producer-defined order for chronology binding lists."""
+    expected = (
+        list(REQUIRED_GATE_PATHS)
+        if field == "required_gate_files_at_model_freeze"
+        else sorted(paths)
+    )
+    if paths != expected:
+        raise ChronologyError(
+            f"chronology {field} is not in canonical producer order"
+        )
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -736,6 +758,7 @@ def _validate_portable_receipt_bytes(
         if not isinstance(values, list) or len(values) < minimum:
             raise ChronologyError(f"chronology {field} registry is incomplete")
         seen: set[str] = set()
+        observed_order: list[str] = []
         for index, value in enumerate(values):
             path = _portable_current_binding(
                 root, value, label=f"chronology {field}[{index}]"
@@ -743,8 +766,10 @@ def _validate_portable_receipt_bytes(
             if path in seen:
                 raise ChronologyError(f"chronology binds an artifact twice: {path}")
             seen.add(path)
+            observed_order.append(path)
             assert isinstance(value, Mapping)
             bindings_by_path[path] = value
+        _require_canonical_binding_order(field, observed_order)
         observed_by_field[field] = seen
 
     declared_control = observed_by_field["model_source_control_artifacts"]
@@ -3001,6 +3026,15 @@ def _evaluate_chronology(
         external_lock=paths["external_lock"],
         input_manifest=paths["input_manifest"],
     )
+    for field, bindings in (
+        ("required_gate_files_at_model_freeze", gate_files),
+        ("model_source_control_artifacts", source_control),
+        ("model_freeze_artifacts", model_artifacts),
+        ("input_evidence_artifacts", input_artifacts),
+    ):
+        _require_canonical_binding_order(
+            field, [str(binding["path"]) for binding in bindings]
+        )
     absence_paths = _assert_absent_at_model_freeze(
         root,
         model_commit,

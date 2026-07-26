@@ -1190,6 +1190,28 @@ def test_raw_preflight_transcript_rejects_replayed_challenge_before_use(
 
 
 @pytest.mark.parametrize(
+    "payload",
+    (
+        b'{"x":1,"x":1}',
+        b'{"x":NaN}',
+        b'{"x":Infinity}',
+        b'{"x":-Infinity}',
+        b'{"x":1e9999}',
+        b'{"x":-1e9999}',
+    ),
+)
+def test_opening_json_loader_rejects_aliases_and_nonfinite_numbers(
+    tmp_path: Path, payload: bytes
+) -> None:
+    path = tmp_path / "attack.json"
+    path.write_bytes(payload)
+    with pytest.raises(
+        OpeningContractError, match="duplicate JSON key|non-finite"
+    ):
+        opening_module._load_json(path, label="opening attack")
+
+
+@pytest.mark.parametrize(
     ("stdout", "stderr", "message"),
     [
         (b"{ }\n", b"", "not exact canonical JSON"),
@@ -2744,6 +2766,12 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
         },
         "paths": {
             "protocol_seal": "protocol_seal.json",
+            "model_matrix_amendment": (
+                "protocols/route_a_model_matrix_amendment_v1.json"
+            ),
+            "model_matrix_amendment_seal": (
+                "protocols/route_a_model_matrix_amendment_seal_v1.json"
+            ),
             "model_suite": "suite.json",
             "development_replay": "development_replay.json",
             "candidate_table": "candidates.csv",
@@ -2975,6 +3003,25 @@ def test_authorization_freeze_then_preflight_allows_only_its_own_untracked_file(
     with pytest.raises(OpeningContractError, match="another protocol/model/input"):
         validate_authorization(authorization, root=tmp_path)
     chronology_document["paths"]["input_manifest"] = "inputs.json"
+
+    model_matrix_path = chronology_document["paths"].pop(
+        "model_matrix_amendment"
+    )
+    with pytest.raises(OpeningContractError, match="another protocol/model/input"):
+        validate_authorization(authorization, root=tmp_path)
+    chronology_document["paths"]["model_matrix_amendment"] = model_matrix_path
+
+    model_matrix_seal_path = chronology_document["paths"][
+        "model_matrix_amendment_seal"
+    ]
+    chronology_document["paths"]["model_matrix_amendment_seal"] = (
+        "protocols/another_model_matrix_amendment_seal.json"
+    )
+    with pytest.raises(OpeningContractError, match="another protocol/model/input"):
+        validate_authorization(authorization, root=tmp_path)
+    chronology_document["paths"][
+        "model_matrix_amendment_seal"
+    ] = model_matrix_seal_path
 
     gate_original = paths["inference_gate.json"].read_bytes()
     paths["inference_gate.json"].write_text("tampered gate\n", encoding="utf-8")

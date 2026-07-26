@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path, PurePosixPath
+import platform
 import shutil
 import stat
 import subprocess
@@ -3057,8 +3058,29 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             encoding="utf-8"
         )
     )
+    assert (
+        verifier.sha256_file(root / verifier.MODEL_MATRIX_AMENDMENT_PATH)
+        == verifier.MODEL_MATRIX_AMENDMENT_SHA256
+    )
+    assert (
+        model_matrix_amendment_seal["governance_seals"]
+        == verifier.MODEL_MATRIX_GOVERNANCE_SEALS
+    )
+    # The chronology gate registry has one exact producer order.  This fixture
+    # needs only inert bytes for gates that are not executed by these tests,
+    # while the semantic matrix documents above retain their real content.
+    for relative in verifier.CHRONOLOGY_REQUIRED_GATE_PATHS:
+        destination = root / relative
+        if not destination.exists():
+            _write_bytes(root, relative, f"# fixture gate: {relative}\n".encode())
+    for relative in verifier.TRUSTED_VALIDATOR_PATHS:
+        destination = root / relative
+        if not destination.exists():
+            _write_bytes(
+                root, relative, f"# trusted-validator fixture: {relative}\n".encode()
+            )
 
-    runtime_sha256 = "c" * 64
+    runtime_sha256 = verifier._sha256_json({"fixture": True})
     model_entries, _model_artifact_paths = _write_development_model_fixtures(
         verifier, root, runtime_sha256=runtime_sha256
     )
@@ -3758,6 +3780,36 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "status": "FROZEN_BEFORE_LABEL_OPENING",
         "training_device": "cpu",
         "numerical_runtime_sha256": runtime_sha256,
+        "protocol_sha256": protocol_binding["sha256"],
+        "actual_feature_order": [
+            "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+        ],
+        "model_matrix_amendment": {
+            "format": verifier.MODEL_MATRIX_SUITE_BINDING_FORMAT,
+            "document": {
+                "path": verifier.MODEL_MATRIX_AMENDMENT_PATH,
+                "sha256": verifier.sha256_file(
+                    root / verifier.MODEL_MATRIX_AMENDMENT_PATH
+                ),
+                "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
+                "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
+                "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+                "amendment_document_commit": model_matrix_amendment_seal[
+                    "amendment_document_commit"
+                ],
+            },
+            "seal": {
+                "path": verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+                "sha256": verifier.sha256_file(
+                    root / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+                ),
+                "format": verifier.MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+                "status": verifier.MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+            },
+            "contract_id": verifier._model_matrix_contract_id(
+                model_matrix_amendment
+            ),
+        },
         "preopening_gates": preopening_gates,
         "development_contract": {
             "frozen_panel_spec": _binding(
@@ -3828,6 +3880,27 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "format": verifier.CHRONOLOGY_FORMAT,
         "status": verifier.CHRONOLOGY_STATUS,
         "order": chronology_order,
+        "model_matrix_history": {
+            "format": verifier.MODEL_MATRIX_HISTORY_FORMAT,
+            "amendment": _chronology_binding(
+                verifier, root, verifier.MODEL_MATRIX_AMENDMENT_PATH
+            ),
+            "seal": _chronology_binding(
+                verifier, root, verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+            ),
+            "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+            "amendment_document_commit": model_matrix_amendment_seal[
+                "amendment_document_commit"
+            ],
+            "seal_commit": "3" * 40,
+            "model_freeze_commit": chronology_order["model_freeze_commit"],
+            "contract_id": verifier._model_matrix_contract_id(
+                model_matrix_amendment
+            ),
+            "strict_order_verified": True,
+            "immutable_to_release_tip": True,
+            "evidence_scope": verifier.CHRONOLOGY_EVIDENCE_SCOPE,
+        },
         "protocol_history": {
             "seal": _chronology_binding(
                 verifier, root, verifier.PROTOCOL_SEAL_PATH
@@ -3861,6 +3934,10 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "paths": {
             "protocol_seal": verifier.PROTOCOL_SEAL_PATH,
+            "model_matrix_amendment": verifier.MODEL_MATRIX_AMENDMENT_PATH,
+            "model_matrix_amendment_seal": (
+                verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+            ),
             "model_suite": "data_usgs/confirmatory_model_suite_v1.json",
             "development_replay": (
                 "outputs/model_replay/route_a_development_replay_v1.json"
@@ -3876,16 +3953,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "required_gate_files_at_model_freeze": [
             _chronology_binding(verifier, root, relative)
-            for relative in (
-                "src/thermoroute/chronology.py",
-                "src/thermoroute/outcome_qc.py",
-                "src/thermoroute/probability_metric_erratum.py",
-                "scripts/28_freeze_prelabel_chronology.py",
-                "tests/test_chronology.py",
-                "protocols/route_a_outcome_qc_policy_v1.json",
-                "protocols/route_a_probability_metric_erratum_v1.json",
-                "protocols/route_a_probability_metric_erratum_seal_v1.json",
-            )
+            for relative in verifier.CHRONOLOGY_REQUIRED_GATE_PATHS
         ],
         "model_source_control_artifacts": [
             _chronology_binding(verifier, root, relative)
@@ -3901,14 +3969,14 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         ],
         "input_evidence_artifacts": [
             _chronology_binding(verifier, root, relative)
-            for relative in (
+            for relative in sorted((
                 "data_usgs/candidates.csv",
                 "data_usgs/candidates.provenance.json",
                 "data_usgs/candidate-raw/snapshot_index.json",
                 "data_usgs/external.csv",
                 "data_usgs/external.lock.json",
                 "data_usgs/confirmatory_actual_inputs_v1.json",
-            )
+            ))
         ],
         "absence_at_model_freeze": {
             "checked_paths": [
@@ -3941,7 +4009,7 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     }
     chronology_path = root / verifier.CHRONOLOGY_PATH
     chronology_path.parent.mkdir(parents=True, exist_ok=True)
-    chronology_path.write_text(json.dumps(chronology), encoding="utf-8")
+    chronology_path.write_bytes(verifier._canonical_json_bytes(chronology))
 
     namespace = "b" * 24
     base = f"outputs/confirmatory/route_a_{namespace}"
@@ -4113,7 +4181,8 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
             "hashed_requirements_lock": _binding(
                 verifier, root, verifier.REPRODUCIBILITY_LOCK
             ),
-            "installed_version_validation": {"status": "fixture"},
+            "installed_version_validation": "fixture validation",
+            "installed_versions": {"fixture": "1"},
             "numerical_runtime_contract": {"fixture": True},
             "runtime_sha256": runtime_sha256,
             "python_executable": {
@@ -4168,6 +4237,14 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         },
         "state_paths": state,
     }
+    # Keep the production-like fixture on the same content-addressed namespace
+    # derivation as the producer.  A memorable placeholder here used to let
+    # tests exercise downstream artifacts without proving the authorization's
+    # namespace binding.
+    authorization["state_paths"] = verifier._expected_authorization_state_paths(
+        authorization
+    )
+    state = authorization["state_paths"]
     authorization["opening_id"] = verifier._sha256_json(authorization)[:24]
     authorization["created_at_utc"] = "2026-01-01T00:00:00+00:00"
     authorization["authorization_self_sha256"] = verifier._sha256_json(authorization)
@@ -4203,12 +4280,42 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
     }
     _write_canonical_json(verifier, root, state["work_order"], work_order)
 
-    trusted_validator = {"sha256": "f" * 64, "implementation": "fixture"}
+    validator_files = {
+        relative: verifier.sha256_file(root / relative)
+        for relative in verifier.TRUSTED_VALIDATOR_PATHS
+    }
+    trusted_validator = {
+        "implementation": verifier.TRUSTED_VALIDATOR_IMPLEMENTATION,
+        "files": validator_files,
+        "sha256": verifier._sha256_json(validator_files),
+        "source_tree_sha256": source_tree_sha256,
+    }
     preflight = {
-        "fixture": True,
+        "authorization_sha256": authorization_sha,
+        "opening_id": authorization["opening_id"],
+        "protocol_sha256": authorization["protocol"]["sha256"],
+        "development_registry_sha256": authorization["registries"][
+            "development"
+        ]["sha256"],
+        "external_registry_sha256": authorization["registries"]["external"][
+            "sha256"
+        ],
+        "external_lock_sha256": authorization["registries"]["external_lock"][
+            "sha256"
+        ],
+        "model_suite_sha256": authorization["model_suite"]["sha256"],
+        "development_replay_sha256": authorization["development_replay"][
+            "sha256"
+        ],
         "prelabel_chronology_sha256": authorization["prelabel_chronology"][
             "sha256"
         ],
+        "inference_amendment_sha256": authorization["inference_amendment"][
+            "sha256"
+        ],
+        "inference_amendment_seal_sha256": authorization[
+            "inference_amendment"
+        ]["seal"]["sha256"],
         "model_matrix_amendment_sha256": authorization[
             "model_matrix_amendment"
         ]["sha256"],
@@ -4219,7 +4326,39 @@ def _write_postopen_fixture(verifier, root: Path) -> tuple[Path, dict[str, str]]
         "model_matrix_amendment_status": (
             verifier.MODEL_MATRIX_AMENDMENT_STATUS
         ),
+        "inference_gate_sha256": authorization["inference_gate"]["sha256"],
+        "inference_gate_status": authorization["inference_gate"]["status"],
+        "inference_claim_eligible": authorization["inference_gate"][
+            "claim_eligible"
+        ],
+        "outcome_qc_policy_sha256": authorization["outcome_qc_policy"][
+            "sha256"
+        ],
+        "temporal_coverage_policy_sha256": authorization[
+            "temporal_coverage_policy"
+        ]["sha256"],
+        "prelabel_inputs_sha256": authorization["actual_inputs"]["sha256"],
+        "actual_feature_order": list(authorization["actual_feature_order"]),
+        "required_models": {
+            cohort: list(values)
+            for cohort, values in authorization["required_models"].items()
+        },
+        "source_tree_sha256": authorization["source"]["source_tree_sha256"],
+        "runtime_sha256": authorization["runtime"]["runtime_sha256"],
+        "requirements_lock_sha256": authorization["runtime"][
+            "requirements_lock"
+        ]["sha256"],
+        "hashed_requirements_lock_sha256": authorization["runtime"][
+            "hashed_requirements_lock"
+        ]["sha256"],
+        "golden_inference_sha256": authorization["runtime"][
+            "golden_inference_sha256"
+        ],
+        "fixed_code_sha256": authorization["fixed_code"]["sha256"],
+        "state_namespace": state["namespace"],
     }
+    assert set(preflight) == set(verifier.RAW_PREFLIGHT_ATTESTATION_FIELDS)
+    assert set(trusted_validator) == set(verifier.TRUSTED_VALIDATOR_FIELDS)
     intent = {
         "format": verifier.INTENT_FORMAT,
         "status": "OPENING_STARTED_IRREVERSIBLE",
@@ -5412,6 +5551,19 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
         verifier.NATIVE_ARTIFACT_PUBLICATION_NOTICE_PATH,
     }
     assert native_notices <= set(verifier.REQUIRED_MEMBERS)
+    route_a_governance = {
+        "src/thermoroute/chronology.py",
+        "src/thermoroute/model_matrix_amendment.py",
+        "src/thermoroute/model_suite.py",
+        verifier.RELEASE_MECHANICS_CORE_PATH,
+        "scripts/make_release_archive.sh",
+        "scripts/24_freeze_model_suite.py",
+        "scripts/28_freeze_prelabel_chronology.py",
+        verifier.RELEASE_MECHANICS_RUNNER_PATH,
+        verifier.MODEL_MATRIX_AMENDMENT_PATH,
+        verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+    }
+    assert route_a_governance <= set(verifier.REQUIRED_MEMBERS)
     with pytest.raises(ValueError, match="missing required members"):
         verifier.validate_members(complete - {"data/b1.csv"})
     with pytest.raises(ValueError, match="missing required members"):
@@ -5421,6 +5573,9 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
     for notice in native_notices:
         with pytest.raises(ValueError, match="missing required members"):
             verifier.validate_members(complete - {notice})
+    for evidence in route_a_governance:
+        with pytest.raises(ValueError, match="missing required members"):
+            verifier.validate_members(complete - {evidence})
     for missing_paper in verifier.REQUIRED_PAPER_MEMBERS:
         with pytest.raises(
             ValueError, match="missing registered manuscript sources"
@@ -6215,8 +6370,18 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     )
     assert duplicated != marker_bytes
     marker_path.write_bytes(duplicated)
-    with pytest.raises(ValueError, match="not canonical producer JSON"):
+    with pytest.raises(ValueError, match="duplicate JSON key"):
         verifier.verify_release_profile(stage, run_trusted_replay=False)
+    marker_path.write_bytes(marker_bytes)
+
+    for number in ("NaN", "Infinity", "-Infinity", "1e9999", "-1e9999"):
+        marker_path.write_bytes(
+            marker_bytes.replace(
+                b"{", f'{{"strict_probe":{number},'.encode("ascii"), 1
+            )
+        )
+        with pytest.raises(ValueError, match="non-finite JSON number"):
+            verifier.verify_release_profile(stage, run_trusted_replay=False)
     marker_path.write_bytes(marker_bytes)
 
     for policy_field in ("forbidden_prefixes", "forbidden_path_components"):
@@ -6348,6 +6513,29 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     source.mkdir()
     stage.mkdir()
     authorization, representatives = _write_postopen_fixture(verifier, source)
+    authorization_bytes = authorization.read_bytes()
+    for runtime_attack in ("missing", "extra"):
+        attacked = json.loads(authorization_bytes)
+        if runtime_attack == "missing":
+            attacked["runtime"].pop("installed_versions")
+        else:
+            attacked["runtime"]["attacker_extra"] = True
+        _reseal_fixture_authorization(verifier, authorization, attacked)
+        with pytest.raises(
+            ValueError, match="environment attestation schema changed"
+        ):
+            verifier._validate_authorization_structure(source, authorization)
+    authorization.write_bytes(authorization_bytes)
+    authorization.write_bytes(
+        authorization_bytes.replace(b"{", b'{"strict_probe":1e9999,', 1)
+    )
+    with pytest.raises(ValueError, match="non-finite JSON number"):
+        verifier.build_release_profile(
+            source,
+            verifier.POSTOPEN_PROFILE,
+            authorization_path=authorization,
+        )
+    authorization.write_bytes(authorization_bytes)
     document = verifier.materialize_release_profile(
         source,
         stage,
@@ -6421,6 +6609,25 @@ def test_postopen_profile_closes_every_required_category_and_missing_file_fails(
     assert replay_calls == ["git", "claims:True", "trusted"]
     marker_path = stage / verifier.PROFILE_MARKER
     marker_bytes = marker_path.read_bytes()
+    authorization_bytes = stage_authorization.read_bytes()
+    attacked_authorization = json.loads(authorization_bytes)
+    attacked_authorization["runtime"]["numerical_runtime_contract"] = {
+        "fixture": True,
+        "attacker": "coordinated-but-runtime-digest-left-stale",
+    }
+    _reseal_fixture_authorization(
+        verifier, stage_authorization, attacked_authorization
+    )
+    attacked_marker = json.loads(marker_bytes)
+    attacked_marker["authorization"]["sha256"] = verifier.sha256_file(
+        stage_authorization
+    )
+    marker_path.write_bytes(verifier._canonical_json_bytes(attacked_marker))
+    with pytest.raises(ValueError, match="runtime digest differs"):
+        verifier.verify_release_profile(stage, run_trusted_replay=False)
+    stage_authorization.write_bytes(authorization_bytes)
+    marker_path.write_bytes(marker_bytes)
+
     unknown_marker = json.loads(marker_bytes)
     unknown_marker["public_release_allowed"] = True
     marker_path.write_bytes(verifier._canonical_json_bytes(unknown_marker))
@@ -8402,6 +8609,22 @@ def test_git_bundle_replays_sealed_protocol_after_release_relocation(
         destination = stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination)
+
+    # This legacy fixture isolates portable protocol/Git replay and uses a tiny
+    # synthetic model-matrix document. Dedicated tests below exercise the real
+    # fixed whole-file matrix root and its exact Git document/seal chronology.
+    def accept_synthetic_matrix(root, authorization):
+        del authorization
+        fixture_root = Path(root)
+        document = fixture_root / verifier.MODEL_MATRIX_AMENDMENT_PATH
+        seal = fixture_root / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+        return document, seal, verifier.sha256_file(seal)
+
+    monkeypatch.setattr(
+        verifier,
+        "_validate_model_matrix_amendment_binding",
+        accept_synthetic_matrix,
+    )
     evidence = verifier.materialize_git_history_evidence(
         source, stage, verifier.PREOPEN_PROFILE
     )
@@ -8621,6 +8844,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         FIXTURE_DEVELOPMENT_INPUT_CLOSURE_FILE_COUNT,
         tuple(),
     )
+    # This synthetic chronology uses synthetic protocol-seal bytes and therefore
+    # cannot also satisfy the production matrix seal's four fixed historical
+    # governance digests.  Exact production matrix Git lineage and coordinated
+    # document+seal resealing are exercised against a real clone in
+    # test_real_git_model_matrix_rejects_coordinated_document_and_seal_rehash.
+    verifier._verify_model_matrix_amendment_history_from_bundle = (
+        lambda **_arguments: None
+    )
     source = tmp_path / "chronology-source"
     source.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
@@ -8737,20 +8968,13 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         verifier.REPRODUCIBILITY_LOCK,
         b"fixture==1 --hash=sha256:" + b"0" * 64 + b"\n",
     )
-    gate_paths = (
-        "src/thermoroute/chronology.py",
-        "src/thermoroute/outcome_qc.py",
-        "src/thermoroute/probability_metric_erratum.py",
-        "scripts/28_freeze_prelabel_chronology.py",
-        "tests/test_chronology.py",
-        "protocols/route_a_outcome_qc_policy_v1.json",
-        "protocols/route_a_probability_metric_erratum_v1.json",
-        "protocols/route_a_probability_metric_erratum_seal_v1.json",
-    )
+    gate_paths = tuple(verifier.CHRONOLOGY_REQUIRED_GATE_PATHS)
     for relative in gate_paths:
         if relative in {
             verifier.PROBABILITY_METRIC_ERRATUM_PATH,
             verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+            verifier.MODEL_MATRIX_AMENDMENT_PATH,
+            verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
         }:
             continue
         _write_bytes(source, relative, f"# frozen gate: {relative}\n".encode())
@@ -8891,22 +9115,21 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         probability_erratum_seal,
     )
     erratum_seal_commit = commit("seal probability metric erratum")
-    model_matrix_attestation = {
-        "post_2020_wtemp_requested_or_inspected": False,
-        "confirmation_outcomes_requested_or_inspected": False,
-        "confirmation_outcome_artifact_present": False,
-        "outcome_endpoint_called": False,
-        "outcome_independent": True,
-        "network_used": False,
-    }
-    model_matrix_amendment = {
-        "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
-        "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
-        "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
-        "prelabel_attestation": model_matrix_attestation,
-        "fixture": "outcome-free model matrix",
-    }
-    write_json(verifier.MODEL_MATRIX_AMENDMENT_PATH, model_matrix_amendment)
+    model_matrix_attestation = dict(verifier.MODEL_MATRIX_PRELABEL_ATTESTATION)
+    model_matrix_amendment = json.loads(
+        (ROOT / verifier.MODEL_MATRIX_AMENDMENT_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    _write_bytes(
+        source,
+        verifier.MODEL_MATRIX_AMENDMENT_PATH,
+        (ROOT / verifier.MODEL_MATRIX_AMENDMENT_PATH).read_bytes(),
+    )
+    assert (
+        verifier.sha256_file(source / verifier.MODEL_MATRIX_AMENDMENT_PATH)
+        == verifier.MODEL_MATRIX_AMENDMENT_SHA256
+    )
     model_matrix_document_commit = commit(
         "freeze outcome-free model-matrix amendment"
     )
@@ -8918,27 +9141,8 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             verifier, source, verifier.MODEL_MATRIX_AMENDMENT_PATH
         ),
         "amendment_document_commit": model_matrix_document_commit,
-        "governance_seals": {
-            "base_protocol_seal": _binding(
-                verifier, source, verifier.PROTOCOL_SEAL_PATH
-            ),
-            "inference_amendment_seal_v2": _binding(
-                verifier, source, inference_amendment_seal_path
-            ),
-            "probability_metric_erratum_seal_v1": _binding(
-                verifier,
-                source,
-                verifier.PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
-            ),
-        },
-        "history_contract": {
-            "governance_seal_commits_must_be_strict_ancestors": True,
-            "amendment_blob_must_match_document_commit": True,
-            "amendment_document_created_exactly_once": True,
-            "document_commit_must_precede_seal_commit": True,
-            "seal_created_exactly_once": True,
-            "amendment_and_seal_immutable_to_release_tip": True,
-        },
+        "governance_seals": dict(verifier.MODEL_MATRIX_GOVERNANCE_SEALS),
+        "history_contract": dict(verifier.MODEL_MATRIX_SEAL_HISTORY_CONTRACT),
         "prelabel_attestation": model_matrix_attestation,
     }
     write_json(
@@ -9367,6 +9571,34 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "status": "FROZEN_BEFORE_LABEL_OPENING",
         "training_device": "cpu",
         "numerical_runtime_sha256": runtime_sha256,
+        "protocol_sha256": verifier.sha256_file(source / protocol_json_path),
+        "actual_feature_order": [
+            "WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP"
+        ],
+        "model_matrix_amendment": {
+            "format": verifier.MODEL_MATRIX_SUITE_BINDING_FORMAT,
+            "document": {
+                "path": verifier.MODEL_MATRIX_AMENDMENT_PATH,
+                "sha256": verifier.sha256_file(
+                    source / verifier.MODEL_MATRIX_AMENDMENT_PATH
+                ),
+                "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
+                "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
+                "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+                "amendment_document_commit": model_matrix_document_commit,
+            },
+            "seal": {
+                "path": verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+                "sha256": verifier.sha256_file(
+                    source / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+                ),
+                "format": verifier.MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+                "status": verifier.MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+            },
+            "contract_id": verifier._model_matrix_contract_id(
+                model_matrix_amendment
+            ),
+        },
         "development_contract": development_contract,
         "preopening_gates": {
             "stage09_completion": _binding(
@@ -9584,6 +9816,10 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     }
     chronology_paths = {
         "protocol_seal": verifier.PROTOCOL_SEAL_PATH,
+        "model_matrix_amendment": verifier.MODEL_MATRIX_AMENDMENT_PATH,
+        "model_matrix_amendment_seal": (
+            verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+        ),
         "model_suite": model_suite_path,
         "development_replay": development_replay_path,
         **input_paths,
@@ -9592,6 +9828,27 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "format": verifier.CHRONOLOGY_FORMAT,
         "status": verifier.CHRONOLOGY_STATUS,
         "order": chronology_order,
+        "model_matrix_history": {
+            "format": verifier.MODEL_MATRIX_HISTORY_FORMAT,
+            "amendment": git_blob_binding(
+                model_matrix_document_commit,
+                verifier.MODEL_MATRIX_AMENDMENT_PATH,
+            ),
+            "seal": git_blob_binding(
+                model_matrix_seal_commit,
+                verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            ),
+            "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+            "amendment_document_commit": model_matrix_document_commit,
+            "seal_commit": model_matrix_seal_commit,
+            "model_freeze_commit": model_commit,
+            "contract_id": verifier._model_matrix_contract_id(
+                model_matrix_amendment
+            ),
+            "strict_order_verified": True,
+            "immutable_to_release_tip": True,
+            "evidence_scope": verifier.CHRONOLOGY_EVIDENCE_SCOPE,
+        },
         "protocol_history": {
             "seal": git_blob_binding(model_commit, verifier.PROTOCOL_SEAL_PATH),
             "original_commit": original_commit,
@@ -9636,7 +9893,14 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         ],
         "absence_at_model_freeze": {
             "checked_paths": sorted(
-                [*input_paths.values(), authorization_path, verifier.CHRONOLOGY_PATH]
+                set(verifier.CHRONOLOGY_FIXED_PRELABEL_ABSENCE_PATHS)
+                | (
+                    input_artifact_paths
+                    - {
+                        development_paths["frozen_panel_spec"],
+                        development_paths["registry"],
+                    }
+                )
             ),
             "present_paths": [],
         },
@@ -9658,7 +9922,11 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     chronology["receipt_self_sha256"] = verifier._chronology_self_sha256(
         chronology
     )
-    write_json(verifier.CHRONOLOGY_PATH, chronology)
+    _write_bytes(
+        source,
+        verifier.CHRONOLOGY_PATH,
+        verifier._canonical_json_bytes(chronology),
+    )
     compute_commit = commit("freeze chronology receipt")
 
     def fixed_binding(relative: str) -> dict[str, str]:
@@ -9971,6 +10239,140 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             relocated, tampered, verifier.POSTOPEN_PROFILE
         )
 
+    def reseal_chronology_attack(
+        attack_root: Path, chronology_document: dict
+    ) -> dict:
+        chronology_document.pop("receipt_self_sha256", None)
+        chronology_document["receipt_self_sha256"] = (
+            verifier._chronology_self_sha256(chronology_document)
+        )
+        chronology_attack_path = attack_root / verifier.CHRONOLOGY_PATH
+        chronology_attack_path.write_bytes(
+            verifier._canonical_json_bytes(chronology_document)
+        )
+        authorization_attack_path = attack_root / authorization_path
+        authorization_attack = json.loads(
+            authorization_attack_path.read_text(encoding="utf-8")
+        )
+        authorization_attack["prelabel_chronology"]["sha256"] = (
+            verifier.sha256_file(chronology_attack_path)
+        )
+        authorization_attack_path.write_bytes(
+            verifier._canonical_json_bytes(authorization_attack)
+        )
+        attack_marker_path = attack_root / verifier.PROFILE_MARKER
+        attack_marker = json.loads(
+            attack_marker_path.read_text(encoding="utf-8")
+        )
+        attack_marker["git_history_evidence"]["prelabel_chronology"][
+            "receipt"
+        ] = verifier._binding_for(attack_root, chronology_attack_path)
+        attack_marker_path.write_bytes(
+            verifier._canonical_json_bytes(attack_marker)
+        )
+        return attack_marker
+
+    # The seal must be a separate strict ancestor of model freeze, not merely
+    # another name for the model-freeze commit in consistently rehashed JSON.
+    seal_at_model = tmp_path / "seal-at-model-release"
+    shutil.copytree(relocated, seal_at_model)
+    seal_at_model_chronology = json.loads(
+        (seal_at_model / verifier.CHRONOLOGY_PATH).read_text(encoding="utf-8")
+    )
+    seal_at_model_chronology["model_matrix_history"]["seal_commit"] = (
+        model_commit
+    )
+    seal_at_model_marker = reseal_chronology_attack(
+        seal_at_model, seal_at_model_chronology
+    )
+    with pytest.raises(ValueError, match="model-matrix history changed"):
+        verifier._verify_git_history_evidence(
+            seal_at_model, seal_at_model_marker, verifier.POSTOPEN_PROFILE
+        )
+
+    # Coordinate the forged ID across both mutable JSON copies and refresh
+    # every local byte binding.  The independent amendment-derived ID must
+    # still reject it before trusting either metadata copy.
+    coordinated = tmp_path / "coordinated-matrix-release"
+    shutil.copytree(relocated, coordinated)
+    coordinated_suite_path = coordinated / model_suite_path
+    coordinated_suite = json.loads(
+        coordinated_suite_path.read_text(encoding="utf-8")
+    )
+    forged_contract_id = "f" * 64
+    coordinated_suite["model_matrix_amendment"]["contract_id"] = (
+        forged_contract_id
+    )
+    coordinated_suite_path.write_bytes(
+        json.dumps(coordinated_suite, sort_keys=True).encode("utf-8") + b"\n"
+    )
+    coordinated_chronology = json.loads(
+        (coordinated / verifier.CHRONOLOGY_PATH).read_text(encoding="utf-8")
+    )
+    coordinated_chronology["model_matrix_history"]["contract_id"] = (
+        forged_contract_id
+    )
+    for item in coordinated_chronology["model_freeze_artifacts"]:
+        if item["path"] == model_suite_path:
+            item.clear()
+            item.update(
+                _chronology_binding(verifier, coordinated, model_suite_path)
+            )
+            break
+    coordinated_marker = reseal_chronology_attack(
+        coordinated, coordinated_chronology
+    )
+    with pytest.raises(ValueError, match="contract ID changed"):
+        verifier._verify_git_history_evidence(
+            coordinated, coordinated_marker, verifier.POSTOPEN_PROFILE
+        )
+
+    history_extra = tmp_path / "matrix-history-extra-key-release"
+    shutil.copytree(relocated, history_extra)
+    history_extra_chronology = json.loads(
+        (history_extra / verifier.CHRONOLOGY_PATH).read_text(encoding="utf-8")
+    )
+    history_extra_chronology["model_matrix_history"]["attacker_extra"] = True
+    history_extra_marker = reseal_chronology_attack(
+        history_extra, history_extra_chronology
+    )
+    with pytest.raises(ValueError, match="history schema changed"):
+        verifier._verify_git_history_evidence(
+            history_extra, history_extra_marker, verifier.POSTOPEN_PROFILE
+        )
+
+    chronology_extra = tmp_path / "chronology-top-extra-key-release"
+    shutil.copytree(relocated, chronology_extra)
+    chronology_extra_document = json.loads(
+        (chronology_extra / verifier.CHRONOLOGY_PATH).read_text(encoding="utf-8")
+    )
+    chronology_extra_document["attacker_extra"] = True
+    chronology_extra_marker = reseal_chronology_attack(
+        chronology_extra, chronology_extra_document
+    )
+    with pytest.raises(ValueError, match="top-level schema changed"):
+        verifier._verify_git_history_evidence(
+            chronology_extra,
+            chronology_extra_marker,
+            verifier.POSTOPEN_PROFILE,
+        )
+
+    protocol_extra = tmp_path / "chronology-protocol-extra-key-release"
+    shutil.copytree(relocated, protocol_extra)
+    protocol_extra_document = json.loads(
+        (protocol_extra / verifier.CHRONOLOGY_PATH).read_text(encoding="utf-8")
+    )
+    protocol_extra_document["protocol_history"]["attacker_extra"] = True
+    protocol_extra_marker = reseal_chronology_attack(
+        protocol_extra, protocol_extra_document
+    )
+    with pytest.raises(ValueError, match="lacks protocol history"):
+        verifier._verify_git_history_evidence(
+            protocol_extra,
+            protocol_extra_marker,
+            verifier.POSTOPEN_PROFILE,
+        )
+
     # A forged Git receipt retaining plausible top-level PASS/source/runtime
     # fields must still fail on its nested execution contract.
     subprocess.run(
@@ -10024,6 +10426,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             suite_path=model_suite_path,
             replay_path=development_replay_path,
             expected_python_identity=authorization["runtime"]["python_executable"],
+            model_matrix_history=chronology["model_matrix_history"],
         )
 
     # A semantically identical receipt blob must still use the producer's exact
@@ -10069,7 +10472,702 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
             suite_path=model_suite_path,
             replay_path=development_replay_path,
             expected_python_identity=authorization["runtime"]["python_executable"],
+            model_matrix_history=chronology["model_matrix_history"],
         )
+
+
+def _write_release_mechanics_v2_fixture(verifier, root: Path) -> tuple[Path, dict]:
+    """Write one inert but byte-exact v2 mechanics receipt fixture."""
+    for relative in (
+        verifier.RELEASE_MECHANICS_CORE_PATH,
+        verifier.RELEASE_MECHANICS_RUNNER_PATH,
+        "scripts/verify_release.py",
+    ):
+        _write_bytes(root, relative, f"# fixture {relative}\n".encode())
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    commit = _commit_git_fixture(root, "freeze mechanics sources")
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    archive_relative = "dist/mécanique.zip"
+    archive_path = _write_bytes(root, archive_relative, b"fixture zip bytes\n")
+    archive_digest = verifier.sha256_file(archive_path)
+    sidecar_path = _write_bytes(
+        root,
+        archive_relative + ".sha256",
+        f"{archive_digest}  {archive_path.name}\n".encode("utf-8"),
+    )
+    python_invoked = Path(sys.executable)
+    python_real = python_invoked.resolve()
+    python_payload = python_real.read_bytes()
+    profile_line = (
+        "LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; PREOPEN_NOT_COMPLETE]: <archive>"
+    )
+    sealed_archive = "../sealed-inputs/" + archive_path.name
+    manifest_line = "manifest OK: 7 artifacts, source 012345abcdef, DAG 9 nodes"
+    stdout_payload = (
+        manifest_line
+        + "\n"
+        + profile_line.replace("<archive>", sealed_archive)
+        + "\n"
+    ).encode("utf-8")
+    raw_peak = 4096
+    if platform.system() == "Darwin":
+        peak_unit, peak_bytes = "bytes", raw_peak
+    elif platform.system() == "Linux":
+        peak_unit, peak_bytes = "kibibytes", raw_peak * 1024
+    else:
+        pytest.skip("release-mechanics RSS contract supports Darwin and Linux")
+
+    document = {
+        "format": verifier.RELEASE_MECHANICS_RECEIPT_FORMAT,
+        "status": verifier.RELEASE_MECHANICS_RECEIPT_STATUS,
+        "profile": verifier.PREOPEN_PROFILE,
+        "distribution": verifier.LOCAL_DISTRIBUTION,
+        "evidence_scope": verifier.RELEASE_MECHANICS_EVIDENCE_SCOPE,
+        "archive": {
+            "path": archive_relative,
+            "sha256": archive_digest,
+            "bytes": len(archive_path.read_bytes()),
+            "sidecar": verifier._binding_for(root, sidecar_path),
+        },
+        "source": {
+            "git_commit": commit,
+            "git_tree": tree,
+            "git_clean_before_acceptance": True,
+            "core": verifier._binding_for(
+                root, root / verifier.RELEASE_MECHANICS_CORE_PATH
+            ),
+            "runner": verifier._binding_for(
+                root, root / verifier.RELEASE_MECHANICS_RUNNER_PATH
+            ),
+            "verifier": verifier._binding_for(
+                root, root / "scripts/verify_release.py"
+            ),
+        },
+        "runtime": {
+            "python_implementation": platform.python_implementation(),
+            "python_version": platform.python_version(),
+            "python_executable": {
+                "invoked_path": str(python_invoked),
+                "realpath": str(python_real),
+                "sha256": hashlib.sha256(python_payload).hexdigest(),
+                "bytes": len(python_payload),
+            },
+            "platform_system": platform.system(),
+            "platform_release": platform.release(),
+            "machine": platform.machine(),
+        },
+        "execution": {
+            "command": [
+                "<sealed-copy-of-bound-python-executable>",
+                "-I",
+                "-B",
+                "<sealed-copy-of-git-bound-release-verifier>",
+                "<sealed-copy-of-bound-archive>",
+                "--distribution",
+                verifier.LOCAL_DISTRIBUTION,
+            ],
+            "environment": {
+                "PATH": os.defpath,
+                "LANG": "C",
+                "LC_ALL": "C",
+                "TZ": "UTC",
+                "OMP_NUM_THREADS": "1",
+                "MKL_NUM_THREADS": "1",
+                "OPENBLAS_NUM_THREADS": "1",
+                "VECLIB_MAXIMUM_THREADS": "1",
+                "NUMEXPR_NUM_THREADS": "1",
+                "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+                "TMPDIR": "<fresh-temporary-root>",
+            },
+            "controller_pid": 101,
+            "verifier_pid": 202,
+            "python_isolated": True,
+            "bytecode_disabled": True,
+            "fresh_process": True,
+            "fresh_working_directory": True,
+            "fresh_temporary_extraction_root": True,
+            "fresh_cwd_empty_before": True,
+            "fresh_cwd_empty_after": True,
+            "temporary_root_removed_after_exit": True,
+            "sealed_archive_argument": sealed_archive,
+            "process_group_cleanup_enforced": True,
+            "returncode": 0,
+            "stdout_sha256": hashlib.sha256(stdout_payload).hexdigest(),
+            "stdout_bytes": len(stdout_payload),
+            "stdout_transcript": [manifest_line, profile_line],
+            "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+            "stderr_bytes": 0,
+            "stderr_transcript": [],
+            "profile_evidence_line": profile_line,
+        },
+        "resource_observation": {
+            "wall_time_ns": 10,
+            "user_cpu_time_ns": 2,
+            "system_cpu_time_ns": 3,
+            "total_cpu_time_ns": 5,
+            "peak_rss_raw": raw_peak,
+            "peak_rss_raw_unit": peak_unit,
+            "peak_rss_bytes": peak_bytes,
+            "measurement_backend": (
+                verifier.RELEASE_MECHANICS_MEASUREMENT_BACKEND
+            ),
+            "measurement_scope": verifier.RELEASE_MECHANICS_MEASUREMENT_SCOPE,
+            "repetitions": 1,
+        },
+        "isolation_limitations": dict(
+            verifier.RELEASE_MECHANICS_ISOLATION_LIMITATIONS
+        ),
+        "authentication_limitations": dict(
+            verifier.RELEASE_MECHANICS_AUTHENTICATION_LIMITATIONS
+        ),
+        "label_safety": dict(verifier.RELEASE_MECHANICS_LABEL_SAFETY),
+    }
+    document["receipt_self_sha256"] = (
+        verifier._release_mechanics_self_sha256(document)
+    )
+    receipt = _write_canonical_json(
+        verifier, root, verifier.RELEASE_MECHANICS_RECEIPT_PATH, document
+    )
+    return receipt, document
+
+
+@pytest.mark.parametrize(
+    ("attack", "message"),
+    (
+        ("v1", "version|scope|limitations"),
+        ("top_extra", "exact schema"),
+        ("nested_extra", "execution schema"),
+        ("limitation", "version|scope|limitations"),
+        ("duplicate", "duplicate JSON key"),
+    ),
+)
+def test_independent_release_mechanics_v2_rejects_resealed_schema_attacks(
+    tmp_path, attack, message
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_verify_mechanics_{attack}_test"
+    )
+    root = tmp_path / "mechanics"
+    root.mkdir()
+    receipt, document = _write_release_mechanics_v2_fixture(verifier, root)
+    assert verifier.validate_release_mechanics_acceptance(root, receipt) == document
+    if attack == "v1":
+        cli = subprocess.run(
+            [
+                sys.executable,
+                str(VERIFY_SCRIPT),
+                "--validate-release-mechanics-receipt",
+                verifier.RELEASE_MECHANICS_RECEIPT_PATH,
+                "--source-root",
+                str(root),
+            ],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert cli.returncode == 0, cli.stderr
+        assert verifier.RELEASE_MECHANICS_RECEIPT_STATUS in cli.stdout
+
+    if attack == "duplicate":
+        receipt.write_bytes(
+            receipt.read_bytes().replace(
+                b"{", b'{"format":"thermoroute.attacker-alias.v1",', 1
+            )
+        )
+    else:
+        if attack == "v1":
+            document["format"] = (
+                "thermoroute.same-host-release-mechanics-acceptance.v1"
+            )
+        elif attack == "top_extra":
+            document["attacker_extra"] = True
+        elif attack == "nested_extra":
+            document["execution"]["attacker_extra"] = True
+        else:
+            document["isolation_limitations"]["fresh_machine"] = True
+        document.pop("receipt_self_sha256")
+        document["receipt_self_sha256"] = (
+            verifier._release_mechanics_self_sha256(document)
+        )
+        receipt.write_bytes(verifier._canonical_json_bytes(document))
+    with pytest.raises(ValueError, match=message):
+        verifier.validate_release_mechanics_acceptance(
+            root, verifier.RELEASE_MECHANICS_RECEIPT_PATH
+        )
+
+
+@pytest.mark.parametrize("number", ("1e9999", "-1e9999"))
+def test_strict_release_json_rejects_finite_syntax_that_overflows(number):
+    verifier = _load_script(
+        VERIFY_SCRIPT,
+        "thermoroute_verify_overflow_"
+        + ("negative" if number.startswith("-") else "positive"),
+    )
+    with pytest.raises(ValueError, match="non-finite JSON number"):
+        verifier._strict_json_object_bytes(
+            f'{{"value":{number}}}'.encode("ascii"),
+            label="overflow fixture",
+        )
+
+
+def test_model_matrix_uses_fixed_document_and_exact_governance_registry(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_fixed_model_matrix_test"
+    )
+    amendment_path = ROOT / verifier.MODEL_MATRIX_AMENDMENT_PATH
+    seal_path = ROOT / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+    amendment = json.loads(amendment_path.read_text(encoding="utf-8"))
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    assert verifier.sha256_file(amendment_path) == (
+        verifier.MODEL_MATRIX_AMENDMENT_SHA256
+    )
+    assert seal["governance_seals"] == verifier.MODEL_MATRIX_GOVERNANCE_SEALS
+    assert verifier._validate_model_matrix_documents(
+        amendment,
+        seal,
+        amendment_sha256=verifier.MODEL_MATRIX_AMENDMENT_SHA256,
+        amendment_document_commit=seal["amendment_document_commit"],
+    ) == verifier._model_matrix_contract_id(amendment)
+
+    for attack in ("document", "governance_missing", "governance_extra", "governance_changed"):
+        attacked_amendment = json.loads(json.dumps(amendment))
+        attacked_seal = json.loads(json.dumps(seal))
+        if attack == "document":
+            attacked_amendment["scientific_scope"]["attacker_reseal"] = True
+            attacked_payload = verifier._canonical_json_bytes(attacked_amendment)
+            attacked_digest = hashlib.sha256(attacked_payload).hexdigest()
+            attacked_seal["amendment"]["sha256"] = attacked_digest
+        else:
+            attacked_digest = verifier.MODEL_MATRIX_AMENDMENT_SHA256
+            governance = attacked_seal["governance_seals"]
+            if attack == "governance_missing":
+                governance.pop("inference_amendment_seal_v1")
+            elif attack == "governance_extra":
+                governance["attacker"] = {
+                    "path": "protocols/attacker.json",
+                    "sha256": "f" * 64,
+                }
+            else:
+                governance["base_protocol_seal"]["sha256"] = "f" * 64
+        with pytest.raises(ValueError, match="amendment or seal semantics"):
+            verifier._validate_model_matrix_documents(
+                attacked_amendment,
+                attacked_seal,
+                amendment_sha256=attacked_digest,
+                amendment_document_commit=seal["amendment_document_commit"],
+            )
+
+
+def test_real_git_model_matrix_rejects_coordinated_document_and_seal_rehash(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_real_git_fixed_matrix_test"
+    )
+    source = tmp_path / "source"
+    bare = tmp_path / "audit.git"
+    subprocess.run(
+        ["git", "clone", "-q", "--no-local", str(ROOT), str(source)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "clone", "-q", "--bare", str(source), str(bare)],
+        check=True,
+    )
+    compute_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    verifier._verify_model_matrix_amendment_history_from_bundle(
+        root=source,
+        bare=bare,
+        compute_commit=compute_commit,
+    )
+
+    # Build an actual forged Git history, not merely a coordinated filesystem
+    # rewrite: prior governance seals -> forged document creation -> separately
+    # committed forged seal -> later release tip.
+    attacked = tmp_path / "attacked"
+    attacked.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=attacked, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Route A adversary"],
+        cwd=attacked,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "adversary@example.invalid"],
+        cwd=attacked,
+        check=True,
+    )
+    for binding in verifier.MODEL_MATRIX_GOVERNANCE_SEALS.values():
+        relative = binding["path"]
+        destination = attacked / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / relative, destination)
+    subprocess.run(["git", "add", "protocols"], cwd=attacked, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "freeze prior governance"],
+        cwd=attacked,
+        check=True,
+    )
+
+    attacked_amendment_path = attacked / verifier.MODEL_MATRIX_AMENDMENT_PATH
+    attacked_seal_path = attacked / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH
+    attacked_amendment_path.parent.mkdir(parents=True, exist_ok=True)
+    attacked_amendment = json.loads(
+        (source / verifier.MODEL_MATRIX_AMENDMENT_PATH).read_text(encoding="utf-8")
+    )
+    attacked_amendment["scientific_scope"]["attacker_reseal"] = True
+    attacked_amendment_path.write_bytes(
+        verifier._canonical_json_bytes(attacked_amendment)
+    )
+    subprocess.run(
+        ["git", "add", verifier.MODEL_MATRIX_AMENDMENT_PATH],
+        cwd=attacked,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "forge model matrix document"],
+        cwd=attacked,
+        check=True,
+    )
+    forged_document_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=attacked,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    attacked_seal = json.loads(
+        (source / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    attacked_seal["amendment"]["sha256"] = verifier.sha256_file(
+        attacked_amendment_path
+    )
+    attacked_seal["amendment_document_commit"] = forged_document_commit
+    attacked_seal_path.parent.mkdir(parents=True, exist_ok=True)
+    attacked_seal_path.write_bytes(verifier._canonical_json_bytes(attacked_seal))
+    subprocess.run(
+        ["git", "add", verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH],
+        cwd=attacked,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "forge matching matrix seal"],
+        cwd=attacked,
+        check=True,
+    )
+    forged_seal_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=attacked,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "forged release tip"],
+        cwd=attacked,
+        check=True,
+    )
+    attacked_tip = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=attacked,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    attacked_bare = tmp_path / "attacked-audit.git"
+    subprocess.run(
+        ["git", "clone", "-q", "--bare", str(attacked), str(attacked_bare)],
+        check=True,
+    )
+    assert subprocess.run(
+        ["git", "merge-base", "--is-ancestor", forged_document_commit, forged_seal_commit],
+        cwd=attacked,
+        check=False,
+    ).returncode == 0
+    assert subprocess.run(
+        ["git", "merge-base", "--is-ancestor", forged_seal_commit, attacked_tip],
+        cwd=attacked,
+        check=False,
+    ).returncode == 0
+    with pytest.raises(ValueError, match="exact model-matrix amendment binding"):
+        verifier._verify_model_matrix_amendment_history_from_bundle(
+            root=attacked,
+            bare=attacked_bare,
+            compute_commit=attacked_tip,
+        )
+
+
+def test_opening_preflight_and_validator_reject_coordinated_nested_reseals(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_opening_preflight_exact_test"
+    )
+    root = tmp_path / "postopen"
+    root.mkdir()
+    authorization_path, _representatives = _write_postopen_fixture(verifier, root)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    state = authorization["state_paths"]
+    suite = json.loads(
+        (root / authorization["model_suite"]["path"]).read_text(encoding="utf-8")
+    )
+    intent = json.loads((root / state["intent"]).read_text(encoding="utf-8"))
+    receipt = json.loads((root / state["receipt"]).read_text(encoding="utf-8"))
+    verifier._validate_opening_preflight_identity(
+        root, authorization_path, authorization, suite, intent, receipt
+    )
+
+    attacks = (
+        ("preflight_missing", "protocol_sha256"),
+        ("preflight_extra", "attacker_extra"),
+        ("preflight_changed", "protocol_sha256"),
+        ("validator_missing", verifier.TRUSTED_VALIDATOR_PATHS[0]),
+        ("validator_extra", "src/thermoroute/attacker.py"),
+        ("validator_changed", verifier.TRUSTED_VALIDATOR_PATHS[0]),
+        ("validator_source_tree", "source_tree_sha256"),
+    )
+    for attack, field in attacks:
+        attacked_intent = json.loads(json.dumps(intent))
+        attacked_receipt = json.loads(json.dumps(receipt))
+        if attack.startswith("preflight"):
+            attacked_preflight = attacked_receipt["preflight_attestation"]
+            if attack.endswith("missing"):
+                attacked_preflight.pop(field)
+            elif attack.endswith("extra"):
+                attacked_preflight[field] = True
+            else:
+                attacked_preflight[field] = "f" * 64
+            digest = verifier._sha256_json(attacked_preflight)
+            attacked_receipt["preflight_attestation_sha256"] = digest
+            attacked_intent["preflight_attestation_sha256"] = digest
+            message = "preflight attestation differs"
+        else:
+            attacked_validator = attacked_receipt["trusted_validator"]
+            files = attacked_validator["files"]
+            if attack.endswith("source_tree"):
+                attacked_validator["source_tree_sha256"] = "f" * 64
+            elif attack.endswith("missing"):
+                files.pop(field)
+            elif attack.endswith("extra"):
+                files[field] = "f" * 64
+            else:
+                files[field] = "f" * 64
+            attacked_validator["sha256"] = verifier._sha256_json(files)
+            attacked_intent["trusted_validator"] = json.loads(
+                json.dumps(attacked_validator)
+            )
+            message = "trusted-validator identity differs"
+        with pytest.raises(ValueError, match=message):
+            verifier._validate_opening_preflight_identity(
+                root,
+                authorization_path,
+                authorization,
+                suite,
+                attacked_intent,
+                attacked_receipt,
+            )
+
+
+def _reseal_fixture_authorization(verifier, path: Path, authorization: dict) -> None:
+    created_at = authorization.pop("created_at_utc")
+    authorization.pop("opening_id", None)
+    authorization.pop("authorization_self_sha256", None)
+    authorization["opening_id"] = verifier._sha256_json(authorization)[:24]
+    authorization["created_at_utc"] = created_at
+    authorization["authorization_self_sha256"] = verifier._sha256_json(
+        authorization
+    )
+    path.write_bytes(verifier._canonical_json_bytes(authorization))
+
+
+def test_authorization_recomputes_content_addressed_state_namespace(tmp_path):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_state_namespace_content_test"
+    )
+    root = tmp_path / "postopen"
+    root.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, root)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    old_base = authorization["state_paths"]["run_directory"]
+    new_namespace = "f" * 24
+    new_base = f"outputs/confirmatory/route_a_{new_namespace}"
+    authorization["state_paths"] = {
+        key: (
+            new_namespace
+            if key == "namespace"
+            else value.replace(old_base, new_base, 1)
+        )
+        for key, value in authorization["state_paths"].items()
+    }
+    _reseal_fixture_authorization(verifier, authorization_path, authorization)
+    with pytest.raises(ValueError, match="content-addressed canonical namespace"):
+        verifier._validate_authorization_structure(root, authorization_path)
+
+
+@pytest.mark.parametrize(
+    ("attack", "message"),
+    (
+        ("feature_order", "actual feature order differs"),
+        ("statistics_contract", "statistics contract differs"),
+    ),
+)
+def test_postopen_gather_cross_checks_authorization_scientific_identity(
+    tmp_path, attack, message
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT,
+        f"thermoroute_verify_authorization_science_{attack}_test",
+    )
+    root = tmp_path / attack
+    root.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, root)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    if attack == "feature_order":
+        authorization["actual_feature_order"] = ["ATTACKER_FEATURE"]
+    else:
+        authorization["statistics_contract_sha256"] = "f" * 64
+    _reseal_fixture_authorization(verifier, authorization_path, authorization)
+    with pytest.raises(ValueError, match=message):
+        verifier._gather_postopen_categories(root, authorization_path)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "required_gate_files_at_model_freeze",
+        "model_source_control_artifacts",
+        "model_freeze_artifacts",
+        "input_evidence_artifacts",
+    ),
+)
+def test_release_chronology_rejects_resealed_binding_list_reordering(
+    tmp_path, field
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT,
+        f"thermoroute_verify_chronology_order_{field}_test",
+    )
+    root = tmp_path / field
+    root.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, root)
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    chronology_path = root / verifier.CHRONOLOGY_PATH
+    chronology = json.loads(chronology_path.read_text(encoding="utf-8"))
+    chronology[field].reverse()
+    chronology.pop("receipt_self_sha256")
+    chronology["receipt_self_sha256"] = verifier._chronology_self_sha256(
+        chronology
+    )
+    chronology_path.write_bytes(verifier._canonical_json_bytes(chronology))
+    authorization["prelabel_chronology"]["sha256"] = verifier.sha256_file(
+        chronology_path
+    )
+    authorization["state_paths"] = verifier._expected_authorization_state_paths(
+        authorization
+    )
+    _reseal_fixture_authorization(verifier, authorization_path, authorization)
+
+    with pytest.raises(ValueError, match="canonical producer order"):
+        verifier._validate_prelabel_chronology_structure(
+            root, {}, authorization
+        )
+
+
+def test_independent_chronology_rejects_json_aliases_after_binding_reseal(
+    tmp_path,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_chronology_json_alias_test"
+    )
+    base = tmp_path / "base-postopen"
+    base.mkdir()
+    authorization_path, _ = _write_postopen_fixture(verifier, base)
+    authorization_relative = authorization_path.relative_to(base)
+
+    def rewrite_authorization(root: Path, authorization: dict) -> None:
+        if "authorization_self_sha256" in authorization:
+            authorization.pop("authorization_self_sha256")
+            authorization["authorization_self_sha256"] = verifier._sha256_json(
+                authorization
+            )
+        (root / authorization_relative).write_bytes(
+            verifier._canonical_json_bytes(authorization)
+        )
+
+    for attack, message in (
+        ("duplicate_chronology", "duplicate JSON key"),
+        ("pretty_chronology", "canonical producer JSON"),
+        ("duplicate_suite", "duplicate JSON key"),
+    ):
+        root = tmp_path / attack
+        shutil.copytree(base, root)
+        authorization = json.loads(
+            (root / authorization_relative).read_text(encoding="utf-8")
+        )
+        chronology_path = root / verifier.CHRONOLOGY_PATH
+        if attack == "duplicate_chronology":
+            chronology_path.write_bytes(
+                chronology_path.read_bytes().replace(
+                    b"{", b'{"format":"thermoroute.attacker-alias.v1",', 1
+                )
+            )
+        elif attack == "pretty_chronology":
+            chronology = json.loads(chronology_path.read_text(encoding="utf-8"))
+            chronology_path.write_text(
+                json.dumps(chronology, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        else:
+            suite_relative = authorization["model_suite"]["path"]
+            suite_path = root / suite_relative
+            suite_path.write_bytes(
+                suite_path.read_bytes().replace(
+                    b"{", b'{"format":"thermoroute.attacker-alias.v1",', 1
+                )
+            )
+            authorization["model_suite"]["sha256"] = verifier.sha256_file(
+                suite_path
+            )
+            chronology = json.loads(chronology_path.read_text(encoding="utf-8"))
+            for item in chronology["model_freeze_artifacts"]:
+                if item["path"] == suite_relative:
+                    item.clear()
+                    item.update(
+                        _chronology_binding(verifier, root, suite_relative)
+                    )
+                    break
+            chronology.pop("receipt_self_sha256")
+            chronology["receipt_self_sha256"] = (
+                verifier._chronology_self_sha256(chronology)
+            )
+            chronology_path.write_bytes(
+                verifier._canonical_json_bytes(chronology)
+            )
+        authorization["prelabel_chronology"]["sha256"] = (
+            verifier.sha256_file(chronology_path)
+        )
+        rewrite_authorization(root, authorization)
+        with pytest.raises(ValueError, match=message):
+            verifier._validate_prelabel_chronology_structure(
+                root, {}, authorization
+            )
 
 
 def test_opening_identity_is_portable_in_real_python_i_process(tmp_path):
@@ -10267,7 +11365,9 @@ def test_release_git_audit_rejects_history_overlays_and_ambient_redirects(
         verifier._assert_safe_git_repository(root)
 
 
-def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp_path):
+def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(
+    tmp_path, monkeypatch
+):
     verifier = _load_script(VERIFY_SCRIPT, "thermoroute_verify_postopen_dirt_test")
     root = tmp_path / "repo"
     root.mkdir()
@@ -10327,14 +11427,21 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
     authorization = {
         "format": verifier.AUTHORIZATION_FORMAT,
         "status": "AUTHORIZED_LABELS_STILL_SEALED",
-        "protocol": {},
+        "protocol": {"path": "protocols/fixture.json", "sha256": "1" * 64},
         "registries": {},
-        "model_suite": {},
+        "model_suite": {
+            "path": "data_usgs/confirmatory_model_suite_v1.json",
+            "sha256": "2" * 64,
+        },
         "development_replay": {},
-        "prelabel_chronology": {},
+        "prelabel_chronology": {
+            "path": verifier.CHRONOLOGY_PATH,
+            "sha256": "3" * 64,
+        },
         "source": {
             "authorization_path": authorization_relative,
             "git_commit_before_authorization": head,
+            "source_tree_sha256": "4" * 64,
         },
         "outcome_qc_policy": {
             "path": "protocols/route_a_outcome_qc_policy_v1.json",
@@ -10373,6 +11480,18 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             },
             "erratum_document_commit": head,
         },
+        "model_matrix_amendment": {
+            "path": verifier.MODEL_MATRIX_AMENDMENT_PATH,
+            "sha256": verifier.MODEL_MATRIX_AMENDMENT_SHA256,
+            "format": verifier.MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": verifier.MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": verifier.MODEL_MATRIX_AMENDMENT_ID,
+            "seal": {
+                "path": verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+                "sha256": "0" * 64,
+            },
+            "amendment_document_commit": head,
+        },
         "inference_gate": {
             "path": "outputs/prelabel/route_a_inference_gate_v1.json",
             "sha256": "a" * 64,
@@ -10382,7 +11501,10 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
             "analysis_mode": "FIXED_COHORT_DESCRIPTIVE_ONLY",
             "policy_sha256": "b" * 64,
         },
-        "actual_inputs": {},
+        "actual_inputs": {
+            "path": "data_usgs/confirmatory_prelabel_inputs_v1.json",
+            "sha256": "5" * 64,
+        },
         "actual_feature_order": [],
         "required_models": {},
         "statistics_contract_sha256": "e" * 64,
@@ -10396,9 +11518,10 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
                 "path": verifier.REPRODUCIBILITY_LOCK,
                 "sha256": "6" * 64,
             },
-            "installed_version_validation": {},
+            "installed_version_validation": "fixture validation",
+            "installed_versions": {},
             "numerical_runtime_contract": {},
-            "runtime_sha256": "4" * 64,
+            "runtime_sha256": verifier._sha256_json({}),
             "python_executable": {},
             "golden_inference_sha256": "5" * 64,
             "formal_numerical_policy": {},
@@ -10408,6 +11531,20 @@ def test_postopen_git_dirt_allows_only_authorization_and_canonical_namespace(tmp
         "acquisition_plan": {},
         "state_paths": state,
     }
+    authorization["state_paths"] = verifier._expected_authorization_state_paths(
+        authorization
+    )
+    state = authorization["state_paths"]
+    base = state["run_directory"]
+    monkeypatch.setattr(
+        verifier,
+        "_validate_model_matrix_amendment_binding",
+        lambda *_args, **_kwargs: (
+            root / verifier.MODEL_MATRIX_AMENDMENT_PATH,
+            root / verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+            "0" * 64,
+        ),
+    )
     authorization["opening_id"] = verifier._sha256_json(authorization)[:24]
     authorization["created_at_utc"] = "2026-01-01T00:00:00+00:00"
     authorization["authorization_self_sha256"] = verifier._sha256_json(authorization)

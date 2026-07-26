@@ -23,6 +23,7 @@ import json
 import math
 import os
 from pathlib import Path, PurePosixPath
+import platform
 import re
 import shutil
 import stat
@@ -312,6 +313,207 @@ MODEL_MATRIX_AMENDMENT_STATUS = "FROZEN_PRELABEL_OUTCOME_FREE"
 MODEL_MATRIX_AMENDMENT_SEAL_STATUS = (
     "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
 )
+MODEL_MATRIX_AMENDMENT_SHA256 = (
+    "4acbfdad420c3e2ab42f43ab46f6886a3bc36e697627145c18316f49ffac4dbc"
+)
+MODEL_MATRIX_GOVERNANCE_SEALS = {
+    "base_protocol_seal": {
+        "path": "protocols/route_a_protocol_seal_v1.json",
+        "sha256": (
+            "df700fe2fac170d0466cbcaa0fae25efb4748ab82b44d49272c1e85ff5e060cd"
+        ),
+    },
+    "inference_amendment_seal_v1": {
+        "path": "protocols/route_a_inference_amendment_seal_v1.json",
+        "sha256": (
+            "28d636a108a2def8c4aed71c3a3627f29f3d47347cbb85e953c9268a2eada3b0"
+        ),
+    },
+    "inference_amendment_seal_v2": {
+        "path": "protocols/route_a_inference_amendment_seal_v2.json",
+        "sha256": (
+            "4b4e216f51f6d350912604a96aaa170887cbca7e952a1d097f03e54a7b99969d"
+        ),
+    },
+    "probability_metric_erratum_seal_v1": {
+        "path": PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+        "sha256": (
+            "f7f15d9f4d411fb502108c03e8843d7d00523254f0514a00f00a4e1c3299818d"
+        ),
+    },
+}
+MODEL_MATRIX_HISTORY_FORMAT = "thermoroute.route-a-model-matrix-history.v1"
+MODEL_MATRIX_SUITE_BINDING_FORMAT = (
+    "thermoroute.route-a-model-matrix-suite-binding.v1"
+)
+MODEL_MATRIX_CONTRACT_FORMAT = "thermoroute.route-a-model-matrix-contract.v1"
+MODEL_MATRIX_PRELABEL_ATTESTATION = {
+    "post_2020_wtemp_requested_or_inspected": False,
+    "confirmation_outcomes_requested_or_inspected": False,
+    "confirmation_outcome_artifact_present": False,
+    "outcome_endpoint_called": False,
+    "outcome_independent": True,
+    "network_used": False,
+}
+MODEL_MATRIX_DOCUMENT_LINEAGE_CONTRACT = {
+    "existing_governance_files_remain_immutable": True,
+    "separate_amendment_seal_required": True,
+    "seal_path": MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+    "seal_sha256_declared_in_this_document": False,
+    "amendment_document_commit_must_precede_seal_commit": True,
+    "amendment_document_created_exactly_once": True,
+    "seal_created_exactly_once": True,
+    "document_and_seal_immutable_after_sealing": True,
+}
+MODEL_MATRIX_SEAL_HISTORY_CONTRACT = {
+    "governance_seal_commits_must_be_strict_ancestors": True,
+    "amendment_blob_must_match_document_commit": True,
+    "amendment_document_created_exactly_once": True,
+    "document_commit_must_precede_seal_commit": True,
+    "seal_created_exactly_once": True,
+    "amendment_and_seal_immutable_to_release_tip": True,
+}
+MODEL_SUITE_DOCUMENT_FIELDS = frozenset({
+    "format",
+    "status",
+    "training_device",
+    "numerical_runtime_sha256",
+    "protocol_sha256",
+    "actual_feature_order",
+    "development_contract",
+    "model_matrix_amendment",
+    "preopening_gates",
+    "cohorts",
+})
+MODEL_MATRIX_HISTORY_FIELDS = frozenset({
+    "format",
+    "amendment",
+    "seal",
+    "amendment_id",
+    "amendment_document_commit",
+    "seal_commit",
+    "model_freeze_commit",
+    "contract_id",
+    "strict_order_verified",
+    "immutable_to_release_tip",
+    "evidence_scope",
+})
+MODEL_MATRIX_SUITE_BINDING_FIELDS = frozenset({
+    "format", "document", "seal", "contract_id",
+})
+MODEL_MATRIX_SUITE_DOCUMENT_FIELDS = frozenset({
+    "path", "sha256", "format", "status", "amendment_id",
+    "amendment_document_commit",
+})
+MODEL_MATRIX_SUITE_SEAL_FIELDS = frozenset({
+    "path", "sha256", "format", "status",
+})
+
+RAW_PREFLIGHT_ATTESTATION_FIELDS = frozenset({
+    "authorization_sha256",
+    "opening_id",
+    "protocol_sha256",
+    "development_registry_sha256",
+    "external_registry_sha256",
+    "external_lock_sha256",
+    "model_suite_sha256",
+    "development_replay_sha256",
+    "prelabel_chronology_sha256",
+    "inference_amendment_sha256",
+    "inference_amendment_seal_sha256",
+    "model_matrix_amendment_sha256",
+    "model_matrix_amendment_seal_sha256",
+    "model_matrix_amendment_id",
+    "model_matrix_amendment_status",
+    "inference_gate_sha256",
+    "inference_gate_status",
+    "inference_claim_eligible",
+    "outcome_qc_policy_sha256",
+    "temporal_coverage_policy_sha256",
+    "prelabel_inputs_sha256",
+    "actual_feature_order",
+    "required_models",
+    "source_tree_sha256",
+    "runtime_sha256",
+    "requirements_lock_sha256",
+    "hashed_requirements_lock_sha256",
+    "golden_inference_sha256",
+    "fixed_code_sha256",
+    "state_namespace",
+})
+TRUSTED_VALIDATOR_PATHS = (
+    "src/thermoroute/opening.py",
+    "src/thermoroute/model_suite.py",
+    "src/thermoroute/frozen_inference.py",
+    "src/thermoroute/checkpoint.py",
+    "src/thermoroute/datasets.py",
+    "src/thermoroute/features.py",
+    "src/thermoroute/usgs.py",
+    "src/thermoroute/results.py",
+    "src/thermoroute/significance.py",
+    "src/thermoroute/coverage_audit.py",
+    "src/thermoroute/coverage_bridge.py",
+    "src/thermoroute/model_matrix_amendment.py",
+    "src/thermoroute/repro.py",
+)
+TRUSTED_VALIDATOR_FIELDS = frozenset({
+    "implementation", "files", "sha256", "source_tree_sha256",
+})
+TRUSTED_VALIDATOR_IMPLEMENTATION = "thermoroute.opening.trusted-validator.v1"
+
+RELEASE_MECHANICS_RECEIPT_FORMAT = (
+    "thermoroute.same-host-release-mechanics-acceptance.v2"
+)
+RELEASE_MECHANICS_RECEIPT_STATUS = (
+    "PASS_SAME_HOST_FRESH_PROCESS_RELEASE_MECHANICS"
+)
+RELEASE_MECHANICS_RECEIPT_PATH = (
+    "outputs/prelabel/route_a_release_mechanics_acceptance_v2.json"
+)
+RELEASE_MECHANICS_CORE_PATH = "src/thermoroute/release_acceptance.py"
+RELEASE_MECHANICS_RUNNER_PATH = "scripts/30_verify_release_fresh_process.py"
+RELEASE_MECHANICS_EVIDENCE_SCOPE = (
+    "SAME_HOST_RELEASE_MECHANICS_ACCEPTANCE_ONLY_NOT_MODEL_READINESS_NOT_SCIENTIFIC_RESULT"
+)
+RELEASE_MECHANICS_MEASUREMENT_BACKEND = (
+    "perf_counter_ns_plus_exact_wait4_process_tree_rusage_v2"
+)
+RELEASE_MECHANICS_MEASUREMENT_SCOPE = (
+    "ONE_FIXED_VERIFIER_PROCESS_TREE_ON_THIS_HOST;_CPU_AND_RSS_ARE_THE_OS_"
+    "WAIT4_SUMMARY_FOR_THE_VERIFIER_AND_ALL_OF_ITS_DESCENDANTS;_PEAK_RSS_IS_"
+    "NOT_AN_ADDITIVE_OR_SIMULTANEOUS_PROCESS_TREE_MEMORY_PEAK"
+)
+RELEASE_MECHANICS_ISOLATION_LIMITATIONS = {
+    "fresh_machine": False,
+    "container": False,
+    "fresh_virtual_environment": False,
+    "dependency_reinstallation_from_hashed_lock": False,
+    "cold_cache_enforced": False,
+    "network_isolation_enforced": False,
+    "filesystem_read_isolation_enforced": False,
+    "descendant_python_isolation_flags_enforced": False,
+    "descendant_new_session_escape_prevented": False,
+    "energy_measured": False,
+    "multi_hardware_replay": False,
+    "deployment_latency_claim_allowed": False,
+}
+RELEASE_MECHANICS_AUTHENTICATION_LIMITATIONS = {
+    "external_authentication": False,
+    "historical_execution_independently_proven": False,
+    "resource_observation_independently_attested": False,
+    "receipt_owner_tamper_resistance": False,
+    "same_account_concurrent_adversary_resistance": False,
+    "self_hash_role": (
+        "INTERNAL_CONSISTENCY_AND_ACCIDENTAL_CORRUPTION_DETECTION_ONLY"
+    ),
+}
+RELEASE_MECHANICS_LABEL_SAFETY = {
+    "runner_invoked_opening_entrypoint": False,
+    "accepted_profile_declares_labels_included": False,
+    "confirmation_namespace_allowed_by_accepted_profile": False,
+    "post_2020_outcome_read_tracing_enforced": False,
+    "outcome_read_absence_claim_allowed": False,
+}
 LEGACY_THREE_SITE_NOTICE_PATH = (
     "protocols/legacy_three_site_semantics_notice_v1.md"
 )
@@ -436,6 +638,79 @@ CHRONOLOGY_EVIDENCE_SCOPE = (
     "repository-internal Git ancestry and SHA-256 evidence for an honest owner; "
     "not proof against owner-controlled Git-history rewriting"
 )
+CHRONOLOGY_TOP_LEVEL_FIELDS = frozenset({
+    "format",
+    "status",
+    "order",
+    "protocol_history",
+    "model_matrix_history",
+    "paths",
+    "required_gate_files_at_model_freeze",
+    "model_source_control_artifacts",
+    "source_tree_sha256",
+    "model_freeze_artifacts",
+    "input_evidence_artifacts",
+    "absence_at_model_freeze",
+    "post_model_control_audit",
+    "post_freeze_artifact_mutation_count",
+    "external_timestamp_or_public_preregistration",
+    "independent_custodian_or_worm_storage",
+    "evidence_scope",
+    "fallback_if_validation_fails",
+    "receipt_self_sha256",
+})
+CHRONOLOGY_ORDER_FIELDS = frozenset({
+    "model_freeze_commit",
+    "input_evidence_commit",
+    "receipt_creation_base_commit",
+    "strict_order_verified",
+})
+CHRONOLOGY_PATH_FIELDS = frozenset({
+    "protocol_seal",
+    "model_matrix_amendment",
+    "model_matrix_amendment_seal",
+    "model_suite",
+    "development_replay",
+    "candidate_table",
+    "candidate_provenance",
+    "candidate_snapshot_index",
+    "external_registry",
+    "external_lock",
+    "input_manifest",
+})
+CHRONOLOGY_PROTOCOL_HISTORY_FIELDS = frozenset({
+    "seal",
+    "original_commit",
+    "final_prelabel_commit",
+    "declared_git_show_bindings",
+})
+CHRONOLOGY_PROTOCOL_DECLARATION_FIELDS = frozenset({
+    "role", "commit", "path", "sha256",
+})
+CHRONOLOGY_ABSENCE_FIELDS = frozenset({"checked_paths", "present_paths"})
+CHRONOLOGY_POST_MODEL_AUDIT_FIELDS = frozenset({
+    "protected_directories",
+    "protected_exact_files",
+    "protected_root_patterns",
+    "committed_touches",
+    "worktree_changes",
+})
+CHRONOLOGY_FIXED_PRELABEL_ABSENCE_PATHS = frozenset({
+    CHRONOLOGY_PATH,
+    "data_usgs/confirmatory_candidate_sites_v1.csv",
+    "data_usgs/confirmatory_candidate_sites_v1.provenance.json",
+    "data_usgs/raw_snapshots/confirmatory-candidates-v1",
+    "data_usgs/confirmatory_site_registry_v1.csv",
+    "data_usgs/confirmatory_site_registry_v1.lock.json",
+    "data_usgs/confirmatory_actual_inputs_v1.json",
+    "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1",
+    "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1",
+    "data_usgs/confirmatory_predictors",
+    "data_usgs/confirmatory_opening_authorization_v1.json",
+    "data_usgs/confirmatory",
+    "data_usgs/confirmatory_outcomes",
+    "outputs/confirmatory",
+})
 OUTCOME_QC_AMENDMENT_ROLE = (
     "predeclared_nonfiltering_gross_plausibility_and_aggregate_sensitivity_"
     "directional_reporting_gate_not_complete_outcome_quality_certification"
@@ -571,6 +846,38 @@ SOURCE_INVENTORY_PATTERNS = (
     "requirements.txt",
     "requirements-lock*.txt",
 )
+CHRONOLOGY_REQUIRED_GATE_PATHS = (
+    "src/thermoroute/chronology.py",
+    "src/thermoroute/model_matrix_amendment.py",
+    "src/thermoroute/model_suite.py",
+    "src/thermoroute/opening.py",
+    "src/thermoroute/opening_contract.py",
+    "src/thermoroute/outcome_acquisition.py",
+    "src/thermoroute/outcome_qc.py",
+    "src/thermoroute/probability_metric_erratum.py",
+    RELEASE_MECHANICS_CORE_PATH,
+    "scripts/24_confirmatory_opening.py",
+    "scripts/24_freeze_model_suite.py",
+    "scripts/26_validate_claims.py",
+    "scripts/28_freeze_prelabel_chronology.py",
+    RELEASE_MECHANICS_RUNNER_PATH,
+    "scripts/make_release_archive.sh",
+    "scripts/route_a_opening_orchestrator.py",
+    "scripts/verify_release.py",
+    "tests/test_claim_registry.py",
+    "tests/test_chronology.py",
+    "tests/test_confirmatory_opening.py",
+    "tests/test_manifest_release.py",
+    "tests/test_model_matrix_amendment.py",
+    "tests/test_model_suite.py",
+    "tests/test_release_acceptance.py",
+    "tests/test_trusted_publication.py",
+    MODEL_MATRIX_AMENDMENT_PATH,
+    MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+    "protocols/route_a_outcome_qc_policy_v1.json",
+    PROBABILITY_METRIC_ERRATUM_PATH,
+    PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+)
 PROTECTED_DIRECTORIES = ("src", "scripts", "tests", "protocols", ".github")
 PROTECTED_EXACT_FILES = (".gitignore", "pyproject.toml")
 PROTECTED_ROOT_PATTERNS = ("requirements*.txt", "*lock*", "*.lock")
@@ -588,7 +895,15 @@ REQUIRED_MEMBERS = {
     "scripts/14_manifest.py",
     "scripts/deterministic_zip.py",
     "scripts/verify_release.py",
+    "scripts/make_release_archive.sh",
+    "scripts/24_freeze_model_suite.py",
+    "scripts/28_freeze_prelabel_chronology.py",
+    RELEASE_MECHANICS_RUNNER_PATH,
     "scripts/26_validate_claims.py",
+    "src/thermoroute/chronology.py",
+    "src/thermoroute/model_matrix_amendment.py",
+    "src/thermoroute/model_suite.py",
+    RELEASE_MECHANICS_CORE_PATH,
     "tests/test_leakage.py",
     "protocols/route_a_confirmatory_v1.json",
     "protocols/route_a_confirmatory_protocol.md",
@@ -597,6 +912,8 @@ REQUIRED_MEMBERS = {
     INFERENCE_AMENDMENT_SEAL_PATH,
     PROBABILITY_METRIC_ERRATUM_PATH,
     PROBABILITY_METRIC_ERRATUM_SEAL_PATH,
+    MODEL_MATRIX_AMENDMENT_PATH,
+    MODEL_MATRIX_AMENDMENT_SEAL_PATH,
     NATIVE_THREAD_ENFORCEMENT_NOTICE_PATH,
     NATIVE_ARTIFACT_PUBLICATION_NOTICE_PATH,
     LEGACY_THREE_SITE_NOTICE_PATH,
@@ -983,13 +1300,7 @@ def _independent_development_input_closure(
         return payload
 
     def json_object(payload: bytes, *, label: str) -> dict[str, Any]:
-        try:
-            value = json.loads(payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"{label} is not UTF-8 JSON") from exc
-        if not isinstance(value, dict):
-            raise ValueError(f"{label} is not a JSON object")
-        return value
+        return _strict_json_object_bytes(payload, label=label)
 
     def fixed_binding(
         value: object, *, expected_path: str, label: str,
@@ -1591,7 +1902,10 @@ def _independent_development_panel_contracts(
         registry = pd.read_csv(
             io.BytesIO(registry_payload), dtype=str, keep_default_na=False
         )
-        frozen_spec = json.loads(frozen_spec_payload.decode("utf-8"))
+        frozen_spec = _strict_json_object_bytes(
+            frozen_spec_payload,
+            label="canonical frozen-panel specification",
+        )
         panel_all = pd.read_parquet(io.BytesIO(payload))
     except Exception as exc:
         raise ValueError(
@@ -3341,6 +3655,7 @@ def _walk_json_dependencies(
     json_path: Path,
     *,
     visited: set[tuple[str, str]] | None = None,
+    opaque_json_paths: frozenset[str] = frozenset(),
 ) -> None:
     """Collect every file/directory binding reachable from one JSON document."""
     if visited is None:
@@ -3350,8 +3665,10 @@ def _walk_json_dependencies(
         return
     visited.add(identity)
     try:
-        document = json.loads(json_path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = _strict_json_object_bytes(
+            json_path.read_bytes(), label=f"closure JSON {json_path}"
+        )
+    except (OSError, ValueError) as exc:
         raise ValueError(f"cannot parse closure JSON: {json_path}") from exc
 
     def walk(value: object, *, base: Path, trail: str) -> None:
@@ -3368,14 +3685,29 @@ def _walk_json_dependencies(
                     label=f"{category} dependency {trail}",
                     base=base,
                 )
-                if path.is_file() and path.suffix == ".json":
+                relative = _relative(root, path, label=f"{category} dependency")
+                if (
+                    path.is_file()
+                    and path.suffix == ".json"
+                    and relative not in opaque_json_paths
+                ):
                     _walk_json_dependencies(
-                        root, categories, category, path, visited=visited
+                        root,
+                        categories,
+                        category,
+                        path,
+                        visited=visited,
+                        opaque_json_paths=opaque_json_paths,
                     )
                 elif path.is_dir():
                     for child in sorted(path.rglob("*.json")):
                         _walk_json_dependencies(
-                            root, categories, category, child, visited=visited
+                            root,
+                            categories,
+                            category,
+                            child,
+                            visited=visited,
+                            opaque_json_paths=opaque_json_paths,
                         )
             for key, item in value.items():
                 walk(item, base=base, trail=f"{trail}.{key}")
@@ -3390,14 +3722,46 @@ def _walk_json_dependencies(
         _add_path(root, categories, category, json_path.parent)
 
 
-def _load_json(path: Path, *, label: str) -> dict[str, Any]:
+def _strict_json_object_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
+    """Decode one UTF-8 JSON object without duplicate keys or NaN aliases."""
+
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"{label} contains duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    def reject_constant(value: str) -> Any:
+        raise ValueError(f"{label} contains non-finite JSON number: {value}")
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"{label} contains non-finite JSON number: {value}")
+        return parsed
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"cannot read {label}: {path}") from exc
+        value = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=object_pairs,
+            parse_constant=reject_constant,
+            parse_float=finite_float,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot decode strict JSON object: {label}") from exc
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
     return value
+
+
+def _load_json(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"cannot read {label}: {path}") from exc
+    return _strict_json_object_bytes(payload, label=label)
 
 
 def _require_canonical_json_file(
@@ -3761,6 +4125,99 @@ def _authorization_path(value: object, *, label: str) -> str:
     return path
 
 
+def _validate_chronology_model_matrix_history(
+    root: Path,
+    categories: dict[str, set[Path]],
+    chronology: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+    *,
+    model_freeze_commit: str,
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Validate exact current matrix bytes and their chronology/suite contract."""
+    history = chronology.get("model_matrix_history")
+    if not isinstance(history, Mapping) or set(history) != set(
+        MODEL_MATRIX_HISTORY_FIELDS
+    ):
+        raise ValueError("prelabel chronology model-matrix history schema changed")
+    commits = (
+        history.get("amendment_document_commit"),
+        history.get("seal_commit"),
+        history.get("model_freeze_commit"),
+    )
+    if (
+        history.get("format") != MODEL_MATRIX_HISTORY_FORMAT
+        or history.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or history.get("model_freeze_commit") != model_freeze_commit
+        or history.get("strict_order_verified") is not True
+        or history.get("immutable_to_release_tip") is not True
+        or history.get("evidence_scope") != CHRONOLOGY_EVIDENCE_SCOPE
+        or any(
+            not isinstance(commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+            for commit in commits
+        )
+        or len(set(commits)) != 3
+        or re.fullmatch(r"[0-9a-f]{64}", str(history.get("contract_id", "")))
+        is None
+    ):
+        raise ValueError("prelabel chronology model-matrix history changed")
+    authorization_binding = authorization.get("model_matrix_amendment")
+    authorization_seal = (
+        authorization_binding.get("seal")
+        if isinstance(authorization_binding, Mapping)
+        else None
+    )
+    if not isinstance(authorization_binding, Mapping) or not isinstance(
+        authorization_seal, Mapping
+    ):
+        raise ValueError("authorization lacks its model-matrix binding")
+    amendment_path = _chronology_artifact(
+        root,
+        categories,
+        history.get("amendment"),
+        label="chronology model-matrix amendment",
+    )
+    seal_path = _chronology_artifact(
+        root,
+        categories,
+        history.get("seal"),
+        label="chronology model-matrix amendment seal",
+    )
+    amendment_relative = _relative(
+        root, amendment_path, label="chronology model-matrix amendment"
+    )
+    seal_relative = _relative(
+        root, seal_path, label="chronology model-matrix amendment seal"
+    )
+    amendment_history_binding = history["amendment"]
+    seal_history_binding = history["seal"]
+    assert isinstance(amendment_history_binding, Mapping)
+    assert isinstance(seal_history_binding, Mapping)
+    if (
+        amendment_relative != MODEL_MATRIX_AMENDMENT_PATH
+        or seal_relative != MODEL_MATRIX_AMENDMENT_SEAL_PATH
+        or amendment_history_binding.get("sha256")
+        != authorization_binding.get("sha256")
+        or seal_history_binding.get("sha256") != authorization_seal.get("sha256")
+        or history.get("amendment_document_commit")
+        != authorization_binding.get("amendment_document_commit")
+    ):
+        raise ValueError(
+            "chronology and authorization bind different model-matrix evidence"
+        )
+    amendment = _load_json(amendment_path, label="chronology model-matrix amendment")
+    seal = _load_json(seal_path, label="chronology model-matrix amendment seal")
+    expected_contract_id = _validate_model_matrix_documents(
+        amendment,
+        seal,
+        amendment_sha256=str(amendment_history_binding["sha256"]),
+        amendment_document_commit=str(history["amendment_document_commit"]),
+    )
+    if history.get("contract_id") != expected_contract_id:
+        raise ValueError("chronology model-matrix contract ID changed")
+    return history, amendment
+
+
 def _validate_prelabel_chronology_structure(
     root: Path,
     categories: dict[str, set[Path]],
@@ -3782,6 +4239,11 @@ def _validate_prelabel_chronology_structure(
     if _relative(root, chronology_path, label="prelabel chronology") != CHRONOLOGY_PATH:
         raise ValueError("authorization uses a noncanonical prelabel chronology path")
     chronology = _load_json(chronology_path, label="prelabel chronology")
+    _require_canonical_json_file(
+        chronology_path, chronology, label="prelabel chronology"
+    )
+    if set(chronology) != set(CHRONOLOGY_TOP_LEVEL_FIELDS):
+        raise ValueError("prelabel chronology top-level schema changed")
     stable = dict(chronology)
     self_digest = stable.pop("receipt_self_sha256", None)
     if self_digest != _chronology_self_sha256(stable):
@@ -3798,12 +4260,11 @@ def _validate_prelabel_chronology_structure(
     ):
         raise ValueError("prelabel chronology status or evidence-scope disclosure changed")
     order = chronology.get("order")
-    if not isinstance(order, Mapping) or set(order) != {
-        "model_freeze_commit",
-        "input_evidence_commit",
-        "receipt_creation_base_commit",
-        "strict_order_verified",
-    } or order.get("strict_order_verified") is not True:
+    if (
+        not isinstance(order, Mapping)
+        or set(order) != set(CHRONOLOGY_ORDER_FIELDS)
+        or order.get("strict_order_verified") is not True
+    ):
         raise ValueError("prelabel chronology order schema changed")
     commits = [
         str(order[key]) for key in (
@@ -3827,10 +4288,25 @@ def _validate_prelabel_chronology_structure(
 
     protocol = authorization.get("protocol")
     registries = authorization.get("registries")
-    if not isinstance(protocol, Mapping) or not isinstance(registries, Mapping):
+    model_matrix = authorization.get("model_matrix_amendment")
+    model_matrix_seal = (
+        model_matrix.get("seal") if isinstance(model_matrix, Mapping) else None
+    )
+    if (
+        not isinstance(protocol, Mapping)
+        or not isinstance(registries, Mapping)
+        or not isinstance(model_matrix, Mapping)
+        or not isinstance(model_matrix_seal, Mapping)
+    ):
         raise ValueError("authorization cannot resolve chronology dependencies")
     expected_paths = {
         "protocol_seal": _authorization_path(protocol.get("seal"), label="protocol seal"),
+        "model_matrix_amendment": _authorization_path(
+            model_matrix, label="model-matrix amendment"
+        ),
+        "model_matrix_amendment_seal": _authorization_path(
+            model_matrix_seal, label="model-matrix amendment seal"
+        ),
         "model_suite": _authorization_path(
             authorization.get("model_suite"), label="model suite"
         ),
@@ -3857,21 +4333,45 @@ def _validate_prelabel_chronology_structure(
             authorization.get("actual_inputs"), label="actual inputs"
         ),
     }
+    if set(expected_paths) != set(CHRONOLOGY_PATH_FIELDS):
+        raise ValueError("independent chronology path mirror is incomplete")
     if chronology.get("paths") != expected_paths:
         raise ValueError("prelabel chronology binds another authorized evidence set")
 
+    model_matrix_history, model_matrix_document = (
+        _validate_chronology_model_matrix_history(
+            root,
+            categories,
+            chronology,
+            authorization,
+            model_freeze_commit=str(order["model_freeze_commit"]),
+        )
+    )
+    suite_path = _resolve_release_path(
+        root, expected_paths["model_suite"], label="chronology model suite"
+    )
+    suite_document = _load_json(suite_path, label="chronology model suite")
+    _validate_model_matrix_suite_binding(
+        suite_document,
+        history=model_matrix_history,
+        amendment=model_matrix_document,
+    )
+
     protocol_history = chronology.get("protocol_history")
-    if not isinstance(protocol_history, Mapping):
+    if (
+        not isinstance(protocol_history, Mapping)
+        or set(protocol_history) != set(CHRONOLOGY_PROTOCOL_HISTORY_FIELDS)
+    ):
         raise ValueError("prelabel chronology lacks protocol history")
-    seal = protocol_history.get("seal")
+    history_seal = protocol_history.get("seal")
     seal_path = _chronology_artifact(
-        root, categories, seal, label="chronology protocol seal"
+        root, categories, history_seal, label="chronology protocol seal"
     )
     if (
         _relative(root, seal_path, label="chronology protocol seal")
         != expected_paths["protocol_seal"]
-        or not isinstance(seal, Mapping)
-        or seal.get("sha256") != protocol.get("seal", {}).get("sha256")
+        or not isinstance(history_seal, Mapping)
+        or history_seal.get("sha256") != protocol.get("seal", {}).get("sha256")
         or protocol_history.get("original_commit")
         != protocol.get("authoritative_commit")
         or protocol_history.get("final_prelabel_commit")
@@ -3879,24 +4379,59 @@ def _validate_prelabel_chronology_structure(
     ):
         raise ValueError("prelabel chronology protocol history changed")
     declared = protocol_history.get("declared_git_show_bindings")
-    if not isinstance(declared, list) or len(declared) != 3:
+    protocol_seal_document = _load_json(
+        seal_path, label="chronology protocol-seal replay"
+    )
+    original_protocol = protocol_seal_document.get("original_preregistration")
+    final_protocol = protocol_seal_document.get("final_prelabel_protocol")
+    if not isinstance(original_protocol, Mapping) or not isinstance(
+        final_protocol, Mapping
+    ):
+        raise ValueError("prelabel chronology protocol seal history is malformed")
+    original_markdown = original_protocol.get("markdown")
+    final_json = final_protocol.get("json")
+    final_markdown = final_protocol.get("markdown")
+    if any(
+        not isinstance(value, Mapping)
+        or set(value) != {"path", "sha256"}
+        for value in (original_markdown, final_json, final_markdown)
+    ):
+        raise ValueError("prelabel chronology protocol artifact binding changed")
+    assert isinstance(original_markdown, Mapping)
+    assert isinstance(final_json, Mapping)
+    assert isinstance(final_markdown, Mapping)
+    expected_declarations = [
+        {
+            "role": "original_markdown",
+            "commit": protocol.get("authoritative_commit"),
+            "path": original_markdown.get("path"),
+            "sha256": original_markdown.get("sha256"),
+        },
+        {
+            "role": "final_json",
+            "commit": protocol.get("final_prelabel_commit"),
+            "path": final_json.get("path"),
+            "sha256": final_json.get("sha256"),
+        },
+        {
+            "role": "final_markdown",
+            "commit": protocol.get("final_prelabel_commit"),
+            "path": final_markdown.get("path"),
+            "sha256": final_markdown.get("sha256"),
+        },
+    ]
+    if (
+        not isinstance(declared, list)
+        or any(
+            not isinstance(item, Mapping)
+            or set(item) != set(CHRONOLOGY_PROTOCOL_DECLARATION_FIELDS)
+            for item in declared
+        )
+        or declared != expected_declarations
+    ):
         raise ValueError("prelabel chronology Git-show registry is incomplete")
-    roles = {
-        str(item.get("role")) for item in declared if isinstance(item, Mapping)
-    }
-    if roles != {"original_markdown", "final_json", "final_markdown"}:
-        raise ValueError("prelabel chronology Git-show roles changed")
 
-    required_gate_paths = {
-        "src/thermoroute/chronology.py",
-        "src/thermoroute/outcome_qc.py",
-        "src/thermoroute/probability_metric_erratum.py",
-        "scripts/28_freeze_prelabel_chronology.py",
-        "tests/test_chronology.py",
-        "protocols/route_a_outcome_qc_policy_v1.json",
-        "protocols/route_a_probability_metric_erratum_v1.json",
-        "protocols/route_a_probability_metric_erratum_seal_v1.json",
-    }
+    required_gate_paths = set(CHRONOLOGY_REQUIRED_GATE_PATHS)
     observed_by_field: dict[str, set[str]] = {}
     bindings_by_path: dict[str, Mapping[str, Any]] = {}
     for field, minimum in (
@@ -3909,6 +4444,7 @@ def _validate_prelabel_chronology_structure(
         if not isinstance(values, list) or len(values) < minimum:
             raise ValueError(f"prelabel chronology {field} is incomplete")
         observed: set[str] = set()
+        observed_order: list[str] = []
         for index, item in enumerate(values):
             path = _chronology_artifact(
                 root, categories, item, label=f"chronology {field}[{index}]"
@@ -3917,11 +4453,20 @@ def _validate_prelabel_chronology_structure(
             if relative in observed:
                 raise ValueError(f"prelabel chronology {field} duplicates {relative}")
             observed.add(relative)
+            observed_order.append(relative)
             assert isinstance(item, Mapping)
             bindings_by_path[relative] = item
         observed_by_field[field] = observed
-        if field == "required_gate_files_at_model_freeze" and observed != required_gate_paths:
-            raise ValueError("prelabel chronology required-gate registry changed")
+        if field == "required_gate_files_at_model_freeze":
+            if observed != required_gate_paths:
+                raise ValueError("prelabel chronology required-gate registry changed")
+            expected_order = list(CHRONOLOGY_REQUIRED_GATE_PATHS)
+        else:
+            expected_order = sorted(observed_order)
+        if observed_order != expected_order:
+            raise ValueError(
+                f"prelabel chronology {field} is not in canonical producer order"
+            )
     declared_control = observed_by_field["model_source_control_artifacts"]
     if declared_control != _working_model_control_paths(root):
         raise ValueError(
@@ -3959,21 +4504,17 @@ def _validate_prelabel_chronology_structure(
     absence = chronology.get("absence_at_model_freeze")
     if (
         not isinstance(absence, Mapping)
+        or set(absence) != set(CHRONOLOGY_ABSENCE_FIELDS)
         or absence.get("present_paths") != []
         or not isinstance(absence.get("checked_paths"), list)
         or not absence["checked_paths"]
+        or absence["checked_paths"] != sorted(set(absence["checked_paths"]))
     ):
         raise ValueError("prelabel chronology absence audit is incomplete")
     control = chronology.get("post_model_control_audit")
     if (
         not isinstance(control, Mapping)
-        or set(control) != {
-            "protected_directories",
-            "protected_exact_files",
-            "protected_root_patterns",
-            "committed_touches",
-            "worktree_changes",
-        }
+        or set(control) != set(CHRONOLOGY_POST_MODEL_AUDIT_FIELDS)
         or control.get("protected_directories") != list(PROTECTED_DIRECTORIES)
         or control.get("protected_exact_files") != list(PROTECTED_EXACT_FILES)
         or control.get("protected_root_patterns") != list(PROTECTED_ROOT_PATTERNS)
@@ -4052,6 +4593,149 @@ def _merge_categories(
         target.setdefault(category, set()).update(path.resolve() for path in paths)
 
 
+def _model_matrix_contract_id(amendment: Mapping[str, Any]) -> str:
+    """Independently content-address the two frozen replication matrices."""
+    stage09 = amendment.get("stage09_architecture_control_matrix")
+    stage09b = amendment.get("stage09b_development_control_matrix")
+    if not isinstance(stage09, Mapping) or not isinstance(stage09b, Mapping):
+        raise ValueError("model-matrix amendment lacks its two control matrices")
+    return _sha256_json({
+        "format": MODEL_MATRIX_CONTRACT_FORMAT,
+        "stage09_architecture_control_matrix": dict(stage09),
+        "stage09b_development_control_matrix": dict(stage09b),
+    })
+
+
+def _validate_model_matrix_documents(
+    amendment: Mapping[str, Any],
+    seal: Mapping[str, Any],
+    *,
+    amendment_sha256: str,
+    amendment_document_commit: str,
+) -> str:
+    """Mirror the exact outcome-free matrix document/seal semantic envelope."""
+    amendment_fields = {
+        "format",
+        "status",
+        "amendment_id",
+        "recorded_date",
+        "governance_inputs",
+        "primary_contract_object_bindings",
+        "scientific_scope",
+        "stage09_architecture_control_matrix",
+        "stage09b_development_control_matrix",
+        "unchanged_primary_boundary",
+        "lineage_contract",
+        "prelabel_attestation",
+    }
+    seal_fields = {
+        "format",
+        "status",
+        "amendment_id",
+        "amendment",
+        "amendment_document_commit",
+        "governance_seals",
+        "history_contract",
+        "prelabel_attestation",
+    }
+    if set(amendment) != amendment_fields:
+        raise ValueError("model-matrix amendment top-level schema changed")
+    if set(seal) != seal_fields:
+        raise ValueError("model-matrix amendment seal top-level schema changed")
+    if (
+        amendment_sha256 != MODEL_MATRIX_AMENDMENT_SHA256
+        or amendment.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
+        or amendment.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
+        or amendment.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or amendment.get("lineage_contract")
+        != MODEL_MATRIX_DOCUMENT_LINEAGE_CONTRACT
+        or amendment.get("prelabel_attestation")
+        != MODEL_MATRIX_PRELABEL_ATTESTATION
+        or not isinstance(amendment.get("governance_inputs"), Mapping)
+        or not amendment["governance_inputs"]
+        or not isinstance(
+            amendment.get("primary_contract_object_bindings"), Mapping
+        )
+        or not amendment["primary_contract_object_bindings"]
+        or not isinstance(amendment.get("scientific_scope"), Mapping)
+        or not isinstance(amendment.get("unchanged_primary_boundary"), Mapping)
+        or seal.get("format") != MODEL_MATRIX_AMENDMENT_SEAL_FORMAT
+        or seal.get("status") != MODEL_MATRIX_AMENDMENT_SEAL_STATUS
+        or seal.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
+        or seal.get("amendment")
+        != {
+            "path": MODEL_MATRIX_AMENDMENT_PATH,
+            "sha256": amendment_sha256,
+        }
+        or seal.get("amendment_document_commit") != amendment_document_commit
+        or seal.get("history_contract") != MODEL_MATRIX_SEAL_HISTORY_CONTRACT
+        or seal.get("prelabel_attestation")
+        != MODEL_MATRIX_PRELABEL_ATTESTATION
+        or seal.get("governance_seals") != MODEL_MATRIX_GOVERNANCE_SEALS
+    ):
+        raise ValueError("model-matrix amendment or seal semantics changed")
+    return _model_matrix_contract_id(amendment)
+
+
+def _validate_model_matrix_suite_binding(
+    suite: Mapping[str, Any],
+    *,
+    history: Mapping[str, Any],
+    amendment: Mapping[str, Any],
+) -> None:
+    """Require the frozen suite to carry the same exact matrix bytes/contract."""
+    suite_fields = set(suite)
+    if suite_fields not in (
+        set(MODEL_SUITE_DOCUMENT_FIELDS),
+        set(MODEL_SUITE_DOCUMENT_FIELDS) | {"versioned_suite"},
+    ):
+        raise ValueError("model suite top-level schema changed")
+    value = suite.get("model_matrix_amendment")
+    if not isinstance(value, Mapping) or set(value) != set(
+        MODEL_MATRIX_SUITE_BINDING_FIELDS
+    ):
+        raise ValueError("model suite lacks its exact model-matrix binding")
+    document = value.get("document")
+    seal = value.get("seal")
+    if (
+        not isinstance(document, Mapping)
+        or set(document) != set(MODEL_MATRIX_SUITE_DOCUMENT_FIELDS)
+        or not isinstance(seal, Mapping)
+        or set(seal) != set(MODEL_MATRIX_SUITE_SEAL_FIELDS)
+    ):
+        raise ValueError("model suite model-matrix nested binding changed")
+    amendment_binding = history.get("amendment")
+    seal_binding = history.get("seal")
+    if not isinstance(amendment_binding, Mapping) or not isinstance(
+        seal_binding, Mapping
+    ):
+        raise ValueError("chronology model-matrix byte bindings are absent")
+    expected = {
+        "format": MODEL_MATRIX_SUITE_BINDING_FORMAT,
+        "document": {
+            "path": amendment_binding.get("path"),
+            "sha256": amendment_binding.get("sha256"),
+            "format": MODEL_MATRIX_AMENDMENT_FORMAT,
+            "status": MODEL_MATRIX_AMENDMENT_STATUS,
+            "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+            "amendment_document_commit": history.get(
+                "amendment_document_commit"
+            ),
+        },
+        "seal": {
+            "path": seal_binding.get("path"),
+            "sha256": seal_binding.get("sha256"),
+            "format": MODEL_MATRIX_AMENDMENT_SEAL_FORMAT,
+            "status": MODEL_MATRIX_AMENDMENT_SEAL_STATUS,
+        },
+        "contract_id": _model_matrix_contract_id(amendment),
+    }
+    if dict(value) != expected or value.get("contract_id") != history.get(
+        "contract_id"
+    ):
+        raise ValueError("model suite and chronology bind different model matrices")
+
+
 def _validate_model_matrix_amendment_binding(
     root: Path,
     authorization: Mapping[str, Any],
@@ -4066,7 +4750,7 @@ def _validate_model_matrix_amendment_binding(
         not isinstance(binding, Mapping)
         or set(binding) != binding_fields
         or binding.get("path") != MODEL_MATRIX_AMENDMENT_PATH
-        or re.fullmatch(r"[0-9a-f]{64}", str(binding.get("sha256", ""))) is None
+        or binding.get("sha256") != MODEL_MATRIX_AMENDMENT_SHA256
         or binding.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
         or binding.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
         or binding.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
@@ -4110,56 +4794,117 @@ def _validate_model_matrix_amendment_binding(
     seal = _load_json(
         seal_path, label="authorized model-matrix amendment seal"
     )
-    attestation = {
-        "post_2020_wtemp_requested_or_inspected": False,
-        "confirmation_outcomes_requested_or_inspected": False,
-        "confirmation_outcome_artifact_present": False,
-        "outcome_endpoint_called": False,
-        "outcome_independent": True,
-        "network_used": False,
-    }
-    history_contract = {
-        "governance_seal_commits_must_be_strict_ancestors": True,
-        "amendment_blob_must_match_document_commit": True,
-        "amendment_document_created_exactly_once": True,
-        "document_commit_must_precede_seal_commit": True,
-        "seal_created_exactly_once": True,
-        "amendment_and_seal_immutable_to_release_tip": True,
-    }
-    if (
-        amendment.get("format") != MODEL_MATRIX_AMENDMENT_FORMAT
-        or amendment.get("status") != MODEL_MATRIX_AMENDMENT_STATUS
-        or amendment.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
-        or amendment.get("prelabel_attestation") != attestation
-        or set(seal)
-        != {
-            "format", "status", "amendment_id", "amendment",
-            "amendment_document_commit", "governance_seals",
-            "history_contract", "prelabel_attestation",
-        }
-        or seal.get("format") != MODEL_MATRIX_AMENDMENT_SEAL_FORMAT
-        or seal.get("status") != MODEL_MATRIX_AMENDMENT_SEAL_STATUS
-        or seal.get("amendment_id") != MODEL_MATRIX_AMENDMENT_ID
-        or seal.get("amendment")
-        != {"path": MODEL_MATRIX_AMENDMENT_PATH, "sha256": binding["sha256"]}
-        or seal.get("amendment_document_commit")
-        != binding.get("amendment_document_commit")
-        or seal.get("history_contract") != history_contract
-        or seal.get("prelabel_attestation") != attestation
-        or not isinstance(seal.get("governance_seals"), Mapping)
-        or not seal["governance_seals"]
-        or any(
-            not isinstance(item, Mapping)
-            or set(item) != {"path", "sha256"}
-            or re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256", "")))
-            is None
-            for item in seal["governance_seals"].values()
-        )
-    ):
-        raise ValueError(
-            "authorized model-matrix amendment or seal semantics changed"
-        )
+    _validate_model_matrix_documents(
+        amendment,
+        seal,
+        amendment_sha256=str(binding["sha256"]),
+        amendment_document_commit=str(binding["amendment_document_commit"]),
+    )
     return amendment_path, seal_path, str(seal_binding["sha256"])
+
+
+def _expected_authorization_state_paths(
+    authorization: Mapping[str, Any],
+) -> dict[str, str]:
+    """Mirror the producer's content-addressed opening namespace exactly."""
+
+    def digest(binding: object, *, label: str) -> str:
+        if not isinstance(binding, Mapping):
+            raise ValueError(f"authorization {label} binding is absent")
+        value = binding.get("sha256")
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError(f"authorization {label} binding lacks an exact SHA-256")
+        return value
+
+    source = authorization.get("source")
+    source_tree_sha256 = source.get("source_tree_sha256") if isinstance(
+        source, Mapping
+    ) else None
+    if (
+        not isinstance(source_tree_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", source_tree_sha256) is None
+    ):
+        raise ValueError("authorization source tree lacks an exact SHA-256")
+    inference_amendment = authorization.get("inference_amendment")
+    probability_erratum = authorization.get("probability_metric_erratum")
+    model_matrix = authorization.get("model_matrix_amendment")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (inference_amendment, probability_erratum, model_matrix)
+    ):
+        raise ValueError("authorization governance-seal bindings are absent")
+    assert isinstance(inference_amendment, Mapping)
+    assert isinstance(probability_erratum, Mapping)
+    assert isinstance(model_matrix, Mapping)
+    namespace = _sha256_json({
+        "protocol_sha256": digest(
+            authorization.get("protocol"), label="protocol"
+        ),
+        "source_tree_sha256": source_tree_sha256,
+        "model_suite_sha256": digest(
+            authorization.get("model_suite"), label="model suite"
+        ),
+        "prelabel_inputs_sha256": digest(
+            authorization.get("actual_inputs"), label="prelabel inputs"
+        ),
+        "prelabel_chronology_sha256": digest(
+            authorization.get("prelabel_chronology"), label="prelabel chronology"
+        ),
+        "inference_gate_sha256": digest(
+            authorization.get("inference_gate"), label="inference gate"
+        ),
+        "inference_amendment_seal_sha256": digest(
+            inference_amendment.get("seal"), label="inference-amendment seal"
+        ),
+        "probability_metric_erratum_seal_sha256": digest(
+            probability_erratum.get("seal"), label="probability-metric erratum seal"
+        ),
+        "model_matrix_amendment_seal_sha256": digest(
+            model_matrix.get("seal"), label="model-matrix amendment seal"
+        ),
+        "outcome_qc_policy_sha256": digest(
+            authorization.get("outcome_qc_policy"), label="outcome-QC policy"
+        ),
+        "temporal_coverage_policy_sha256": digest(
+            authorization.get("temporal_coverage_policy"),
+            label="temporal-coverage policy",
+        ),
+    })[:24]
+    base = f"outputs/confirmatory/route_a_{namespace}"
+    return {
+        "namespace": namespace,
+        "run_directory": base,
+        "work_order": f"{base}/acquisition_work_order_v1.json",
+        "intent": f"{base}/opening_intent_v1.json",
+        "transport_root": f"{base}/transport",
+        "raw_nwis_root": f"{base}/transport/raw_nwis_v1",
+        "raw_nwis_snapshot_index": (
+            f"{base}/transport/raw_nwis_v1/snapshot_index.json"
+        ),
+        "acquisition_request_map": f"{base}/acquisition/source_request_map_v1.json",
+        "temporal_outcomes": f"{base}/acquisition/temporal_outcomes_v1.parquet",
+        "external_outcomes": f"{base}/acquisition/external_outcomes_v1.parquet",
+        "acquisition_manifest": f"{base}/acquisition/acquisition_manifest_v1.json",
+        "availability_registry": f"{base}/trusted/availability_registry_v1.csv",
+        "outcome_quality_audit": f"{base}/trusted/outcome_quality_audit_v1.json",
+        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
+        "approved_target_sensitivity": (
+            f"{base}/trusted/approved_target_sensitivity_v1.json"
+        ),
+        "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
+        "probabilistic_evaluation": (
+            f"{base}/trusted/probabilistic_evaluation_v2.json"
+        ),
+        "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
+        "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
+        "statistics": f"{base}/trusted/statistics_v1.json",
+        "temporal_coverage_audit": (
+            f"{base}/trusted/temporal_coverage_audit_v1.json"
+        ),
+        "report": f"{base}/trusted/report_v1.md",
+        "receipt": f"{base}/opening_receipt_v1.json",
+        "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
+    }
 
 
 def _validate_authorization_structure(
@@ -4219,42 +4964,12 @@ def _validate_authorization_structure(
         )
     if any(not isinstance(value, str) or not value for value in state.values()):
         raise ValueError("authorization contains a malformed canonical state path")
-    namespace = str(state["namespace"])
-    if len(namespace) != 24 or any(character not in "0123456789abcdef" for character in namespace):
-        raise ValueError("authorization state namespace is not a 24-hex digest")
-    base = f"outputs/confirmatory/route_a_{namespace}"
-    expected = {
-        "run_directory": base,
-        "work_order": f"{base}/acquisition_work_order_v1.json",
-        "intent": f"{base}/opening_intent_v1.json",
-        "transport_root": f"{base}/transport",
-        "raw_nwis_root": f"{base}/transport/raw_nwis_v1",
-        "raw_nwis_snapshot_index": (
-            f"{base}/transport/raw_nwis_v1/snapshot_index.json"
-        ),
-        "acquisition_request_map": f"{base}/acquisition/source_request_map_v1.json",
-        "temporal_outcomes": f"{base}/acquisition/temporal_outcomes_v1.parquet",
-        "external_outcomes": f"{base}/acquisition/external_outcomes_v1.parquet",
-        "acquisition_manifest": f"{base}/acquisition/acquisition_manifest_v1.json",
-        "availability_registry": f"{base}/trusted/availability_registry_v1.csv",
-        "outcome_quality_audit": f"{base}/trusted/outcome_quality_audit_v1.json",
-        "outcome_qc_gate": f"{base}/trusted/outcome_qc_gate_v1.json",
-        "approved_target_sensitivity": f"{base}/trusted/approved_target_sensitivity_v1.json",
-        "spatial_sensitivity": f"{base}/trusted/spatial_sensitivity_v1.json",
-        "probabilistic_evaluation": f"{base}/trusted/probabilistic_evaluation_v2.json",
-        "temporal_predictions": f"{base}/trusted/temporal_predictions_v1.parquet",
-        "external_predictions": f"{base}/trusted/external_predictions_v1.parquet",
-        "statistics": f"{base}/trusted/statistics_v1.json",
-        "temporal_coverage_audit": (
-            f"{base}/trusted/temporal_coverage_audit_v1.json"
-        ),
-        "report": f"{base}/trusted/report_v1.md",
-        "receipt": f"{base}/opening_receipt_v1.json",
-        "receipt_sha256": f"{base}/opening_receipt_v1.sha256",
-    }
-    wrong = {key: state.get(key) for key, value in expected.items() if state.get(key) != value}
-    if wrong:
-        raise ValueError(f"authorization state paths leave the canonical namespace: {wrong}")
+    expected_state = _expected_authorization_state_paths(authorization)
+    if dict(state) != expected_state:
+        raise ValueError(
+            "authorization state paths differ from the content-addressed "
+            "canonical namespace"
+        )
     qc_policy = authorization.get("outcome_qc_policy")
     if (
         not isinstance(qc_policy, Mapping)
@@ -4367,16 +5082,47 @@ def _validate_authorization_structure(
         raise ValueError("authorization lacks an environment attestation")
     required_runtime = {
         "format", "requirements_lock", "hashed_requirements_lock",
-        "installed_version_validation", "numerical_runtime_contract",
+        "installed_version_validation", "installed_versions",
+        "numerical_runtime_contract",
         "runtime_sha256", "python_executable", "golden_inference_sha256",
         "formal_numerical_policy", "deterministic_child_policy",
     }
-    if not required_runtime <= set(runtime):
-        raise ValueError("authorization environment attestation is incomplete")
+    if set(runtime) != required_runtime:
+        missing = sorted(required_runtime - set(runtime))
+        extra = sorted(set(runtime) - required_runtime)
+        raise ValueError(
+            "authorization environment attestation schema changed: "
+            f"missing={missing}, extra={extra}"
+        )
+    runtime_contract = runtime.get("numerical_runtime_contract")
+    installed_versions = runtime.get("installed_versions")
+    if (
+        runtime.get("format") != "thermoroute.route-a-runtime.v1"
+        or not isinstance(runtime.get("requirements_lock"), Mapping)
+        or not isinstance(runtime.get("hashed_requirements_lock"), Mapping)
+        or not isinstance(runtime.get("installed_version_validation"), str)
+        or not isinstance(installed_versions, Mapping)
+        or any(
+            not isinstance(name, str) or not isinstance(version, str)
+            for name, version in installed_versions.items()
+        )
+        or not isinstance(runtime_contract, Mapping)
+        or not isinstance(runtime.get("python_executable"), Mapping)
+        or not isinstance(runtime.get("formal_numerical_policy"), Mapping)
+        or not isinstance(runtime.get("deterministic_child_policy"), Mapping)
+    ):
+        raise ValueError("authorization environment attestation is malformed")
     for key in ("runtime_sha256", "golden_inference_sha256"):
         value = runtime.get(key)
-        if not isinstance(value, str) or len(value) != 64:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        ):
             raise ValueError(f"authorization runtime has an invalid {key}")
+    if runtime.get("runtime_sha256") != _sha256_json(runtime_contract):
+        raise ValueError(
+            "authorization runtime digest differs from its numerical runtime contract"
+        )
     return authorization, {key: str(value) for key, value in state.items()}
 
 
@@ -6357,10 +7103,12 @@ def _stage16_checkpoint_payload(
         ensure_ascii=True,
         allow_nan=False,
     )
-    try:
-        extra = json.loads(payload["extra_json"])
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{label} extra JSON is malformed") from exc
+    extra_json = payload.get("extra_json")
+    if not isinstance(extra_json, str):
+        raise ValueError(f"{label} extra JSON is malformed")
+    extra = _strict_json_object_bytes(
+        extra_json.encode("utf-8"), label=f"{label} extra JSON"
+    )
     expected_extra_json = json.dumps(
         extra,
         sort_keys=True,
@@ -7944,7 +8692,11 @@ def _validate_preopening_completion_gates(
             or int(row.get("maximum_optimizer_steps_per_seed", "-1"))
             != math.ceil(int(row["train_examples_per_epoch"]) / 1536) * 80
             or int(row.get("architecture_candidates_in_this_entrypoint", "-1")) != 1
-                or json.loads(row.get("architecture_configuration", "null"))
+                or not isinstance(row.get("architecture_configuration"), str)
+                or _strict_json_object_bytes(
+                    str(row["architecture_configuration"]).encode("utf-8"),
+                    label="Stage-09b architecture configuration",
+                )
                 != config["architecture_templates"][row["arm_id"]]
                 or row.get("information_matched_context")
                 != ("True" if row["arm_id"].startswith("Plain") else "False")
@@ -10668,6 +11420,203 @@ def _validate_probabilistic_evaluation_v2(
     return artifact
 
 
+def _required_binding_sha256(value: object, *, label: str) -> str:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} binding is absent")
+    digest = value.get("sha256")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError(f"{label} binding lacks an exact SHA-256")
+    return digest
+
+
+def _expected_raw_preflight_attestation(
+    root: Path,
+    authorization: Mapping[str, Any],
+    suite: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Independently rebuild the opening producer's complete raw preflight view."""
+    del root  # All byte bindings were independently resolved before this rebuild.
+    registries = authorization.get("registries")
+    runtime = authorization.get("runtime")
+    model_matrix = authorization.get("model_matrix_amendment")
+    inference_amendment = authorization.get("inference_amendment")
+    if (
+        not isinstance(registries, Mapping)
+        or not isinstance(runtime, Mapping)
+        or not isinstance(model_matrix, Mapping)
+        or not isinstance(inference_amendment, Mapping)
+    ):
+        raise ValueError("cannot rebuild opening raw-preflight attestation")
+    required_models = authorization.get("required_models")
+    feature_order = suite.get("actual_feature_order")
+    state = authorization.get("state_paths")
+    inference_gate = authorization.get("inference_gate")
+    if (
+        not isinstance(required_models, Mapping)
+        or not isinstance(feature_order, list)
+        or not isinstance(state, Mapping)
+        or not isinstance(inference_gate, Mapping)
+    ):
+        raise ValueError("cannot rebuild opening raw-preflight model/state identity")
+    expected = {
+        "authorization_sha256": "",  # Filled by the caller from the exact file.
+        "opening_id": authorization.get("opening_id"),
+        "protocol_sha256": _required_binding_sha256(
+            authorization.get("protocol"), label="preflight protocol"
+        ),
+        "development_registry_sha256": _required_binding_sha256(
+            registries.get("development"), label="preflight development registry"
+        ),
+        "external_registry_sha256": _required_binding_sha256(
+            registries.get("external"), label="preflight external registry"
+        ),
+        "external_lock_sha256": _required_binding_sha256(
+            registries.get("external_lock"), label="preflight external lock"
+        ),
+        "model_suite_sha256": _required_binding_sha256(
+            authorization.get("model_suite"), label="preflight model suite"
+        ),
+        "development_replay_sha256": _required_binding_sha256(
+            authorization.get("development_replay"),
+            label="preflight development replay",
+        ),
+        "prelabel_chronology_sha256": _required_binding_sha256(
+            authorization.get("prelabel_chronology"),
+            label="preflight chronology",
+        ),
+        "inference_amendment_sha256": _required_binding_sha256(
+            inference_amendment, label="preflight inference amendment"
+        ),
+        "inference_amendment_seal_sha256": _required_binding_sha256(
+            inference_amendment.get("seal"),
+            label="preflight inference amendment seal",
+        ),
+        "model_matrix_amendment_sha256": _required_binding_sha256(
+            model_matrix, label="preflight model-matrix amendment"
+        ),
+        "model_matrix_amendment_seal_sha256": _required_binding_sha256(
+            model_matrix.get("seal"), label="preflight model-matrix seal"
+        ),
+        "model_matrix_amendment_id": model_matrix.get("amendment_id"),
+        "model_matrix_amendment_status": model_matrix.get("status"),
+        "inference_gate_sha256": _required_binding_sha256(
+            inference_gate, label="preflight inference gate"
+        ),
+        "inference_gate_status": inference_gate.get("status"),
+        "inference_claim_eligible": inference_gate.get("claim_eligible"),
+        "outcome_qc_policy_sha256": _required_binding_sha256(
+            authorization.get("outcome_qc_policy"),
+            label="preflight outcome-QC policy",
+        ),
+        "temporal_coverage_policy_sha256": _required_binding_sha256(
+            authorization.get("temporal_coverage_policy"),
+            label="preflight temporal-coverage policy",
+        ),
+        "prelabel_inputs_sha256": _required_binding_sha256(
+            authorization.get("actual_inputs"), label="preflight actual inputs"
+        ),
+        "actual_feature_order": list(feature_order),
+        "required_models": {
+            str(cohort): list(values)
+            for cohort, values in required_models.items()
+            if isinstance(values, list)
+        },
+        "source_tree_sha256": authorization.get("source", {}).get(
+            "source_tree_sha256"
+        ),
+        "runtime_sha256": runtime.get("runtime_sha256"),
+        "requirements_lock_sha256": _required_binding_sha256(
+            runtime.get("requirements_lock"), label="preflight requirements lock"
+        ),
+        "hashed_requirements_lock_sha256": _required_binding_sha256(
+            runtime.get("hashed_requirements_lock"),
+            label="preflight hashed requirements lock",
+        ),
+        "golden_inference_sha256": runtime.get("golden_inference_sha256"),
+        "fixed_code_sha256": authorization.get("fixed_code", {}).get("sha256"),
+        "state_namespace": state.get("namespace"),
+    }
+    if set(expected) != set(RAW_PREFLIGHT_ATTESTATION_FIELDS) or len(
+        expected["required_models"]
+    ) != len(required_models):
+        raise ValueError("independent raw-preflight mirror is incomplete")
+    return expected
+
+
+def _expected_trusted_validator_identity(root: Path) -> dict[str, Any]:
+    """Recompute the exact 13-file validator and complete source-tree identity."""
+    files = {
+        relative: sha256_file(
+            _resolve_release_path(root, relative, label="trusted-validator source")
+        )
+        for relative in TRUSTED_VALIDATOR_PATHS
+    }
+    source_inventory = {
+        relative: sha256_file(root / relative)
+        for relative in sorted(_working_source_inventory_paths(root))
+    }
+    expected = {
+        "implementation": TRUSTED_VALIDATOR_IMPLEMENTATION,
+        "files": files,
+        "sha256": _sha256_json(files),
+        "source_tree_sha256": _sha256_json(source_inventory),
+    }
+    if set(expected) != set(TRUSTED_VALIDATOR_FIELDS):
+        raise ValueError("independent trusted-validator mirror is incomplete")
+    return expected
+
+
+def _validate_opening_preflight_identity(
+    root: Path,
+    authorization_path: Path,
+    authorization: Mapping[str, Any],
+    suite: Mapping[str, Any],
+    intent: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+) -> None:
+    """Require intent and receipt to equal one independently rebuilt preflight."""
+    expected_attestation = _expected_raw_preflight_attestation(
+        root, authorization, suite
+    )
+    expected_attestation["authorization_sha256"] = sha256_file(
+        authorization_path
+    )
+    expected_validator = _expected_trusted_validator_identity(root)
+    source = authorization.get("source")
+    source_inventory = source.get("source_inventory") if isinstance(
+        source, Mapping
+    ) else None
+    if (
+        not isinstance(source_inventory, Mapping)
+        or expected_validator["source_tree_sha256"]
+        != source.get("source_tree_sha256")
+        or any(
+            source_inventory.get(relative) != digest
+            for relative, digest in expected_validator["files"].items()
+        )
+    ):
+        raise ValueError(
+            "trusted-validator files/source tree differ from authorization source"
+        )
+    if (
+        receipt.get("preflight_attestation") != expected_attestation
+        or receipt.get("preflight_attestation_sha256")
+        != _sha256_json(expected_attestation)
+        or intent.get("preflight_attestation_sha256")
+        != _sha256_json(expected_attestation)
+    ):
+        raise ValueError(
+            "intent/receipt preflight attestation differs from exact independent replay"
+        )
+    if (
+        intent.get("trusted_validator") != expected_validator
+        or receipt.get("trusted_validator") != expected_validator
+    ):
+        raise ValueError(
+            "intent/receipt trusted-validator identity differs from exact independent replay"
+        )
+
+
 def _gather_postopen_categories(
     root: Path, authorization_path: Path
 ) -> tuple[dict[str, set[Path]], dict[str, Any], dict[str, str]]:
@@ -10837,6 +11786,24 @@ def _gather_postopen_categories(
         raise ValueError(
             "authorized model suite is not bound to the exact CPU numerical runtime"
         )
+    feature_order = suite.get("actual_feature_order")
+    primary_contract = protocol_document.get("primary_inference_contract")
+    if (
+        not isinstance(feature_order, list)
+        or any(type(value) is not str for value in feature_order)
+        or authorization.get("actual_feature_order") != feature_order
+    ):
+        raise ValueError(
+            "authorization actual feature order differs from the frozen model suite"
+        )
+    if (
+        not isinstance(primary_contract, Mapping)
+        or authorization.get("statistics_contract_sha256")
+        != _sha256_json(primary_contract)
+    ):
+        raise ValueError(
+            "authorization statistics contract differs from the frozen protocol"
+        )
     development = suite.get("development_contract")
     if not isinstance(development, Mapping):
         raise ValueError("authorized model suite lacks its development contract")
@@ -10917,7 +11884,21 @@ def _gather_postopen_categories(
                 raise ValueError(
                     f"model suite executor/artifact changed: {cohort}/{model_id}"
                 )
-    _walk_json_dependencies(root, categories, "model_suite", suite_path)
+    # Matrix governance documents contain intentional historical Git bindings
+    # (for example, the original protocol blob at an older commit).  Their
+    # current exact bytes and semantics are validated independently above; a
+    # generic recursive current-file walker would incorrectly reinterpret those
+    # historical bindings as aliases of the current files.
+    _walk_json_dependencies(
+        root,
+        categories,
+        "model_suite",
+        suite_path,
+        opaque_json_paths=frozenset({
+            MODEL_MATRIX_AMENDMENT_PATH,
+            MODEL_MATRIX_AMENDMENT_SEAL_PATH,
+        }),
+    )
     replay_path = _add_binding(
         root,
         categories,
@@ -11135,29 +12116,16 @@ def _gather_postopen_categories(
     _require_utc_transport_timestamp(
         receipt.get("completed_at_utc"), label="opening receipt"
     )
-    if intent.get("trusted_validator") != receipt.get("trusted_validator"):
-        raise ValueError("intent/receipt trusted-validator attestations differ")
-    validator = receipt.get("trusted_validator")
-    if not isinstance(validator, Mapping) or not isinstance(validator.get("sha256"), str):
-        raise ValueError("receipt lacks a trusted-validator environment attestation")
-    preflight = receipt.get("preflight_attestation")
+    _validate_opening_preflight_identity(
+        root,
+        authorization_path,
+        authorization,
+        suite,
+        intent,
+        receipt,
+    )
     if (
-        not isinstance(preflight, Mapping)
-        or receipt.get("preflight_attestation_sha256") != _sha256_json(preflight)
-        or intent.get("preflight_attestation_sha256") != _sha256_json(preflight)
-        or preflight.get("prelabel_chronology_sha256")
-        != authorization.get("prelabel_chronology", {}).get("sha256")
-        or preflight.get("model_matrix_amendment_sha256")
-        != authorization.get("model_matrix_amendment", {}).get("sha256")
-        or preflight.get("model_matrix_amendment_seal_sha256")
-        != authorization.get("model_matrix_amendment", {}).get(
-            "seal", {}
-        ).get("sha256")
-        or preflight.get("model_matrix_amendment_id")
-        != MODEL_MATRIX_AMENDMENT_ID
-        or preflight.get("model_matrix_amendment_status")
-        != MODEL_MATRIX_AMENDMENT_STATUS
-        or receipt.get("work_order_sha256") != sha256_file(
+        receipt.get("work_order_sha256") != sha256_file(
             _resolve_release_path(root, state["work_order"], label="acquisition work order")
         )
         or intent.get("work_order_self_sha256") != work_order_self
@@ -12418,13 +13386,7 @@ def _git_json_document(
     bare: Path, commit: str, relative: str, *, label: str
 ) -> dict[str, Any]:
     payload = _git_blob_bytes(bare, commit, relative, label=label)
-    try:
-        value = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"cannot parse {label} from Git") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"cannot replay {label} from Git")
-    return value
+    return _strict_json_object_bytes(payload, label=f"{label} from Git")
 
 
 def _git_blob_bytes(
@@ -13942,6 +14904,7 @@ def _reconstruct_model_dependency_paths(
     suite_path: str,
     replay_path: str,
     expected_python_identity: object,
+    model_matrix_history: Mapping[str, Any],
 ) -> set[str]:
     output = {suite_path, replay_path}
     suite = _git_json_document(bare, commit, suite_path, label="model suite")
@@ -13957,6 +14920,21 @@ def _reconstruct_model_dependency_paths(
         or not re.fullmatch(r"[0-9a-f]{64}", suite_runtime)
     ):
         raise ValueError("Git model suite lacks its exact CPU numerical runtime")
+    amendment_binding = model_matrix_history.get("amendment")
+    if not isinstance(amendment_binding, Mapping):
+        raise ValueError("Git chronology lacks its model-matrix amendment binding")
+    amendment_path = str(amendment_binding.get("path", ""))
+    amendment = _git_json_document(
+        bare,
+        commit,
+        amendment_path,
+        label="Git model-matrix amendment",
+    )
+    _validate_model_matrix_suite_binding(
+        suite,
+        history=model_matrix_history,
+        amendment=amendment,
+    )
     development = suite.get("development_contract")
     if not isinstance(development, Mapping):
         raise ValueError("Git model suite lacks its development contract")
@@ -14295,11 +15273,11 @@ def _snapshot_dependency_paths(
     return output
 
 
-def _reconstruct_input_dependency_paths(
+def _reconstruct_input_evidence_sets(
     bare: Path,
     commit: str,
     paths: Mapping[str, str],
-) -> set[str]:
+) -> tuple[set[str], set[str]]:
     required = {
         "candidate_table",
         "candidate_provenance",
@@ -14311,6 +15289,7 @@ def _reconstruct_input_dependency_paths(
     if set(paths) != required:
         raise ValueError("cannot independently resolve exact input evidence paths")
     output = set(paths.values())
+    newly_acquired = set(paths.values())
     for relative in output:
         if _run_git(bare, "cat-file", "-e", f"{commit}:{relative}").returncode:
             raise ValueError(f"Git input dependency is absent: {relative}")
@@ -14343,9 +15322,11 @@ def _reconstruct_input_dependency_paths(
         if name != "development_panel_spec" and relative != paths[name]:
             raise ValueError(f"Git external lock names another {name}")
         output.add(relative)
-    output |= _snapshot_dependency_paths(
+    candidate_snapshot_dependencies = _snapshot_dependency_paths(
         bare, commit, paths["candidate_snapshot_index"]
     )
+    output |= candidate_snapshot_dependencies
+    newly_acquired |= candidate_snapshot_dependencies
     manifest = _git_json_document(
         bare, commit, paths["input_manifest"], label="actual-input manifest"
     )
@@ -14370,6 +15351,8 @@ def _reconstruct_input_dependency_paths(
             ]:
                 raise ValueError("Git actual-input manifest uses another external registry")
             output.add(relative)
+            if field == "cohort_tables":
+                newly_acquired.add(relative)
     evidence = manifest.get("source_evidence")
     if not isinstance(evidence, list) or not evidence:
         raise ValueError("Git actual-input manifest lacks source evidence")
@@ -14387,10 +15370,25 @@ def _reconstruct_input_dependency_paths(
             label=f"actual-input source evidence {index}",
         )
         output.add(relative)
+        newly_acquired.add(relative)
         if item.get("evidence_type") == "snapshot_index":
-            output |= _snapshot_dependency_paths(bare, commit, relative)
+            dependencies = _snapshot_dependency_paths(bare, commit, relative)
+            output |= dependencies
+            newly_acquired |= dependencies
         elif item.get("evidence_type") != "normalized_immutable_snapshot":
             raise ValueError("Git actual-input evidence type changed")
+    return output, newly_acquired
+
+
+def _reconstruct_input_dependency_paths(
+    bare: Path,
+    commit: str,
+    paths: Mapping[str, str],
+) -> set[str]:
+    """Retain the original exact-closure API for callers and focused tests."""
+    output, _newly_acquired = _reconstruct_input_evidence_sets(
+        bare, commit, paths
+    )
     return output
 
 
@@ -14462,6 +15460,17 @@ def _verify_prelabel_chronology_from_bundle(
         )
         if relation.returncode or (strict and ancestor == descendant):
             raise ValueError(f"Git bundle prelabel chronology failed: {label}")
+
+    matrix_history = chronology.get("model_matrix_history")
+    if not isinstance(matrix_history, Mapping):
+        raise ValueError("prelabel chronology lacks model-matrix history")
+    _verify_model_matrix_amendment_history_from_bundle(
+        root=root,
+        bare=bare,
+        compute_commit=compute_commit,
+        model_freeze_commit=model_commit,
+        expected_history=matrix_history,
+    )
 
     chronology_relative = _relative(
         root, chronology_path, label="prelabel chronology"
@@ -14565,6 +15574,7 @@ def _verify_prelabel_chronology_from_bundle(
         expected_python_identity=authorization.get("runtime", {}).get(
             "python_executable"
         ),
+        model_matrix_history=chronology["model_matrix_history"],
     )
     if declared_model_artifacts != reconstructed_models:
         raise ValueError(
@@ -14579,7 +15589,7 @@ def _verify_prelabel_chronology_from_bundle(
         "external_lock",
         "input_manifest",
     )
-    reconstructed_inputs = _reconstruct_input_dependency_paths(
+    reconstructed_inputs, newly_acquired_inputs = _reconstruct_input_evidence_sets(
         bare,
         input_commit,
         {name: str(chronology_paths.get(name, "")) for name in input_names},
@@ -14588,6 +15598,17 @@ def _verify_prelabel_chronology_from_bundle(
         raise ValueError(
             "chronology input dependency registry is not the independently "
             "reconstructed exact set"
+        )
+    expected_absence = {
+        "checked_paths": sorted(
+            set(CHRONOLOGY_FIXED_PRELABEL_ABSENCE_PATHS)
+            | newly_acquired_inputs
+        ),
+        "present_paths": [],
+    }
+    if chronology.get("absence_at_model_freeze") != expected_absence:
+        raise ValueError(
+            "chronology absence audit differs from exact producer reconstruction"
         )
     for item in chronology["protocol_history"]["declared_git_show_bindings"]:
         if not isinstance(item, Mapping):
@@ -15297,9 +16318,14 @@ def _verify_probability_metric_erratum_history_from_bundle(
 
 
 def _verify_model_matrix_amendment_history_from_bundle(
-    *, root: Path, bare: Path, compute_commit: str
+    *,
+    root: Path,
+    bare: Path,
+    compute_commit: str,
+    model_freeze_commit: str | None = None,
+    expected_history: Mapping[str, Any] | None = None,
 ) -> None:
-    """Prove the model-matrix document-before-seal Git lineage independently."""
+    """Prove exact-once immutable document < seal < model-freeze lineage."""
     amendment_path = _resolve_release_path(
         root,
         MODEL_MATRIX_AMENDMENT_PATH,
@@ -15363,13 +16389,14 @@ def _verify_model_matrix_amendment_history_from_bundle(
     if len(seal_births) != 1 or seal_births[0] == document_commit:
         raise ValueError(
             "model-matrix amendment seal lacks one separate later creation"
-        )
+    )
     seal_commit = seal_births[0]
+    descendant = model_freeze_commit or compute_commit
     for ancestor, descendant, label in (
         (document_commit, seal_commit, "document-to-seal"),
-        (seal_commit, compute_commit, "seal-to-compute"),
+        (seal_commit, descendant, "seal-to-model-freeze"),
     ):
-        if _run_git(
+        if ancestor == descendant or _run_git(
             bare, "merge-base", "--is-ancestor", ancestor, descendant
         ).returncode:
             raise ValueError(
@@ -15435,6 +16462,50 @@ def _verify_model_matrix_amendment_history_from_bundle(
             raise ValueError(
                 f"model-matrix amendment {label} changed after freezing: "
                 f"{touched[:3]}"
+            )
+    if expected_history is not None:
+        if set(expected_history) != set(MODEL_MATRIX_HISTORY_FIELDS):
+            raise ValueError("Git model-matrix history schema changed")
+
+        def creation_binding(commit: str, relative: str) -> dict[str, object]:
+            blob = _run_git(bare, "show", f"{commit}:{relative}")
+            oid = _run_git(
+                bare, "rev-parse", f"{commit}:{relative}", text=True
+            )
+            if blob.returncode or oid.returncode:
+                raise ValueError("cannot reconstruct model-matrix Git binding")
+            return {
+                "path": relative,
+                "sha256": hashlib.sha256(blob.stdout).hexdigest(),
+                "byte_count": len(blob.stdout),
+                "git_blob_oid": oid.stdout.strip(),
+            }
+
+        amendment_document = _load_json(
+            amendment_path, label="model-matrix amendment"
+        )
+        contract_id = _model_matrix_contract_id(amendment_document)
+        expected_model_commit = model_freeze_commit or compute_commit
+        expected = {
+            "format": MODEL_MATRIX_HISTORY_FORMAT,
+            "amendment": creation_binding(
+                document_commit, MODEL_MATRIX_AMENDMENT_PATH
+            ),
+            "seal": creation_binding(
+                seal_commit, MODEL_MATRIX_AMENDMENT_SEAL_PATH
+            ),
+            "amendment_id": MODEL_MATRIX_AMENDMENT_ID,
+            "amendment_document_commit": document_commit,
+            "seal_commit": seal_commit,
+            "model_freeze_commit": expected_model_commit,
+            "contract_id": contract_id,
+            "strict_order_verified": True,
+            "immutable_to_release_tip": True,
+            "evidence_scope": CHRONOLOGY_EVIDENCE_SCOPE,
+        }
+        if dict(expected_history) != expected:
+            raise ValueError(
+                "Git model-matrix history differs from chronology exact bytes/order"
             )
 
 
@@ -15531,9 +16602,10 @@ def _verify_git_history_evidence(
         _verify_probability_metric_erratum_history_from_bundle(
             root=root, bare=bare, compute_commit=commits[0]
         )
-        _verify_model_matrix_amendment_history_from_bundle(
-            root=root, bare=bare, compute_commit=commits[0]
-        )
+        if profile == PREOPEN_PROFILE:
+            _verify_model_matrix_amendment_history_from_bundle(
+                root=root, bare=bare, compute_commit=commits[0]
+            )
         if profile == POSTOPEN_PROFILE:
             policy = marker.get("authorized_worktree_dirt_policy")
             documents = (
@@ -16454,6 +17526,357 @@ def verify_checksum_sidecar(archive_path: Path) -> None:
         raise ValueError(f"archive checksum mismatch: expected {fields[0]}, got {actual}")
 
 
+def validate_release_mechanics_acceptance(
+    root: str | Path, receipt_path: str | Path
+) -> dict[str, Any]:
+    """Mirror the narrow v2 mechanics receipt without trusting archive code.
+
+    This checks current byte bindings, exact schemas and honest limitations.  It
+    intentionally does not authenticate the historical process or its resource
+    observation, exactly as the receipt is required to disclose.
+    """
+    root = Path(root).resolve()
+    raw_receipt = Path(receipt_path)
+    try:
+        receipt_relative = (
+            raw_receipt.relative_to(root).as_posix()
+            if raw_receipt.is_absolute()
+            else raw_receipt.as_posix()
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "release-mechanics acceptance receipt escapes the source root"
+        ) from exc
+    receipt = _resolve_release_path(
+        root,
+        receipt_relative,
+        label="release-mechanics acceptance receipt",
+    )
+    if _relative(root, receipt, label="release-mechanics receipt") != (
+        RELEASE_MECHANICS_RECEIPT_PATH
+    ):
+        raise ValueError("release-mechanics receipt must use its canonical v2 path")
+    document = _load_json(receipt, label="release-mechanics acceptance receipt")
+    _require_canonical_json_file(
+        receipt, document, label="release-mechanics acceptance receipt"
+    )
+    top_fields = {
+        "format", "status", "profile", "distribution", "evidence_scope",
+        "archive", "source", "runtime", "execution", "resource_observation",
+        "isolation_limitations", "authentication_limitations", "label_safety",
+        "receipt_self_sha256",
+    }
+    if set(document) != top_fields:
+        raise ValueError("release-mechanics receipt exact schema changed")
+    stable = dict(document)
+    claimed_self_hash = stable.pop("receipt_self_sha256", None)
+    if claimed_self_hash != _release_mechanics_self_sha256(stable):
+        raise ValueError("release-mechanics receipt self hash changed")
+    if (
+        document.get("format") != RELEASE_MECHANICS_RECEIPT_FORMAT
+        or document.get("status") != RELEASE_MECHANICS_RECEIPT_STATUS
+        or document.get("profile") != PREOPEN_PROFILE
+        or document.get("distribution") != LOCAL_DISTRIBUTION
+        or document.get("evidence_scope") != RELEASE_MECHANICS_EVIDENCE_SCOPE
+        or document.get("isolation_limitations")
+        != RELEASE_MECHANICS_ISOLATION_LIMITATIONS
+        or document.get("authentication_limitations")
+        != RELEASE_MECHANICS_AUTHENTICATION_LIMITATIONS
+        or document.get("label_safety") != RELEASE_MECHANICS_LABEL_SAFETY
+    ):
+        raise ValueError("release-mechanics receipt version/scope/limitations changed")
+
+    def exact_binding(
+        value: object, *, expected_path: str | None, label: str
+    ) -> tuple[Path, bytes]:
+        if not isinstance(value, Mapping) or set(value) != {
+            "path", "sha256", "bytes"
+        }:
+            raise ValueError(f"release-mechanics {label} binding schema changed")
+        relative = value.get("path")
+        if not isinstance(relative, str) or (
+            expected_path is not None and relative != expected_path
+        ):
+            raise ValueError(f"release-mechanics {label} path changed")
+        path = _resolve_release_path(root, relative, label=label)
+        payload = path.read_bytes()
+        if (
+            value.get("sha256") != hashlib.sha256(payload).hexdigest()
+            or value.get("bytes") != len(payload)
+        ):
+            raise ValueError(f"release-mechanics {label} byte binding changed")
+        return path, payload
+
+    archive = document.get("archive")
+    if not isinstance(archive, Mapping) or set(archive) != {
+        "path", "sha256", "bytes", "sidecar"
+    }:
+        raise ValueError("release-mechanics archive schema changed")
+    archive_relative = archive.get("path")
+    if (
+        not isinstance(archive_relative, str)
+        or PurePosixPath(archive_relative).parent != PurePosixPath("dist")
+        or not archive_relative.endswith(".zip")
+    ):
+        raise ValueError("release-mechanics archive path changed")
+    archive_path = _resolve_release_path(
+        root, archive_relative, label="release-mechanics archive"
+    )
+    archive_payload = archive_path.read_bytes()
+    if (
+        archive.get("sha256") != hashlib.sha256(archive_payload).hexdigest()
+        or archive.get("bytes") != len(archive_payload)
+    ):
+        raise ValueError("release-mechanics archive binding changed")
+    sidecar_path, sidecar_payload = exact_binding(
+        archive.get("sidecar"),
+        expected_path=f"{archive_relative}.sha256",
+        label="archive checksum sidecar",
+    )
+    expected_sidecar = (
+        f"{archive['sha256']}  {PurePosixPath(archive_relative).name}\n"
+    ).encode("utf-8")
+    if sidecar_payload != expected_sidecar or sidecar_path != Path(
+        str(archive_path) + ".sha256"
+    ):
+        raise ValueError("release-mechanics archive sidecar is noncanonical")
+
+    source = document.get("source")
+    if not isinstance(source, Mapping) or set(source) != {
+        "git_commit", "git_tree", "git_clean_before_acceptance",
+        "core", "runner", "verifier",
+    }:
+        raise ValueError("release-mechanics source schema changed")
+    source_payloads: dict[str, tuple[Mapping[str, Any], bytes]] = {}
+    for field, expected_path in (
+        ("core", RELEASE_MECHANICS_CORE_PATH),
+        ("runner", RELEASE_MECHANICS_RUNNER_PATH),
+        ("verifier", "scripts/verify_release.py"),
+    ):
+        binding = source.get(field)
+        _, payload = exact_binding(
+            binding, expected_path=expected_path, label=field
+        )
+        assert isinstance(binding, Mapping)
+        source_payloads[field] = (binding, payload)
+    _validate_release_mechanics_source(root, source, source_payloads)
+
+    _validate_release_mechanics_runtime(document.get("runtime"))
+    _validate_release_mechanics_execution(
+        document.get("execution"), archive_relative=archive_relative
+    )
+    _validate_release_mechanics_resources(document.get("resource_observation"))
+    return document
+
+
+def _release_mechanics_self_sha256(value: object) -> str:
+    """Mirror the v2 producer's UTF-8, non-ASCII-preserving self hash."""
+    return hashlib.sha256(_canonical_json_bytes(value)[:-1]).hexdigest()
+
+
+def _validate_release_mechanics_source(
+    root: Path,
+    value: Mapping[str, Any],
+    payloads: Mapping[str, tuple[Mapping[str, Any], bytes]],
+) -> None:
+    """Bind the v2 source identity to reachable Git blobs independently."""
+    commit, tree = value.get("git_commit"), value.get("git_tree")
+    if (
+        not isinstance(commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+        or not isinstance(tree, str)
+        or re.fullmatch(r"[0-9a-f]{40}", tree) is None
+        or value.get("git_clean_before_acceptance") is not True
+    ):
+        raise ValueError("release-mechanics Git identity changed")
+    _assert_safe_git_repository(root)
+    actual_tree = _run_git(root, "rev-parse", f"{commit}^{{tree}}", text=True)
+    if actual_tree.returncode or actual_tree.stdout.strip() != tree:
+        raise ValueError("release-mechanics Git tree differs from its commit")
+    ancestor = _run_git(root, "merge-base", "--is-ancestor", commit, "HEAD")
+    if ancestor.returncode:
+        raise ValueError("release-mechanics source commit is not reachable from HEAD")
+    for label, (binding, current_payload) in payloads.items():
+        relative = str(binding["path"])
+        git_blob = _run_git(root, "show", f"{commit}:{relative}")
+        if (
+            git_blob.returncode
+            or bytes(git_blob.stdout) != current_payload
+            or binding.get("sha256")
+            != hashlib.sha256(git_blob.stdout).hexdigest()
+            or binding.get("bytes") != len(git_blob.stdout)
+        ):
+            raise ValueError(
+                f"release-mechanics {label} differs from its source Git blob"
+            )
+
+
+def _validate_release_mechanics_runtime(value: object) -> None:
+    fields = {
+        "python_implementation", "python_version", "python_executable",
+        "platform_system", "platform_release", "machine",
+    }
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise ValueError("release-mechanics runtime schema changed")
+    if any(
+        value.get(field) != expected
+        for field, expected in (
+            ("python_implementation", platform.python_implementation()),
+            ("python_version", platform.python_version()),
+            ("platform_system", platform.system()),
+            ("platform_release", platform.release()),
+            ("machine", platform.machine()),
+        )
+    ):
+        raise ValueError("release-mechanics receipt is not from this same host")
+    binding = value.get("python_executable")
+    if not isinstance(binding, Mapping) or set(binding) != {
+        "invoked_path", "realpath", "sha256", "bytes"
+    }:
+        raise ValueError("release-mechanics Python binding schema changed")
+    invoked, realpath = binding.get("invoked_path"), binding.get("realpath")
+    if not isinstance(invoked, str) or not isinstance(realpath, str):
+        raise ValueError("release-mechanics Python paths are malformed")
+    invoked_path, real_path = Path(invoked), Path(realpath)
+    current_invoked = Path(sys.executable)
+    current_real = current_invoked.resolve()
+    if (
+        not invoked_path.is_absolute()
+        or invoked_path.resolve() != real_path
+        or invoked_path != current_invoked
+        or real_path != current_real
+    ):
+        raise ValueError("release-mechanics Python path binding changed")
+    payload = real_path.read_bytes()
+    if (
+        binding.get("sha256") != hashlib.sha256(payload).hexdigest()
+        or binding.get("bytes") != len(payload)
+    ):
+        raise ValueError("release-mechanics Python byte binding changed")
+
+
+def _validate_release_mechanics_execution(
+    value: object, *, archive_relative: str
+) -> None:
+    fields = {
+        "command", "environment", "controller_pid", "verifier_pid",
+        "python_isolated", "bytecode_disabled", "fresh_process",
+        "fresh_working_directory", "fresh_temporary_extraction_root",
+        "fresh_cwd_empty_before", "fresh_cwd_empty_after",
+        "temporary_root_removed_after_exit", "sealed_archive_argument",
+        "process_group_cleanup_enforced", "returncode", "stdout_sha256",
+        "stdout_bytes", "stdout_transcript", "stderr_sha256", "stderr_bytes",
+        "stderr_transcript", "profile_evidence_line",
+    }
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise ValueError("release-mechanics execution schema changed")
+    command = [
+        "<sealed-copy-of-bound-python-executable>", "-I", "-B",
+        "<sealed-copy-of-git-bound-release-verifier>",
+        "<sealed-copy-of-bound-archive>", "--distribution",
+        LOCAL_DISTRIBUTION,
+    ]
+    environment = {
+        "PATH": os.defpath, "LANG": "C", "LC_ALL": "C", "TZ": "UTC",
+        "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1", "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "TMPDIR": "<fresh-temporary-root>",
+    }
+    profile_line = (
+        "LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; PREOPEN_NOT_COMPLETE]: <archive>"
+    )
+    transcript = value.get("stdout_transcript")
+    sealed_archive_argument = (
+        "../sealed-inputs/" + PurePosixPath(archive_relative).name
+    )
+    if (
+        value.get("command") != command
+        or value.get("environment") != environment
+        or any(
+            value.get(field) is not True
+            for field in (
+                "python_isolated", "bytecode_disabled", "fresh_process",
+                "fresh_working_directory", "fresh_temporary_extraction_root",
+                "fresh_cwd_empty_before", "fresh_cwd_empty_after",
+                "temporary_root_removed_after_exit",
+                "process_group_cleanup_enforced",
+            )
+        )
+        or value.get("returncode") != 0
+        or value.get("sealed_archive_argument") != sealed_archive_argument
+        or value.get("profile_evidence_line") != profile_line
+        or not isinstance(transcript, list)
+        or len(transcript) != 2
+        or not all(isinstance(line, str) for line in transcript)
+        or re.fullmatch(
+            r"manifest OK: [0-9]+ artifacts, source [0-9a-f]{12}, DAG [0-9]+ nodes",
+            transcript[0],
+        )
+        is None
+        or transcript[1] != profile_line
+        or value.get("stderr_transcript") != []
+    ):
+        raise ValueError("release-mechanics execution contract changed")
+    for field in ("controller_pid", "verifier_pid"):
+        if type(value.get(field)) is not int or value[field] <= 0:
+            raise ValueError("release-mechanics PID evidence is malformed")
+    if value["controller_pid"] == value["verifier_pid"]:
+        raise ValueError("release-mechanics fresh process is not distinct")
+    stdout_payload = (
+        f"{transcript[0]}\n"
+        + profile_line.replace("<archive>", sealed_archive_argument)
+        + "\n"
+    ).encode("utf-8")
+    for stream, payload in (("stdout", stdout_payload), ("stderr", b"")):
+        if (
+            value.get(f"{stream}_sha256")
+            != hashlib.sha256(payload).hexdigest()
+            or value.get(f"{stream}_bytes") != len(payload)
+            or len(payload) > 8 * 1024 * 1024
+        ):
+            raise ValueError(f"release-mechanics {stream} transcript changed")
+
+
+def _validate_release_mechanics_resources(value: object) -> None:
+    fields = {
+        "wall_time_ns", "user_cpu_time_ns", "system_cpu_time_ns",
+        "total_cpu_time_ns", "peak_rss_raw", "peak_rss_raw_unit",
+        "peak_rss_bytes", "measurement_backend", "measurement_scope",
+        "repetitions",
+    }
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise ValueError("release-mechanics resource schema changed")
+    integer_fields = {
+        "wall_time_ns", "user_cpu_time_ns", "system_cpu_time_ns",
+        "total_cpu_time_ns", "peak_rss_raw", "peak_rss_bytes",
+    }
+    if any(
+        type(value.get(field)) is not int or value[field] < 0
+        for field in integer_fields
+    ):
+        raise ValueError("release-mechanics resource number is malformed")
+    raw_peak = value["peak_rss_raw"]
+    if platform.system() == "Darwin":
+        expected_rss_unit, expected_rss_bytes = "bytes", raw_peak
+    elif platform.system() == "Linux":
+        expected_rss_unit, expected_rss_bytes = "kibibytes", raw_peak * 1024
+    else:
+        raise ValueError("release-mechanics RSS platform is unsupported")
+    if (
+        value["wall_time_ns"] == 0
+        or value["total_cpu_time_ns"]
+        != value["user_cpu_time_ns"] + value["system_cpu_time_ns"]
+        or value.get("peak_rss_raw_unit") != expected_rss_unit
+        or value.get("peak_rss_bytes") != expected_rss_bytes
+        or value.get("measurement_backend")
+        != RELEASE_MECHANICS_MEASUREMENT_BACKEND
+        or value.get("measurement_scope") != RELEASE_MECHANICS_MEASUREMENT_SCOPE
+        or value.get("repetitions") != 1
+    ):
+        raise ValueError("release-mechanics resource contract changed")
+
+
 def run_checked(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
@@ -16534,7 +17957,7 @@ def _verify_raw_huc_derivation(
     provenance_path: Path,
 ) -> None:
     """Replay the released HUC CSV from its immutable NWIS response bytes."""
-    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance = _load_json(provenance_path, label="HUC provenance")
     if provenance.get("schema_version") != 1:
         raise ValueError("unsupported HUC provenance schema")
     if provenance.get("outcome_data_requested") is not False:
@@ -16562,7 +17985,7 @@ def _verify_raw_huc_derivation(
     index_path = _inside(root, index_relative, label="HUC snapshot index")
     if provenance.get("raw_snapshot_index_sha256") != sha256_file(index_path):
         raise ValueError("HUC raw snapshot-index checksum mismatch")
-    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index = _load_json(index_path, label="HUC raw snapshot index")
     records = index.get("records")
     if (
         index.get("schema_version") != 1
@@ -16621,7 +18044,7 @@ def _verify_raw_huc_derivation(
         or record.get("retrieved_at_utc") != provenance.get("retrieved_at_utc")
     ):
         raise ValueError("HUC raw response binding mismatch")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata = _load_json(metadata_path, label="HUC raw snapshot metadata")
     for key, expected in {
         "schema_version": 1,
         "request": request,
@@ -16673,7 +18096,7 @@ def _verify_raw_huc_derivation(
 def verify_canonical_huc_closure(root: Path) -> None:
     """Prove that the only released HUC table is the panel's frozen generation."""
     spec_path = root / "data_usgs" / "frozen_panel_v1.json"
-    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec = _load_json(spec_path, label="canonical frozen-panel specification")
     station = spec.get("station_registry", {})
     huc = station.get("huc_metadata", {}) if isinstance(station, dict) else {}
     expected = {
@@ -16747,7 +18170,7 @@ def verify_archive(
         )
         verify_canonical_huc_closure(root)
         manifest = root / "outputs" / "manifest.json"
-        document = json.loads(manifest.read_text(encoding="utf-8"))
+        document = _load_json(manifest, label="release manifest")
         if document.get("schema_version") != "thermoroute.provenance-manifest.v2":
             raise ValueError("release carries a legacy or unsupported manifest")
         git = document.get("git", {})
@@ -16824,9 +18247,45 @@ def main() -> int:
         action="store_true",
         help="audit the exact authorization-derived Git dirt allowed after opening",
     )
+    parser.add_argument(
+        "--validate-release-mechanics-receipt",
+        type=Path,
+        metavar="RECEIPT",
+        help=(
+            "independently validate the exact v2 same-host release-mechanics "
+            "receipt and its deliberately limited claims"
+        ),
+    )
     args = parser.parse_args()
     try:
         assert_distribution_mode_allowed(args.distribution)
+        if args.validate_release_mechanics_receipt is not None:
+            if (
+                args.archive is not None
+                or args.materialize_profile is not None
+                or args.materialize_claim_audit is not None
+                or args.materialize_git_history is not None
+                or args.check_postopen_dirt
+                or args.authorization is not None
+                or args.profile is not None
+            ):
+                raise ValueError(
+                    "release-mechanics receipt validation is a standalone operation"
+                )
+            if args.source_root is None:
+                raise ValueError(
+                    "release-mechanics receipt validation requires --source-root"
+                )
+            document = validate_release_mechanics_acceptance(
+                args.source_root, args.validate_release_mechanics_receipt
+            )
+            print(json.dumps({
+                "format": document["format"],
+                "status": document["status"],
+                "evidence_scope": document["evidence_scope"],
+                "receipt": RELEASE_MECHANICS_RECEIPT_PATH,
+            }, indent=2, sort_keys=True))
+            return 0
         if args.materialize_git_history is not None:
             if args.archive is not None or args.materialize_profile is not None:
                 raise ValueError("Git-history materialization is a standalone operation")

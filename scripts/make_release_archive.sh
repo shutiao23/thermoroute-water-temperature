@@ -147,6 +147,13 @@ required=(
   protocols/route_a_native_artifact_publication_notice_v1.md
   protocols/legacy_three_site_semantics_notice_v1.md
   protocols/route_a_claim_registry_v1.json
+  src/thermoroute/chronology.py
+  src/thermoroute/model_matrix_amendment.py
+  src/thermoroute/model_suite.py
+  src/thermoroute/release_acceptance.py
+  scripts/24_freeze_model_suite.py
+  scripts/28_freeze_prelabel_chronology.py
+  scripts/30_verify_release_fresh_process.py
   scripts/26_validate_claims.py
   scripts/deterministic_zip.py scripts/verify_release.py
 )
