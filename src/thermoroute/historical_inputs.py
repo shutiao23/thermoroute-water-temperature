@@ -552,8 +552,8 @@ def _acquire_cohort(
     request_interval: float,
     gridmet_scale_factor: float,
     gridmet_add_offset: float,
-    resume_incomplete: bool,
-    fault_injector: Callable[[str, Path], object] | None,
+    resume_incomplete: bool = False,
+    fault_injector: Callable[[str, Path], object] | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     records: list[dict[str, Any]] = []
