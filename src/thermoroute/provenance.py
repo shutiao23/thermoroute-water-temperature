@@ -19,8 +19,9 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import time
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 import urllib.request
 
 
@@ -59,6 +60,46 @@ def _atomic_write(path: Path, payload: bytes) -> None:
     finally:
         if tmp.exists():
             tmp.unlink()
+
+
+def _exclusive_create(path: Path, payload: bytes) -> None:
+    """Create one immutable suffix without replacing any existing directory entry."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o444)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _read_single_link_regular(path: Path, *, label: str) -> bytes:
+    """Read exact bytes while rejecting links and path replacement."""
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise ProvenanceError(f"{label} is absent or unsafe: {path}") from exc
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_nlink != 1:
+        raise ProvenanceError(f"{label} is not a single-link regular file: {path}")
+    payload = path.read_bytes()
+    try:
+        after = path.lstat()
+    except OSError as exc:
+        raise ProvenanceError(f"{label} changed while it was read: {path}") from exc
+    if (
+        (before.st_dev, before.st_ino, before.st_size, before.st_nlink)
+        != (after.st_dev, after.st_ino, after.st_size, after.st_nlink)
+        or len(payload) != before.st_size
+    ):
+        raise ProvenanceError(f"{label} changed while it was read: {path}")
+    return payload
 
 
 @dataclass(frozen=True)
@@ -110,10 +151,33 @@ class SnapshotStore:
         request_sha256: str,
     ) -> tuple[bytes, SnapshotRecord]:
         try:
-            meta = json.loads(metadata_path.read_text(encoding="utf-8"))
-            payload = response_path.read_bytes()
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            metadata_bytes = _read_single_link_regular(
+                metadata_path, label="snapshot metadata"
+            )
+            payload = _read_single_link_regular(
+                response_path, label="snapshot response"
+            )
+            meta = json.loads(metadata_bytes.decode("utf-8"))
+        except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ProvenanceError(f"incomplete snapshot for request {request_sha256}") from exc
+        required = {
+            "schema_version", "request", "request_sha256", "retrieved_at_utc",
+            "http_status", "response_headers", "byte_count", "response_sha256",
+            "response_file",
+        }
+        request = meta.get("request") if isinstance(meta, dict) else None
+        if (
+            not isinstance(meta, dict)
+            or set(meta) != required
+            or meta.get("schema_version") != 1
+            or not isinstance(request, Mapping)
+            or sha256_bytes(canonical_json_bytes(request)) != request_sha256
+            or meta.get("response_file") != "response.bin"
+            or type(meta.get("http_status")) is not int
+            or int(meta["http_status"]) != 200
+            or not isinstance(meta.get("response_headers"), Mapping)
+        ):
+            raise ProvenanceError(f"snapshot metadata contract changed: {metadata_path}")
         actual = sha256_bytes(payload)
         if meta.get("request_sha256") != request_sha256:
             raise ProvenanceError(f"request fingerprint mismatch in {metadata_path}")
@@ -122,7 +186,7 @@ class SnapshotStore:
         if meta.get("byte_count") != len(payload):
             raise ProvenanceError(f"raw response byte-count mismatch in {response_path}")
         record = SnapshotRecord(
-            provider=str(meta["request"]["provider"]),
+            provider=str(request["provider"]),
             request_sha256=request_sha256,
             response_sha256=actual,
             response_path=response_path,
@@ -140,21 +204,48 @@ class SnapshotStore:
         headers: Mapping[str, str] | None = None,
         timeout: float = 60.0,
         retries: int = 3,
+        resume_incomplete: bool = False,
+        _fault_injector: Callable[[str, Path], object] | None = None,
     ) -> tuple[bytes, SnapshotRecord]:
-        """Fetch or reuse one exact response and return its verified bytes."""
+        """Fetch or reuse one exact response and return its verified bytes.
+
+        With ``resume_incomplete=True``, a complete single-link response whose
+        metadata suffix is absent may be re-fetched, byte-compared, and then
+        completed by create-only metadata publication.  No existing byte is
+        replaced.  Offline mode cannot reconstruct missing retrieval metadata.
+        """
         request_doc = self.request_document(
             provider=provider, url=url, method="GET", headers=headers)
         request_sha = sha256_bytes(canonical_json_bytes(request_doc))
         response_path, metadata_path = self._paths(provider, request_sha)
 
-        if response_path.exists() or metadata_path.exists():
+        response_exists = os.path.lexists(response_path)
+        metadata_exists = os.path.lexists(metadata_path)
+        if response_exists and metadata_exists:
             return self._read_verified(response_path, metadata_path, request_sha)
+        if metadata_exists:
+            raise ProvenanceError(f"incomplete snapshot for request {request_sha}")
+        response_only = response_exists
+        if response_only:
+            if not resume_incomplete:
+                return self._read_verified(response_path, metadata_path, request_sha)
+            existing_response = _read_single_link_regular(
+                response_path, label="incomplete snapshot response"
+            )
+        else:
+            existing_response = None
         if self.offline:
+            if response_only:
+                raise ProvenanceError(
+                    f"offline snapshot metadata miss for {provider} request "
+                    f"{request_sha}: {url}"
+                )
             raise ProvenanceError(
                 f"offline snapshot miss for {provider} request {request_sha}: {url}")
 
         attempts = max(1, int(retries))
         last_error: Exception | None = None
+        downloaded: tuple[bytes, int, dict[str, str], str] | None = None
         for attempt in range(attempts):
             try:
                 req = urllib.request.Request(url, headers=dict(headers or {}), method="GET")
@@ -164,30 +255,56 @@ class SnapshotStore:
                     response_headers = dict(response.headers.items())
                 if not payload:
                     raise ProvenanceError(f"empty response from {url}")
+                if status != 200:
+                    raise ProvenanceError(f"unexpected HTTP status {status} from {url}")
                 retrieved = datetime.now(timezone.utc).isoformat()
-                response_sha = sha256_bytes(payload)
-                metadata = {
-                    "schema_version": 1,
-                    "request": request_doc,
-                    "request_sha256": request_sha,
-                    "retrieved_at_utc": retrieved,
-                    "http_status": status,
-                    "response_headers": response_headers,
-                    "byte_count": len(payload),
-                    "response_sha256": response_sha,
-                    "response_file": "response.bin",
-                }
-                # Response first, metadata second.  A crash between the two is
-                # intentionally detected as an incomplete transaction later.
-                _atomic_write(response_path, payload)
-                _atomic_write(metadata_path, canonical_json_bytes(metadata))
-                return self._read_verified(response_path, metadata_path, request_sha)
+                downloaded = (payload, status, response_headers, retrieved)
+                break
             except Exception as exc:  # preserve the concrete cause below
                 last_error = exc
                 if attempt + 1 < attempts:
                     time.sleep(min(2.0 ** attempt, 8.0))
-        raise ProvenanceError(
-            f"failed to acquire {provider} after {attempts} attempts: {url}") from last_error
+        if downloaded is None:
+            raise ProvenanceError(
+                f"failed to acquire {provider} after {attempts} attempts: {url}"
+            ) from last_error
+        payload, status, response_headers, retrieved = downloaded
+        if existing_response is not None:
+            if payload != existing_response:
+                raise ProvenanceError(
+                    f"re-fetched response differs from incomplete snapshot: {response_path}"
+                )
+        else:
+            if resume_incomplete:
+                try:
+                    _exclusive_create(response_path, payload)
+                except FileExistsError as exc:
+                    raise ProvenanceError(
+                        f"refusing to replace snapshot response: {response_path}"
+                    ) from exc
+            else:
+                _atomic_write(response_path, payload)
+            if _fault_injector is not None:
+                _fault_injector("after_raw_response_publish", response_path)
+        response_sha = sha256_bytes(payload)
+        metadata = {
+            "schema_version": 1,
+            "request": request_doc,
+            "request_sha256": request_sha,
+            "retrieved_at_utc": retrieved,
+            "http_status": status,
+            "response_headers": response_headers,
+            "byte_count": len(payload),
+            "response_sha256": response_sha,
+            "response_file": "response.bin",
+        }
+        try:
+            _exclusive_create(metadata_path, canonical_json_bytes(metadata))
+        except FileExistsError as exc:
+            raise ProvenanceError(
+                f"refusing to replace snapshot metadata: {metadata_path}"
+            ) from exc
+        return self._read_verified(response_path, metadata_path, request_sha)
 
     def write_index(self) -> Path:
         """Verify every snapshot and publish a deterministic store index."""

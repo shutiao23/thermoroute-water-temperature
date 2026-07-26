@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import sys
 from urllib.parse import parse_qs, urlsplit
 
 import numpy as np
@@ -19,6 +22,7 @@ from thermoroute.historical_inputs import (
 )
 from thermoroute.opening import validate_prelabel_inputs
 from thermoroute.provenance import (
+    ProvenanceError,
     SnapshotStore,
     canonical_json_bytes,
     sha256_bytes,
@@ -32,6 +36,10 @@ from thermoroute.usgs import (
     parse_gridmet_wind_daily,
     parse_gridmet_wind_metadata,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "data_usgs" / "fetch_confirmatory_historical_inputs.py"
 
 
 def _daymet_payload(*, offset: float = 0.0) -> bytes:
@@ -144,6 +152,77 @@ def _seed_gridmet_schema(root: Path) -> None:
         url=build_gridmet_wind_metadata_url(),
         payload=_gridmet_schema_payload(),
     )
+
+
+def _input_fixture(
+    tmp_path: Path,
+    *,
+    omit_final_gridmet: bool = False,
+) -> dict[str, object]:
+    protocol_path = tmp_path / "protocols" / "route_a_confirmatory_v1.json"
+    temporal_registry = tmp_path / "data_usgs" / "temporal.csv"
+    external_registry = tmp_path / "data_usgs" / "external.csv"
+    temporal_registry.parent.mkdir(parents=True)
+    _protocol(protocol_path)
+    _registry(temporal_registry, "01234567", 40.0, -105.0)
+    _registry(external_registry, "07654321", 41.0, -104.0)
+    snapshot_root = tmp_path / "data_usgs" / "raw_snapshots" / "historical-v1"
+    _seed_gridmet_schema(snapshot_root)
+    _seed_site(snapshot_root, lat=40.0, lon=-105.0, offset=0.0)
+    if omit_final_gridmet:
+        _seed_snapshot(
+            snapshot_root / "daymet-v1",
+            provider=DAYMET_PROVIDER,
+            url=build_daymet_url(
+                41.0, -104.0, "2020-11-30", "2023-12-31"
+            ),
+            payload=_daymet_payload(offset=1.0),
+        )
+    else:
+        _seed_site(snapshot_root, lat=41.0, lon=-104.0, offset=1.0)
+    return {
+        "repo_root": tmp_path,
+        "protocol_path": protocol_path,
+        "temporal_registry_path": temporal_registry,
+        "external_registry_path": external_registry,
+        "snapshot_root": snapshot_root,
+        "output_dir": (
+            tmp_path / "data_usgs" / "confirmatory_predictors" / "historical-v1"
+        ),
+        "manifest_path": tmp_path / "data_usgs" / "confirmatory_actual_inputs_v1.json",
+        "offline": not omit_final_gridmet,
+        "expected_temporal_sites": 1,
+        "expected_external_sites": 1,
+    }
+
+
+class _FakeResponse:
+    status = 200
+    headers = {"Content-Type": "text/csv"}
+
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        return False
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+def _tree_file_state(root: Path) -> dict[str, tuple[str, int, int, int]]:
+    state: dict[str, tuple[str, int, int, int]] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        info = path.stat()
+        state[path.relative_to(root).as_posix()] = (
+            sha256_file(path), info.st_ino, info.st_mtime_ns, info.st_nlink,
+        )
+    return state
 
 
 def test_meteorology_parsers_keep_complete_calendar_and_exact_schema():
@@ -302,16 +381,298 @@ def test_offline_fixture_freezes_opening_compatible_inputs(tmp_path, monkeypatch
         for provider in ("daymet-v1", "gridmet-v1", "gridmet-schema-v1")
     }
 
-    with pytest.raises(HistoricalInputError, match="replace immutable"):
-        acquire_historical_inputs(
-            repo_root=tmp_path,
-            protocol_path=protocol_path,
-            temporal_registry_path=temporal_registry,
-            external_registry_path=external_registry,
-            snapshot_root=snapshot_root,
-            output_dir=output_dir,
-            manifest_path=manifest_path,
-            offline=True,
-            expected_temporal_sites=1,
-            expected_external_sites=1,
-        )
+    # A complete retry is a strict, idempotent offline verification.  It does
+    # not replace any already frozen evidence.
+    assert acquire_historical_inputs(
+        repo_root=tmp_path,
+        protocol_path=protocol_path,
+        temporal_registry_path=temporal_registry,
+        external_registry_path=external_registry,
+        snapshot_root=snapshot_root,
+        output_dir=output_dir,
+        manifest_path=manifest_path,
+        offline=True,
+        expected_temporal_sites=1,
+        expected_external_sites=1,
+    ) == manifest
+
+
+def test_raw_response_only_crash_resumes_by_byte_comparison(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = _input_fixture(tmp_path, omit_final_gridmet=True)
+    expected_payload = _gridmet_payload(offset=1.0)
+    calls: list[str] = []
+
+    def fake_urlopen(request, **_kwargs):
+        calls.append(request.full_url)
+        return _FakeResponse(expected_payload)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    def crash(stage: str, _path: Path) -> None:
+        if stage == "after_raw_response_publish":
+            raise RuntimeError("simulated response-metadata crash")
+
+    with pytest.raises(RuntimeError, match="response-metadata crash"):
+        acquire_historical_inputs(**fixture, _fault_injector=crash)
+
+    url = build_gridmet_wind_url(
+        41.0, -104.0, "2020-11-30", "2023-12-31"
+    )
+    request = SnapshotStore.request_document(
+        provider=GRIDMET_PROVIDER,
+        url=url,
+        headers={"User-Agent": USER_AGENT},
+    )
+    request_sha = sha256_bytes(canonical_json_bytes(request))
+    request_dir = (
+        Path(fixture["snapshot_root"])
+        / "gridmet-v1"
+        / SnapshotStore._provider_name(GRIDMET_PROVIDER)
+        / request_sha
+    )
+    response_path = request_dir / "response.bin"
+    metadata_path = request_dir / "metadata.json"
+    response_state = (
+        sha256_file(response_path), response_path.stat().st_ino,
+        response_path.stat().st_mtime_ns,
+    )
+    assert response_path.read_bytes() == expected_payload
+    assert not metadata_path.exists()
+
+    manifest = acquire_historical_inputs(**fixture)
+    assert manifest["status"] == "FROZEN_PRELABEL_NO_OUTCOMES"
+    assert metadata_path.is_file()
+    assert response_state == (
+        sha256_file(response_path), response_path.stat().st_ino,
+        response_path.stat().st_mtime_ns,
+    )
+    assert calls == [url, url]
+
+
+def test_raw_response_resume_rejects_provider_byte_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = _input_fixture(tmp_path, omit_final_gridmet=True)
+    first_payload = _gridmet_payload(offset=1.0)
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda *_args, **_kwargs: _FakeResponse(first_payload)
+    )
+
+    def crash(stage: str, _path: Path) -> None:
+        if stage == "after_raw_response_publish":
+            raise RuntimeError("simulated raw crash")
+
+    with pytest.raises(RuntimeError, match="simulated raw crash"):
+        acquire_historical_inputs(**fixture, _fault_injector=crash)
+    # Select the response-only request rather than either already complete one.
+    response = next(
+        path
+        for path in Path(fixture["snapshot_root"]).glob("gridmet-v1/*/*/response.bin")
+        if not (path.parent / "metadata.json").exists()
+    )
+    original = response.read_bytes()
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(_gridmet_payload(offset=9.0)),
+    )
+
+    with pytest.raises(ProvenanceError, match="differs from incomplete snapshot"):
+        acquire_historical_inputs(**fixture)
+
+    assert response.read_bytes() == original
+    assert not (response.parent / "metadata.json").exists()
+
+
+@pytest.mark.parametrize(
+    "fault_stage",
+    ("after_daymet_index_publish", "after_normalized_bundle_publish"),
+)
+def test_derived_publication_boundaries_resume_only_missing_suffix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_stage: str,
+) -> None:
+    fixture = _input_fixture(tmp_path)
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *_args, **_kwargs: pytest.fail("offline resume attempted network"),
+    )
+
+    def crash(stage: str, _path: Path) -> None:
+        if stage == fault_stage:
+            raise RuntimeError(f"simulated {fault_stage}")
+
+    with pytest.raises(RuntimeError, match=fault_stage):
+        acquire_historical_inputs(**fixture, _fault_injector=crash)
+    before = _tree_file_state(tmp_path)
+    if fault_stage == "after_normalized_bundle_publish":
+        assert Path(fixture["output_dir"]).is_dir()
+        assert not Path(fixture["manifest_path"]).exists()
+    else:
+        assert (
+            Path(fixture["snapshot_root"])
+            / "daymet-v1"
+            / "snapshot_index.json"
+        ).is_file()
+        assert not Path(fixture["output_dir"]).exists()
+
+    manifest = acquire_historical_inputs(**fixture)
+    assert manifest["status"] == "FROZEN_PRELABEL_NO_OUTCOMES"
+    after = _tree_file_state(tmp_path)
+    assert all(after[path] == state for path, state in before.items())
+
+
+def test_check_existing_is_fully_offline_and_publishes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = _input_fixture(tmp_path)
+    expected = acquire_historical_inputs(**fixture)
+    before = _tree_file_state(tmp_path)
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *_args, **_kwargs: pytest.fail("--check-existing attempted network"),
+    )
+    checked = acquire_historical_inputs(
+        **{**fixture, "offline": False},
+        check_existing=True,
+    )
+    assert checked == expected
+    assert _tree_file_state(tmp_path) == before
+
+
+def test_check_existing_never_completes_a_missing_manifest(
+    tmp_path: Path,
+) -> None:
+    fixture = _input_fixture(tmp_path)
+
+    def crash(stage: str, _path: Path) -> None:
+        if stage == "after_normalized_bundle_publish":
+            raise RuntimeError("simulated bundle-only state")
+
+    with pytest.raises(RuntimeError, match="bundle-only"):
+        acquire_historical_inputs(**fixture, _fault_injector=crash)
+    before = _tree_file_state(tmp_path)
+    with pytest.raises(HistoricalInputError, match="complete manifest"):
+        acquire_historical_inputs(**fixture, check_existing=True)
+    assert _tree_file_state(tmp_path) == before
+    assert not Path(fixture["manifest_path"]).exists()
+
+
+@pytest.mark.parametrize(
+    "attack",
+    ("table", "request_map", "index", "manifest", "extra_bundle", "extra_raw"),
+)
+def test_existing_state_tamper_and_extra_entries_fail_closed(
+    tmp_path: Path,
+    attack: str,
+) -> None:
+    fixture = _input_fixture(tmp_path)
+    acquire_historical_inputs(**fixture)
+    output_dir = Path(fixture["output_dir"])
+    snapshot_root = Path(fixture["snapshot_root"])
+    manifest_path = Path(fixture["manifest_path"])
+    attacked_path: Path
+    if attack == "table":
+        attacked_path = output_dir / "temporal_retrospective_meteorology_v1.parquet"
+        attacked_path.chmod(0o600)
+        attacked_path.write_bytes(attacked_path.read_bytes() + b"attacker")
+    elif attack == "request_map":
+        attacked_path = output_dir / "source_request_map_v1.json"
+        attacked_path.chmod(0o600)
+        attacked_path.write_bytes(attacked_path.read_bytes() + b" ")
+    elif attack == "index":
+        attacked_path = snapshot_root / "daymet-v1" / "snapshot_index.json"
+        attacked_path.chmod(0o600)
+        attacked_path.write_bytes(attacked_path.read_bytes() + b" ")
+    elif attack == "manifest":
+        attacked_path = manifest_path
+        attacked_path.chmod(0o600)
+        attacked_path.write_bytes(attacked_path.read_bytes() + b" ")
+    elif attack == "extra_bundle":
+        attacked_path = output_dir / "unexpected.bin"
+        attacked_path.write_bytes(b"extra")
+    else:
+        attacked_path = snapshot_root / "daymet-v1" / "unexpected-provider"
+        attacked_path.mkdir()
+    before = _tree_file_state(tmp_path)
+
+    with pytest.raises(HistoricalInputError):
+        acquire_historical_inputs(**fixture, check_existing=True)
+
+    assert attacked_path.exists()
+    assert _tree_file_state(tmp_path) == before
+
+
+def test_existing_symlink_and_hardlink_evidence_fail_closed(
+    tmp_path: Path,
+) -> None:
+    symlink_fixture = _input_fixture(tmp_path / "symlink")
+    acquire_historical_inputs(**symlink_fixture)
+    manifest = Path(symlink_fixture["manifest_path"])
+    retained = manifest.with_name("retained-manifest-evidence.json")
+    manifest.rename(retained)
+    manifest.symlink_to(retained.name)
+    with pytest.raises(HistoricalInputError, match="symlink"):
+        acquire_historical_inputs(**symlink_fixture, check_existing=True)
+    assert manifest.is_symlink() and retained.is_file()
+
+    hardlink_fixture = _input_fixture(tmp_path / "hardlink")
+    acquire_historical_inputs(**hardlink_fixture)
+    hardlinked_manifest = Path(hardlink_fixture["manifest_path"])
+    external_link = hardlinked_manifest.with_name("external-hardlink-evidence.json")
+    os.link(hardlinked_manifest, external_link)
+    with pytest.raises(HistoricalInputError, match="single-link"):
+        acquire_historical_inputs(**hardlink_fixture, check_existing=True)
+    assert hardlinked_manifest.stat().st_nlink == 2
+    assert external_link.read_bytes() == hardlinked_manifest.read_bytes()
+
+
+def test_partial_staging_and_partial_manifest_are_preserved_and_rejected(
+    tmp_path: Path,
+) -> None:
+    staging_fixture = _input_fixture(tmp_path / "staging")
+
+    def staging_crash(stage: str, _path: Path) -> None:
+        if stage == "after_temporal_table_staged":
+            raise RuntimeError("simulated half-staged bundle")
+
+    with pytest.raises(RuntimeError, match="half-staged"):
+        acquire_historical_inputs(**staging_fixture, _fault_injector=staging_crash)
+    output_dir = Path(staging_fixture["output_dir"])
+    staging = list(output_dir.parent.glob(f".{output_dir.name}.*"))
+    assert len(staging) == 1
+    before = _tree_file_state(tmp_path / "staging")
+    with pytest.raises(HistoricalInputError, match="staging evidence"):
+        acquire_historical_inputs(**staging_fixture)
+    assert staging[0].exists()
+    assert _tree_file_state(tmp_path / "staging") == before
+
+    manifest_fixture = _input_fixture(tmp_path / "manifest")
+
+    def bundle_crash(stage: str, _path: Path) -> None:
+        if stage == "after_normalized_bundle_publish":
+            raise RuntimeError("simulated pre-manifest crash")
+
+    with pytest.raises(RuntimeError, match="pre-manifest"):
+        acquire_historical_inputs(**manifest_fixture, _fault_injector=bundle_crash)
+    partial_manifest = Path(manifest_fixture["manifest_path"])
+    partial_manifest.write_bytes(b"{")
+    with pytest.raises(HistoricalInputError, match="deterministic replay"):
+        acquire_historical_inputs(**manifest_fixture)
+    assert partial_manifest.read_bytes() == b"{"
+
+
+def test_cli_exposes_check_existing_mode() -> None:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--help"],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--check-existing" in result.stdout
+    assert "fully offline" in result.stdout

@@ -9,7 +9,9 @@ evidence, and creates complete site-by-day normalized Parquet tables.
 
 No NWIS daily-value endpoint is called and no WTEMP/FLOW/WLEVEL value is parsed.
 Use ``--offline`` to replay exclusively from an already populated raw snapshot
-root.  All normalized outputs and the final manifest are create-only.
+root.  Use ``--check-existing`` for a fully offline, publication-free replay of
+the complete chain.  All normalized outputs and the final manifest are
+create-only; an exact completed prefix is resumed without replacing evidence.
 """
 
 from __future__ import annotations
@@ -98,6 +100,14 @@ def main() -> None:
         action="store_true",
         help="Forbid network access and require every raw response in SnapshotStore.",
     )
+    parser.add_argument(
+        "--check-existing",
+        action="store_true",
+        help=(
+            "Perform a fully offline, read-only replay of the complete raw indexes, "
+            "normalized bundle, request map, and manifest; publish nothing."
+        ),
+    )
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument(
         "--request-interval",
@@ -115,10 +125,11 @@ def main() -> None:
             snapshot_root=args.snapshot_root,
             output_dir=args.output_dir,
             manifest_path=args.manifest,
-            offline=args.offline,
+            offline=args.offline or args.check_existing,
             retries=args.retries,
             request_interval=args.request_interval,
             secondary_nwp_resolution=args.secondary_nwp_resolution,
+            check_existing=args.check_existing,
         )
     except (HistoricalInputError, ProvenanceError, ValueError) as exc:
         parser.exit(2, f"FAIL-CLOSED: {exc}\n")
