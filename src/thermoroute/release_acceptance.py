@@ -640,7 +640,9 @@ def _process_group_exists(process_group: int) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError as exc:
-        raise ReleaseAcceptanceError("cannot inspect verifier process group") from exc
+        raise ReleaseAcceptanceError(
+            "cannot inspect verifier descendant process group"
+        ) from exc
     return True
 
 
@@ -649,6 +651,19 @@ def _signal_process_group(process_group: int, signal_number: int) -> None:
         os.killpg(process_group, signal_number)
     except ProcessLookupError:
         pass
+    except PermissionError as exc:
+        raise ReleaseAcceptanceError(
+            "cannot signal verifier descendant process group"
+        ) from exc
+
+
+def _signal_direct_child(pid: int, signal_number: int) -> None:
+    try:
+        os.kill(pid, signal_number)
+    except ProcessLookupError:
+        pass
+    except PermissionError as exc:
+        raise ReleaseAcceptanceError("cannot signal verifier direct child") from exc
 
 
 def _terminate_and_reap(
@@ -657,7 +672,14 @@ def _terminate_and_reap(
     already_reaped: tuple[int, Any] | None,
 ) -> tuple[int, Any]:
     status_usage = already_reaped
-    _signal_process_group(pid, signal.SIGTERM)
+    group_cleanup_error: ReleaseAcceptanceError | None = None
+    try:
+        _signal_process_group(pid, signal.SIGTERM)
+    except ReleaseAcceptanceError as exc:
+        # A process-group permission failure must remain fail-closed, but it
+        # must not prevent us from killing and reaping the direct child whose
+        # PID is still unambiguous while it remains our unreaped child.
+        group_cleanup_error = exc
     grace_deadline = time.monotonic() + _PROCESS_TERMINATION_GRACE_SECONDS
     while status_usage is None and time.monotonic() < grace_deadline:
         waited, status, usage = _wait4(pid, os.WNOHANG)
@@ -665,17 +687,61 @@ def _terminate_and_reap(
             status_usage = (status, usage)
             break
         time.sleep(_PROCESS_POLL_SECONDS)
-    if _process_group_exists(pid):
-        _signal_process_group(pid, signal.SIGKILL)
+
+    if group_cleanup_error is None:
+        try:
+            if _process_group_exists(pid):
+                _signal_process_group(pid, signal.SIGKILL)
+        except ReleaseAcceptanceError as exc:
+            group_cleanup_error = exc
+
     if status_usage is None:
-        _waited, status, usage = _wait4(pid)
-        status_usage = (status, usage)
-    cleanup_deadline = time.monotonic() + _PROCESS_TERMINATION_GRACE_SECONDS
-    while _process_group_exists(pid) and time.monotonic() < cleanup_deadline:
-        _signal_process_group(pid, signal.SIGKILL)
-        time.sleep(_PROCESS_POLL_SECONDS)
-    if _process_group_exists(pid):
-        raise ReleaseAcceptanceError("verifier process group survived forced cleanup")
+        direct_cleanup_error: ReleaseAcceptanceError | None = None
+        try:
+            _signal_direct_child(pid, signal.SIGKILL)
+        except ReleaseAcceptanceError as exc:
+            direct_cleanup_error = exc
+        reap_deadline = time.monotonic() + _PROCESS_TERMINATION_GRACE_SECONDS
+        while status_usage is None and time.monotonic() < reap_deadline:
+            waited, status, usage = _wait4(pid, os.WNOHANG)
+            if waited == pid:
+                status_usage = (status, usage)
+                break
+            time.sleep(_PROCESS_POLL_SECONDS)
+        if status_usage is None:
+            error = ReleaseAcceptanceError(
+                "verifier direct child survived forced cleanup"
+            )
+            if direct_cleanup_error is not None:
+                raise error from direct_cleanup_error
+            if group_cleanup_error is not None:
+                raise error from group_cleanup_error
+            raise error
+        if direct_cleanup_error is not None and group_cleanup_error is None:
+            group_cleanup_error = direct_cleanup_error
+
+    if group_cleanup_error is None:
+        cleanup_deadline = time.monotonic() + _PROCESS_TERMINATION_GRACE_SECONDS
+        while time.monotonic() < cleanup_deadline:
+            try:
+                if not _process_group_exists(pid):
+                    break
+                _signal_process_group(pid, signal.SIGKILL)
+            except ReleaseAcceptanceError as exc:
+                group_cleanup_error = exc
+                break
+            time.sleep(_PROCESS_POLL_SECONDS)
+        if group_cleanup_error is None:
+            try:
+                if _process_group_exists(pid):
+                    raise ReleaseAcceptanceError(
+                        "verifier process group survived forced cleanup"
+                    )
+            except ReleaseAcceptanceError as exc:
+                group_cleanup_error = exc
+
+    if group_cleanup_error is not None:
+        raise group_cleanup_error
     return status_usage
 
 

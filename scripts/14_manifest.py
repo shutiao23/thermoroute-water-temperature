@@ -37,6 +37,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,77 @@ STAGE09_SCORES_PATH = "outputs/tables/usgs_scores.csv"
 STAGE09_PRIMARY_MODELS = (
     "Persistence", "DampedPersistence", "Climatology", "LightGBM", "ThermoRoute",
 )
+_RETIRED_MONITORING_FIGURE_STEMS = (
+    "fig1_study_area",
+    "fig1_monitoring_site_identifiers",
+    "fig2_series_climatology",
+    "fig3_results_heatmap",
+    "fig4_skill_vs_horizon",
+    "fig5_blindtest_trajectory",
+    "fig5_development_trajectory",
+    "fig6_reliability",
+    "fig7_lag_importance",
+    "fig7_router_allocation",
+    "fig8_dynamic_kappa",
+    "fig8_latent_decay_coefficient",
+    "fig9_loso",
+    "fig9_history_dependent_station_holdout",
+    "fig10_flow_lagmaps",
+    "fig10_flow_stratified_router",
+    "fig11_rev_curves",
+)
+RETIRED_MONITORING_CASE_OUTPUT_MEMBERS = frozenset({
+    "data/processed/panel.parquet",
+    "outputs/predictions/predictions.parquet",
+    "outputs/tables/scores_all.csv",
+    "outputs/models/thermoroute_explain.pt",
+    "outputs/tables/explain.npz",
+    "outputs/tables/paper_tables.md",
+    "outputs/tables/decision_value.csv",
+    "outputs/tables/decision_value.md",
+    "outputs/reports/data_audit.md",
+    "outputs/reports/mechanism_summary.md",
+    "outputs/reports/latent_component_diagnostics.md",
+    *{
+        f"outputs/figures/{stem}.{suffix}"
+        for stem in _RETIRED_MONITORING_FIGURE_STEMS
+        for suffix in ("png", "pdf")
+    },
+})
+PRE_MODEL_FORBIDDEN_PATHS = (
+    "outputs/prelabel/route_a_prelabel_chronology_v1.json",
+    "data_usgs/confirmatory_candidate_sites_v1.csv",
+    "data_usgs/confirmatory_candidate_sites_v1.provenance.json",
+    "data_usgs/raw_snapshots/confirmatory-candidates-v1",
+    "data_usgs/confirmatory_site_registry_v1.csv",
+    "data_usgs/confirmatory_site_registry_v1.lock.json",
+    "data_usgs/confirmatory_actual_inputs_v1.json",
+    "outputs/prelabel/route_a_inference_gate_v1.json",
+    "data_usgs/raw_snapshots/confirmatory-historical-inputs-v1",
+    "data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1",
+    "data_usgs/confirmatory_predictors",
+    "data_usgs/confirmatory_opening_authorization_v1.json",
+    "data_usgs/confirmatory",
+    "data_usgs/confirmatory_outcomes",
+    "outputs/confirmatory",
+    "data_usgs/wtemp_daily_max.parquet",
+)
+DEVELOPMENT_PRELABEL_MANIFEST_ROLE = (
+    "DEVELOPMENT_PRELABEL_INVENTORY_NO_CONFIRMATORY_OR_OUTCOME_NAMESPACE"
+)
+GENERIC_MANIFEST_ROLE = "WORKTREE_OR_STAGED_RELEASE_INVENTORY"
+DEVELOPMENT_PRELABEL_MANIFEST_AUTHORITY = (
+    "MANIFEST_ALONE_CONFERS_NO_SCIENTIFIC_AUTHORITY; SEPARATE_CONTENT_BOUND_"
+    "RECEIPTS_REQUIRED"
+)
+GENERIC_MANIFEST_AUTHORITY = (
+    "BYTE_INVENTORY_ONLY; RELEASE_PROFILE_AND_INDEPENDENT_VALIDATORS_DEFINE_"
+    "SCIENTIFIC_AUTHORITY"
+)
+STAGE09_LINEAGE_INPUT_PATHS = frozenset({
+    "data_usgs/panel_usgs_120v2.parquet",
+    "data_usgs/station_registry_v1.csv",
+})
 
 # Files that can change model behaviour or interpretation.  The manifest itself
 # is deliberately excluded to avoid a self-hash cycle.
@@ -77,7 +149,6 @@ SOURCE_PATTERNS = (
 # here: they are operational records or subordinate nodes, not independent
 # current scientific truths.
 ARTIFACT_PATTERNS = (
-    "data/*.csv",
     "data_usgs/panel_usgs*.parquet",
     "data_usgs/confirmatory/**/*.parquet",
     "data_usgs/confirmatory/**/*.csv",
@@ -113,6 +184,30 @@ ARTIFACT_PATTERNS = (
     "paper/**/*.pdf",
     "paper/**/*.docx",
 )
+_DEVELOPMENT_PRELABEL_EXCLUDED_ARTIFACT_PATTERNS = frozenset({
+    "data_usgs/confirmatory/**/*.parquet",
+    "data_usgs/confirmatory/**/*.csv",
+    "data_usgs/confirmatory/**/*.json",
+    "data_usgs/*.json",
+    "data_usgs/raw_snapshots/**/*",
+    "outputs/confirmatory/**/*",
+    "paper/**/*.pdf",
+    "paper/**/*.docx",
+})
+DEVELOPMENT_PRELABEL_ARTIFACT_PATTERNS = (
+    *(
+        pattern
+        for pattern in ARTIFACT_PATTERNS
+        if pattern not in _DEVELOPMENT_PRELABEL_EXCLUDED_ARTIFACT_PATTERNS
+    ),
+    "data_usgs/development_*.json",
+    "data_usgs/frozen_panel_v1.json",
+    "data_usgs/huc_metadata_usgs_v1.provenance.json",
+    "data_usgs/rejected_sites*.json",
+    "data_usgs/confirmatory_model_suite_v1.json",
+    "data_usgs/raw_snapshots/huc-v1/**/*",
+    "data_usgs/raw_snapshots/development-predictor-bridge-v1/**/*",
+)
 
 RUN_SOURCE_PATTERNS = (
     "src/**/*.py",
@@ -134,7 +229,7 @@ DIRECT_DISTRIBUTIONS = (
 )
 
 CONFIG_NAMES = (
-    "TARGET", "STATIONS", "ALL_VARS", "FORCINGS", "SENTINELS", "LOG1P_VARS",
+    "TARGET", "ALL_VARS", "FORCINGS", "SENTINELS", "LOG1P_VARS",
     "HORIZONS", "QUANTILES", "EXCEEDANCE_QUANTILE", "SPLIT", "FEATURE_SETS",
     "SHORT_LAGS", "ROLLING_WINDOWS", "CONTEXT_LENGTH", "MAX_ROUTER_LAG",
     "SEASONAL_HARMONICS", "SEEDS", "PRIMARY_SEED", "SEASONAL_PERIOD", "TRAIN",
@@ -203,8 +298,21 @@ def _iter_files(root: Path, patterns: Iterable[str]) -> Iterable[Path]:
     seen: set[Path] = set()
     for pattern in patterns:
         for path in root.glob(pattern):
-            if not path.is_file() or path in seen:
+            if path in seen:
                 continue
+            try:
+                metadata = path.lstat()
+            except OSError as exc:
+                raise RuntimeError(
+                    f"MANIFEST_UNSAFE_ARTIFACT: cannot lstat {path}"
+                ) from exc
+            if stat.S_ISDIR(metadata.st_mode):
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise RuntimeError(
+                    "MANIFEST_UNSAFE_ARTIFACT: matched path is not a regular file: "
+                    f"{path}"
+                )
             rel_parts = path.relative_to(root).parts
             if "__pycache__" in rel_parts or any(part in {"_archive", "_superseded"}
                                                    for part in rel_parts):
@@ -215,12 +323,188 @@ def _iter_files(root: Path, patterns: Iterable[str]) -> Iterable[Path]:
             yield path
 
 
+def _inventory_file_binding(root: Path, path: Path) -> dict[str, Any]:
+    """Hash one single-link file through no-follow directory descriptors.
+
+    The development manifest is a byte inventory, not an authority receipt, but
+    even an inventory must not follow a renamed symlink or hardlink into a
+    withdrawn/outcome namespace.  Descriptor-relative traversal also prevents a
+    parent-directory symlink from escaping the lexical repository root.
+    """
+    lexical_root = Path(os.path.abspath(os.fspath(root)))
+    lexical_path = Path(os.path.abspath(os.fspath(path)))
+    try:
+        relative = lexical_path.relative_to(lexical_root)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"MANIFEST_UNSAFE_ARTIFACT: path escapes root: {lexical_path}"
+        ) from exc
+    if not relative.parts:
+        raise RuntimeError("MANIFEST_UNSAFE_ARTIFACT: repository root is not a file")
+
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError(
+            "MANIFEST_UNSAFE_ARTIFACT: platform lacks no-follow descriptor support"
+        )
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    directory_flags |= getattr(os, "O_CLOEXEC", 0)
+    file_flags |= os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+
+    descriptors: list[int] = []
+    file_descriptor: int | None = None
+    try:
+        root_descriptor = os.open(lexical_root, directory_flags)
+        descriptors.append(root_descriptor)
+        root_metadata = os.fstat(root_descriptor)
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise RuntimeError(
+                "MANIFEST_UNSAFE_ARTIFACT: repository root is not a directory"
+            )
+
+        parent_descriptor = root_descriptor
+        for component in relative.parts[:-1]:
+            try:
+                child_descriptor = os.open(
+                    component, directory_flags, dir_fd=parent_descriptor
+                )
+            except OSError as exc:
+                raise RuntimeError(
+                    "MANIFEST_UNSAFE_ARTIFACT: path contains an unsafe directory "
+                    f"component: {relative.as_posix()}"
+                ) from exc
+            child_metadata = os.fstat(child_descriptor)
+            if not stat.S_ISDIR(child_metadata.st_mode):
+                os.close(child_descriptor)
+                raise RuntimeError(
+                    "MANIFEST_UNSAFE_ARTIFACT: path crosses a non-directory: "
+                    f"{relative.as_posix()}"
+                )
+            descriptors.append(child_descriptor)
+            parent_descriptor = child_descriptor
+
+        name = relative.parts[-1]
+        try:
+            file_descriptor = os.open(name, file_flags, dir_fd=parent_descriptor)
+        except OSError as exc:
+            raise RuntimeError(
+                "MANIFEST_UNSAFE_ARTIFACT: cannot open file without following links: "
+                f"{relative.as_posix()}"
+            ) from exc
+        before = os.fstat(file_descriptor)
+        linked_before = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        identity_before = (
+            before.st_dev,
+            before.st_ino,
+            before.st_mode,
+            before.st_nlink,
+            before.st_size,
+            before.st_mtime_ns,
+        )
+        linked_identity_before = (
+            linked_before.st_dev,
+            linked_before.st_ino,
+            linked_before.st_mode,
+            linked_before.st_nlink,
+            linked_before.st_size,
+            linked_before.st_mtime_ns,
+        )
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or linked_identity_before != identity_before
+        ):
+            raise RuntimeError(
+                "MANIFEST_UNSAFE_ARTIFACT: path is not a single-link regular file: "
+                f"{relative.as_posix()}"
+            )
+
+        digest = hashlib.sha256()
+        byte_count = 0
+        while True:
+            chunk = os.read(file_descriptor, 1 << 20)
+            if not chunk:
+                break
+            digest.update(chunk)
+            byte_count += len(chunk)
+
+        after = os.fstat(file_descriptor)
+        linked_after = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        identity_after = (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_nlink,
+            after.st_size,
+            after.st_mtime_ns,
+        )
+        linked_identity_after = (
+            linked_after.st_dev,
+            linked_after.st_ino,
+            linked_after.st_mode,
+            linked_after.st_nlink,
+            linked_after.st_size,
+            linked_after.st_mtime_ns,
+        )
+        if (
+            identity_after != identity_before
+            or linked_identity_after != identity_before
+            or byte_count != before.st_size
+        ):
+            raise RuntimeError(
+                "MANIFEST_UNSAFE_ARTIFACT: file changed while being inventoried: "
+                f"{relative.as_posix()}"
+            )
+        return {"sha256": digest.hexdigest(), "bytes": byte_count}
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def inventory(root: Path, patterns: Iterable[str]) -> dict[str, dict[str, Any]]:
     files: dict[str, dict[str, Any]] = {}
     for path in sorted(_iter_files(root, patterns)):
         rel = path.relative_to(root).as_posix()
-        files[rel] = {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+        files[rel] = _inventory_file_binding(root, path)
     return files
+
+
+def retired_monitoring_case_outputs(root: Path) -> tuple[str, ...]:
+    """Return retired-case products that would contaminate Route-A evidence."""
+    return tuple(
+        relative
+        for relative in sorted(RETIRED_MONITORING_CASE_OUTPUT_MEMBERS)
+        if (root / relative).exists() or (root / relative).is_symlink()
+    )
+
+
+def assert_route_a_artifact_boundary(root: Path) -> None:
+    present = retired_monitoring_case_outputs(root)
+    if present:
+        raise RuntimeError(
+            "ROUTE_A_RETIRED_MONITORING_CASE_ARTIFACT_PRESENT: "
+            + ", ".join(present)
+        )
+
+
+def pre_model_forbidden_paths(root: Path) -> tuple[str, ...]:
+    """Use metadata only to find paths forbidden before the model freeze."""
+    return tuple(
+        relative
+        for relative in PRE_MODEL_FORBIDDEN_PATHS
+        if os.path.lexists(root / relative)
+    )
+
+
+def assert_development_prelabel_boundary(root: Path) -> None:
+    present = pre_model_forbidden_paths(root)
+    if present:
+        raise RuntimeError(
+            "ROUTE_A_PREMODEL_FORBIDDEN_PATH_PRESENT_WITHOUT_READING: "
+            + ", ".join(present)
+        )
 
 
 def resolved_config(root: Path) -> dict[str, Any]:
@@ -310,15 +594,11 @@ def _artifact_kind(rel: str) -> str:
 
 
 def _current_truth(root: Path) -> dict[str, str]:
-    candidates = {
-        "usgs_predictions": STAGE09_PREDICTIONS_PATH,
-        "usgs_panel": "data_usgs/panel_usgs_120v2.parquet",
-        "usgs_registry": "data_usgs/station_registry_v1.csv",
-        "usgs_scores": STAGE09_SCORES_PATH,
-        "legacy_three_site_predictions": "outputs/predictions/predictions.parquet",
-        "legacy_three_site_scores": "outputs/tables/scores_all.csv",
-    }
-    return {key: rel for key, rel in candidates.items() if (root / rel).is_file()}
+    # This document is only a broad byte inventory.  Canonical-input, model,
+    # replay, and release receipts independently establish scientific
+    # authority, so filename presence must never manufacture "current truth".
+    del root
+    return {}
 
 
 def _run_source_sha256(root: Path) -> str:
@@ -427,7 +707,8 @@ def _truth_matches_at_model_precision(
 
 def lineage_graph(root: Path, files: Mapping[str, Mapping[str, Any]],
                   source_sha: str, config_sha: str, dependency_sha: str,
-                  git_sha: str) -> dict[str, dict[str, Any]]:
+                  git_sha: str, *,
+                  development_prelabel: bool = False) -> dict[str, dict[str, Any]]:
     graph: dict[str, dict[str, Any]] = {
         "@source": {"kind": "source_identity", "sha256": source_sha, "parents": []},
         "@config": {"kind": "resolved_config", "sha256": config_sha, "parents": ["@source"]},
@@ -437,35 +718,34 @@ def lineage_graph(root: Path, files: Mapping[str, Mapping[str, Any]],
     }
     input_nodes = sorted(rel for rel in files if _artifact_kind(rel) in {"input_data", "protocol"})
     prediction_nodes = sorted(rel for rel in files if _artifact_kind(rel) == "predictions")
-    legacy_three_site_inputs = [
-        rel for rel in input_nodes if rel.startswith("data/")
-    ]
-    usgs_inputs = [rel for rel in input_nodes if rel.startswith("data_usgs/")]
+    usgs_inputs = [rel for rel in input_nodes if rel in STAGE09_LINEAGE_INPUT_PATHS]
 
     for rel, meta in sorted(files.items()):
         kind = _artifact_kind(rel)
+        node_kind = kind
         parents: list[str]
+        authority = "CONTENT_HASH_INVENTORY"
         if kind in {"input_data", "protocol"}:
             parents = []
-        elif kind in {"predictions", "model"}:
-            is_legacy_three_site = rel in {
-                "outputs/predictions/predictions.parquet",
-                "outputs/models/thermoroute_explain.pt",
-            }
-            data_parents = (
-                legacy_three_site_inputs if is_legacy_three_site else usgs_inputs
+        elif development_prelabel and rel.startswith("outputs/"):
+            node_kind = "workspace_inventory"
+            authority = (
+                "WORKSPACE_INVENTORY_ONLY_REQUIRES_SEPARATE_RECEIPT_VALIDATION"
             )
-            parents = ["@git", "@source", "@config", "@dependencies", *data_parents]
+            parents = ["@git", "@source", "@config", "@dependencies"]
+        elif kind in {"predictions", "model"}:
+            parents = ["@git", "@source", "@config", "@dependencies", *usgs_inputs]
         else:
             # Derived summaries can depend on several experiment arms.  Listing all
             # retained prediction nodes is conservative but never understates lineage.
             evidence = prediction_nodes if prediction_nodes else input_nodes
             parents = ["@git", "@source", "@config", "@dependencies", *evidence]
         graph[rel] = {
-            "kind": kind,
+            "kind": node_kind,
             "sha256": meta["sha256"],
             "bytes": meta["bytes"],
             "parents": list(dict.fromkeys(parents)),
+            "authority": authority,
         }
     return graph
 
@@ -516,10 +796,23 @@ def supplied_git_state(commit: str, tree: str, *, dirty: bool) -> dict[str, Any]
 def build_manifest(root: Path, *, no_git: bool = False,
                    source_git_commit: str | None = None,
                    source_git_tree: str | None = None,
-                   source_git_dirty: bool = False) -> dict[str, Any]:
-    validate_usgs_current_truth(root)
+                   source_git_dirty: bool = False,
+                   development_prelabel: bool = False) -> dict[str, Any]:
+    assert_route_a_artifact_boundary(root)
+    if development_prelabel:
+        assert_development_prelabel_boundary(root)
     source_files = inventory(root, SOURCE_PATTERNS)
-    artifact_files = inventory(root, ARTIFACT_PATTERNS)
+    artifact_patterns = (
+        DEVELOPMENT_PRELABEL_ARTIFACT_PATTERNS
+        if development_prelabel
+        else ARTIFACT_PATTERNS
+    )
+    artifact_files = inventory(root, artifact_patterns)
+    if development_prelabel:
+        # The development patterns cannot open a forbidden namespace.  This
+        # second metadata-only check detects creation during inventory without
+        # ever hashing the new path.
+        assert_development_prelabel_boundary(root)
     config = resolved_config(root)
     dependencies = dependency_identity(root)
     source_sha = sha256_json(source_files)
@@ -530,13 +823,30 @@ def build_manifest(root: Path, *, no_git: bool = False,
                               dirty=source_git_dirty)
            if source_git_commit is not None
            else git_state(root, disabled=no_git))
-    graph = lineage_graph(root, artifact_files, source_sha, config_sha,
-                          dependencies["lock_sha256"], sha256_json(git))
+    graph = lineage_graph(
+        root,
+        artifact_files,
+        source_sha,
+        config_sha,
+        dependencies["lock_sha256"],
+        sha256_json(git),
+        development_prelabel=development_prelabel,
+    )
     graph_errors = validate_graph(graph)
     if graph_errors:
         raise RuntimeError("invalid generated lineage graph: " + "; ".join(graph_errors))
     return {
         "schema_version": SCHEMA_VERSION,
+        "manifest_role": (
+            DEVELOPMENT_PRELABEL_MANIFEST_ROLE
+            if development_prelabel
+            else GENERIC_MANIFEST_ROLE
+        ),
+        "scientific_evidence_authority": (
+            DEVELOPMENT_PRELABEL_MANIFEST_AUTHORITY
+            if development_prelabel
+            else GENERIC_MANIFEST_AUTHORITY
+        ),
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "root_name": root.name,
         "git": git,
@@ -552,13 +862,41 @@ def build_manifest(root: Path, *, no_git: bool = False,
 
 def verify_manifest(root: Path, manifest: Mapping[str, Any], *,
                     no_git: bool = False, strict_git: bool = False,
-                    strict_environment: bool = False) -> list[str]:
+                    strict_environment: bool = False,
+                    expected_role: str | None = None) -> list[str]:
     errors: list[str] = []
+    for relative in retired_monitoring_case_outputs(root):
+        errors.append(f"RETIRED_MONITORING_CASE_ARTIFACT_PRESENT {relative}")
     if manifest.get("schema_version") != SCHEMA_VERSION:
         return [f"SCHEMA expected {SCHEMA_VERSION}, got {manifest.get('schema_version')!r}"]
+    role = manifest.get("manifest_role", GENERIC_MANIFEST_ROLE)
+    if role not in {DEVELOPMENT_PRELABEL_MANIFEST_ROLE, GENERIC_MANIFEST_ROLE}:
+        errors.append(f"MANIFEST_ROLE_UNKNOWN {role!r}")
+    if expected_role is not None and role != expected_role:
+        errors.append(f"MANIFEST_ROLE_EXPECTED {expected_role!r}, got {role!r}")
+    if role == DEVELOPMENT_PRELABEL_MANIFEST_ROLE:
+        for relative in pre_model_forbidden_paths(root):
+            errors.append(f"PREMODEL_FORBIDDEN_PATH_PRESENT {relative}")
+    expected_authority = (
+        DEVELOPMENT_PRELABEL_MANIFEST_AUTHORITY
+        if role == DEVELOPMENT_PRELABEL_MANIFEST_ROLE
+        else GENERIC_MANIFEST_AUTHORITY
+    )
+    if manifest.get("scientific_evidence_authority") != expected_authority:
+        errors.append("SCIENTIFIC_EVIDENCE_AUTHORITY_CHANGED")
 
     expected_files = manifest.get("files", {})
-    actual_files = inventory(root, ARTIFACT_PATTERNS)
+    artifact_patterns = (
+        DEVELOPMENT_PRELABEL_ARTIFACT_PATTERNS
+        if role == DEVELOPMENT_PRELABEL_MANIFEST_ROLE
+        else ARTIFACT_PATTERNS
+    )
+    actual_files = inventory(root, artifact_patterns)
+    if role == DEVELOPMENT_PRELABEL_MANIFEST_ROLE:
+        for relative in pre_model_forbidden_paths(root):
+            marker = f"PREMODEL_FORBIDDEN_PATH_PRESENT {relative}"
+            if marker not in errors:
+                errors.append(marker)
     for rel, expected in expected_files.items():
         actual = actual_files.get(rel)
         if actual is None:
@@ -589,11 +927,24 @@ def verify_manifest(root: Path, manifest: Mapping[str, Any], *,
         errors.append("RUNTIME_ENVIRONMENT_CHANGED")
 
     truth = manifest.get("current_truth", {})
+    if truth != _current_truth(root):
+        errors.append("CURRENT_TRUTH_CHANGED")
     for name, rel in truth.items():
         if rel not in expected_files or not (root / rel).is_file():
             errors.append(f"CURRENT_TRUTH_MISSING {name}={rel}")
 
     graph = manifest.get("dag", {})
+    expected_graph = lineage_graph(
+        root,
+        actual_files,
+        sha256_json(actual_source),
+        sha256_json(actual_config),
+        actual_dependencies["lock_sha256"],
+        sha256_json(manifest.get("git", {})),
+        development_prelabel=(role == DEVELOPMENT_PRELABEL_MANIFEST_ROLE),
+    )
+    if graph != expected_graph:
+        errors.append("DAG_CONTENT_OR_AUTHORITY_CHANGED")
     errors.extend(validate_graph(graph))
     for rel, meta in expected_files.items():
         node = graph.get(rel)
@@ -642,9 +993,31 @@ def main() -> int:
                         help="origin tree to bind into a staged Git-less release")
     parser.add_argument("--source-git-dirty", action="store_true",
                         help="mark supplied release-builder revision as dirty")
+    parser.add_argument(
+        "--check-route-a-boundary",
+        action="store_true",
+        help="metadata-only pre-model check for retired or outcome paths",
+    )
+    parser.add_argument(
+        "--development-prelabel",
+        action="store_true",
+        help=(
+            "build or check the development-prelabel role only while "
+            "confirmatory/outcome paths are absent"
+        ),
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
+    if args.check_route_a_boundary:
+        try:
+            assert_route_a_artifact_boundary(root)
+            assert_development_prelabel_boundary(root)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print("Route-A artifact boundary OK")
+        return 0
     manifest_path = (args.manifest.resolve() if args.manifest else
                      root / "outputs" / "manifest.json")
     if args.check:
@@ -655,7 +1028,11 @@ def main() -> int:
             return 2
         errors = verify_manifest(root, manifest, no_git=args.no_git,
                                  strict_git=args.strict_git,
-                                 strict_environment=args.strict_environment)
+                                 strict_environment=args.strict_environment,
+                                 expected_role=(
+                                     DEVELOPMENT_PRELABEL_MANIFEST_ROLE
+                                     if args.development_prelabel else None
+                                 ))
         if errors:
             print("\n".join(errors), file=sys.stderr)
             return 1
@@ -669,6 +1046,7 @@ def main() -> int:
         source_git_commit=args.source_git_commit,
         source_git_tree=args.source_git_tree,
         source_git_dirty=args.source_git_dirty,
+        development_prelabel=args.development_prelabel,
     )
     atomic_write_json(manifest_path, manifest)
     print(f"wrote {manifest_path}: {manifest['n_files']} artifacts, "

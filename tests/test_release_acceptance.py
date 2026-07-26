@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import py_compile
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -583,6 +584,78 @@ def test_deadline_output_cap_and_process_group_escape_fail_without_receipt(
     with pytest.raises(ReleaseAcceptanceError, match="deadline|capture limit|descendant"):
         run_release_mechanics_acceptance(archive, root=root)
     assert time.monotonic() - started < 5.0
+    assert not receipt.exists()
+
+
+def test_process_group_signal_permission_failure_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def deny_signal(_process_group: int, _signal_number: int) -> None:
+        raise PermissionError("synthetic process-group permission denial")
+
+    monkeypatch.setattr(acceptance.os, "killpg", deny_signal)
+    with pytest.raises(
+        ReleaseAcceptanceError,
+        match="cannot signal verifier descendant process group",
+    ):
+        acceptance._signal_process_group(12345, signal.SIGKILL)
+    with pytest.raises(
+        ReleaseAcceptanceError,
+        match="cannot inspect verifier descendant process group",
+    ):
+        acceptance._process_group_exists(12345)
+
+
+def test_process_group_permission_failure_still_reaps_direct_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
+
+    def deny_group_signal(_process_group: int, _signal_number: int) -> None:
+        raise ReleaseAcceptanceError(
+            "cannot signal verifier descendant process group"
+        )
+
+    monkeypatch.setattr(acceptance, "_signal_process_group", deny_group_signal)
+    try:
+        with pytest.raises(
+            ReleaseAcceptanceError,
+            match="cannot signal verifier descendant process group",
+        ):
+            acceptance._terminate_and_reap(process.pid, already_reaped=None)
+        assert process.poll() is not None
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def test_process_group_permission_failure_public_entry_writes_no_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, archive, receipt = _make_fixture(tmp_path, mode="hang")
+    monkeypatch.setattr(acceptance, "_VERIFIER_DEADLINE_SECONDS", 0.1)
+    monkeypatch.setattr(acceptance, "_PROCESS_TERMINATION_GRACE_SECONDS", 0.2)
+
+    def deny_group_signal(_process_group: int, _signal_number: int) -> None:
+        raise ReleaseAcceptanceError(
+            "cannot signal verifier descendant process group"
+        )
+
+    monkeypatch.setattr(acceptance, "_signal_process_group", deny_group_signal)
+    with pytest.raises(
+        ReleaseAcceptanceError,
+        match="cannot signal verifier descendant process group",
+    ):
+        run_release_mechanics_acceptance(archive, root=root)
     assert not receipt.exists()
 
 

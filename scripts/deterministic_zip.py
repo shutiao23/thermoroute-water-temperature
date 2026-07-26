@@ -118,6 +118,12 @@ def create_deterministic_zip(
                         "rights_review_required_for_every_archive_member_by_exact_sha256",
                         "repository_code_license_authorizes_data",
                         "public_profile_status",
+                        "route_a_active_member_namespace_legacy_monitoring_inputs_included",
+                        "route_a_active_member_namespace_legacy_monitoring_outputs_included",
+                        "legacy_monitoring_case_is_route_a_scientific_evidence",
+                        "git_history_bundle_may_include_current_tip_legacy_monitoring_input_blobs",
+                        "git_history_bundle_may_include_reachable_historical_legacy_monitoring_output_blobs",
+                        "git_history_bundle_role",
                     )
                 },
                 "claim_validation": profile.get("claim_validation"),

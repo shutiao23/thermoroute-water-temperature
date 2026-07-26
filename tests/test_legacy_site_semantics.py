@@ -593,11 +593,53 @@ def test_legacy_wlevel_report_has_only_raw_unknown_unit_qc_semantics() -> None:
 
 def test_canonical_run_does_not_silently_execute_the_legacy_case() -> None:
     script = (ROOT / "scripts/run_all.sh").read_text(encoding="utf-8")
-    assert "INCLUDE_LEGACY_MONITORING_CASE=0" in script
-    assert "--include-legacy-monitoring-case" in script
-    assert "OPTIONAL LEGACY MONITORING-SITE CASE" in script
+    assert "if (( $# != 0 )); then" in script
+    assert "--include-legacy-monitoring-case" not in script
+    assert "INCLUDE_LEGACY_MONITORING_CASE" not in script
+    assert "data/processed" not in script
+    assert "scripts/14_manifest.py --check-route-a-boundary" in script
+    assert "scripts/14_manifest.py --development-prelabel" in script
+    assert "scripts/21_ecological_thresholds.py" not in script
+    assert (
+        'CANONICAL_USGS_STATION_REGISTRY="data_usgs/station_registry_v1.csv"'
+        in script
+    )
+    assert 'export USGS_STATION_REGISTRY="$CANONICAL_USGS_STATION_REGISTRY"' in script
+    assert "custom USGS_STATION_REGISTRY is unsupported" in script
+    for legacy_entrypoint in (
+        "scripts/01_prepare_data.py",
+        "scripts/04_run_experiments.py",
+        "scripts/05_explain.py",
+        "scripts/06_make_figures.py",
+        "scripts/07_make_tables.py",
+        "scripts/08_decision_value.py",
+    ):
+        assert legacy_entrypoint not in script
+    assert "b1/s2/p3 ordinary monitoring stations" in script
     assert "ROUTE A: USGS DEVELOPMENT ANALYSIS" in script
     assert "TRACK B" not in script
+
+    for argument in ("--include-legacy-monitoring-case", "--help", "unexpected"):
+        completed = subprocess.run(
+            ["bash", str(ROOT / "scripts/run_all.sh"), argument],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 2, argument
+        assert completed.stdout == ""
+        assert completed.stderr == "usage: bash scripts/run_all.sh\n"
+
+
+def test_release_archive_excludes_legacy_site_data_but_keeps_correction() -> None:
+    script = (ROOT / "scripts/make_release_archive.sh").read_text(
+        encoding="utf-8"
+    )
+    for legacy_data_path in ("data/b1.csv", "data/s2.csv", "data/p3.csv"):
+        assert legacy_data_path not in script
+    assert '$STAGE/data' not in script
+    assert "protocols/legacy_three_site_semantics_notice_v1.md" in script
 
 
 def test_legacy_site_figure_has_no_network_or_travel_time_semantics() -> None:

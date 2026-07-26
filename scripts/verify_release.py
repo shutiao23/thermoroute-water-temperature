@@ -3,10 +3,11 @@
 
 The default check is fast and network-free: validate the archive boundary, verify
 its checksum sidecar when present, extract it, and run the embedded provenance
-checker.  ``--run-data-smoke`` additionally executes stage 01 from the extracted
-copy, proving that the raw three-station inputs were actually shipped.  These
-archives are explicitly non-redistributable while source/rights review is open;
-public-distribution mode fails closed.
+checker.  ``--run-data-smoke`` additionally verifies the frozen Route-A USGS
+panel, stable monitoring-station registry, and their raw HUC evidence closure.
+Retired monitoring-case inputs and outputs are forbidden as direct archive
+members.  These archives are explicitly non-redistributable while source/rights
+review is open; public-distribution mode fails closed.
 """
 
 from __future__ import annotations
@@ -169,9 +170,6 @@ LOCAL_EVIDENCE_DISTRIBUTION_FIELDS = {
     # inventory.  Public release requires review of every archive member by
     # exact bytes; absence from this list is never evidence of permission.
     "known_minimum_unverified_redistribution_scopes": [
-        "data/b1.csv",
-        "data/s2.csv",
-        "data/p3.csv",
         "data_usgs/**",
         GIT_BUNDLE_PATH,
         "paper/agu_submission/agujournal2019.cls",
@@ -180,6 +178,17 @@ LOCAL_EVIDENCE_DISTRIBUTION_FIELDS = {
     "rights_review_required_for_every_archive_member_by_exact_sha256": True,
     "repository_code_license_authorizes_data": False,
     "public_profile_status": "BLOCKED_PENDING_RIGHTS_REVIEW",
+    "route_a_active_member_namespace_legacy_monitoring_inputs_included": False,
+    "route_a_active_member_namespace_legacy_monitoring_outputs_included": False,
+    "legacy_monitoring_case_is_route_a_scientific_evidence": False,
+    "git_history_bundle_may_include_current_tip_legacy_monitoring_input_blobs": True,
+    "git_history_bundle_may_include_reachable_historical_legacy_monitoring_output_blobs": (
+        True
+    ),
+    "git_history_bundle_role": (
+        "LOCAL_OWNER_GOVERNANCE_CHRONOLOGY_MAY_CONTAIN_WITHDRAWN_LEGACY_"
+        "BYTES_NOT_CURRENT_ROUTE_A_SCIENTIFIC_EVIDENCE"
+    ),
 }
 _COMMON_PROFILE_ALLOWED_FIELDS = frozenset({
     "format",
@@ -918,9 +927,6 @@ REQUIRED_MEMBERS = {
     NATIVE_ARTIFACT_PUBLICATION_NOTICE_PATH,
     LEGACY_THREE_SITE_NOTICE_PATH,
     "protocols/route_a_claim_registry_v1.json",
-    "data/b1.csv",
-    "data/s2.csv",
-    "data/p3.csv",
     "data_usgs/panel_usgs_120v2.parquet",
     "data_usgs/station_registry_v1.csv",
     "data_usgs/stations_meta_120v2.csv",
@@ -977,9 +983,48 @@ _WINDOWS_RESERVED_BASENAMES = frozenset(
     | {f"lpt{index}" for index in range(1, 10)}
 )
 
+_RETIRED_MONITORING_FIGURE_STEMS = (
+    "fig1_study_area",
+    "fig1_monitoring_site_identifiers",
+    "fig2_series_climatology",
+    "fig3_results_heatmap",
+    "fig4_skill_vs_horizon",
+    "fig5_blindtest_trajectory",
+    "fig5_development_trajectory",
+    "fig6_reliability",
+    "fig7_lag_importance",
+    "fig7_router_allocation",
+    "fig8_dynamic_kappa",
+    "fig8_latent_decay_coefficient",
+    "fig9_loso",
+    "fig9_history_dependent_station_holdout",
+    "fig10_flow_lagmaps",
+    "fig10_flow_stratified_router",
+    "fig11_rev_curves",
+)
+RETIRED_MONITORING_CASE_OUTPUT_MEMBERS = frozenset({
+    "data/processed/panel.parquet",
+    "outputs/predictions/predictions.parquet",
+    "outputs/tables/scores_all.csv",
+    "outputs/models/thermoroute_explain.pt",
+    "outputs/tables/explain.npz",
+    "outputs/tables/paper_tables.md",
+    "outputs/tables/decision_value.csv",
+    "outputs/tables/decision_value.md",
+    "outputs/reports/data_audit.md",
+    "outputs/reports/mechanism_summary.md",
+    "outputs/reports/latent_component_diagnostics.md",
+    *{
+        f"outputs/figures/{stem}.{suffix}"
+        for stem in _RETIRED_MONITORING_FIGURE_STEMS
+        for suffix in ("png", "pdf")
+    },
+})
+NON_ROUTE_A_DIRECT_INPUT_FORBIDDEN_PREFIXES = ("data/",)
 FORBIDDEN_MEMBERS = {
     # Different 120-site cohort: 18 keys differ from the frozen registry.
     "outputs/tables/usgs_stations_with_huc.csv",
+    *RETIRED_MONITORING_CASE_OUTPUT_MEMBERS,
 }
 
 CANONICAL_DEVELOPMENT_PATHS = (
@@ -998,9 +1043,6 @@ CANONICAL_DEVELOPMENT_PATHS = (
 # verbose and the fixed index already constrains its semantic shape.
 GIT_BOUND_FIXED_ARCHIVE_MEMBERS = frozenset({
     "LICENSE",
-    "data/b1.csv",
-    "data/s2.csv",
-    "data/p3.csv",
     *CANONICAL_DEVELOPMENT_PATHS,
 })
 GIT_BOUND_ARCHIVE_TREES = ("data_usgs/raw_snapshots/huc-v1",)
@@ -16874,7 +16916,7 @@ def _verify_manuscript_blobs_from_bundle(
 def _verify_canonical_archive_blobs_from_bundle(
     *, root: Path, bare: Path, compute_commit: str
 ) -> None:
-    """Bind license, legacy inputs, and canonical development data to Git.
+    """Bind the license and canonical development data to Git.
 
     Exact required-member and profile-closure checks run elsewhere.  Missing
     paths are skipped here only so small unit fixtures can isolate Git-history
@@ -17434,6 +17476,12 @@ def _verify_git_history_evidence(
             raise ValueError("Git bundle HEAD differs from manuscript commit")
         if profile == PREOPEN_PROFILE and commits[0] != commits[1]:
             raise ValueError("pre-opening release compute and manuscript commits differ")
+        _verify_manifest_revision_from_bundle(
+            root=root,
+            bare=bare,
+            manuscript_commit=commits[1],
+            profile=profile,
+        )
         for ancestor, descendant, label in (
             (commits[0], commits[1], "compute-to-manuscript"),
             (commits[2], commits[3], "original-to-final protocol"),
@@ -17641,6 +17689,34 @@ def _verify_git_history_evidence(
                 manuscript_commit=commits[1],
                 final_protocol_commit=commits[3],
             )
+
+
+def _verify_manifest_revision_from_bundle(
+    *, root: Path, bare: Path, manuscript_commit: str, profile: str
+) -> None:
+    """Bind staged manifest revision metadata to the independently verified bundle."""
+    manifest_path = root / "outputs" / "manifest.json"
+    if not manifest_path.is_file():
+        # Profile/Git evidence is materialized before the final archive manifest.
+        return
+    tree = _run_git(
+        bare, "rev-parse", f"{manuscript_commit}^{{tree}}", text=True
+    )
+    if tree.returncode or re.fullmatch(r"[0-9a-f]{40,64}", tree.stdout.strip()) is None:
+        raise ValueError("cannot resolve manuscript tree from release Git bundle")
+    expected = {
+        "available": True,
+        "commit": manuscript_commit,
+        "tree": tree.stdout.strip(),
+        "dirty": profile == POSTOPEN_PROFILE,
+        "dirty_paths": [],
+        "source": "release-builder",
+    }
+    manifest = _load_json(manifest_path, label="release manifest")
+    if manifest.get("git") != expected:
+        raise ValueError(
+            "release manifest Git commit/tree differs from independently verified bundle"
+        )
 
 
 def _preflight_zip_container(path: Path) -> None:
@@ -18002,6 +18078,19 @@ def validate_members(members: set[str]) -> None:
     if forbidden:
         raise ValueError("release contains stale mixed-generation evidence: "
                          + ", ".join(forbidden))
+    non_route_a_inputs = sorted(
+        path
+        for path in members
+        if any(
+            path.startswith(prefix)
+            for prefix in NON_ROUTE_A_DIRECT_INPUT_FORBIDDEN_PREFIXES
+        )
+    )
+    if non_route_a_inputs:
+        raise ValueError(
+            "release contains forbidden non-Route-A direct input: "
+            + ", ".join(non_route_a_inputs)
+        )
     unregistered_paper = sorted(
         path
         for path in members
@@ -19041,10 +19130,6 @@ def verify_archive(
                 "PYTHONPATH": str(root / "src"),
                 "PYTHONDONTWRITEBYTECODE": "1",
             })
-            run_checked([sys.executable, "scripts/01_prepare_data.py"], cwd=root, env=env)
-            processed = root / "data" / "processed" / "panel.parquet"
-            if not processed.is_file() or processed.stat().st_size == 0:
-                raise RuntimeError("release data smoke did not create processed panel")
             # Verify the frozen USGS panel, stable site_no registry, and their
             # HUC raw-snapshot dependencies without performing a network call.
             run_checked([
@@ -19063,8 +19148,11 @@ def verify_archive(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path, nargs="?")
-    parser.add_argument("--run-data-smoke", action="store_true",
-                        help="locally execute stage 01 on bundled legacy data")
+    parser.add_argument(
+        "--run-data-smoke",
+        action="store_true",
+        help="verify the bundled frozen Route-A panel and evidence closure",
+    )
     parser.add_argument(
         "--distribution",
         choices=DISTRIBUTION_MODES,
@@ -19207,7 +19295,7 @@ def main() -> int:
         print(f"release verification failed: {exc}", file=sys.stderr)
         return 1
     print(f"LOCAL EVIDENCE OK [DO NOT DISTRIBUTE; {profile}]: {args.archive}"
-          f"{' + data smoke' if args.run_data_smoke else ''}")
+          f"{' + Route-A panel smoke' if args.run_data_smoke else ''}")
     return 0
 
 

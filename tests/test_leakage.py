@@ -20,16 +20,73 @@ from thermoroute import features as F
 from thermoroute import datasets as DS
 
 
+SYNTHETIC_SITES = ("site_alpha", "site_beta", "site_gamma")
+
+
+def _synthetic_daily_panel() -> pd.DataFrame:
+    """Create a deterministic 2006--2020 panel with controlled missingness."""
+    dates = pd.date_range("2006-01-01", "2020-12-31", freq="D")
+    day = np.arange(len(dates), dtype=float)
+    annual = 2.0 * np.pi * dates.dayofyear.to_numpy(float) / C.SEASONAL_PERIOD
+    frames: list[pd.DataFrame] = []
+    for site_index, site_id in enumerate(SYNTHETIC_SITES):
+        offset = float(site_index)
+        frame = pd.DataFrame({
+            "DATE": dates,
+            "site_id": site_id,
+            "WTEMP": 11.0 + offset + 7.0 * np.sin(annual) + 0.15 * np.sin(day / 9.0),
+            "FLOW": 45.0 + 4.0 * offset + 12.0 * np.cos(annual) + day % 11.0,
+            "WLEVEL": 2.0 + 0.1 * offset + 0.25 * np.cos(annual),
+            "TEMP": 9.0 + offset + 11.0 * np.sin(annual - 0.2),
+            "PRCP": np.where(
+                (day.astype(int) + site_index) % 17 == 0,
+                4.0 + 0.2 * offset,
+                0.0,
+            ),
+            "WDSP": 2.5 + 0.15 * offset + 0.5 * np.cos(day / 13.0),
+            "RHMEAN": 60.0 + 5.0 * np.sin(annual + 0.4) + offset,
+            "DH": 180.0 + 25.0 * np.sin(annual - 0.5) + 2.0 * offset,
+        })
+        for variable_index, variable in enumerate(C.ALL_VARS):
+            missing = (
+                np.arange(len(frame))
+                + 37 * site_index
+                + 53 * variable_index
+            ) % 503 == 0
+            frame.loc[missing, variable] = np.nan
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True).sort_values(
+        ["site_id", "DATE"]
+    ).reset_index(drop=True)
+
+
+@pytest.fixture(scope="module")
+def synthetic_panel_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = tmp_path_factory.mktemp("leakage-panel") / "daily_panel.parquet"
+    _synthetic_daily_panel().to_parquet(path, index=False)
+    return path
+
+
 @pytest.fixture(autouse=True)
-def _legacy_monitoring_station_registry(monkeypatch):
-    """Keep the legacy fixture aligned with its three ordinary station IDs."""
-    monkeypatch.setattr(C, "STATIONS", tuple(C.RAW_FILES))
+def _forbid_legacy_file_loaders(monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("leakage tests must use only the synthetic panel")
+
+    monkeypatch.setattr(D, "load_panel", forbidden)
+    monkeypatch.setattr(D, "prepare_dataset", forbidden)
 
 
-def _bundle():
-    b = D.prepare_dataset()
-    clim = F.HarmonicClimatology.fit(b["panel"], b["masks"].train)
-    return b, clim
+@pytest.fixture
+def synthetic_bundle(
+    synthetic_panel_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(C, "STATIONS", SYNTHETIC_SITES)
+    bundle = D.prepare_dataset_from_panel(str(synthetic_panel_path))
+    climatology = F.HarmonicClimatology.fit(
+        bundle["panel"], bundle["masks"].train
+    )
+    return bundle, climatology
 
 
 def test_split_disjoint_and_ordered():
@@ -39,8 +96,9 @@ def test_split_disjoint_and_ordered():
     assert s["calib"][1] < s["test"][0]
 
 
-def test_no_calendar_gaps_or_dupes():
-    panel = D.load_panel()
+def test_no_calendar_gaps_or_dupes(synthetic_bundle):
+    bundle, _climatology = synthetic_bundle
+    panel = bundle["panel_raw"]
     for st in C.STATIONS:
         sub = panel[panel.site_id == st]
         full = pd.date_range(sub.DATE.min(), sub.DATE.max(), freq="D")
@@ -48,8 +106,10 @@ def test_no_calendar_gaps_or_dupes():
         assert sub.DATE.duplicated().sum() == 0
 
 
-def test_window_and_tabular_builders_fail_closed_on_synthetic_calendar_gap():
-    bundle, clim = _bundle()
+def test_window_and_tabular_builders_fail_closed_on_synthetic_calendar_gap(
+    synthetic_bundle,
+):
+    bundle, clim = synthetic_bundle
     panel = bundle["panel"].copy()
     station = str(C.STATIONS[0])
     station_rows = panel.index[panel.site_id.astype(str).eq(station)]
@@ -62,16 +122,22 @@ def test_window_and_tabular_builders_fail_closed_on_synthetic_calendar_gap():
 
 
 def test_sentinels_masked():
-    panel = D.load_panel()
-    assert panel["WDSP"].max() < 999.0
-    assert panel["PRCP"].max() < 99.9
+    raw = pd.DataFrame({
+        "WDSP": [2.0, C.SENTINELS["WDSP"], C.SENTINELS["WDSP"] + 1.0],
+        "PRCP": [0.0, C.SENTINELS["PRCP"], C.SENTINELS["PRCP"] + 1.0],
+    })
+    panel, counts = D._mask_sentinels(raw)
+    assert counts == {"WDSP": 2, "PRCP": 2}
+    assert panel["WDSP"].max() < C.SENTINELS["WDSP"]
+    assert panel["PRCP"].max() < C.SENTINELS["PRCP"]
 
 
-def test_imputation_only_uses_train():
+def test_imputation_only_uses_train(synthetic_bundle):
     """An imputer fit on train must be reproducible from train rows alone."""
-    panel = D.load_panel()
-    masks = D.split_masks(panel.DATE)
-    imp = D.Imputer.fit(panel, masks.train)
+    bundle, _climatology = synthetic_bundle
+    panel = bundle["panel_raw"]
+    masks = bundle["masks"]
+    imp = bundle["imputer"]
     # global medians equal the train-only medians (no future leak)
     tr = panel.loc[masks.train]
     for st in C.STATIONS:
@@ -80,17 +146,17 @@ def test_imputation_only_uses_train():
             assert np.isclose(imp.global_median[(st, v)], ref, equal_nan=True)
 
 
-def test_window_tail_equals_issue_value():
+def test_window_tail_equals_issue_value(synthetic_bundle):
     """The last history step must invert to WTEMP_t — no future bleed."""
-    b, clim = _bundle()
+    b, clim = synthetic_bundle
     wd = DS.build_windows(b["panel"], b["masks"], clim)
     DS._assert_no_leakage(wd, b["panel"])   # raises on any mismatch
     assert len(wd.X) > 10000
 
 
-def test_window_splits_are_target_closed():
+def test_window_splits_are_target_closed(synthetic_bundle):
     """No horizon target may cross train/val/calib/test boundaries."""
-    b, clim = _bundle()
+    b, clim = synthetic_bundle
     wd = DS.build_windows(b["panel"], b["masks"], clim)
     expected = (wd.issue_date[:, None]
                 + np.asarray(wd.horizons)[None, :] * np.timedelta64(1, "D"))
@@ -108,9 +174,11 @@ def test_window_splits_are_target_closed():
             np.datetime64(hi) - np.timedelta64(max(wd.horizons), "D"))
 
 
-def test_confirmation_targets_are_available_independently_by_horizon():
+def test_confirmation_targets_are_available_independently_by_horizon(
+    synthetic_bundle,
+):
     """Late h=1 issues and asynchronous labels must not be lost to h=7."""
-    bundle, clim = _bundle()
+    bundle, clim = synthetic_bundle
     panel = bundle["panel"].copy()
     site = str(C.STATIONS[0])
     # One missing target invalidates only the station/horizon issue pairs that
@@ -148,10 +216,10 @@ def test_confirmation_targets_are_available_independently_by_horizon():
     assert wd.target_valid[row[0]].tolist() == [True, True, False]
 
 
-def test_target_is_strictly_future():
+def test_target_is_strictly_future(synthetic_bundle):
     """The stored target y[:, hi] must equal panel WTEMP at issue_date + h —
     verified against the panel itself on a subsample, not just h > 0."""
-    b, clim = _bundle()
+    b, clim = synthetic_bundle
     wd = DS.build_windows(b["panel"], b["masks"], clim)
     lookup = {(s, d): w for s, d, w in zip(
         b["panel"].site_id, pd.to_datetime(b["panel"].DATE).to_numpy(),
@@ -175,8 +243,8 @@ def test_target_is_strictly_future():
     assert (pd.to_datetime(tab.target_date) > pd.to_datetime(tab.issue_date)).all()
 
 
-def test_tabular_split_is_target_closed():
-    b, clim = _bundle()
+def test_tabular_split_is_target_closed(synthetic_bundle):
+    b, clim = synthetic_bundle
     tab = F.attach_split(F.build_tabular(b["panel"], 7, C.FEATURE_SETS["V3"], clim))
     for name, (lo, hi) in C.SPLIT.as_dict().items():
         rows = tab[tab.split == name]
@@ -194,9 +262,9 @@ def test_tabular_split_is_target_closed():
     assert set(train_end_issue["split"]) == {"none"}
 
 
-def test_feature_schema_blocks_hidden_forcing_paths():
+def test_feature_schema_blocks_hidden_forcing_paths(synthetic_bundle):
     """V1 must be invariant to forcings, including physics/gate side paths."""
-    b, clim = _bundle()
+    b, clim = synthetic_bundle
     v1 = C.FEATURE_SETS["V1"]
     first = DS.build_windows(b["panel"], b["masks"], clim, variables=v1)
     perturbed = b["panel"].copy()
@@ -216,8 +284,8 @@ def test_feature_schema_blocks_hidden_forcing_paths():
     assert np.array_equal(first.gate, second.gate)
 
 
-def test_damped_anchor_is_immune_to_post_train_targets():
-    b, clim = _bundle()
+def test_damped_anchor_is_immune_to_post_train_targets(synthetic_bundle):
+    b, clim = synthetic_bundle
     original = F.DampedPersistenceAnchor.fit(b["panel"], b["masks"].train, clim)
     altered = b["panel"].copy()
     altered.loc[~b["masks"].train, "WTEMP"] += 1000.0
@@ -225,8 +293,8 @@ def test_damped_anchor_is_immune_to_post_train_targets():
     assert original.phi == refit.phi
 
 
-def test_legacy_damped_baseline_reuses_the_window_anchor():
-    b, clim = _bundle()
+def test_damped_baseline_reuses_the_window_anchor(synthetic_bundle):
+    b, clim = synthetic_bundle
     tabs = B._tab_by_horizon(b["panel"], clim, C.FEATURE_SETS["V3"])
     _predictions, phi = B.run_damped_persistence(
         b["panel"], b["masks"], tabs, clim
@@ -237,9 +305,10 @@ def test_legacy_damped_baseline_reuses_the_window_anchor():
     assert phi == anchor.phi
 
 
-def test_zero_shot_preprocessors_ignore_held_station_history():
-    b, _ = _bundle()
-    train_stations = tuple(s for s in C.STATIONS if s != "p3")
+def test_zero_shot_preprocessors_ignore_held_station_history(synthetic_bundle):
+    b, _ = synthetic_bundle
+    held_site = SYNTHETIC_SITES[-1]
+    train_stations = tuple(s for s in C.STATIONS if s != held_site)
     clim1 = F.HarmonicClimatology.fit(
         b["panel"], b["masks"].train, fit_stations=train_stations, pooled=True)
     scale1 = D.StandardScalerPerStation.fit(
@@ -250,7 +319,7 @@ def test_zero_shot_preprocessors_ignore_held_station_history():
         fit_stations=train_stations, pooled=True)
 
     altered = b["panel"].copy()
-    held_train = b["masks"].train & altered.site_id.eq("p3").to_numpy()
+    held_train = b["masks"].train & altered.site_id.eq(held_site).to_numpy()
     altered.loc[held_train, "WTEMP"] += 500.0
     clim2 = F.HarmonicClimatology.fit(
         altered, b["masks"].train, fit_stations=train_stations, pooled=True)
@@ -261,9 +330,9 @@ def test_zero_shot_preprocessors_ignore_held_station_history():
         altered, b["masks"].train, clim2,
         fit_stations=train_stations, pooled=True)
 
-    assert np.array_equal(clim1.coef["p3"], clim2.coef["p3"])
-    assert scale1.mean[("p3", "WTEMP")] == scale2.mean[("p3", "WTEMP")]
-    assert scale1.std[("p3", "WTEMP")] == scale2.std[("p3", "WTEMP")]
+    assert np.array_equal(clim1.coef[held_site], clim2.coef[held_site])
+    assert scale1.mean[(held_site, "WTEMP")] == scale2.mean[(held_site, "WTEMP")]
+    assert scale1.std[(held_site, "WTEMP")] == scale2.std[(held_site, "WTEMP")]
     assert damp1.phi == damp2.phi
 
 
@@ -276,8 +345,10 @@ def test_signed_flow_transform_preserves_reverse_flow_and_round_trips():
     assert np.allclose(restored, raw)
 
 
-def test_tabular_learned_baseline_can_receive_missingness_information():
-    bundle, clim = _bundle()
+def test_tabular_learned_baseline_can_receive_missingness_information(
+    synthetic_bundle,
+):
+    bundle, clim = synthetic_bundle
     tab = F.build_tabular(
         bundle["panel"], 1, C.FEATURE_SETS["V3"], clim,
         drop_feature_nans=False, include_missingness=True,

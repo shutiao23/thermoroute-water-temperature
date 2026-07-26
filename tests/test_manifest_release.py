@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 from dataclasses import asdict
 import hashlib
@@ -165,7 +166,8 @@ def _write_fixture(root: Path) -> Path:
         "requirements.txt": "pandas>=2\n",
         "requirements-lock.txt": "pandas==2.2.2\n",
         "README.md": "# fixture\n",
-        "data/input.csv": "x\n1\n",
+        "data_usgs/station_input.csv": "x\n1\n",
+        "outputs/predictions/copied_legacy.parquet": "renamed old bytes\n",
         "outputs/tables/result.csv": "score\n1.0\n",
     }
     for rel, payload in files.items():
@@ -5857,6 +5859,7 @@ def test_manifest_binds_revision_source_config_data_and_detects_change(tmp_path)
         _manifest_command(
             tmp_path,
             manifest_path,
+            "--development-prelabel",
             "--source-git-commit",
             commit,
             "--source-git-tree",
@@ -5868,11 +5871,81 @@ def test_manifest_binds_revision_source_config_data_and_detects_change(tmp_path)
     )
     document = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert document["schema_version"] == "thermoroute.provenance-manifest.v2"
+    assert document["manifest_role"] == (
+        "DEVELOPMENT_PRELABEL_INVENTORY_NO_CONFIRMATORY_OR_OUTCOME_NAMESPACE"
+    )
+    assert document["scientific_evidence_authority"].startswith(
+        "MANIFEST_ALONE_CONFERS_NO_SCIENTIFIC_AUTHORITY"
+    )
     assert document["git"]["commit"] == commit
+    assert "STATIONS" not in document["resolved_config"]["values"]
+    assert not any(key.startswith("legacy_") for key in document["current_truth"])
     assert {"@git", "@source", "@config", "@dependencies"} <= set(document["dag"])
-    assert set(document["dag"]["outputs/tables/result.csv"]["parents"]) >= {
-        "@git", "@source", "@config", "@dependencies", "data/input.csv",
+    assert set(document["dag"]["outputs/tables/result.csv"]["parents"]) == {
+        "@git",
+        "@source",
+        "@config",
+        "@dependencies",
     }
+    renamed = document["dag"]["outputs/predictions/copied_legacy.parquet"]
+    assert renamed["kind"] == "workspace_inventory"
+    assert renamed["authority"] == (
+        "WORKSPACE_INVENTORY_ONLY_REQUIRES_SEPARATE_RECEIPT_VALIDATION"
+    )
+    assert "data_usgs/station_input.csv" not in renamed["parents"]
+    assert "outputs/predictions/copied_legacy.parquet" not in set(
+        document["current_truth"].values()
+    )
+
+    attacked = json.loads(json.dumps(document))
+    attacked["current_truth"]["usgs_predictions"] = (
+        "outputs/predictions/copied_legacy.parquet"
+    )
+    attacked["dag"]["outputs/predictions/copied_legacy.parquet"]["authority"] = (
+        "VALIDATED_CANONICAL_STAGE09_PREDICTION_LINEAGE"
+    )
+    attacked["dag"]["outputs/predictions/copied_legacy.parquet"]["parents"].append(
+        "data_usgs/station_input.csv"
+    )
+    manifest_path.write_text(
+        json.dumps(attacked, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    tampered = subprocess.run(
+        _manifest_command(tmp_path, manifest_path, "--check"),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert tampered.returncode == 1
+    assert "CURRENT_TRUTH_CHANGED" in tampered.stderr
+    assert "DAG_CONTENT_OR_AUTHORITY_CHANGED" in tampered.stderr
+
+    wrong_role = json.loads(json.dumps(document))
+    wrong_role["manifest_role"] = "WORKTREE_OR_STAGED_RELEASE_INVENTORY"
+    wrong_role["scientific_evidence_authority"] = (
+        "BYTE_INVENTORY_ONLY; RELEASE_PROFILE_AND_INDEPENDENT_VALIDATORS_DEFINE_"
+        "SCIENTIFIC_AUTHORITY"
+    )
+    manifest_path.write_text(
+        json.dumps(wrong_role, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    role_attack = subprocess.run(
+        _manifest_command(
+            tmp_path, manifest_path, "--check", "--development-prelabel"
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert role_attack.returncode == 1
+    assert "MANIFEST_ROLE_EXPECTED" in role_attack.stderr
+
+    manifest_path.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     subprocess.run(
         _manifest_command(tmp_path, manifest_path, "--check"),
@@ -5880,7 +5953,9 @@ def test_manifest_binds_revision_source_config_data_and_detects_change(tmp_path)
         capture_output=True,
         text=True,
     )
-    (tmp_path / "data" / "input.csv").write_text("x\n2\n", encoding="utf-8")
+    (tmp_path / "data_usgs" / "station_input.csv").write_text(
+        "x\n2\n", encoding="utf-8"
+    )
     changed = subprocess.run(
         _manifest_command(tmp_path, manifest_path, "--check"),
         check=False,
@@ -5888,11 +5963,110 @@ def test_manifest_binds_revision_source_config_data_and_detects_change(tmp_path)
         text=True,
     )
     assert changed.returncode == 1
-    assert "CHANGED data/input.csv" in changed.stderr
+    assert "CHANGED data_usgs/station_input.csv" in changed.stderr
+
+
+def test_development_manifest_stage09_is_inventory_only_despite_canonical_name(
+    tmp_path,
+):
+    manifest_builder = _load_script(
+        MANIFEST_SCRIPT, "thermoroute_manifest_exact_stage09_lineage_test"
+    )
+    files = {
+        "data_usgs/panel_usgs_120v2.parquet": {"sha256": "1" * 64, "bytes": 1},
+        "data_usgs/station_registry_v1.csv": {"sha256": "2" * 64, "bytes": 1},
+        "data_usgs/station_retired_alias.csv": {"sha256": "3" * 64, "bytes": 1},
+        "outputs/predictions/usgs_predictions_stage9_v2.parquet": {
+            "sha256": "4" * 64,
+            "bytes": 1,
+        },
+    }
+    graph = manifest_builder.lineage_graph(
+        tmp_path,
+        files,
+        "5" * 64,
+        "6" * 64,
+        "7" * 64,
+        "8" * 64,
+        development_prelabel=True,
+    )
+    node = graph["outputs/predictions/usgs_predictions_stage9_v2.parquet"]
+    assert node["kind"] == "workspace_inventory"
+    assert node["authority"] == (
+        "WORKSPACE_INVENTORY_ONLY_REQUIRES_SEPARATE_RECEIPT_VALIDATION"
+    )
+    assert set(node["parents"]) == {
+        "@git",
+        "@source",
+        "@config",
+        "@dependencies",
+    }
+    assert "data_usgs/station_retired_alias.csv" not in node["parents"]
+
+
+def test_manifest_filename_presence_never_creates_current_truth(tmp_path):
+    manifest_builder = _load_script(
+        MANIFEST_SCRIPT, "thermoroute_manifest_no_filename_truth_test"
+    )
+    for relative in (
+        "data_usgs/panel_usgs_120v2.parquet",
+        "data_usgs/station_registry_v1.csv",
+        "outputs/predictions/usgs_predictions_stage9_v2.parquet",
+        "outputs/tables/usgs_scores.csv",
+    ):
+        _write_bytes(tmp_path, relative, b"renamed-untrusted-bytes\n")
+    assert manifest_builder._current_truth(tmp_path) == {}
+
+
+@pytest.mark.parametrize("attack", ("file_symlink", "parent_symlink", "hardlink"))
+def test_manifest_inventory_rejects_link_aliases(tmp_path, attack):
+    manifest_builder = _load_script(
+        MANIFEST_SCRIPT, f"thermoroute_manifest_link_alias_{attack}_test"
+    )
+    withdrawn = _write_bytes(tmp_path, "data/b1.csv", b"withdrawn bytes\n")
+    alias = tmp_path / "data_usgs" / "station_alias.csv"
+    if attack == "parent_symlink":
+        target_parent = tmp_path / "alias-target"
+        target_parent.mkdir()
+        alias = target_parent / "station_alias.csv"
+        alias.write_bytes(withdrawn.read_bytes())
+        (tmp_path / "data_usgs").symlink_to(target_parent, target_is_directory=True)
+        candidate = tmp_path / "data_usgs" / "station_alias.csv"
+        with pytest.raises(RuntimeError, match="MANIFEST_UNSAFE_ARTIFACT"):
+            manifest_builder._inventory_file_binding(tmp_path, candidate)
+        return
+
+    alias.parent.mkdir(parents=True)
+    if attack == "file_symlink":
+        alias.symlink_to(withdrawn)
+    else:
+        os.link(withdrawn, alias)
+    with pytest.raises(RuntimeError, match="MANIFEST_UNSAFE_ARTIFACT"):
+        manifest_builder.inventory(tmp_path, ("data_usgs/station*.csv",))
 
 
 def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
+    from thermoroute.chronology import FIXED_PRELABEL_ABSENCE_PATHS
+
     verifier = _load_script(VERIFY_SCRIPT, "thermoroute_verify_release_test")
+    manifest_builder = _load_script(
+        MANIFEST_SCRIPT, "thermoroute_manifest_release_boundary_test"
+    )
+    semantics_tree = ast.parse(
+        (ROOT / "scripts" / "_legacy_site_semantics.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    legacy_figure_basenames = next(
+        ast.literal_eval(node.value)
+        for node in semantics_tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "LEGACY_FIGURE_BASENAMES"
+            for target in node.targets
+        )
+    )
     complete = (
         set(verifier.REQUIRED_MEMBERS)
         | set(verifier.REQUIRED_PAPER_MEMBERS)
@@ -5918,8 +6092,72 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
         verifier.MODEL_MATRIX_AMENDMENT_SEAL_PATH,
     }
     assert route_a_governance <= set(verifier.REQUIRED_MEMBERS)
-    with pytest.raises(ValueError, match="missing required members"):
-        verifier.validate_members(complete - {"data/b1.csv"})
+    retired_inputs = {"data/b1.csv", "data/s2.csv", "data/p3.csv"}
+    assert retired_inputs.isdisjoint(verifier.REQUIRED_MEMBERS)
+    for retired_input in retired_inputs:
+        with pytest.raises(ValueError, match="forbidden non-Route-A direct input"):
+            verifier.validate_members(complete | {retired_input})
+    for retired_output in verifier.RETIRED_MONITORING_CASE_OUTPUT_MEMBERS:
+        with pytest.raises(ValueError, match="mixed-generation|rendered/binary"):
+            verifier.validate_members(complete | {retired_output})
+    assert (
+        manifest_builder.RETIRED_MONITORING_CASE_OUTPUT_MEMBERS
+        == verifier.RETIRED_MONITORING_CASE_OUTPUT_MEMBERS
+    )
+    historical_figure_members = {
+        f"outputs/figures/{stem}.{suffix}"
+        for stem in legacy_figure_basenames
+        for suffix in ("png", "pdf")
+    }
+    assert historical_figure_members <= set(
+        verifier.RETIRED_MONITORING_CASE_OUTPUT_MEMBERS
+    )
+    retired_output = "outputs/figures/fig1_study_area.png"
+    _write_bytes(tmp_path, retired_output, b"retired monitoring-case fixture\n")
+    with pytest.raises(
+        RuntimeError, match="ROUTE_A_RETIRED_MONITORING_CASE_ARTIFACT_PRESENT"
+    ):
+        manifest_builder.assert_route_a_artifact_boundary(tmp_path)
+    boundary_check = subprocess.run(
+        [
+            sys.executable,
+            str(MANIFEST_SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--check-route-a-boundary",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert boundary_check.returncode == 1
+    assert retired_output in boundary_check.stderr
+    assert set(FIXED_PRELABEL_ABSENCE_PATHS) <= set(
+        manifest_builder.PRE_MODEL_FORBIDDEN_PATHS
+    )
+    assert "data_usgs/wtemp_daily_max.parquet" in (
+        manifest_builder.PRE_MODEL_FORBIDDEN_PATHS
+    )
+    assert "outputs/prelabel/route_a_inference_gate_v1.json" in (
+        manifest_builder.PRE_MODEL_FORBIDDEN_PATHS
+    )
+    premodel_root = tmp_path / "premodel"
+    _write_bytes(
+        premodel_root,
+        "outputs/confirmatory/synthetic_forbidden_outcome.parquet",
+        b"synthetic test marker; must never be read\n",
+    )
+    with pytest.raises(
+        RuntimeError, match="PREMODEL_FORBIDDEN_PATH_PRESENT_WITHOUT_READING"
+    ):
+        manifest_builder.assert_development_prelabel_boundary(premodel_root)
+    assert (
+        "outputs/confirmatory/synthetic_forbidden_outcome.parquet"
+        not in manifest_builder.inventory(
+            premodel_root,
+            manifest_builder.DEVELOPMENT_PRELABEL_ARTIFACT_PATTERNS,
+        )
+    )
     with pytest.raises(ValueError, match="missing required members"):
         verifier.validate_members(
             complete - {verifier.LEGACY_THREE_SITE_NOTICE_PATH}
@@ -5970,6 +6208,11 @@ def test_release_boundary_requires_contract_and_rejects_traversal(tmp_path):
 
     shell = MAKE_RELEASE_SCRIPT.read_text(encoding="utf-8")
     assert "ALLOW_DIRTY_RELEASE" not in shell
+    verify_temporary_archive = shell.index(
+        'scripts/verify_release.py "$TMP_ZIP"'
+    )
+    publish_archive = shell.index('mv "$TMP_ZIP" "$OUT"')
+    assert verify_temporary_archive < publish_archive
     assert verifier.LEGACY_THREE_SITE_NOTICE_PATH in shell
     assert shell.count(verifier.LEGACY_THREE_SITE_NOTICE_PATH) == 1
     for notice in native_notices:
@@ -6019,8 +6262,6 @@ def test_canonical_archive_data_and_license_are_bound_to_compute_git_blob(
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
     fixtures = {
         "LICENSE": b"fixture license\n",
-        "data/b1.csv": b"date,value\n2000-01-01,1\n",
-        "data/b2.csv": b"not-bound\n",
         "data_usgs/frozen_panel_v1.json": b'{"schema_version":1}\n',
         (
             "data_usgs/raw_snapshots/huc-v1/usgs-nwis-site-metadata/"
@@ -6581,7 +6822,7 @@ def test_release_replay_rejects_adversarial_seal_histories(
         )
 
 
-def test_manifest_refuses_unsealed_canonical_stage09_current_truth(tmp_path):
+def test_manifest_does_not_promote_unsealed_canonical_stage09_filename(tmp_path):
     manifest_path = _write_fixture(tmp_path)
     prediction = (
         tmp_path
@@ -6589,19 +6830,22 @@ def test_manifest_refuses_unsealed_canonical_stage09_current_truth(tmp_path):
         / "predictions"
         / "usgs_predictions_stage9_v2.parquet"
     )
-    prediction.parent.mkdir(parents=True)
+    prediction.parent.mkdir(parents=True, exist_ok=True)
     prediction.write_bytes(b"unsealed-stage09-bytes")
     scores = tmp_path / "outputs" / "tables" / "usgs_scores.csv"
     scores.parent.mkdir(parents=True, exist_ok=True)
     scores.write_text("horizon,site\n", encoding="utf-8")
-    result = subprocess.run(
+    subprocess.run(
         _manifest_command(tmp_path, manifest_path),
-        check=False,
+        check=True,
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0
-    assert "USGS_CURRENT_TRUTH_STALE" in result.stderr
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert document["current_truth"] == {}
+    assert document["dag"][prediction.relative_to(tmp_path).as_posix()][
+        "authority"
+    ] == "CONTENT_HASH_INVENTORY"
 
 
 def test_huc_verifier_replays_derived_rows_from_raw_nwis(tmp_path):
@@ -6680,9 +6924,6 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     )
     assert document["contains_unverified_redistribution_material"] is True
     assert set(document["known_minimum_unverified_redistribution_scopes"]) == {
-        "data/b1.csv",
-        "data/s2.csv",
-        "data/p3.csv",
         "data_usgs/**",
         verifier.GIT_BUNDLE_PATH,
         "paper/agu_submission/agujournal2019.cls",
@@ -6694,6 +6935,35 @@ def test_preopen_profile_is_explicit_and_rejects_any_result_or_label_path(tmp_pa
     )
     assert document["repository_code_license_authorizes_data"] is False
     assert document["public_profile_status"] == "BLOCKED_PENDING_RIGHTS_REVIEW"
+    assert (
+        document[
+            "route_a_active_member_namespace_legacy_monitoring_inputs_included"
+        ]
+        is False
+    )
+    assert (
+        document[
+            "route_a_active_member_namespace_legacy_monitoring_outputs_included"
+        ]
+        is False
+    )
+    assert document["legacy_monitoring_case_is_route_a_scientific_evidence"] is False
+    assert (
+        document[
+            "git_history_bundle_may_include_current_tip_legacy_monitoring_input_blobs"
+        ]
+        is True
+    )
+    assert (
+        document[
+            "git_history_bundle_may_include_reachable_historical_legacy_monitoring_output_blobs"
+        ]
+        is True
+    )
+    assert document["git_history_bundle_role"] == (
+        "LOCAL_OWNER_GOVERNANCE_CHRONOLOGY_MAY_CONTAIN_WITHDRAWN_LEGACY_"
+        "BYTES_NOT_CURRENT_ROUTE_A_SCIENTIFIC_EVIDENCE"
+    )
     assert verifier.verify_release_profile(
         stage, run_trusted_replay=False
     ) == verifier.PREOPEN_PROFILE
@@ -8645,7 +8915,11 @@ def test_exact_archive_layout_rejects_unregistered_files_even_with_new_manifest(
     zipper.create_deterministic_zip(stage, attacked)
     with zipfile.ZipFile(attacked) as archive:
         members, directories = verifier._normalised_archive_layout(archive)
-    # The old broad boundary accepted every one of these canonical ZIP paths.
+    if extra.startswith("data/"):
+        with pytest.raises(ValueError, match="forbidden non-Route-A direct input"):
+            verifier.validate_members(members)
+        return
+    # Canonical but unregistered paths are rejected by the exact-set layer.
     verifier.validate_members(members)
     with pytest.raises(ValueError, match="exact authorized set"):
         verifier._validate_exact_release_member_layout(
@@ -8673,6 +8947,73 @@ def test_exact_archive_layout_rejects_unregistered_empty_directory(
     with pytest.raises(ValueError, match="exact file parents"):
         verifier._validate_exact_release_member_layout(
             stage, marker, members, directories
+        )
+
+
+def test_release_manifest_revision_must_match_verified_bundle_commit_and_tree(
+    tmp_path,
+) -> None:
+    verifier = _load_script(
+        VERIFY_SCRIPT, "thermoroute_verify_manifest_bundle_revision_test"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    _write_bytes(source, "tracked.txt", b"committed bytes\n")
+    commit = _commit_git_fixture(source, "fixture revision")
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=source,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    bare = tmp_path / "audit.git"
+    subprocess.run(
+        ["git", "clone", "-q", "--bare", str(source), str(bare)],
+        check=True,
+    )
+    release = tmp_path / "release"
+    manifest_path = release / "outputs" / "manifest.json"
+    expected_git = {
+        "available": True,
+        "commit": commit,
+        "tree": tree,
+        "dirty": False,
+        "dirty_paths": [],
+        "source": "release-builder",
+    }
+    _write_bytes(
+        release,
+        "outputs/manifest.json",
+        json.dumps({"git": expected_git}, sort_keys=True).encode() + b"\n",
+    )
+    verifier._verify_manifest_revision_from_bundle(
+        root=release,
+        bare=bare,
+        manuscript_commit=commit,
+        profile=verifier.PREOPEN_PROFILE,
+    )
+
+    for field, forged in (("commit", "f" * 40), ("tree", "e" * 40)):
+        attacked = {"git": {**expected_git, field: forged}}
+        manifest_path.write_text(json.dumps(attacked) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="commit/tree differs"):
+            verifier._verify_manifest_revision_from_bundle(
+                root=release,
+                bare=bare,
+                manuscript_commit=commit,
+                profile=verifier.PREOPEN_PROFILE,
+            )
+
+    attacked = {"git": {**expected_git, "dirty": True}}
+    manifest_path.write_text(json.dumps(attacked) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="commit/tree differs"):
+        verifier._verify_manifest_revision_from_bundle(
+            root=release,
+            bare=bare,
+            manuscript_commit=commit,
+            profile=verifier.PREOPEN_PROFILE,
         )
 
 

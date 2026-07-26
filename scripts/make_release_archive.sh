@@ -3,9 +3,10 @@
 #
 # PREOPEN_NOT_COMPLETE (default) is local development evidence only. It contains no
 # old active outputs, confirmation namespace or labels and cannot support a
-# Route-A confirmatory conclusion.  The separately verified full-history bundle
-# intentionally retains reachable deleted Git objects for chronology; this is not
-# a byte-level purge and does not make those objects current evidence. The
+# Route-A confirmatory conclusion.  Its separately verified full-history bundle
+# may contain current-tip old monitoring-case input blobs and reachable historical
+# output blobs for chronology. They are outside the active member namespace; this is
+# not a byte-level purge, and none of those blobs is current Route-A evidence. The
 # archive contains material with unresolved redistribution rights and MUST NOT
 # be transferred to a third party or published.
 #
@@ -126,7 +127,6 @@ fi
 
 required=(
   pyproject.toml requirements.txt requirements-lock.txt requirements-lock-py312-hashed.txt README.md LICENSE
-  data/b1.csv data/s2.csv data/p3.csv
   data_usgs/panel_usgs_120v2.parquet
   data_usgs/station_registry_v1.csv
   data_usgs/stations_meta_120v2.csv
@@ -239,8 +239,6 @@ for path in README.md LICENSE .gitignore pyproject.toml requirements.txt \
             requirements-lock*.txt; do
   copy_path "$path"
 done
-mkdir -p "$STAGE/data"
-cp data/b1.csv data/s2.csv data/p3.csv "$STAGE/data/"
 
 PROFILE_ARGS=(
   --materialize-profile "$STAGE"
@@ -283,16 +281,20 @@ PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" "$STAGE/scripts/14_manifest.py" 
 mkdir -p "$DIST_DIR"
 PYTHONDONTWRITEBYTECODE=1 "$THERMOROUTE_PYTHON" scripts/deterministic_zip.py \
   "$STAGE" "$TMP_ZIP" --archive-root thermoroute
-mv "$TMP_ZIP" "$OUT"
-
-SHA="$(shasum -a 256 "$OUT" | awk '{print $1}')"
-printf '%s  %s\n' "$SHA" "$(basename "$OUT")" > "$SHA_FILE"
-SIZE="$(ls -lh "$OUT" | awk '{print $5}')"
 
 # Production verification always invokes the fixed trusted replay interface for
 # ROUTE_A_OPENED_COMPLETE.  PREOPEN_NOT_COMPLETE never touches outcome code/data.
-"$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py "$OUT" \
+"$THERMOROUTE_PYTHON" -I -B scripts/verify_release.py "$TMP_ZIP" \
   --distribution "$DISTRIBUTION"
+
+# Publish only an already-verified ZIP. A failed exact-member, claim, Git-history,
+# or trusted-replay check therefore cannot leave a new official-looking archive.
+SHA="$(shasum -a 256 "$TMP_ZIP" | awk '{print $1}')"
+SIZE="$(ls -lh "$TMP_ZIP" | awk '{print $5}')"
+TMP_SHA="$TMP_ROOT/thermoroute_release.zip.sha256"
+printf '%s  %s\n' "$SHA" "$(basename "$OUT")" > "$TMP_SHA"
+mv "$TMP_ZIP" "$OUT"
+mv "$TMP_SHA" "$SHA_FILE"
 
 echo "profile $PROFILE"
 echo "scope   LOCAL_OWNER_EVIDENCE_ONLY — DO NOT DISTRIBUTE"
