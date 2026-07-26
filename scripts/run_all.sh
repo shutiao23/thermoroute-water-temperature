@@ -119,7 +119,7 @@ echo "[16/27] 3-way transfer + in-sample LSTM report"
 "$THERMOROUTE_PYTHON" scripts/16_lstm_baseline.py --report
 echo "[17/27] Algebraic diagnostic (Fig 3; no safety claim)"
 "$THERMOROUTE_PYTHON" scripts/17_prop1_binding.py
-echo "[18/27] descriptive REV curve over the cost-loss grid (Fig 5)"
+echo "[18/27] fail-closed REV NOT EVALUATED status (no predeclared cost-loss ratios)"
 "$THERMOROUTE_PYTHON" scripts/18_rev_curve.py
 echo "[19/27] probabilistic (PICP/three-quantile score/reliability/Brier) + multi-metric (Fig 4)"
 "$THERMOROUTE_PYTHON" scripts/19_probabilistic.py
@@ -133,7 +133,7 @@ echo "[22/27] adaptive conformal diagnostics (no conditional-coverage claim)"
 "$THERMOROUTE_PYTHON" scripts/22_adaptive_conformal.py
 echo "[23/27] predeclared input-stress/OOD robustness (frozen ensemble; common keys)"
 "$THERMOROUTE_PYTHON" scripts/23_robustness.py --panel "${USGS_PANEL}"
-echo "[24/27] USGS calibration/REV/latent diagnostics and claim statistics"
+echo "[24/27] USGS calibration/latent diagnostics and claim statistics"
 "$THERMOROUTE_PYTHON" scripts/10_usgs_analysis.py
 "$THERMOROUTE_PYTHON" scripts/12_claim_stats.py
 echo "[25/27] station-agnostic pooled external suite (development data only)"

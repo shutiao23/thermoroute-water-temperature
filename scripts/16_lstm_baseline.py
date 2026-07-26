@@ -444,7 +444,11 @@ def insample():
             run_id=identity.run_id,
             resolved_config={**run_config, "candidate_id": candidate_id,
                              "candidate": candidate},
-            artifact_publication_guard=assert_stage16_publication_inputs,
+            # The checkpoint is intermediate rather than an authority object.
+            # Enforce the live native policy at its exact publication boundary;
+            # the stronger source/input closure is replayed before and after the
+            # enclosing candidate transaction.
+            artifact_publication_guard=assert_formal_numerical_policy,
         )
         candidate_prediction = (
             run_dir / "selection" / f"candidate{candidate_id}.parquet"
@@ -520,7 +524,10 @@ def insample():
                       run_id=identity.run_id,
                       resolved_config={**run_config, "selected_candidate": selected,
                                        "arm": "LSTM", "seed": sd},
-                      artifact_publication_guard=assert_stage16_publication_inputs)
+                      # The checkpoint is intermediate; exact native-policy
+                      # enforcement happens here and the enclosing transaction
+                      # separately replays the full source/input closure.
+                      artifact_publication_guard=assert_formal_numerical_policy)
         r.pred["seed"] = sd
         R.write_predictions(
             r.pred,
@@ -748,6 +755,7 @@ def insample():
     # Candidate validation happens before publication and the authoritative
     # bytes are re-opened and validated afterwards.
     assert_stage16_publication_inputs()
+    assert_formal_numerical_policy()
     publish_stage16_completion_receipt(
         receipt_path,
         receipt,

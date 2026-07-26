@@ -104,7 +104,9 @@ def _isolate_project_bytecode() -> None:
             or dict(os.environ)
             != _formal_worker_environment(expected, worker_nonce)
         ):
-            raise RuntimeError("Route-A opening worker isolation contract failed")
+            raise RuntimeError(
+                "Route-A opening formal worker isolation contract failed"
+            )
         sys.argv.pop(1)
         return
     with tempfile.TemporaryDirectory(prefix="thermoroute-opening-pycache-") as cache:

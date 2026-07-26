@@ -632,6 +632,7 @@ def _run(args: argparse.Namespace) -> None:
     # helper validates the candidate closure before the atomic replace and
     # re-opens the on-disk receipt afterwards.
     assert_stage25_publication_inputs()
+    assert_formal_numerical_policy()
     publish_stage25_completion_receipt(
         receipt_path,
         receipt,
