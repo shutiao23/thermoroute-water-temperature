@@ -1589,6 +1589,162 @@ def test_release_binding_reader_rejects_hardlinked_artifact(tmp_path):
         )
 
 
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "legacy_index_v1",
+        "metadata_bytes",
+        "metadata_schema_v1",
+        "outcome_url",
+        "redirected_final_url",
+        "fabricated_semantics",
+        "extra_blob",
+        "unindexed_symlink",
+        "unindexed_submodule",
+    ],
+)
+def test_release_candidate_snapshot_dependencies_require_metadata_bound_v2(
+    tmp_path, attack,
+):
+    verifier = _load_script(
+        VERIFY_SCRIPT, f"thermoroute_candidate_index_{attack}_test"
+    )
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "fixture@example.test"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Fixture"], cwd=repository, check=True
+    )
+    raw = repository / "raw"
+    request_url = (
+        "https://waterservices.usgs.gov/nwis/site/?agencyCd=USGS&format=rdb&"
+        "hasDataTypeCd=dv&parameterCd=00010&siteOutput=expanded&siteStatus=all&"
+        "siteType=ST&stateCd=CO"
+    )
+    if attack == "outcome_url":
+        request_url = (
+            "https://waterservices.usgs.gov/nwis/dv/?format=rdb&sites=01234567&"
+            "parameterCd=00010"
+        )
+    request = {
+        "schema_version": 1,
+        "provider": "usgs-nwis-confirmatory-site-metadata",
+        "method": "GET",
+        "url": request_url,
+        "headers": {
+            "User-Agent": "ThermoRoute/1.0 Route-A metadata-only discovery"
+        },
+    }
+    request_sha = hashlib.sha256(
+        verifier._canonical_json_bytes(request)
+    ).hexdigest()
+    transaction = raw / request["provider"] / request_sha
+    transaction.mkdir(parents=True)
+    metadata_path = transaction / "metadata.json"
+    response_path = transaction / "response.bin"
+    response_path.write_bytes(b"response\n")
+    response_sha = verifier.sha256_file(response_path)
+    metadata = {
+        "schema_version": 1 if attack == "metadata_schema_v1" else 2,
+        "request": request,
+        "request_sha256": request_sha,
+        "retrieved_at_utc": "2026-07-26T00:00:00+00:00",
+        "http_status": 200,
+        "response_headers": {},
+        "byte_count": response_path.stat().st_size,
+        "response_sha256": response_sha,
+        "response_file": "response.bin",
+        "final_url": (
+            "https://redirected.example.invalid/final"
+            if attack == "redirected_final_url"
+            else request_url
+        ),
+        "retrieval_semantics": (
+            "FABRICATED"
+            if attack == "fabricated_semantics"
+            else "DIRECT_HTTP_RESPONSE"
+        ),
+    }
+    original_metadata = verifier._canonical_json_bytes(metadata)
+    metadata_path.write_bytes(original_metadata)
+    record = {
+        "provider": "usgs-nwis-confirmatory-site-metadata",
+        "request_sha256": request_sha,
+        "response_sha256": response_sha,
+        "metadata_sha256": hashlib.sha256(original_metadata).hexdigest(),
+        "metadata_byte_count": len(original_metadata),
+        "retrieved_at_utc": "2026-07-26T00:00:00+00:00",
+        "byte_count": response_path.stat().st_size,
+        "request": request,
+        "metadata_path": metadata_path.relative_to(raw).as_posix(),
+        "response_path": response_path.relative_to(raw).as_posix(),
+    }
+    index = {
+        "schema_version": 1 if attack == "legacy_index_v1" else 2,
+        "snapshot_count": 1,
+        "records": [record],
+    }
+    (raw / "snapshot_index.json").write_bytes(
+        verifier._canonical_json_bytes(index)
+    )
+    if attack == "metadata_bytes":
+        metadata_path.write_bytes(
+            verifier._canonical_json_bytes({"schema_version": 2, "forged": True})
+        )
+    elif attack == "extra_blob":
+        (raw / "unindexed.bin").write_bytes(b"extra candidate raw bytes\n")
+    elif attack == "unindexed_symlink":
+        (raw / "unindexed-link").symlink_to("snapshot_index.json")
+    elif attack == "unindexed_submodule":
+        submodule = raw / "unindexed-submodule"
+        submodule.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=submodule, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.test"],
+            cwd=submodule,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Fixture"],
+            cwd=submodule,
+            check=True,
+        )
+        (submodule / "payload.txt").write_text("submodule\n", encoding="utf-8")
+        subprocess.run(["git", "add", "payload.txt"], cwd=submodule, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "submodule fixture"],
+            cwd=submodule,
+            check=True,
+        )
+    subprocess.run(["git", "add", "raw"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "fixture"], cwd=repository, check=True
+    )
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    with pytest.raises(
+        ValueError,
+        match=r"(?i)(metadata|schema|malformed|SHA-256|namespace|non-file)",
+    ):
+        verifier._snapshot_dependency_paths(
+            repository,
+            commit,
+            "raw/snapshot_index.json",
+            require_metadata_binding=True,
+            require_candidate_metadata_contract=True,
+        )
+
+
 def test_release_truth_binding_accepts_stage09_float32_round_trip(tmp_path):
     verifier = _load_script(
         VERIFY_SCRIPT, "thermoroute_verify_float32_truth_round_trip"
@@ -8918,8 +9074,21 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
     final_protocol = write_json(
         protocol_json_path,
         {
+            "schema_version": 1,
+            "status": "PLANNED_NOT_ACQUIRED",
             "protocol_id": "route-a-confirmatory-v1",
             "authoritative_protocol_commit": original_commit,
+            "pre_label_amendments": [],
+            "new_site_external_validation": {
+                "status": "PLANNED_NOT_ACQUIRED",
+                "planned_site_count": 1,
+                "selection_seed": "route-a-confirmatory-v1-public-seed",
+            },
+            "metadata_candidate_contract": {"state_universe": ["CO"]},
+            "time_holdout": {
+                "start": "2021-01-01",
+                "end": "2023-12-31",
+            },
             "primary_inference_contract": {
                 "confirmatory_family": _fixture_confirmatory_family(),
                 "probabilistic_event_contract": json.loads(
@@ -9185,9 +9354,10 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         response = str(PurePosixPath(index).parent / "response.bin")
         metadata_path = write_json(metadata, {})
         _write_bytes(source, response, f"{name} raw\n".encode())
-        write_json(
+        _write_bytes(
+            source,
             index,
-            {
+            verifier._canonical_json_bytes({
                 "schema_version": 2,
                 "snapshot_count": 1,
                 "records": [{
@@ -9204,7 +9374,7 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
                     "byte_count": (source / response).stat().st_size,
                     "request": {"provider": name},
                 }]
-            },
+            }),
         )
         bridge_indexes[name] = index
         bridge_raw_paths.update({index, metadata, response})
@@ -9681,46 +9851,205 @@ def test_postopen_git_bundle_replays_real_prelabel_chronology_and_rejects_tamper
         "external_lock": "data_usgs/confirmatory_site_registry_v1.lock.json",
         "input_manifest": "data_usgs/confirmatory_actual_inputs_v1.json",
     }
-    _write_bytes(source, input_paths["candidate_table"], b"site_no\n9\n")
-    write_json(input_paths["candidate_provenance"], {})
-    candidate_index = input_paths["candidate_snapshot_index"]
-    candidate_metadata = str(PurePosixPath(candidate_index).parent / "record.json")
-    candidate_response = str(PurePosixPath(candidate_index).parent / "response.txt")
-    write_json(candidate_metadata, {})
-    _write_bytes(source, candidate_response, b"candidate metadata\n")
-    write_json(
-        candidate_index,
-        {
-            "records": [{
-                "metadata_path": "record.json",
-                "response_path": "response.txt",
-                "response_sha256": verifier.sha256_file(source / candidate_response),
-            }]
-        },
+    candidate_site_no = "99999999"
+    candidate_table_payload = (
+        "site_no,station_nm,lat,lon,state,site_type,huc_cd,drain_area_va\n"
+        f"{candidate_site_no},Fixture River,40.125,-105.25,CO,ST,"
+        "10190005,42.5\n"
+    ).encode("utf-8")
+    _write_bytes(
+        source, input_paths["candidate_table"], candidate_table_payload
     )
-    _write_bytes(source, input_paths["external_registry"], b"site_no,lat,lon\n9,1,2\n")
-    write_json(
-        input_paths["external_lock"],
-        {
-            "status": "REGISTRY_FROZEN_LABELS_SEALED",
-            "confirmatory_registry_sha256": verifier.sha256_file(
-                source / input_paths["external_registry"]
-            ),
-            "frozen_artifacts": {
-                "development_panel_spec": _binding(
-                    verifier, source, development_paths["frozen_panel_spec"]
-                ),
-                "candidate_table": _binding(
-                    verifier, source, input_paths["candidate_table"]
-                ),
-                "candidate_provenance": _binding(
-                    verifier, source, input_paths["candidate_provenance"]
-                ),
-                "candidate_snapshot_index": _binding(
-                    verifier, source, candidate_index
-                ),
-            },
+    candidate_index = input_paths["candidate_snapshot_index"]
+    candidate_url = (
+        "https://waterservices.usgs.gov/nwis/site/?agencyCd=USGS&format=rdb&"
+        "hasDataTypeCd=dv&parameterCd=00010&siteOutput=expanded&siteStatus=all&"
+        "siteType=ST&stateCd=CO"
+    )
+    candidate_request = {
+        "schema_version": 1,
+        "provider": "usgs-nwis-confirmatory-site-metadata",
+        "method": "GET",
+        "url": candidate_url,
+        "headers": {
+            "User-Agent": "ThermoRoute/1.0 Route-A metadata-only discovery"
         },
+    }
+    candidate_request_sha = hashlib.sha256(
+        verifier._canonical_json_bytes(candidate_request)
+    ).hexdigest()
+    candidate_base = (
+        PurePosixPath(candidate_index).parent
+        / str(candidate_request["provider"])
+        / candidate_request_sha
+    )
+    candidate_metadata = str(candidate_base / "metadata.json")
+    candidate_response = str(candidate_base / "response.bin")
+    candidate_response_payload = (
+        "agency_cd\tsite_no\tstation_nm\tsite_tp_cd\tdec_lat_va\t"
+        "dec_long_va\thuc_cd\tdrain_area_va\n"
+        "5s\t15s\t50s\t7s\t16s\t16s\t16s\t14n\n"
+        f"USGS\t{candidate_site_no}\tFixture River\tST\t40.125\t-105.25\t"
+        "10190005\t42.5\n"
+    ).encode("utf-8")
+    _write_bytes(source, candidate_response, candidate_response_payload)
+    _write_bytes(
+        source,
+        candidate_metadata,
+        verifier._canonical_json_bytes({
+            "schema_version": 2,
+            "request": candidate_request,
+            "request_sha256": candidate_request_sha,
+            "retrieved_at_utc": "2026-07-26T00:00:00+00:00",
+            "http_status": 200,
+            "response_headers": {},
+            "byte_count": len(candidate_response_payload),
+            "response_sha256": verifier.sha256_file(source / candidate_response),
+            "response_file": "response.bin",
+            "final_url": candidate_url,
+            "retrieval_semantics": "DIRECT_HTTP_RESPONSE",
+        }),
+    )
+    _write_bytes(
+        source,
+        candidate_index,
+        verifier._canonical_json_bytes({
+            "schema_version": 2,
+            "snapshot_count": 1,
+            "records": [{
+                "provider": "usgs-nwis-confirmatory-site-metadata",
+                "request_sha256": candidate_request_sha,
+                "metadata_path": candidate_metadata.removeprefix(
+                    str(PurePosixPath(candidate_index).parent) + "/"
+                ),
+                "metadata_sha256": verifier.sha256_file(source / candidate_metadata),
+                "metadata_byte_count": (source / candidate_metadata).stat().st_size,
+                "response_path": candidate_response.removeprefix(
+                    str(PurePosixPath(candidate_index).parent) + "/"
+                ),
+                "response_sha256": verifier.sha256_file(source / candidate_response),
+                "retrieved_at_utc": "2026-07-26T00:00:00+00:00",
+                "byte_count": (source / candidate_response).stat().st_size,
+                "request": candidate_request,
+            }]
+        }),
+    )
+    candidate_index_sha256 = verifier.sha256_file(source / candidate_index)
+    candidate_provenance = {
+        "schema_version": 1,
+        "artifact_role": "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE",
+        "protocol_sha256": verifier.sha256_file(source / protocol_json_path),
+        "state_universe": ["CO"],
+        "state_universe_rule": (
+            "states represented in the frozen 120-site development registry; "
+            "no post-2020 outcome or coverage information"
+        ),
+        "candidate_rule": (
+            "USGS stream sites whose site metadata advertises daily-value "
+            "parameter 00010 capability; siteStatus=all"
+        ),
+        "candidate_count": 1,
+        "site_primary_key": "site_no",
+        "sort_order": ["site_no", "state"],
+        "columns": [
+            "site_no", "station_nm", "lat", "lon", "state", "site_type",
+            "huc_cd", "drain_area_va",
+        ],
+        "outcome_endpoint_requested": False,
+        "outcome_values_requested": False,
+        "holdout_coverage_requested_or_computed": False,
+        "raw_snapshot_index": candidate_index,
+        "raw_snapshot_index_sha256": candidate_index_sha256,
+        "candidate_table_sha256": verifier.sha256_file(
+            source / input_paths["candidate_table"]
+        ),
+        "requests": [{
+            "state": "CO",
+            "candidate_count": 1,
+            "request_sha256": candidate_request_sha,
+            "response_sha256": verifier.sha256_file(source / candidate_response),
+            "retrieved_at_utc": "2026-07-26T00:00:00+00:00",
+            "byte_count": len(candidate_response_payload),
+        }],
+    }
+    _write_bytes(
+        source,
+        input_paths["candidate_provenance"],
+        verifier._canonical_json_bytes(candidate_provenance),
+    )
+    selection_seed = "route-a-confirmatory-v1-public-seed"
+    selection_rank = hashlib.sha256(
+        f"{selection_seed}:{candidate_site_no}".encode("utf-8")
+    ).hexdigest()
+    external_registry_payload = (
+        "site_no,station_nm,lat,lon,state,site_type,huc_cd,drain_area_va,"
+        "selection_rank_sha256\n"
+        f"{candidate_site_no},Fixture River,40.125,-105.25,CO,ST,10190005,"
+        f"42.5,{selection_rank}\n"
+    ).encode("utf-8")
+    _write_bytes(
+        source, input_paths["external_registry"], external_registry_payload
+    )
+    external_lock = {
+        "schema_version": 1,
+        "protocol_id": final_protocol.name.removesuffix(".json"),
+        "protocol_sha256": verifier.sha256_file(source / protocol_json_path),
+        "authoritative_protocol_commit": original_commit,
+        "pre_label_amendments_sha256": verifier._sha256_json([]),
+        "status": "REGISTRY_FROZEN_LABELS_SEALED",
+        "site_count": 1,
+        "site_primary_key": "site_no",
+        "selection_seed": selection_seed,
+        "holdout_start": "2021-01-01",
+        "holdout_end": "2023-12-31",
+        "development_panel_spec_sha256": verifier.sha256_file(
+            source / development_paths["frozen_panel_spec"]
+        ),
+        "candidate_table_sha256": verifier.sha256_file(
+            source / input_paths["candidate_table"]
+        ),
+        "candidate_provenance_sha256": verifier.sha256_file(
+            source / input_paths["candidate_provenance"]
+        ),
+        "candidate_snapshot_index_sha256": candidate_index_sha256,
+        "candidate_acquisition_session": {
+            "maximum_duration_seconds": 86400,
+            "retrieved_at_min_utc": "2026-07-26T00:00:00+00:00",
+            "retrieved_at_max_utc": "2026-07-26T00:00:00+00:00",
+            "clock_source": "LOCAL_SYSTEM_CLOCK_NOT_EXTERNALLY_ATTESTED",
+        },
+        "chronology_trust_boundary": (
+            "LOCAL_HONEST_OWNER_ONLY_NO_EXTERNAL_TIMESTAMP_OR_CUSTODIAN"
+        ),
+        "confirmatory_registry_sha256": verifier.sha256_file(
+            source / input_paths["external_registry"]
+        ),
+        "frozen_artifacts": {
+            "development_panel_spec": _binding(
+                verifier, source, development_paths["frozen_panel_spec"]
+            ),
+            "candidate_table": _binding(
+                verifier, source, input_paths["candidate_table"]
+            ),
+            "candidate_provenance": _binding(
+                verifier, source, input_paths["candidate_provenance"]
+            ),
+            "candidate_snapshot_index": _binding(
+                verifier, source, candidate_index
+            ),
+        },
+        "labels_state": "SEALED_NOT_ACQUIRED",
+        "opening_count": 0,
+        "registry_frozen_at_utc": "2026-07-27T00:00:00+00:00",
+        "created_at_utc": "2026-07-27T00:00:00+00:00",
+    }
+    external_lock["protocol_id"] = json.loads(
+        final_protocol.read_bytes()
+    )["protocol_id"]
+    _write_bytes(
+        source,
+        input_paths["external_lock"],
+        verifier._canonical_json_bytes(external_lock),
     )
     temporal_table = "data_usgs/confirmatory_predictors/temporal.parquet"
     external_table = "data_usgs/confirmatory_predictors/external.parquet"

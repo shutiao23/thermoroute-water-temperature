@@ -10,8 +10,14 @@ separate deterministic operation in :mod:`thermoroute.evidence`.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+import io
 import json
+import math
+import os
 from pathlib import Path
+import stat
 from typing import Any, Mapping
 from urllib.parse import urlencode
 
@@ -19,7 +25,13 @@ import pandas as pd
 
 from .evidence import EvidenceError, FORBIDDEN_CONFIRMATORY_COLUMNS
 from .usgs import _parse_nwis_rdb
-from .provenance import canonical_json_bytes, sha256_bytes, sha256_file
+from .provenance import (
+    ProvenanceError,
+    canonical_json_bytes,
+    read_single_link_regular,
+    require_canonical_utc,
+    sha256_bytes,
+)
 
 
 USGS_SITE_ENDPOINT = "https://waterservices.usgs.gov/nwis/site/"
@@ -41,6 +53,14 @@ CANDIDATE_COLUMNS = (
 )
 CANDIDATE_PROVIDER = "usgs-nwis-confirmatory-site-metadata"
 CANDIDATE_USER_AGENT = "ThermoRoute/1.0 Route-A metadata-only discovery"
+CANDIDATE_STATE_UNIVERSE_RULE = (
+    "states represented in the frozen 120-site development registry; "
+    "no post-2020 outcome or coverage information"
+)
+CANDIDATE_SELECTION_RULE = (
+    "USGS stream sites whose site metadata advertises daily-value "
+    "parameter 00010 capability; siteStatus=all"
+)
 
 
 def normalise_states(states: Iterable[str]) -> tuple[str, ...]:
@@ -158,23 +178,300 @@ def merge_candidate_metadata(frames: Iterable[pd.DataFrame]) -> pd.DataFrame:
     return candidates.sort_values(["site_no", "state"]).reset_index(drop=True)
 
 
-def replay_candidate_evidence(
+def canonical_candidate_request(state: str) -> dict[str, object]:
+    """Return the complete, identity-bearing metadata request for one state."""
+    return {
+        "schema_version": 1,
+        "provider": CANDIDATE_PROVIDER,
+        "method": "GET",
+        "url": build_usgs_candidate_url(state),
+        "headers": {"User-Agent": CANDIDATE_USER_AGENT},
+    }
+
+
+def _strict_canonical_json(payload: bytes, *, label: str) -> dict[str, Any]:
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-finite JSON constant {value}")
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"non-finite JSON number {value}")
+        return parsed
+
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        document: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in document:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            document[key] = value
+        return document
+
+    try:
+        document = json.loads(
+            payload.decode("utf-8", errors="strict"),
+            parse_constant=reject_constant,
+            parse_float=finite_float,
+            object_pairs_hook=unique_object,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise EvidenceError(f"{label} is not strict JSON") from exc
+    if not isinstance(document, dict) or payload != canonical_json_bytes(document):
+        raise EvidenceError(f"{label} is not canonical producer JSON")
+    return document
+
+
+def _candidate_raw_paths(states: tuple[str, ...]) -> set[str]:
+    paths: set[str] = set()
+    for state in states:
+        request = canonical_candidate_request(state)
+        request_sha = sha256_bytes(canonical_json_bytes(request))
+        base = Path(CANDIDATE_PROVIDER) / request_sha
+        paths.add((base / "metadata.json").as_posix())
+        paths.add((base / "response.bin").as_posix())
+    return paths
+
+
+def audit_candidate_snapshot_tree(
+    snapshot_root: str | Path,
+    states: Iterable[str],
+    *,
+    allow_index: bool,
+    require_all_raw: bool,
+) -> None:
+    """Require the exact candidate snapshot namespace, with no linked nodes."""
+    root = Path(snapshot_root)
+    expected_raw_files = _candidate_raw_paths(normalise_states(states))
+    if not os.path.lexists(root):
+        if require_all_raw:
+            raise EvidenceError("candidate raw snapshot root is absent")
+        return
+    root_metadata = root.lstat()
+    if not stat.S_ISDIR(root_metadata.st_mode):
+        raise EvidenceError("candidate raw snapshot root must be one real directory")
+    expected_files = set(expected_raw_files)
+    if allow_index:
+        expected_files.add("snapshot_index.json")
+    expected_directories: set[str] = set()
+    for relative in expected_raw_files:
+        parent = Path(relative).parent
+        while parent != Path("."):
+            expected_directories.add(parent.as_posix())
+            parent = parent.parent
+    actual_files: set[str] = set()
+    actual_directories: set[str] = set()
+    for directory, names, files in os.walk(root, followlinks=False):
+        directory_path = Path(directory)
+        for name in names:
+            path = directory_path / name
+            metadata = path.lstat()
+            relative = path.relative_to(root).as_posix()
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise EvidenceError(f"candidate snapshot directory is unsafe: {relative}")
+            actual_directories.add(relative)
+        for name in files:
+            path = directory_path / name
+            metadata = path.lstat()
+            relative = path.relative_to(root).as_posix()
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise EvidenceError(f"candidate snapshot file is linked/unsafe: {relative}")
+            actual_files.add(relative)
+    unexpected_files = actual_files - expected_files
+    unexpected_directories = actual_directories - expected_directories
+    if unexpected_files or unexpected_directories:
+        raise EvidenceError(
+            "candidate snapshot store contains extra nodes: "
+            f"files={sorted(unexpected_files)[:5]}, "
+            f"directories={sorted(unexpected_directories)[:5]}"
+        )
+    for relative in expected_raw_files:
+        peer = (
+            relative.removesuffix("metadata.json") + "response.bin"
+            if relative.endswith("metadata.json")
+            else relative.removesuffix("response.bin") + "metadata.json"
+        )
+        if (relative in actual_files) != (peer in actual_files):
+            raise EvidenceError("candidate raw snapshot transaction is incomplete")
+    if require_all_raw and not expected_raw_files <= actual_files:
+        missing = sorted(expected_raw_files - actual_files)
+        raise EvidenceError(f"candidate raw snapshot requests are missing: {missing[:5]}")
+
+
+@dataclass(frozen=True)
+class CandidateSnapshotAudit:
+    index_document: Mapping[str, Any]
+    index_payload: bytes
+    responses_by_state: Mapping[str, bytes]
+
+
+def audit_candidate_snapshot_store(
+    snapshot_root: str | Path,
+    state_universe: Iterable[str],
+    *,
+    trusted_root: str | Path,
+    published_index_payload: bytes | None = None,
+) -> CandidateSnapshotAudit:
+    """Reconstruct and optionally byte-verify the unique canonical raw index."""
+    root = Path(os.path.abspath(snapshot_root))
+    states = normalise_states(state_universe)
+    allow_index = published_index_payload is not None
+    audit_candidate_snapshot_tree(
+        root, states, allow_index=allow_index, require_all_raw=True
+    )
+    records: list[dict[str, Any]] = []
+    responses: dict[str, bytes] = {}
+    metadata_keys = {
+        "schema_version", "request", "request_sha256", "retrieved_at_utc",
+        "http_status", "response_headers", "byte_count", "response_sha256",
+        "response_file", "final_url", "retrieval_semantics",
+    }
+    for state in states:
+        request = canonical_candidate_request(state)
+        request_sha = sha256_bytes(canonical_json_bytes(request))
+        base = Path(CANDIDATE_PROVIDER) / request_sha
+        metadata_path = root / base / "metadata.json"
+        response_path = root / base / "response.bin"
+        try:
+            metadata_payload = read_single_link_regular(
+                metadata_path,
+                label=f"candidate metadata for {state}",
+                trusted_root=trusted_root,
+            )
+            response_payload = read_single_link_regular(
+                response_path,
+                label=f"candidate response for {state}",
+                trusted_root=trusted_root,
+            )
+            metadata = _strict_canonical_json(
+                metadata_payload, label=f"candidate metadata for {state}"
+            )
+            retrieved = require_canonical_utc(
+                metadata.get("retrieved_at_utc"),
+                label=f"candidate retrieved_at_utc for {state}",
+            )
+        except ProvenanceError as exc:
+            raise EvidenceError(str(exc)) from exc
+        response_sha = sha256_bytes(response_payload)
+        embedded_request = metadata.get("request")
+        response_headers = metadata.get("response_headers")
+        if (
+            set(metadata) != metadata_keys
+            or type(metadata.get("schema_version")) is not int
+            or metadata.get("schema_version") != 2
+            or not isinstance(embedded_request, Mapping)
+            or embedded_request != request
+            or sha256_bytes(canonical_json_bytes(dict(embedded_request)))
+            != request_sha
+            or metadata.get("request_sha256") != request_sha
+            or type(metadata.get("http_status")) is not int
+            or metadata.get("http_status") != 200
+            or type(response_headers) is not dict
+            or any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in response_headers.items()
+            )
+            or type(metadata.get("byte_count")) is not int
+            or metadata.get("byte_count") != len(response_payload)
+            or metadata.get("response_sha256") != response_sha
+            or metadata.get("response_file") != "response.bin"
+            or metadata.get("final_url") != request["url"]
+            or metadata.get("retrieval_semantics") not in {
+                "DIRECT_HTTP_RESPONSE",
+                "BYTE_IDENTICAL_REFETCH_COMPLETED_RESPONSE_ONLY_TRANSACTION",
+            }
+        ):
+            raise EvidenceError("candidate snapshot response/metadata binding changed")
+        records.append({
+            "provider": CANDIDATE_PROVIDER,
+            "request_sha256": request_sha,
+            "response_sha256": response_sha,
+            "retrieved_at_utc": retrieved,
+            "byte_count": len(response_payload),
+            "metadata_sha256": sha256_bytes(metadata_payload),
+            "metadata_byte_count": len(metadata_payload),
+            "request": request,
+            "metadata_path": (base / "metadata.json").as_posix(),
+            "response_path": (base / "response.bin").as_posix(),
+        })
+        responses[state] = response_payload
+    records.sort(key=lambda record: str(record["metadata_path"]))
+    retrieved_datetimes = [
+        datetime.fromisoformat(str(record["retrieved_at_utc"]))
+        for record in records
+    ]
+    if max(retrieved_datetimes) - min(retrieved_datetimes) > timedelta(days=1):
+        raise EvidenceError(
+            "candidate acquisition exceeded its 24-hour session; use a new snapshot version"
+        )
+    index_document: dict[str, Any] = {
+        "schema_version": 2,
+        "snapshot_count": len(records),
+        "records": records,
+    }
+    index_payload = canonical_json_bytes(index_document)
+    if published_index_payload is not None and published_index_payload != index_payload:
+        raise EvidenceError("candidate snapshot index differs from exact raw replay")
+    audit_candidate_snapshot_tree(
+        root, states, allow_index=allow_index, require_all_raw=True
+    )
+    return CandidateSnapshotAudit(
+        index_document=index_document,
+        index_payload=index_payload,
+        responses_by_state=responses,
+    )
+
+
+@dataclass(frozen=True)
+class CandidateEvidenceAudit:
+    candidates: pd.DataFrame
+    candidate_payload: bytes
+    provenance_payload: bytes
+    snapshot_index_payload: bytes
+    provenance: Mapping[str, Any]
+    snapshot: CandidateSnapshotAudit
+
+
+def audit_candidate_evidence(
     candidates_path: str | Path,
     provenance_path: str | Path,
     snapshot_index_path: str | Path,
     *,
-    protocol_sha256: str,
-    state_universe: Iterable[str],
-) -> pd.DataFrame:
+    protocol_sha256: str | None,
+    state_universe: Iterable[str] | None,
+    trusted_root: str | Path | None = None,
+) -> CandidateEvidenceAudit:
     """Strictly replay metadata-only raw bytes into the candidate universe."""
-    candidates_path = Path(candidates_path).resolve()
-    provenance_path = Path(provenance_path).resolve()
-    snapshot_index_path = Path(snapshot_index_path).resolve()
+    candidates_path = Path(os.path.abspath(candidates_path))
+    provenance_path = Path(os.path.abspath(provenance_path))
+    snapshot_index_path = Path(os.path.abspath(snapshot_index_path))
+    if trusted_root is None:
+        trusted_root = Path(os.path.commonpath([
+            candidates_path.parent,
+            provenance_path.parent,
+            snapshot_index_path.parent,
+        ]))
+    trusted_root = Path(os.path.abspath(trusted_root))
     try:
-        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        index = json.loads(snapshot_index_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        candidate_payload = read_single_link_regular(
+            candidates_path, label="candidate table", trusted_root=trusted_root
+        )
+        provenance_payload = read_single_link_regular(
+            provenance_path, label="candidate provenance", trusted_root=trusted_root
+        )
+        index_payload = read_single_link_regular(
+            snapshot_index_path,
+            label="candidate snapshot index",
+            trusted_root=trusted_root,
+        )
+        provenance = _strict_canonical_json(
+            provenance_payload, label="candidate provenance"
+        )
+    except (ProvenanceError, EvidenceError) as exc:
         raise EvidenceError("candidate provenance/index is absent or invalid") from exc
+    if protocol_sha256 is None:
+        protocol_sha256 = str(provenance.get("protocol_sha256", ""))
+    if state_universe is None:
+        state_universe = provenance.get("state_universe", [])
     expected_states = normalise_states(state_universe)
     expected_provenance_keys = {
         "schema_version", "artifact_role", "protocol_sha256", "state_universe",
@@ -186,119 +483,116 @@ def replay_candidate_evidence(
     }
     if not isinstance(provenance, Mapping) or set(provenance) != expected_provenance_keys:
         raise EvidenceError("candidate provenance schema changed")
+    if (
+        type(provenance.get("schema_version")) is not int
+        or type(provenance.get("candidate_count")) is not int
+        or any(
+            type(provenance.get(field)) is not bool
+            for field in (
+                "outcome_endpoint_requested",
+                "outcome_values_requested",
+                "holdout_coverage_requested_or_computed",
+            )
+        )
+    ):
+        raise EvidenceError("candidate provenance scalar types changed")
     expected_flags: dict[str, Any] = {
         "schema_version": 1,
         "artifact_role": "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE",
         "protocol_sha256": protocol_sha256,
         "state_universe": list(expected_states),
+        "state_universe_rule": CANDIDATE_STATE_UNIVERSE_RULE,
+        "candidate_rule": CANDIDATE_SELECTION_RULE,
         "site_primary_key": "site_no",
         "sort_order": ["site_no", "state"],
         "columns": list(CANDIDATE_COLUMNS),
         "outcome_endpoint_requested": False,
         "outcome_values_requested": False,
         "holdout_coverage_requested_or_computed": False,
-        "raw_snapshot_index_sha256": sha256_file(snapshot_index_path),
-        "candidate_table_sha256": sha256_file(candidates_path),
+        "raw_snapshot_index_sha256": sha256_bytes(index_payload),
+        "candidate_table_sha256": sha256_bytes(candidate_payload),
     }
+    try:
+        expected_index_reference = snapshot_index_path.relative_to(
+            trusted_root
+        ).as_posix()
+    except ValueError as exc:
+        raise EvidenceError("candidate snapshot index escapes the trusted root") from exc
+    expected_flags["raw_snapshot_index"] = expected_index_reference
+    if provenance.get("candidate_table_sha256") != sha256_bytes(candidate_payload):
+        raise EvidenceError("candidate table checksum differs from provenance")
+    if provenance.get("raw_snapshot_index_sha256") != sha256_bytes(index_payload):
+        raise EvidenceError("candidate snapshot index checksum differs from provenance")
     if any(provenance.get(key) != value for key, value in expected_flags.items()):
         raise EvidenceError("candidate provenance identity/flags changed")
-    if index.get("schema_version") != 1:
-        raise EvidenceError("candidate snapshot index schema changed")
-    records = index.get("records")
-    if not isinstance(records, list) or index.get("snapshot_count") != len(records):
-        raise EvidenceError("candidate snapshot index count changed")
-    if len(records) != len(expected_states):
-        raise EvidenceError("candidate snapshot count differs from state universe")
-    indexed: dict[str, Mapping[str, Any]] = {}
     snapshot_root = snapshot_index_path.parent
-    for record in records:
-        required_record = {
-            "provider", "request_sha256", "response_sha256", "retrieved_at_utc",
-            "byte_count", "request", "metadata_path", "response_path",
-        }
-        if not isinstance(record, Mapping) or set(record) != required_record:
-            raise EvidenceError("candidate snapshot record schema changed")
-        request = record.get("request")
-        if not isinstance(request, Mapping):
-            raise EvidenceError("candidate snapshot request is malformed")
-        request_sha = sha256_bytes(canonical_json_bytes(dict(request)))
-        if request_sha != record.get("request_sha256") or request_sha in indexed:
-            raise EvidenceError("candidate request fingerprint changed or duplicated")
-        response_path = (snapshot_root / str(record["response_path"])).resolve()
-        metadata_path = (snapshot_root / str(record["metadata_path"])).resolve()
-        if (
-            snapshot_root not in response_path.parents
-            or snapshot_root not in metadata_path.parents
-            or response_path.name != "response.bin"
-            or metadata_path.name != "metadata.json"
-            or response_path.parent != metadata_path.parent
-            or response_path.parent.name != request_sha
-        ):
-            raise EvidenceError("candidate snapshot path layout changed")
-        payload = response_path.read_bytes()
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        response_sha = sha256_bytes(payload)
-        expected_metadata = {
-            "schema_version": 1,
-            "request": dict(request),
-            "request_sha256": request_sha,
-            "http_status": 200,
-            "byte_count": len(payload),
-            "response_sha256": response_sha,
-            "response_file": "response.bin",
-        }
-        if (
-            response_sha != record.get("response_sha256")
-            or int(record.get("byte_count", -1)) != len(payload)
-            or any(metadata.get(key) != value for key, value in expected_metadata.items())
-            or metadata.get("retrieved_at_utc") != record.get("retrieved_at_utc")
-        ):
-            raise EvidenceError("candidate snapshot response/metadata binding changed")
-        indexed[request_sha] = record
+    snapshot = audit_candidate_snapshot_store(
+        snapshot_root,
+        expected_states,
+        trusted_root=trusted_root,
+        published_index_payload=index_payload,
+    )
+    indexed = {
+        str(record["request_sha256"]): record
+        for record in snapshot.index_document["records"]
+    }
 
     requests = provenance.get("requests")
     if not isinstance(requests, list) or len(requests) != len(expected_states):
         raise EvidenceError("candidate provenance request registry changed")
-    frames: list[pd.DataFrame] = []
-    seen_states: list[str] = []
     for request_record in requests:
-        if not isinstance(request_record, Mapping) or set(request_record) != {
-            "state", "candidate_count", "request_sha256", "response_sha256",
-            "retrieved_at_utc", "byte_count",
-        }:
-            raise EvidenceError("candidate provenance request row changed")
-        state = str(request_record["state"])
-        canonical_request = {
-            "schema_version": 1,
-            "provider": CANDIDATE_PROVIDER,
-            "method": "GET",
-            "url": build_usgs_candidate_url(state),
-            "headers": {"User-Agent": CANDIDATE_USER_AGENT},
-        }
+        if (
+            not isinstance(request_record, Mapping)
+            or set(request_record) != {
+                "state", "candidate_count", "request_sha256", "response_sha256",
+                "retrieved_at_utc", "byte_count",
+            }
+            or not isinstance(request_record.get("state"), str)
+            or type(request_record.get("candidate_count")) is not int
+            or type(request_record.get("byte_count")) is not int
+            or not isinstance(request_record.get("request_sha256"), str)
+            or not isinstance(request_record.get("response_sha256"), str)
+            or not isinstance(request_record.get("retrieved_at_utc"), str)
+        ):
+            raise EvidenceError("candidate provenance request scalar types changed")
+    frames: list[pd.DataFrame] = []
+    expected_requests: list[dict[str, Any]] = []
+    for state in expected_states:
+        canonical_request = canonical_candidate_request(state)
         request_sha = sha256_bytes(canonical_json_bytes(canonical_request))
-        if request_sha != request_record.get("request_sha256") or request_sha not in indexed:
+        if request_sha not in indexed:
             raise EvidenceError("candidate provenance request is not canonical")
         indexed_record = indexed[request_sha]
         if dict(indexed_record["request"]) != canonical_request:
             raise EvidenceError("candidate indexed request byte contract changed")
-        for field in (
-            "request_sha256", "response_sha256", "retrieved_at_utc", "byte_count"
-        ):
-            if request_record.get(field) != indexed_record.get(field):
-                raise EvidenceError("candidate provenance does not bind raw snapshot")
-        response_path = (snapshot_root / str(indexed_record["response_path"])).resolve()
-        frame = parse_usgs_candidate_metadata(response_path.read_bytes(), state=state)
-        if int(request_record["candidate_count"]) != len(frame):
-            raise EvidenceError("candidate per-state count changed")
+        frame = parse_usgs_candidate_metadata(
+            snapshot.responses_by_state[state], state=state
+        )
         frames.append(frame)
-        seen_states.append(state)
-    if tuple(sorted(seen_states)) != expected_states or len(seen_states) != len(set(seen_states)):
-        raise EvidenceError("candidate raw-response state universe changed")
+        expected_requests.append({
+            "state": state,
+            "candidate_count": len(frame),
+            "request_sha256": request_sha,
+            "response_sha256": indexed_record["response_sha256"],
+            "retrieved_at_utc": indexed_record["retrieved_at_utc"],
+            "byte_count": indexed_record["byte_count"],
+        })
+    if requests != expected_requests:
+        raise EvidenceError(
+            "candidate provenance requests differ from canonical state order/replay"
+        )
     rebuilt = merge_candidate_metadata(frames)
-    if int(provenance.get("candidate_count", -1)) != len(rebuilt):
+    if provenance.get("candidate_count") != len(rebuilt):
         raise EvidenceError("candidate total count changed")
+    expected_candidate_payload = rebuilt.to_csv(
+        index=False,
+        float_format="%.17g",
+        lineterminator="\n",
+    ).encode("utf-8")
+    if candidate_payload != expected_candidate_payload:
+        raise EvidenceError("candidate table is not exact canonical producer CSV")
     provided = pd.read_csv(
-        candidates_path,
+        io.BytesIO(candidate_payload),
         dtype={
             "site_no": "string", "station_nm": "string", "state": "string",
             "site_type": "string", "huc_cd": "string",
@@ -317,4 +611,31 @@ def replay_candidate_evidence(
         )
     except AssertionError as exc:
         raise EvidenceError("candidate table cannot be replayed from raw bytes") from exc
-    return provided
+    return CandidateEvidenceAudit(
+        candidates=provided,
+        candidate_payload=candidate_payload,
+        provenance_payload=provenance_payload,
+        snapshot_index_payload=index_payload,
+        provenance=provenance,
+        snapshot=snapshot,
+    )
+
+
+def replay_candidate_evidence(
+    candidates_path: str | Path,
+    provenance_path: str | Path,
+    snapshot_index_path: str | Path,
+    *,
+    protocol_sha256: str,
+    state_universe: Iterable[str],
+    trusted_root: str | Path | None = None,
+) -> pd.DataFrame:
+    """Compatibility wrapper returning the replayed candidate table."""
+    return audit_candidate_evidence(
+        candidates_path,
+        provenance_path,
+        snapshot_index_path,
+        protocol_sha256=protocol_sha256,
+        state_universe=state_universe,
+        trusted_root=trusted_root,
+    ).candidates

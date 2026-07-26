@@ -50,16 +50,24 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute.confirmatory import (  # noqa: E402
     CANDIDATE_PROVIDER,
+    CANDIDATE_SELECTION_RULE,
+    CANDIDATE_STATE_UNIVERSE_RULE,
     CANDIDATE_USER_AGENT,
     ROUTE_A_STATE_UNIVERSE,
+    audit_candidate_evidence,
+    audit_candidate_snapshot_store,
     build_usgs_candidate_url,
     merge_candidate_metadata,
     normalise_states,
     parse_usgs_candidate_metadata,
 )
 from thermoroute.provenance import (  # noqa: E402
+    AdvisoryLockHandle,
     SnapshotStore,
+    candidate_publication_lock,
     canonical_json_bytes,
+    create_single_link_regular,
+    read_single_link_regular,
     sha256_bytes,
 )
 
@@ -70,6 +78,12 @@ DEFAULT_SNAPSHOT_DIR = (
 DEFAULT_OUT = ROOT / "data_usgs" / "confirmatory_candidate_sites_v1.csv"
 DEFAULT_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
 USER_AGENT = CANDIDATE_USER_AGENT
+
+
+def _candidate_publication_lock_path() -> Path:
+    # Both CLIs lock the same tracked, immutable protocol inode.  The anchor is
+    # opened read-only, so check-only validation creates no repository state.
+    return ROOT / "protocols" / "route_a_confirmatory_v1.json"
 
 
 def _inside_root(path: Path, *, label: str) -> Path:
@@ -102,16 +116,7 @@ def _published_bytes(path: Path, *, label: str) -> bytes:
         raise RuntimeError(
             f"{label} has unpublished temporary siblings: {leftovers[:3]}"
         )
-    try:
-        metadata = path.lstat()
-    except FileNotFoundError:
-        raise
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-        raise RuntimeError(f"{label} must be one regular single-link file: {path}")
-    try:
-        return path.read_bytes()
-    except OSError as exc:
-        raise RuntimeError(f"cannot read {label}: {path}") from exc
+    return read_single_link_regular(path, label=label, trusted_root=ROOT.resolve())
 
 
 def _strict_json_bytes(
@@ -163,22 +168,12 @@ def atomic_create(path: Path, payload: bytes) -> None:
         raise RuntimeError(
             f"refusing publication beside temporary evidence: {leftovers[:3]}"
         )
-    if os.path.lexists(path):
-        raise FileExistsError(f"refusing to overwrite frozen artifact: {path}")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    flags |= getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags, 0o644)
+        create_single_link_regular(
+            path, payload, trusted_root=ROOT.resolve(), mode=0o644
+        )
     except FileExistsError:
         raise FileExistsError(f"refusing to overwrite frozen artifact: {path}")
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-    except BaseException:
-        # Do not erase a partial publication: it is evidence of interruption.
-        raise
 
 
 def parse_states(values: list[str] | None) -> tuple[str, ...]:
@@ -199,9 +194,11 @@ def holdout_freeze_command(
     n_sites: int,
     selection_seed: str,
     check_existing: bool = False,
+    inherited_lock_fd: int | None = None,
+    inherited_lock_token: str | None = None,
 ) -> list[str]:
     """Return the exact invocation of the existing sealed-holdout freezer."""
-    return [
+    command = [
         sys.executable,
         str(ROOT / "scripts" / "data_usgs" / "confirmatory_holdout.py"),
         "check-candidates" if check_existing else "freeze-candidates",
@@ -214,6 +211,14 @@ def holdout_freeze_command(
         "--n-sites", str(n_sites),
         "--selection-seed", selection_seed,
     ]
+    if inherited_lock_fd is not None:
+        if inherited_lock_token is None:
+            raise ValueError("inherited lock token is required with its descriptor")
+        command.extend([
+            "--inherited-publication-lock-fd", str(inherited_lock_fd),
+            "--inherited-publication-lock-token", inherited_lock_token,
+        ])
+    return command
 
 
 def _request_document(state: str) -> dict[str, object]:
@@ -296,68 +301,16 @@ def _audit_snapshot_tree(
             else relative.removesuffix("response.bin") + "metadata.json"
         )
         if (relative in actual_files) != (peer in actual_files):
+            existing = relative if relative in actual_files else peer
+            if (
+                not require_all_raw
+                and existing.endswith("response.bin")
+            ):
+                continue
             raise RuntimeError("candidate raw snapshot transaction is incomplete")
     if require_all_raw and not expected_raw_files <= actual_files:
         missing = sorted(expected_raw_files - actual_files)
         raise RuntimeError(f"candidate raw snapshot requests are missing: {missing[:5]}")
-
-
-def _snapshot_index_document(
-    snapshot_root: Path,
-    records: list[Any],
-    states: tuple[str, ...],
-) -> dict[str, Any]:
-    output: list[dict[str, Any]] = []
-    expected_requests = {
-        sha256_bytes(canonical_json_bytes(_request_document(state))): (
-            _request_document(state)
-        )
-        for state in states
-    }
-    for record in sorted(records, key=lambda value: value.metadata_path.as_posix()):
-        metadata_payload = _published_bytes(
-            record.metadata_path,
-            label=f"candidate request metadata {record.request_sha256}",
-        )
-        metadata = _strict_json_bytes(
-            metadata_payload,
-            label="candidate request metadata",
-            require_canonical=True,
-        )
-        expected_request = expected_requests.get(record.request_sha256)
-        expected_metadata_keys = {
-            "schema_version", "request", "request_sha256", "retrieved_at_utc",
-            "http_status", "response_headers", "byte_count", "response_sha256",
-            "response_file",
-        }
-        response_payload = _published_bytes(
-            record.response_path,
-            label=f"candidate raw response {record.request_sha256}",
-        )
-        if (
-            set(metadata) != expected_metadata_keys
-            or metadata.get("schema_version") != 1
-            or record.provider != CANDIDATE_PROVIDER
-            or metadata.get("request") != expected_request
-            or metadata.get("request_sha256") != record.request_sha256
-            or metadata.get("response_sha256") != record.response_sha256
-            or metadata.get("byte_count") != len(response_payload)
-            or metadata.get("http_status") != 200
-            or metadata.get("response_file") != "response.bin"
-            or sha256_bytes(response_payload) != record.response_sha256
-        ):
-            raise RuntimeError("candidate raw snapshot identity changed")
-        output.append({
-            "provider": record.provider,
-            "request_sha256": record.request_sha256,
-            "response_sha256": record.response_sha256,
-            "retrieved_at_utc": record.retrieved_at_utc,
-            "byte_count": record.byte_count,
-            "request": metadata.get("request"),
-            "metadata_path": record.metadata_path.relative_to(snapshot_root).as_posix(),
-            "response_path": record.response_path.relative_to(snapshot_root).as_posix(),
-        })
-    return {"schema_version": 1, "snapshot_count": len(output), "records": output}
 
 
 def _publication_prefix(paths: list[Path], *, require_complete: bool) -> list[bool]:
@@ -382,6 +335,27 @@ def discover(args: argparse.Namespace) -> None:
         ("out_lock", "external registry lock"),
     ):
         setattr(args, attribute, _inside_root(getattr(args, attribute), label=label))
+    if args.protocol != _candidate_publication_lock_path().absolute():
+        raise RuntimeError(
+            "candidate publication requires the fixed canonical Route-A protocol"
+        )
+    lock_path = _inside_root(
+        _candidate_publication_lock_path(),
+        label="candidate publication transaction lock",
+    )
+    with candidate_publication_lock(
+        lock_path,
+        trusted_root=ROOT.resolve(),
+        shared=bool(getattr(args, "check_existing", False)),
+    ) as lock_handle:
+        _discover_locked(args, lock_handle=lock_handle)
+
+
+def _discover_locked(
+    args: argparse.Namespace,
+    *,
+    lock_handle: AdvisoryLockHandle,
+) -> None:
     states = parse_states(args.states)
     if args.freeze_selection and states != ROUTE_A_STATE_UNIVERSE:
         raise RuntimeError(
@@ -416,10 +390,10 @@ def discover(args: argparse.Namespace) -> None:
     store = SnapshotStore(
         args.snapshot_dir,
         offline=bool(args.offline or derived_started or check_existing),
+        trusted_root=ROOT.resolve(),
     )
     state_frames = []
     request_records = []
-    snapshot_records = []
     for state in states:
         url = build_usgs_candidate_url(state)
         payload, record = store.fetch(
@@ -427,10 +401,11 @@ def discover(args: argparse.Namespace) -> None:
             url=url,
             headers={"User-Agent": USER_AGENT},
             retries=args.retries,
+            resume_incomplete=True,
+            expected_final_url=url,
         )
         frame = parse_usgs_candidate_metadata(payload, state=state)
         state_frames.append(frame)
-        snapshot_records.append(record)
         request_records.append({
             "state": state,
             "candidate_count": len(frame),
@@ -446,23 +421,25 @@ def discover(args: argparse.Namespace) -> None:
         float_format="%.17g",
         lineterminator="\n",
     ).encode("utf-8")
-    index_document = _snapshot_index_document(
-        args.snapshot_dir, snapshot_records, states
+    existing_index_payload = (
+        _published_bytes(index_path, label="candidate snapshot index")
+        if present[1]
+        else None
     )
-    index_payload = canonical_json_bytes(index_document)
+    snapshot_audit = audit_candidate_snapshot_store(
+        args.snapshot_dir,
+        states,
+        trusted_root=ROOT.resolve(),
+        published_index_payload=existing_index_payload,
+    )
+    index_payload = snapshot_audit.index_payload
     provenance = {
         "schema_version": 1,
         "artifact_role": "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE",
         "protocol_sha256": sha256_bytes(protocol_payload),
         "state_universe": list(states),
-        "state_universe_rule": (
-            "states represented in the frozen 120-site development registry; "
-            "no post-2020 outcome or coverage information"
-        ),
-        "candidate_rule": (
-            "USGS stream sites whose site metadata advertises daily-value "
-            "parameter 00010 capability; siteStatus=all"
-        ),
+        "state_universe_rule": CANDIDATE_STATE_UNIVERSE_RULE,
+        "candidate_rule": CANDIDATE_SELECTION_RULE,
         "candidate_count": len(candidates),
         "site_primary_key": "site_no",
         "sort_order": ["site_no", "state"],
@@ -509,8 +486,23 @@ def discover(args: argparse.Namespace) -> None:
             n_sites=args.n_sites,
             selection_seed=selection_seed,
             check_existing=check_existing,
+            inherited_lock_fd=lock_handle.fd,
+            inherited_lock_token=lock_handle.token,
         )
-        subprocess.run(command, cwd=ROOT, check=True)
+        subprocess.run(
+            command,
+            cwd=ROOT,
+            check=True,
+            pass_fds=(lock_handle.fd,),
+        )
+    audit_candidate_evidence(
+        args.out,
+        sidecar,
+        index_path,
+        protocol_sha256=sha256_bytes(protocol_payload),
+        state_universe=states,
+        trusted_root=ROOT.resolve(),
+    )
     if check_existing:
         print(json.dumps({
             "status": "CANDIDATE_PUBLICATION_VALID",

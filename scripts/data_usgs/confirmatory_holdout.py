@@ -10,8 +10,7 @@ panel, protocol and selection seed.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
-import io
+from datetime import datetime
 import json
 import math
 import os
@@ -25,6 +24,29 @@ from typing import Any, Mapping
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _inherited_lock_fds_from_argv(argv: list[str]) -> tuple[int, ...]:
+    """Preserve the parent's lock capability across the isolation re-exec."""
+    option = "--inherited-publication-lock-fd"
+    positions = [index for index, value in enumerate(argv) if value == option]
+    if not positions:
+        return ()
+    if len(positions) != 1 or positions[0] + 1 >= len(argv):
+        raise RuntimeError("inherited publication-lock descriptor is malformed")
+    try:
+        descriptor = int(argv[positions[0] + 1])
+    except ValueError as exc:
+        raise RuntimeError("inherited publication-lock descriptor is malformed") from exc
+    if descriptor < 3:
+        raise RuntimeError("inherited publication-lock descriptor is unsafe")
+    try:
+        metadata = os.fstat(descriptor)
+    except OSError as exc:
+        raise RuntimeError("inherited publication-lock descriptor is not open") from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise RuntimeError("inherited publication-lock descriptor is not regular")
+    return (descriptor,)
 
 
 def _isolate_project_bytecode() -> None:
@@ -45,6 +67,7 @@ def _isolate_project_bytecode() -> None:
             cwd=ROOT,
             env=os.environ.copy(),
             check=False,
+            pass_fds=_inherited_lock_fds_from_argv(sys.argv[1:]),
         )
     raise SystemExit(result.returncode)
 
@@ -53,25 +76,32 @@ _isolate_project_bytecode()
 sys.path.insert(0, str(ROOT / "src"))
 
 from thermoroute.evidence import (  # noqa: E402
+    EvidenceError,
     FrozenPanelSpec,
     load_confirmatory_protocol,
     select_confirmatory_sites,
 )
 from thermoroute.confirmatory import (  # noqa: E402
-    CANDIDATE_COLUMNS,
-    build_usgs_candidate_url,
-    merge_candidate_metadata,
-    parse_usgs_candidate_metadata,
+    audit_candidate_evidence,
 )
 from thermoroute.provenance import (  # noqa: E402
+    candidate_publication_lock,
     canonical_json_bytes,
+    create_single_link_regular,
+    read_single_link_regular,
+    require_canonical_utc,
     sha256_bytes,
     sha256_file,
+    utc_now_iso,
 )
 from thermoroute.repro import sha256_json  # noqa: E402
 
 
 DEFAULT_PROTOCOL = ROOT / "protocols" / "route_a_confirmatory_v1.json"
+
+
+def _candidate_publication_lock_path() -> Path:
+    return ROOT / "protocols" / "route_a_confirmatory_v1.json"
 
 
 def _inside_root(path: Path, *, label: str) -> Path:
@@ -105,16 +135,7 @@ def _published_bytes(path: Path, *, label: str) -> bytes:
         raise RuntimeError(
             f"{label} has unpublished temporary siblings: {leftovers[:3]}"
         )
-    try:
-        metadata = path.lstat()
-    except FileNotFoundError:
-        raise
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-        raise RuntimeError(f"{label} must be one regular single-link file: {path}")
-    try:
-        return path.read_bytes()
-    except OSError as exc:
-        raise RuntimeError(f"cannot read {label}: {path}") from exc
+    return read_single_link_regular(path, label=label, trusted_root=ROOT.resolve())
 
 
 def _strict_json_bytes(payload: bytes, *, label: str) -> dict[str, Any]:
@@ -161,23 +182,12 @@ def atomic_write(path: Path, payload: bytes) -> None:
         raise RuntimeError(
             f"refusing publication beside temporary evidence: {leftovers[:3]}"
         )
-    if os.path.lexists(path):
-        raise FileExistsError(f"refusing to overwrite holdout lock: {path}")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    flags |= getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags, 0o644)
+        create_single_link_regular(
+            path, payload, trusted_root=ROOT.resolve(), mode=0o644
+        )
     except FileExistsError:
         raise FileExistsError(f"refusing to overwrite holdout lock: {path}")
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-    except BaseException:
-        # Never delete or replace a partial publication.  The next invocation
-        # will identify and reject it as noncanonical evidence.
-        raise
 
 
 def verify_candidate_evidence(
@@ -187,96 +197,56 @@ def verify_candidate_evidence(
     protocol_path: Path | None = None,
 ) -> pd.DataFrame:
     """Replay raw metadata responses and verify the derived candidate table."""
-    candidate_payload = _published_bytes(candidates_path, label="candidate table")
-    provenance = _strict_json_bytes(
-        _published_bytes(provenance_path, label="candidate provenance"),
-        label="candidate provenance",
-    )
-    snapshot_index = _strict_json_bytes(
-        _published_bytes(snapshot_index_path, label="candidate snapshot index"),
-        label="candidate snapshot index",
-    )
-    required_flags = {
-        "artifact_role": "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE",
-        "outcome_endpoint_requested": False,
-        "outcome_values_requested": False,
-        "holdout_coverage_requested_or_computed": False,
-    }
-    if any(provenance.get(key) != value for key, value in required_flags.items()):
-        raise RuntimeError("candidate provenance does not prove metadata-only discovery")
-    if provenance.get("candidate_table_sha256") != sha256_file(candidates_path):
-        raise RuntimeError("candidate table checksum differs from its provenance")
-    if provenance.get("raw_snapshot_index_sha256") != sha256_file(snapshot_index_path):
-        raise RuntimeError("candidate snapshot index checksum differs from provenance")
-    if (
-        protocol_path is not None
-        and provenance.get("protocol_sha256") != sha256_file(protocol_path)
-    ):
-        raise RuntimeError("candidate discovery was not sealed against this protocol")
-
-    index_by_request = {
-        str(record["request_sha256"]): record
-        for record in snapshot_index.get("records", [])
-    }
-    frames = []
-    seen_states = []
-    for request in provenance.get("requests", []):
-        state = str(request["state"])
-        request_sha = str(request["request_sha256"])
-        if request_sha not in index_by_request:
-            raise RuntimeError(f"candidate request {request_sha} lacks a raw snapshot")
-        indexed = index_by_request[request_sha]
-        if indexed.get("provider") != "usgs-nwis-confirmatory-site-metadata":
-            raise RuntimeError(f"candidate request for {state} has the wrong provider")
-        if indexed.get("request", {}).get("url") != build_usgs_candidate_url(state):
-            raise RuntimeError(f"candidate request for {state} is not the frozen metadata URL")
-        snapshot_root = snapshot_index_path.parent.resolve()
-        response_path = (snapshot_root / str(indexed["response_path"])).resolve()
-        if snapshot_root not in response_path.parents:
-            raise RuntimeError("candidate snapshot response escapes its snapshot root")
-        response_payload = _published_bytes(
-            response_path, label=f"candidate raw response for {state}"
+    input_parents = [
+        Path(candidates_path).absolute().parent,
+        Path(provenance_path).absolute().parent,
+        Path(snapshot_index_path).absolute().parent,
+    ]
+    if protocol_path is not None:
+        input_parents.append(Path(protocol_path).absolute().parent)
+    trusted_root = Path(os.path.commonpath(input_parents))
+    if protocol_path is None:
+        protocol_sha = None
+        states = None
+    else:
+        protocol_payload = read_single_link_regular(
+            protocol_path,
+            label="Route-A protocol",
+            trusted_root=trusted_root,
         )
-        response_sha = sha256_file(response_path)
-        if (
-            response_sha != request.get("response_sha256")
-            or response_sha != indexed.get("response_sha256")
-        ):
-            raise RuntimeError(f"candidate raw response checksum mismatch for {state}")
-        frames.append(parse_usgs_candidate_metadata(response_payload, state=state))
-        seen_states.append(state)
-    if sorted(seen_states) != sorted(provenance.get("state_universe", [])):
-        raise RuntimeError("candidate raw-response states differ from frozen universe")
-    rebuilt = merge_candidate_metadata(frames)
-    if int(provenance.get("candidate_count", -1)) != len(rebuilt):
-        raise RuntimeError("candidate count differs from frozen provenance")
-    provided = pd.read_csv(
-        io.BytesIO(candidate_payload),
-        dtype={
-            "site_no": "string", "station_nm": "string", "state": "string",
-            "site_type": "string", "huc_cd": "string",
-        },
-        keep_default_na=False,
-        float_precision="round_trip",
-    )
-    if tuple(provided.columns) != CANDIDATE_COLUMNS:
-        raise RuntimeError("candidate table has a non-frozen column schema")
-    for column in ("lat", "lon", "drain_area_va"):
-        provided[column] = pd.to_numeric(provided[column], errors="coerce")
-    provided["huc_cd"] = provided["huc_cd"].fillna("")
-    try:
-        pd.testing.assert_frame_equal(
-            rebuilt, provided, check_dtype=False, rtol=0.0, atol=0.0
-        )
-    except AssertionError as exc:
-        raise RuntimeError("candidate table cannot be rebuilt from raw snapshots") from exc
-    return provided
+        try:
+            protocol = json.loads(protocol_payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Route-A protocol is invalid JSON") from exc
+        protocol_sha = sha256_bytes(protocol_payload)
+        states = protocol["metadata_candidate_contract"]["state_universe"]
+    return audit_candidate_evidence(
+        candidates_path,
+        provenance_path,
+        snapshot_index_path,
+        protocol_sha256=protocol_sha,
+        state_universe=states,
+        trusted_root=trusted_root,
+    ).candidates
 
 
 def _prepare_publication(
     args: argparse.Namespace,
 ) -> tuple[bytes, dict[str, Any]]:
-    protocol = load_confirmatory_protocol(args.protocol)
+    protocol_payload = _published_bytes(args.protocol, label="Route-A protocol")
+    try:
+        protocol = json.loads(protocol_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Route-A protocol is invalid JSON") from exc
+    if (
+        not isinstance(protocol, dict)
+        or protocol.get("schema_version") != 1
+        or protocol.get("status") not in {
+            "PLANNED_NOT_ACQUIRED", "FROZEN_NOT_ACQUIRED",
+            "REGISTRY_FROZEN_LABELS_SEALED", "OPENED_ONCE",
+        }
+    ):
+        raise RuntimeError("Route-A protocol contract changed")
     if protocol["new_site_external_validation"]["status"] != "PLANNED_NOT_ACQUIRED":
         raise RuntimeError("new-site candidate registry is already frozen or opened")
     planned = protocol["new_site_external_validation"]
@@ -284,18 +254,54 @@ def _prepare_publication(
         raise RuntimeError("site count differs from the predeclared protocol")
     if args.selection_seed != planned["selection_seed"]:
         raise RuntimeError("selection seed differs from the predeclared protocol")
-    development_spec = FrozenPanelSpec.load(args.development_spec)
-    development = development_spec.load_registry()
-    candidates = verify_candidate_evidence(
-        args.candidates,
-        args.candidate_provenance,
-        args.candidate_snapshot_index,
-        args.protocol,
+    development_spec_payload = _published_bytes(
+        args.development_spec, label="development panel specification"
     )
-    if protocol["metadata_candidate_contract"]["state_universe"] != json.loads(
-        args.candidate_provenance.read_text(encoding="utf-8")
-    )["state_universe"]:
+    development_spec_document = _strict_json_bytes(
+        development_spec_payload, label="development panel specification"
+    )
+    if development_spec_document.get("schema_version") != 1:
+        raise RuntimeError("development panel specification schema changed")
+    development_spec = FrozenPanelSpec(
+        spec_path=args.development_spec,
+        document=development_spec_document,
+    )
+    development = development_spec.load_registry()
+    try:
+        candidate_audit = audit_candidate_evidence(
+            args.candidates,
+            args.candidate_provenance,
+            args.candidate_snapshot_index,
+            protocol_sha256=sha256_bytes(protocol_payload),
+            state_universe=protocol["metadata_candidate_contract"]["state_universe"],
+            trusted_root=ROOT.resolve(),
+        )
+    except EvidenceError as exc:
+        raise RuntimeError(
+            "candidate table cannot be rebuilt from exact raw snapshots"
+        ) from exc
+    candidates = candidate_audit.candidates
+    if (
+        protocol["metadata_candidate_contract"]["state_universe"]
+        != candidate_audit.provenance["state_universe"]
+    ):
         raise RuntimeError("candidate state universe differs from the protocol")
+    retrieved_values = [
+        str(record["retrieved_at_utc"])
+        for record in candidate_audit.snapshot.index_document["records"]
+    ]
+    for value in retrieved_values:
+        require_canonical_utc(value, label="candidate snapshot retrieved_at_utc")
+    retrieved_min = min(retrieved_values, key=datetime.fromisoformat)
+    retrieved_max = max(retrieved_values, key=datetime.fromisoformat)
+    acquisition_seconds = (
+        datetime.fromisoformat(retrieved_max)
+        - datetime.fromisoformat(retrieved_min)
+    ).total_seconds()
+    if acquisition_seconds > 24 * 60 * 60:
+        raise RuntimeError(
+            "candidate acquisition exceeded its 24-hour session; use a new snapshot version"
+        )
     registry = select_confirmatory_sites(
         candidates,
         set(development["site_no"].astype(str)),
@@ -310,7 +316,7 @@ def _prepare_publication(
     lock_stable: dict[str, Any] = {
         "schema_version": 1,
         "protocol_id": protocol["protocol_id"],
-        "protocol_sha256": sha256_file(args.protocol),
+        "protocol_sha256": sha256_bytes(protocol_payload),
         "authoritative_protocol_commit": protocol["authoritative_protocol_commit"],
         "pre_label_amendments_sha256": sha256_json(
             protocol.get("pre_label_amendments", [])
@@ -321,27 +327,40 @@ def _prepare_publication(
         "selection_seed": args.selection_seed,
         "holdout_start": protocol["time_holdout"]["start"],
         "holdout_end": protocol["time_holdout"]["end"],
-        "development_panel_spec_sha256": sha256_file(args.development_spec),
-        "candidate_table_sha256": sha256_file(args.candidates),
-        "candidate_provenance_sha256": sha256_file(args.candidate_provenance),
-        "candidate_snapshot_index_sha256": sha256_file(args.candidate_snapshot_index),
+        "development_panel_spec_sha256": sha256_bytes(development_spec_payload),
+        "candidate_table_sha256": sha256_bytes(candidate_audit.candidate_payload),
+        "candidate_provenance_sha256": sha256_bytes(
+            candidate_audit.provenance_payload
+        ),
+        "candidate_snapshot_index_sha256": sha256_bytes(
+            candidate_audit.snapshot_index_payload
+        ),
+        "candidate_acquisition_session": {
+            "maximum_duration_seconds": 86400,
+            "retrieved_at_min_utc": retrieved_min,
+            "retrieved_at_max_utc": retrieved_max,
+            "clock_source": "LOCAL_SYSTEM_CLOCK_NOT_EXTERNALLY_ATTESTED",
+        },
+        "chronology_trust_boundary": (
+            "LOCAL_HONEST_OWNER_ONLY_NO_EXTERNAL_TIMESTAMP_OR_CUSTODIAN"
+        ),
         "confirmatory_registry_sha256": sha256_bytes(registry_payload),
         "frozen_artifacts": {
             "development_panel_spec": {
                 "path": args.development_spec.resolve().relative_to(ROOT).as_posix(),
-                "sha256": sha256_file(args.development_spec),
+                "sha256": sha256_bytes(development_spec_payload),
             },
             "candidate_table": {
                 "path": args.candidates.resolve().relative_to(ROOT).as_posix(),
-                "sha256": sha256_file(args.candidates),
+                "sha256": sha256_bytes(candidate_audit.candidate_payload),
             },
             "candidate_provenance": {
                 "path": args.candidate_provenance.resolve().relative_to(ROOT).as_posix(),
-                "sha256": sha256_file(args.candidate_provenance),
+                "sha256": sha256_bytes(candidate_audit.provenance_payload),
             },
             "candidate_snapshot_index": {
                 "path": args.candidate_snapshot_index.resolve().relative_to(ROOT).as_posix(),
-                "sha256": sha256_file(args.candidate_snapshot_index),
+                "sha256": sha256_bytes(candidate_audit.snapshot_index_payload),
             },
         },
         "labels_state": "SEALED_NOT_ACQUIRED",
@@ -359,18 +378,44 @@ def _validate_lock(
         _published_bytes(path, label="external registry lock"),
         label="external registry lock",
     )
-    expected_keys = set(expected_stable) | {"created_at_utc"}
+    expected_keys = set(expected_stable) | {
+        "registry_frozen_at_utc", "created_at_utc"
+    }
     if set(document) != expected_keys:
         raise RuntimeError("external registry lock schema changed")
-    created = document.get("created_at_utc")
-    try:
-        timestamp = datetime.fromisoformat(str(created))
-    except ValueError as exc:
-        raise RuntimeError("external registry lock timestamp is malformed") from exc
-    if timestamp.tzinfo is None or timestamp.utcoffset() != timezone.utc.utcoffset(timestamp):
-        raise RuntimeError("external registry lock timestamp is not UTC")
+    session = document.get("candidate_acquisition_session")
+    if (
+        type(document.get("schema_version")) is not int
+        or type(document.get("site_count")) is not int
+        or type(document.get("opening_count")) is not int
+        or type(session) is not dict
+        or set(session) != {
+            "maximum_duration_seconds", "retrieved_at_min_utc",
+            "retrieved_at_max_utc", "clock_source",
+        }
+        or type(session.get("maximum_duration_seconds")) is not int
+    ):
+        raise RuntimeError("external registry lock scalar types changed")
+    registry_frozen = require_canonical_utc(
+        document.get("registry_frozen_at_utc"),
+        label="external registry frozen timestamp",
+    )
+    created = require_canonical_utc(
+        document.get("created_at_utc"),
+        label="external registry lock timestamp",
+    )
+    raw_latest = str(
+        expected_stable["candidate_acquisition_session"]["retrieved_at_max_utc"]
+    )
+    if not (
+        datetime.fromisoformat(raw_latest)
+        <= datetime.fromisoformat(registry_frozen)
+        <= datetime.fromisoformat(created)
+    ):
+        raise RuntimeError("candidate raw/registry/lock chronology is invalid")
     observed_stable = dict(document)
     observed_stable.pop("created_at_utc")
+    observed_stable.pop("registry_frozen_at_utc")
     if observed_stable != dict(expected_stable):
         raise RuntimeError("external registry lock differs from deterministic inputs")
     return document
@@ -388,6 +433,29 @@ def publish_or_validate(args: argparse.Namespace, *, check_only: bool) -> dict[s
         ("out_lock", "external registry lock"),
     ):
         setattr(args, attribute, _inside_root(getattr(args, attribute), label=label))
+    if args.protocol != _candidate_publication_lock_path().absolute():
+        raise RuntimeError(
+            "candidate publication requires the fixed canonical Route-A protocol"
+        )
+    lock_path = _inside_root(
+        _candidate_publication_lock_path(),
+        label="candidate publication transaction lock",
+    )
+    with candidate_publication_lock(
+        lock_path,
+        trusted_root=ROOT.resolve(),
+        shared=check_only,
+        inherited_fd=getattr(args, "inherited_publication_lock_fd", None),
+        inherited_token=getattr(args, "inherited_publication_lock_token", None),
+    ):
+        return _publish_or_validate_locked(args, check_only=check_only)
+
+
+def _publish_or_validate_locked(
+    args: argparse.Namespace,
+    *,
+    check_only: bool,
+) -> dict[str, Any]:
     registry_exists = os.path.lexists(args.out_registry)
     lock_exists = os.path.lexists(args.out_lock)
     if lock_exists and not registry_exists:
@@ -410,9 +478,16 @@ def publish_or_validate(args: argparse.Namespace, *, check_only: bool) -> dict[s
         return _validate_lock(args.out_lock, expected_stable=lock_stable)
     if check_only:
         raise RuntimeError("external registry lock is absent")
+    frozen_at = utc_now_iso()
+    raw_latest = str(
+        lock_stable["candidate_acquisition_session"]["retrieved_at_max_utc"]
+    )
+    if datetime.fromisoformat(frozen_at) < datetime.fromisoformat(raw_latest):
+        raise RuntimeError("local clock predates the candidate acquisition evidence")
     lock = {
         **lock_stable,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "registry_frozen_at_utc": frozen_at,
+        "created_at_utc": frozen_at,
     }
     atomic_write(args.out_lock, canonical_json_bytes(lock))
     return lock
@@ -454,6 +529,17 @@ def _add_candidate_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--n-sites", type=int, default=30)
     parser.add_argument(
         "--selection-seed", default="route-a-confirmatory-v1-public-seed"
+    )
+    parser.add_argument(
+        "--inherited-publication-lock-fd",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--inherited-publication-lock-token",
+        default=None,
+        help=argparse.SUPPRESS,
     )
 
 

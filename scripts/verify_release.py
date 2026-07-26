@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatch
 import hashlib
@@ -15211,11 +15211,274 @@ def _reconstruct_model_dependency_paths(
     return output
 
 
+def _validate_candidate_snapshot_metadata(
+    *,
+    record: Mapping[str, Any],
+    metadata_payload: bytes,
+    response_payload: bytes,
+    index_path: str,
+) -> tuple[str, datetime]:
+    """Independently validate the candidate SnapshotStore-v2 semantics."""
+    label = f"Git candidate metadata from {index_path}"
+    metadata = _strict_json_object_bytes(metadata_payload, label=label)
+    metadata_keys = {
+        "schema_version", "request", "request_sha256", "retrieved_at_utc",
+        "http_status", "response_headers", "byte_count", "response_sha256",
+        "response_file", "final_url", "retrieval_semantics",
+    }
+    request_keys = {
+        "schema_version", "provider", "method", "url", "headers",
+    }
+    request = record.get("request")
+    if (
+        metadata_payload != _canonical_json_bytes(metadata)
+        or set(metadata) != metadata_keys
+        or not isinstance(request, Mapping)
+        or set(request) != request_keys
+        or type(request.get("schema_version")) is not int
+        or request.get("schema_version") != 1
+        or request.get("provider")
+        != "usgs-nwis-confirmatory-site-metadata"
+        or request.get("method") != "GET"
+        or request.get("headers") != {
+            "User-Agent": "ThermoRoute/1.0 Route-A metadata-only discovery"
+        }
+    ):
+        raise ValueError("Git candidate metadata/request contract changed")
+    parsed_url = urlparse(str(request.get("url", "")))
+    query = parse_qs(parsed_url.query, keep_blank_values=True)
+    expected_query_keys = {
+        "agencyCd", "format", "hasDataTypeCd", "parameterCd", "siteOutput",
+        "siteStatus", "siteType", "stateCd",
+    }
+    state_values = query.get("stateCd", [])
+    if (
+        parsed_url.scheme != "https"
+        or parsed_url.netloc != "waterservices.usgs.gov"
+        or parsed_url.path != "/nwis/site/"
+        or parsed_url.params
+        or parsed_url.fragment
+        or set(query) != expected_query_keys
+        or query.get("agencyCd") != ["USGS"]
+        or query.get("format") != ["rdb"]
+        or query.get("hasDataTypeCd") != ["dv"]
+        or query.get("parameterCd") != ["00010"]
+        or query.get("siteOutput") != ["expanded"]
+        or query.get("siteStatus") != ["all"]
+        or query.get("siteType") != ["ST"]
+        or len(state_values) != 1
+        or re.fullmatch(r"[A-Z]{2}", state_values[0]) is None
+    ):
+        raise ValueError("Git candidate request is not the metadata-only endpoint")
+    canonical_url = "https://waterservices.usgs.gov/nwis/site/?" + urlencode(
+        sorted({key: values[0] for key, values in query.items()}.items())
+    )
+    request_document = dict(request)
+    request_sha256 = hashlib.sha256(
+        _canonical_json_bytes(request_document)
+    ).hexdigest()
+    response_headers = metadata.get("response_headers")
+    retrieved = _require_utc_transport_timestamp(
+        metadata.get("retrieved_at_utc"), label=label,
+    )
+    if (
+        request.get("url") != canonical_url
+        or record.get("provider") != request["provider"]
+        or record.get("request_sha256") != request_sha256
+        or type(metadata.get("schema_version")) is not int
+        or metadata.get("schema_version") != 2
+        or metadata.get("request") != request_document
+        or metadata.get("request_sha256") != request_sha256
+        or metadata.get("retrieved_at_utc") != record.get("retrieved_at_utc")
+        or type(metadata.get("http_status")) is not int
+        or metadata.get("http_status") != 200
+        or not isinstance(response_headers, Mapping)
+        or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in response_headers.items()
+        )
+        or type(metadata.get("byte_count")) is not int
+        or metadata.get("byte_count") != len(response_payload)
+        or metadata.get("byte_count") != record.get("byte_count")
+        or metadata.get("response_sha256")
+        != hashlib.sha256(response_payload).hexdigest()
+        or metadata.get("response_sha256") != record.get("response_sha256")
+        or metadata.get("response_file") != "response.bin"
+        or metadata.get("final_url") != canonical_url
+        or metadata.get("retrieval_semantics") not in {
+            "DIRECT_HTTP_RESPONSE",
+            "BYTE_IDENTICAL_REFETCH_COMPLETED_RESPONSE_ONLY_TRANSACTION",
+        }
+    ):
+        raise ValueError("Git candidate SnapshotStore-v2 metadata changed")
+    expected_base = PurePosixPath(str(record["provider"])) / request_sha256
+    if (
+        PurePosixPath(str(record.get("metadata_path", "")))
+        != expected_base / "metadata.json"
+        or PurePosixPath(str(record.get("response_path", "")))
+        != expected_base / "response.bin"
+    ):
+        raise ValueError("Git candidate snapshot paths are not content addressed")
+    return state_values[0], retrieved
+
+
+def _require_exact_git_blob_namespace(
+    bare: Path,
+    commit: str,
+    directory: str,
+    expected_paths: set[str],
+) -> None:
+    directory = _normalise_git_relative(
+        directory, label="candidate raw namespace root"
+    )
+    result = _run_git(
+        bare,
+        "ls-tree", "-r", "-t", "-z", "--full-tree", commit, "--", directory,
+    )
+    if result.returncode:
+        raise ValueError("cannot enumerate Git candidate raw namespace")
+    expected: dict[str, tuple[bytes, bytes]] = {
+        directory: (b"040000", b"tree")
+    }
+    root_path = PurePosixPath(directory)
+    for path in expected_paths:
+        expected[path] = (b"100644", b"blob")
+        parent = PurePosixPath(path).parent
+        while parent == root_path or root_path in parent.parents:
+            expected[parent.as_posix()] = (b"040000", b"tree")
+            if parent == root_path:
+                break
+            parent = parent.parent
+    actual: dict[str, tuple[bytes, bytes]] = {}
+    for raw_entry in result.stdout.split(b"\0"):
+        if not raw_entry:
+            continue
+        try:
+            identity, raw_path = raw_entry.split(b"\t", 1)
+            mode, object_type, _oid = identity.split(b" ", 2)
+            path = raw_path.decode("utf-8", errors="strict")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ValueError("cannot parse Git candidate raw namespace") from exc
+        path = _normalise_git_relative(path, label="candidate raw namespace")
+        if path != directory and not path.startswith(directory + "/"):
+            continue
+        actual[path] = (mode, object_type)
+    if actual != expected:
+        raise ValueError("Git candidate raw namespace is not exact")
+
+
+_CANDIDATE_COLUMNS = (
+    "site_no", "station_nm", "lat", "lon", "state", "site_type", "huc_cd",
+    "drain_area_va",
+)
+_CANDIDATE_STATE_UNIVERSE_RULE = (
+    "states represented in the frozen 120-site development registry; "
+    "no post-2020 outcome or coverage information"
+)
+_CANDIDATE_SELECTION_RULE = (
+    "USGS stream sites whose site metadata advertises daily-value "
+    "parameter 00010 capability; siteStatus=all"
+)
+
+
+def _release_candidate_rdb_rows(
+    payload: bytes, *, state: str,
+) -> list[dict[str, str]]:
+    try:
+        text_payload = payload.decode("utf-8", errors="strict")
+        rows = list(csv.reader(
+            (
+                line for line in text_payload.splitlines()
+                if line and not line.startswith("#")
+            ),
+            delimiter="\t",
+            strict=True,
+        ))
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("Git candidate response is not strict NWIS RDB") from exc
+    if not rows or len(rows[0]) != len(set(rows[0])):
+        raise ValueError("Git candidate response lacks a unique header")
+    header = rows[0]
+    data = rows[1:]
+    if data and all(
+        not value or re.fullmatch(r"\d+[a-z]", value.strip()) is not None
+        for value in data[0]
+    ):
+        data = data[1:]
+    if not {"site_no", "station_nm", "dec_lat_va", "dec_long_va"} <= set(header):
+        raise ValueError("Git candidate response lacks required metadata fields")
+    positions = {name: header.index(name) for name in header}
+    output: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for values in data:
+        if len(values) != len(header):
+            raise ValueError("Git candidate response row width changed")
+        site_no = values[positions["site_no"]].strip()
+        agency = values[positions["agency_cd"]].strip() if "agency_cd" in positions else "USGS"
+        site_type = values[positions["site_tp_cd"]].strip() if "site_tp_cd" in positions else "ST"
+        try:
+            lat = float(values[positions["dec_lat_va"]])
+            lon = float(values[positions["dec_long_va"]])
+        except ValueError as exc:
+            raise ValueError("Git candidate coordinates are nonnumeric") from exc
+        drain_raw = values[positions["drain_area_va"]].strip() if "drain_area_va" in positions else ""
+        try:
+            drain = float(drain_raw) if drain_raw else None
+        except ValueError:
+            drain = None
+        if (
+            not site_no
+            or site_no in seen
+            or agency != "USGS"
+            or site_type != "ST"
+            or not math.isfinite(lat)
+            or not math.isfinite(lon)
+            or not -90.0 <= lat <= 90.0
+            or not -180.0 <= lon <= 180.0
+        ):
+            raise ValueError("Git candidate response identity changed")
+        seen.add(site_no)
+        output.append({
+            "site_no": site_no,
+            "station_nm": values[positions["station_nm"]].strip(),
+            "lat": "%.17g" % lat,
+            "lon": "%.17g" % lon,
+            "state": state,
+            "site_type": site_type,
+            "huc_cd": values[positions["huc_cd"]].strip() if "huc_cd" in positions else "",
+            "drain_area_va": "" if drain is None else "%.17g" % drain,
+        })
+    return output
+
+
+def _release_candidate_csv_bytes(
+    rows: list[dict[str, str]], *, include_rank: bool = False,
+) -> bytes:
+    columns = (
+        *_CANDIDATE_COLUMNS,
+        *(("selection_rank_sha256",) if include_rank else ()),
+    )
+    target = io.StringIO(newline="")
+    writer = csv.writer(target, lineterminator="\n", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([row.get(column, "") for column in columns])
+    return target.getvalue().encode("utf-8")
+
+
 def _snapshot_dependency_paths(
     bare: Path, commit: str, index_path: str, *,
     require_metadata_binding: bool = False,
+    require_candidate_metadata_contract: bool = False,
 ) -> set[str]:
-    index = _git_json_document(bare, commit, index_path, label="snapshot index")
+    if require_candidate_metadata_contract and not require_metadata_binding:
+        raise ValueError("candidate metadata contract requires index metadata binding")
+    index_payload = _git_blob_bytes(
+        bare, commit, index_path, label="snapshot index"
+    )
+    index = _strict_json_object_bytes(
+        index_payload, label="snapshot index from Git"
+    )
     records = index.get("records")
     if (
         not isinstance(records, list) or not records
@@ -15226,11 +15489,16 @@ def _snapshot_dependency_paths(
                 or index.get("schema_version") != 2
                 or type(index.get("snapshot_count")) is not int
                 or index["snapshot_count"] != len(records)
+                or index_payload != _canonical_json_bytes(index)
             )
         )
     ):
         raise ValueError(f"Git snapshot index is empty or malformed: {index_path}")
     output: set[str] = set()
+    expected_namespace = {index_path}
+    candidate_states: set[str] = set()
+    candidate_retrievals: list[datetime] = []
+    candidate_metadata_paths: list[str] = []
     for record in records:
         if not isinstance(record, Mapping):
             raise ValueError("Git snapshot-index record is malformed")
@@ -15245,8 +15513,25 @@ def _snapshot_dependency_paths(
             )
             or type(record.get("metadata_byte_count")) is not int
             or record["metadata_byte_count"] < 1
+            or not isinstance(record.get("provider"), str)
+            or not record["provider"]
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(record.get("request_sha256", ""))
+            )
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(record.get("response_sha256", ""))
+            )
+            or type(record.get("byte_count")) is not int
+            or record["byte_count"] < 1
+            or not isinstance(record.get("request"), Mapping)
         ):
             raise ValueError("Git snapshot-index metadata binding is malformed")
+        if require_metadata_binding:
+            _require_utc_transport_timestamp(
+                record.get("retrieved_at_utc"),
+                label="Git snapshot-index retrieval",
+            )
+        payloads: dict[str, bytes] = {}
         for field in ("metadata_path", "response_path"):
             raw = _normalise_git_relative(
                 record.get(field), label=f"snapshot {field}"
@@ -15269,7 +15554,371 @@ def _snapshot_dependency_paths(
                 )
                 if require_metadata_binding and len(payload.stdout) != expected_bytes:
                     raise ValueError(f"Git snapshot {field} byte count changed")
+                payloads[field] = payload.stdout
             output.add(relative)
+            expected_namespace.add(relative)
+        if require_candidate_metadata_contract:
+            state, retrieved = _validate_candidate_snapshot_metadata(
+                record=record,
+                metadata_payload=payloads["metadata_path"],
+                response_payload=payloads["response_path"],
+                index_path=index_path,
+            )
+            if state in candidate_states:
+                raise ValueError("Git candidate snapshot duplicates a state request")
+            candidate_states.add(state)
+            candidate_retrievals.append(retrieved)
+            candidate_metadata_paths.append(str(record["metadata_path"]))
+    if require_candidate_metadata_contract and (
+        candidate_metadata_paths != sorted(candidate_metadata_paths)
+        or max(candidate_retrievals) - min(candidate_retrievals)
+        > timedelta(days=1)
+    ):
+        raise ValueError("Git candidate acquisition ordering/session changed")
+    if require_candidate_metadata_contract:
+        _require_exact_git_blob_namespace(
+            bare,
+            commit,
+            PurePosixPath(index_path).parent.as_posix(),
+            expected_namespace,
+        )
+    return output
+
+
+def _audit_git_candidate_contract(
+    bare: Path,
+    commit: str,
+    *,
+    protocol_payload: bytes,
+    candidate_table: str,
+    candidate_provenance: str,
+    candidate_snapshot_index: str,
+) -> dict[str, Any]:
+    protocol = _strict_json_object_bytes(
+        protocol_payload, label="Git final Route-A protocol"
+    )
+    candidate_contract = protocol.get("metadata_candidate_contract")
+    states_value = (
+        candidate_contract.get("state_universe")
+        if isinstance(candidate_contract, Mapping) else None
+    )
+    if (
+        not isinstance(states_value, list)
+        or not states_value
+        or any(
+            not isinstance(state, str)
+            or re.fullmatch(r"[A-Z]{2}", state) is None
+            for state in states_value
+        )
+        or states_value != sorted(set(states_value))
+    ):
+        raise ValueError("Git final protocol candidate state universe changed")
+    states = tuple(states_value)
+    index_payload = _git_blob_bytes(
+        bare, commit, candidate_snapshot_index, label="candidate snapshot index"
+    )
+    index = _strict_json_object_bytes(
+        index_payload, label="Git candidate snapshot index"
+    )
+    records = index.get("records")
+    if not isinstance(records, list):
+        raise ValueError("Git candidate snapshot index lacks records")
+    by_state: dict[str, tuple[Mapping[str, Any], bytes]] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise ValueError("Git candidate snapshot record changed")
+        base = PurePosixPath(candidate_snapshot_index).parent
+        metadata_path = (
+            base / _normalise_git_relative(
+                record.get("metadata_path"), label="candidate metadata path"
+            )
+        ).as_posix()
+        response_path = (
+            base / _normalise_git_relative(
+                record.get("response_path"), label="candidate response path"
+            )
+        ).as_posix()
+        metadata_payload = _git_blob_bytes(
+            bare, commit, metadata_path, label="candidate metadata"
+        )
+        response_payload = _git_blob_bytes(
+            bare, commit, response_path, label="candidate response"
+        )
+        state, _retrieved = _validate_candidate_snapshot_metadata(
+            record=record,
+            metadata_payload=metadata_payload,
+            response_payload=response_payload,
+            index_path=candidate_snapshot_index,
+        )
+        if state in by_state:
+            raise ValueError("Git candidate snapshot duplicates a state")
+        by_state[state] = (record, response_payload)
+    if set(by_state) != set(states):
+        raise ValueError("Git candidate snapshot states differ from protocol")
+    candidate_rows: list[dict[str, str]] = []
+    expected_requests: list[dict[str, Any]] = []
+    retrieved_values: list[str] = []
+    for state in states:
+        record, response_payload = by_state[state]
+        state_rows = _release_candidate_rdb_rows(response_payload, state=state)
+        candidate_rows.extend(state_rows)
+        retrieved = str(record["retrieved_at_utc"])
+        retrieved_values.append(retrieved)
+        expected_requests.append({
+            "state": state,
+            "candidate_count": len(state_rows),
+            "request_sha256": record["request_sha256"],
+            "response_sha256": record["response_sha256"],
+            "retrieved_at_utc": retrieved,
+            "byte_count": record["byte_count"],
+        })
+    candidate_rows.sort(key=lambda row: (row["site_no"], row["state"]))
+    site_nos = [row["site_no"] for row in candidate_rows]
+    if not candidate_rows or len(site_nos) != len(set(site_nos)):
+        raise ValueError("Git candidate raw responses duplicate or lack sites")
+    table_payload = _git_blob_bytes(
+        bare, commit, candidate_table, label="candidate table"
+    )
+    if table_payload != _release_candidate_csv_bytes(candidate_rows):
+        raise ValueError("Git candidate table is not canonical raw replay CSV")
+    provenance_payload = _git_blob_bytes(
+        bare, commit, candidate_provenance, label="candidate provenance"
+    )
+    provenance = _strict_json_object_bytes(
+        provenance_payload, label="Git candidate provenance"
+    )
+    provenance_requests = provenance.get("requests")
+    if not isinstance(provenance_requests, list):
+        raise ValueError("Git candidate provenance requests changed")
+    for request_record in provenance_requests:
+        if (
+            not isinstance(request_record, Mapping)
+            or set(request_record) != {
+                "state", "candidate_count", "request_sha256", "response_sha256",
+                "retrieved_at_utc", "byte_count",
+            }
+            or not isinstance(request_record.get("state"), str)
+            or type(request_record.get("candidate_count")) is not int
+            or type(request_record.get("byte_count")) is not int
+            or not isinstance(request_record.get("request_sha256"), str)
+            or not isinstance(request_record.get("response_sha256"), str)
+            or not isinstance(request_record.get("retrieved_at_utc"), str)
+        ):
+            raise ValueError("Git candidate provenance request scalar types changed")
+    expected_keys = {
+        "schema_version", "artifact_role", "protocol_sha256", "state_universe",
+        "state_universe_rule", "candidate_rule", "candidate_count",
+        "site_primary_key", "sort_order", "columns", "outcome_endpoint_requested",
+        "outcome_values_requested", "holdout_coverage_requested_or_computed",
+        "raw_snapshot_index", "raw_snapshot_index_sha256",
+        "candidate_table_sha256", "requests",
+    }
+    if (
+        provenance_payload != _canonical_json_bytes(provenance)
+        or set(provenance) != expected_keys
+        or type(provenance.get("schema_version")) is not int
+        or provenance.get("schema_version") != 1
+        or provenance.get("artifact_role")
+        != "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE"
+        or provenance.get("protocol_sha256")
+        != hashlib.sha256(protocol_payload).hexdigest()
+        or provenance.get("state_universe") != list(states)
+        or provenance.get("state_universe_rule")
+        != _CANDIDATE_STATE_UNIVERSE_RULE
+        or provenance.get("candidate_rule") != _CANDIDATE_SELECTION_RULE
+        or type(provenance.get("candidate_count")) is not int
+        or provenance.get("candidate_count") != len(candidate_rows)
+        or provenance.get("site_primary_key") != "site_no"
+        or provenance.get("sort_order") != ["site_no", "state"]
+        or provenance.get("columns") != list(_CANDIDATE_COLUMNS)
+        or type(provenance.get("outcome_endpoint_requested")) is not bool
+        or provenance.get("outcome_endpoint_requested") is not False
+        or type(provenance.get("outcome_values_requested")) is not bool
+        or provenance.get("outcome_values_requested") is not False
+        or type(provenance.get("holdout_coverage_requested_or_computed")) is not bool
+        or provenance.get("holdout_coverage_requested_or_computed") is not False
+        or provenance.get("raw_snapshot_index") != candidate_snapshot_index
+        or provenance.get("raw_snapshot_index_sha256")
+        != hashlib.sha256(index_payload).hexdigest()
+        or provenance.get("candidate_table_sha256")
+        != hashlib.sha256(table_payload).hexdigest()
+        or provenance_requests != expected_requests
+    ):
+        raise ValueError("Git candidate provenance/raw replay contract changed")
+    return {
+        "protocol": protocol,
+        "protocol_sha256": hashlib.sha256(protocol_payload).hexdigest(),
+        "candidate_rows": candidate_rows,
+        "retrieved_at_min_utc": min(retrieved_values, key=datetime.fromisoformat),
+        "retrieved_at_max_utc": max(retrieved_values, key=datetime.fromisoformat),
+        "candidate_table_sha256": hashlib.sha256(table_payload).hexdigest(),
+        "candidate_provenance_sha256": hashlib.sha256(provenance_payload).hexdigest(),
+        "candidate_snapshot_index_sha256": hashlib.sha256(index_payload).hexdigest(),
+    }
+
+
+def _validate_git_external_lock_contract(
+    bare: Path,
+    commit: str,
+    *,
+    paths: Mapping[str, str],
+    audit: Mapping[str, Any],
+) -> set[str]:
+    lock_payload = _git_blob_bytes(
+        bare, commit, paths["external_lock"], label="external registry lock"
+    )
+    lock = _strict_json_object_bytes(
+        lock_payload, label="Git external registry lock"
+    )
+    expected_keys = {
+        "schema_version", "protocol_id", "protocol_sha256",
+        "authoritative_protocol_commit", "pre_label_amendments_sha256", "status",
+        "site_count", "site_primary_key", "selection_seed", "holdout_start",
+        "holdout_end", "development_panel_spec_sha256", "candidate_table_sha256",
+        "candidate_provenance_sha256", "candidate_snapshot_index_sha256",
+        "candidate_acquisition_session", "chronology_trust_boundary",
+        "confirmatory_registry_sha256", "frozen_artifacts", "labels_state",
+        "opening_count", "registry_frozen_at_utc", "created_at_utc",
+    }
+    protocol = audit["protocol"]
+    planned = protocol.get("new_site_external_validation")
+    holdout = protocol.get("time_holdout")
+    if not isinstance(planned, Mapping) or not isinstance(holdout, Mapping):
+        raise ValueError("Git final protocol lacks external selection contract")
+    registry_payload = _git_blob_bytes(
+        bare, commit, paths["external_registry"], label="external registry"
+    )
+    expected_session = {
+        "maximum_duration_seconds": 86400,
+        "retrieved_at_min_utc": audit["retrieved_at_min_utc"],
+        "retrieved_at_max_utc": audit["retrieved_at_max_utc"],
+        "clock_source": "LOCAL_SYSTEM_CLOCK_NOT_EXTERNALLY_ATTESTED",
+    }
+    if (
+        lock_payload != _canonical_json_bytes(lock)
+        or set(lock) != expected_keys
+        or type(lock.get("schema_version")) is not int
+        or lock.get("schema_version") != 1
+        or type(lock.get("site_count")) is not int
+        or type(lock.get("opening_count")) is not int
+        or lock.get("protocol_id") != protocol.get("protocol_id")
+        or lock.get("protocol_sha256") != audit["protocol_sha256"]
+        or lock.get("authoritative_protocol_commit")
+        != protocol.get("authoritative_protocol_commit")
+        or lock.get("pre_label_amendments_sha256")
+        != _sha256_json(protocol.get("pre_label_amendments", []))
+        or lock.get("status") != "REGISTRY_FROZEN_LABELS_SEALED"
+        or lock.get("site_count") != planned.get("planned_site_count")
+        or lock.get("site_primary_key") != "site_no"
+        or lock.get("selection_seed") != planned.get("selection_seed")
+        or lock.get("holdout_start") != holdout.get("start")
+        or lock.get("holdout_end") != holdout.get("end")
+        or lock.get("candidate_table_sha256") != audit["candidate_table_sha256"]
+        or lock.get("candidate_provenance_sha256")
+        != audit["candidate_provenance_sha256"]
+        or lock.get("candidate_snapshot_index_sha256")
+        != audit["candidate_snapshot_index_sha256"]
+        or type(lock.get("candidate_acquisition_session")) is not dict
+        or lock.get("candidate_acquisition_session") != expected_session
+        or lock.get("chronology_trust_boundary")
+        != "LOCAL_HONEST_OWNER_ONLY_NO_EXTERNAL_TIMESTAMP_OR_CUSTODIAN"
+        or lock.get("confirmatory_registry_sha256")
+        != hashlib.sha256(registry_payload).hexdigest()
+        or lock.get("labels_state") != "SEALED_NOT_ACQUIRED"
+        or lock.get("opening_count") != 0
+    ):
+        raise ValueError("Git external registry lock contract changed")
+    frozen = lock.get("frozen_artifacts")
+    expected_candidate_paths = {
+        "candidate_table": paths["candidate_table"],
+        "candidate_provenance": paths["candidate_provenance"],
+        "candidate_snapshot_index": paths["candidate_snapshot_index"],
+    }
+    if not isinstance(frozen, Mapping) or set(frozen) != {
+        "development_panel_spec", *expected_candidate_paths,
+    }:
+        raise ValueError("Git external registry lock artifact registry changed")
+    output: set[str] = set()
+    for name, binding in frozen.items():
+        if (
+            type(binding) is not dict
+            or set(binding) != {"path", "sha256"}
+            or not isinstance(binding.get("path"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", str(binding.get("sha256", ""))) is None
+        ):
+            raise ValueError("Git external registry lock binding schema changed")
+        relative = _git_declared_binding_path(
+            bare, commit, binding, label=f"external lock {name}"
+        )
+        if name in expected_candidate_paths and relative != expected_candidate_paths[name]:
+            raise ValueError(f"Git external lock names another {name}")
+        output.add(relative)
+    if (
+        lock.get("development_panel_spec_sha256")
+        != frozen["development_panel_spec"]["sha256"]
+        or lock.get("candidate_table_sha256") != frozen["candidate_table"]["sha256"]
+        or lock.get("candidate_provenance_sha256")
+        != frozen["candidate_provenance"]["sha256"]
+        or lock.get("candidate_snapshot_index_sha256")
+        != frozen["candidate_snapshot_index"]["sha256"]
+    ):
+        raise ValueError("Git external lock duplicate artifact hashes changed")
+    registry_frozen = _require_utc_transport_timestamp(
+        lock.get("registry_frozen_at_utc"), label="Git registry freeze"
+    )
+    created = _require_utc_transport_timestamp(
+        lock.get("created_at_utc"), label="Git registry lock creation"
+    )
+    raw_max = _require_utc_transport_timestamp(
+        audit["retrieved_at_max_utc"], label="Git candidate acquisition maximum"
+    )
+    if not raw_max <= registry_frozen <= created:
+        raise ValueError("Git candidate raw/registry/lock chronology is invalid")
+    development_spec_path = str(frozen["development_panel_spec"]["path"])
+    spec = _git_json_document(
+        bare, commit, development_spec_path, label="development panel spec"
+    )
+    station_registry = spec.get("station_registry")
+    if not isinstance(station_registry, Mapping):
+        raise ValueError("Git development panel spec lacks station registry")
+    development_registry_path = (
+        PurePosixPath(development_spec_path).parent
+        / _normalise_git_relative(
+            station_registry.get("path"), label="development registry path"
+        )
+    ).as_posix()
+    development_payload = _git_blob_bytes(
+        bare, commit, development_registry_path, label="development registry"
+    )
+    if hashlib.sha256(development_payload).hexdigest() != station_registry.get("sha256"):
+        raise ValueError("Git development registry differs from frozen spec")
+    output.add(development_registry_path)
+    try:
+        development_rows = list(csv.DictReader(
+            io.StringIO(development_payload.decode("utf-8", errors="strict"))
+        ))
+    except UnicodeDecodeError as exc:
+        raise ValueError("Git development registry is not UTF-8 CSV") from exc
+    development_sites = {
+        str(row.get("site_no", "")).strip().zfill(8) for row in development_rows
+    }
+    candidates = [
+        dict(row) for row in audit["candidate_rows"]
+        if row["site_no"] not in development_sites
+    ]
+    n_sites = planned.get("planned_site_count")
+    seed = planned.get("selection_seed")
+    if type(n_sites) is not int or not isinstance(seed, str) or len(candidates) < n_sites:
+        raise ValueError("Git external selection contract cannot be replayed")
+    for row in candidates:
+        row["selection_rank_sha256"] = hashlib.sha256(
+            f"{seed}:{row['site_no']}".encode("utf-8")
+        ).hexdigest()
+    selected = sorted(
+        candidates, key=lambda row: (row["selection_rank_sha256"], row["site_no"])
+    )[:n_sites]
+    if registry_payload != _release_candidate_csv_bytes(selected, include_rank=True):
+        raise ValueError("Git external registry is not canonical seeded-selection CSV")
     return output
 
 
@@ -15277,6 +15926,8 @@ def _reconstruct_input_evidence_sets(
     bare: Path,
     commit: str,
     paths: Mapping[str, str],
+    *,
+    protocol_payload: bytes,
 ) -> tuple[set[str], set[str]]:
     required = {
         "candidate_table",
@@ -15293,40 +15944,26 @@ def _reconstruct_input_evidence_sets(
     for relative in output:
         if _run_git(bare, "cat-file", "-e", f"{commit}:{relative}").returncode:
             raise ValueError(f"Git input dependency is absent: {relative}")
-    lock = _git_json_document(
-        bare, commit, paths["external_lock"], label="external registry lock"
-    )
-    if lock.get("status") != "REGISTRY_FROZEN_LABELS_SEALED":
-        raise ValueError("Git external registry lock is not sealed")
-    registry_blob = _run_git(
-        bare, "show", f"{commit}:{paths['external_registry']}"
-    )
-    if (
-        registry_blob.returncode
-        or lock.get("confirmatory_registry_sha256")
-        != hashlib.sha256(registry_blob.stdout).hexdigest()
-    ):
-        raise ValueError("Git external registry lock binds another registry")
-    frozen = lock.get("frozen_artifacts")
-    if not isinstance(frozen, Mapping) or set(frozen) != {
-        "development_panel_spec",
-        "candidate_table",
-        "candidate_provenance",
-        "candidate_snapshot_index",
-    }:
-        raise ValueError("Git external registry lock dependency set changed")
-    for name, binding in frozen.items():
-        relative = _git_declared_binding_path(
-            bare, commit, binding, label=f"external lock {name}"
-        )
-        if name != "development_panel_spec" and relative != paths[name]:
-            raise ValueError(f"Git external lock names another {name}")
-        output.add(relative)
     candidate_snapshot_dependencies = _snapshot_dependency_paths(
-        bare, commit, paths["candidate_snapshot_index"]
+        bare,
+        commit,
+        paths["candidate_snapshot_index"],
+        require_metadata_binding=True,
+        require_candidate_metadata_contract=True,
     )
     output |= candidate_snapshot_dependencies
     newly_acquired |= candidate_snapshot_dependencies
+    candidate_audit = _audit_git_candidate_contract(
+        bare,
+        commit,
+        protocol_payload=protocol_payload,
+        candidate_table=paths["candidate_table"],
+        candidate_provenance=paths["candidate_provenance"],
+        candidate_snapshot_index=paths["candidate_snapshot_index"],
+    )
+    output |= _validate_git_external_lock_contract(
+        bare, commit, paths=paths, audit=candidate_audit
+    )
     manifest = _git_json_document(
         bare, commit, paths["input_manifest"], label="actual-input manifest"
     )
@@ -15386,8 +16023,14 @@ def _reconstruct_input_dependency_paths(
     paths: Mapping[str, str],
 ) -> set[str]:
     """Retain the original exact-closure API for callers and focused tests."""
+    protocol_payload = _git_blob_bytes(
+        bare,
+        commit,
+        "protocols/route_a_confirmatory_v1.json",
+        label="final Route-A protocol",
+    )
     output, _newly_acquired = _reconstruct_input_evidence_sets(
-        bare, commit, paths
+        bare, commit, paths, protocol_payload=protocol_payload
     )
     return output
 
@@ -15589,10 +16232,17 @@ def _verify_prelabel_chronology_from_bundle(
         "external_lock",
         "input_manifest",
     )
+    final_protocol_payload = _git_blob_bytes(
+        bare,
+        final_protocol_commit,
+        "protocols/route_a_confirmatory_v1.json",
+        label="final Route-A protocol",
+    )
     reconstructed_inputs, newly_acquired_inputs = _reconstruct_input_evidence_sets(
         bare,
         input_commit,
         {name: str(chronology_paths.get(name, "")) for name in input_names},
+        protocol_payload=final_protocol_payload,
     )
     if input_paths != reconstructed_inputs:
         raise ValueError(

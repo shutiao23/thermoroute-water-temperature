@@ -54,7 +54,7 @@ from .chronology import (
     DEFAULT_RECEIPT as DEFAULT_PRELABEL_CHRONOLOGY_RECEIPT,
     validate_prelabel_chronology,
 )
-from .confirmatory import CANDIDATE_COLUMNS, replay_candidate_evidence
+from .confirmatory import CANDIDATE_COLUMNS, audit_candidate_evidence
 from .coverage_audit import (
     AUDIT_FORMAT as TEMPORAL_COVERAGE_AUDIT_FORMAT,
     CoverageAuditError,
@@ -151,7 +151,12 @@ from .quantiles import (
     lightgbm_quantile_repair_contract,
     repair_lightgbm_quantiles,
 )
-from .provenance import canonical_json_bytes, sha256_file
+from .provenance import (
+    ProvenanceError,
+    canonical_json_bytes,
+    require_canonical_utc,
+    sha256_file,
+)
 from .registry import targets_match_at_model_precision
 from .repro import (
     assert_formal_numerical_policy,
@@ -2131,8 +2136,73 @@ def validate_registry_lock(
         raise OpeningContractError(
             f"external registry overlaps development sites: {sorted(overlap)[:5]}"
         )
-    lock = _load_json(lock_path, label="external registry lock")
+    try:
+        lock_payload = lock_path.read_bytes()
+    except OSError as exc:
+        raise OpeningContractError("cannot read external registry lock") from exc
+    lock = _strict_json_object_bytes(
+        lock_payload, label="external registry lock"
+    )
+    expected_lock_keys = {
+        "schema_version",
+        "protocol_id",
+        "protocol_sha256",
+        "authoritative_protocol_commit",
+        "pre_label_amendments_sha256",
+        "status",
+        "site_count",
+        "site_primary_key",
+        "selection_seed",
+        "holdout_start",
+        "holdout_end",
+        "development_panel_spec_sha256",
+        "candidate_table_sha256",
+        "candidate_provenance_sha256",
+        "candidate_snapshot_index_sha256",
+        "candidate_acquisition_session",
+        "chronology_trust_boundary",
+        "confirmatory_registry_sha256",
+        "frozen_artifacts",
+        "labels_state",
+        "opening_count",
+        "registry_frozen_at_utc",
+        "created_at_utc",
+    }
+    if set(lock) != expected_lock_keys:
+        raise OpeningContractError("external registry lock schema changed")
+    if lock_payload != canonical_json_bytes(lock):
+        raise OpeningContractError(
+            "external registry lock is not canonical producer JSON"
+        )
+    session = lock.get("candidate_acquisition_session")
+    if (
+        type(lock.get("schema_version")) is not int
+        or type(lock.get("site_count")) is not int
+        or type(lock.get("opening_count")) is not int
+        or type(session) is not dict
+        or set(session) != {
+            "maximum_duration_seconds", "retrieved_at_min_utc",
+            "retrieved_at_max_utc", "clock_source",
+        }
+        or type(session.get("maximum_duration_seconds")) is not int
+        or not isinstance(session.get("retrieved_at_min_utc"), str)
+        or not isinstance(session.get("retrieved_at_max_utc"), str)
+        or not isinstance(session.get("clock_source"), str)
+    ):
+        raise OpeningContractError("external registry lock scalar types changed")
+    try:
+        registry_frozen_at = require_canonical_utc(
+            lock["registry_frozen_at_utc"],
+            label="external registry frozen timestamp",
+        )
+        created_at = require_canonical_utc(
+            lock["created_at_utc"],
+            label="external registry lock timestamp",
+        )
+    except ProvenanceError as exc:
+        raise OpeningContractError(str(exc)) from exc
     expected = {
+        "schema_version": 1,
         "status": "REGISTRY_FROZEN_LABELS_SEALED",
         "labels_state": "SEALED_NOT_ACQUIRED",
         "opening_count": 0,
@@ -2144,6 +2214,11 @@ def validate_registry_lock(
         "protocol_sha256": protocol_info["protocol_sha256"],
         "authoritative_protocol_commit": protocol_info["authoritative_commit"],
         "pre_label_amendments_sha256": protocol_info["amendments_sha256"],
+        "holdout_start": protocol["time_holdout"]["start"],
+        "holdout_end": protocol["time_holdout"]["end"],
+        "chronology_trust_boundary": (
+            "LOCAL_HONEST_OWNER_ONLY_NO_EXTERNAL_TIMESTAMP_OR_CUSTODIAN"
+        ),
     }
     wrong = {key: (lock.get(key), value) for key, value in expected.items()
              if lock.get(key) != value}
@@ -2155,6 +2230,17 @@ def validate_registry_lock(
         "candidate_snapshot_index",
     }:
         raise OpeningContractError("external registry lock lacks candidate evidence bindings")
+    for name, binding in frozen_artifacts.items():
+        if (
+            type(binding) is not dict
+            or set(binding) != {"path", "sha256"}
+            or not isinstance(binding.get("path"), str)
+            or not isinstance(binding.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", binding["sha256"]) is None
+        ):
+            raise OpeningContractError(
+                f"external registry lock {name} binding schema changed"
+            )
     development_spec_path = _verify_file_binding(
         root, frozen_artifacts["development_panel_spec"],
         label="external selection development-panel spec",
@@ -2191,21 +2277,67 @@ def validate_registry_lock(
             "external selection development registry differs from FrozenPanelSpec"
         )
     try:
-        candidates = replay_candidate_evidence(
+        candidate_audit = audit_candidate_evidence(
             candidate_path,
             provenance_path,
             candidate_index_path,
             protocol_sha256=protocol_info["protocol_sha256"],
             state_universe=protocol["metadata_candidate_contract"]["state_universe"],
+            trusted_root=root,
         )
+        candidates = candidate_audit.candidates
+        retrieved_at_values = [
+            require_canonical_utc(
+                record.get("retrieved_at_utc"),
+                label="candidate raw snapshot retrieved_at_utc",
+            )
+            for record in candidate_audit.snapshot.index_document["records"]
+        ]
+        if not retrieved_at_values:
+            raise EvidenceError("candidate raw snapshot registry is empty")
+        retrieved_at_min = min(
+            retrieved_at_values, key=datetime.fromisoformat
+        )
+        retrieved_at_max = max(
+            retrieved_at_values, key=datetime.fromisoformat
+        )
+        expected_acquisition_session = {
+            "maximum_duration_seconds": 86400,
+            "retrieved_at_min_utc": retrieved_at_min,
+            "retrieved_at_max_utc": retrieved_at_max,
+            "clock_source": "LOCAL_SYSTEM_CLOCK_NOT_EXTERNALLY_ATTESTED",
+        }
+        if lock["candidate_acquisition_session"] != expected_acquisition_session:
+            raise OpeningContractError(
+                "external registry lock candidate acquisition session changed"
+            )
+        if not (
+            datetime.fromisoformat(retrieved_at_max)
+            <= datetime.fromisoformat(registry_frozen_at)
+            <= datetime.fromisoformat(created_at)
+        ):
+            raise OpeningContractError(
+                "candidate raw/registry/lock chronology is invalid"
+            )
         selected = select_confirmatory_sites(
             candidates,
             set(development.site_no.astype(str)),
             n_sites=planned_count,
             selection_seed=protocol["new_site_external_validation"]["selection_seed"],
         )
-    except (EvidenceError, KeyError, ValueError) as exc:
+    except OpeningContractError:
+        raise
+    except (EvidenceError, ProvenanceError, KeyError, ValueError) as exc:
         raise OpeningContractError("cannot independently replay external site selection") from exc
+    expected_external_payload = selected.to_csv(
+        index=False,
+        float_format="%.17g",
+        lineterminator="\n",
+    ).encode("utf-8")
+    if external_path.read_bytes() != expected_external_payload:
+        raise OpeningContractError(
+            "external registry is not exact canonical seeded-selection CSV"
+        )
     external_comparable = external.copy()
     for column in ("lat", "lon", "drain_area_va"):
         selected[column] = pd.to_numeric(selected[column], errors="coerce")

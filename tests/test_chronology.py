@@ -32,6 +32,7 @@ from thermoroute.chronology import (  # noqa: E402
     STAGE09_ARTIFACT_PATHS,
     STAGE09B_MEMBERS,
     _canonical_json_bytes,
+    _collect_snapshot_files,
     _sha256_json,
     _strict_json_object_bytes,
     _stage09b_scientific_comparison_registry,
@@ -244,6 +245,129 @@ def _snapshot(
             }
         ),
     )
+
+
+def _candidate_snapshot(root: Path, index_path: str) -> dict[str, Any]:
+    payload = (
+        "agency_cd\tsite_no\tstation_nm\tsite_tp_cd\tdec_lat_va\t"
+        "dec_long_va\thuc_cd\tdrain_area_va\n"
+        "5s\t15s\t50s\t7s\t16n\t16n\t16s\t16n\n"
+        "USGS\t00000009\tFixture River\tST\t40.125\t-105.25\t"
+        "10190005\t42.5\n"
+    ).encode("utf-8")
+    url = (
+        "https://waterservices.usgs.gov/nwis/site/?agencyCd=USGS&format=rdb&"
+        "hasDataTypeCd=dv&parameterCd=00010&siteOutput=expanded&siteStatus=all&"
+        "siteType=ST&stateCd=CO"
+    )
+    request = {
+        "schema_version": 1,
+        "provider": "usgs-nwis-confirmatory-site-metadata",
+        "method": "GET",
+        "url": url,
+        "headers": {
+            "User-Agent": "ThermoRoute/1.0 Route-A metadata-only discovery"
+        },
+    }
+    request_sha = _sha(_canonical_json_bytes(request))
+    base = Path(index_path).parent
+    transaction = base / str(request["provider"]) / request_sha
+    metadata = (transaction / "metadata.json").as_posix()
+    response = (transaction / "response.bin").as_posix()
+    retrieved = "2020-01-01T00:00:00+00:00"
+    metadata_payload = _canonical_json_bytes({
+        "schema_version": 2,
+        "request": request,
+        "request_sha256": request_sha,
+        "retrieved_at_utc": retrieved,
+        "http_status": 200,
+        "response_headers": {},
+        "byte_count": len(payload),
+        "response_sha256": _sha(payload),
+        "response_file": "response.bin",
+        "final_url": url,
+        "retrieval_semantics": "DIRECT_HTTP_RESPONSE",
+    })
+    _write(root, metadata, metadata_payload)
+    _write(root, response, payload)
+    index = {
+        "schema_version": 2,
+        "snapshot_count": 1,
+        "records": [{
+            "provider": request["provider"],
+            "request_sha256": request_sha,
+            "response_sha256": _sha(payload),
+            "metadata_sha256": _sha(metadata_payload),
+            "metadata_byte_count": len(metadata_payload),
+            "retrieved_at_utc": retrieved,
+            "byte_count": len(payload),
+            "request": request,
+            "metadata_path": str(Path(metadata).relative_to(base)),
+            "response_path": str(Path(response).relative_to(base)),
+        }],
+    }
+    index_payload = _canonical_json_bytes(index)
+    _write(root, index_path, index_payload)
+    return {
+        "payload": payload,
+        "request_sha256": request_sha,
+        "response_sha256": _sha(payload),
+        "retrieved_at_utc": retrieved,
+        "byte_count": len(payload),
+        "index_sha256": _sha(index_payload),
+    }
+
+
+@pytest.mark.parametrize(
+    "attack", ["legacy_v1", "forged_metadata", "extra_blob", "symlink"]
+)
+def test_chronology_rejects_adversarial_candidate_git_raw_contract(
+    tmp_path, attack,
+):
+    root = tmp_path / "candidate-git"
+    root.mkdir()
+    _run(root, "init", "-q")
+    _run(root, "config", "user.email", "fixture@example.invalid")
+    _run(root, "config", "user.name", "Fixture")
+    index_path = (
+        "data_usgs/raw_snapshots/confirmatory-candidates-v1/snapshot_index.json"
+    )
+    _candidate_snapshot(root, index_path)
+    index_file = root / index_path
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    if attack == "legacy_v1":
+        index["schema_version"] = 1
+        index_file.write_bytes(_canonical_json_bytes(index))
+    elif attack == "forged_metadata":
+        metadata_file = Path(index_path).parent / index["records"][0]["metadata_path"]
+        metadata_path = root / metadata_file
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["retrieval_semantics"] = "FABRICATED"
+        metadata_payload = _canonical_json_bytes(metadata)
+        metadata_path.write_bytes(metadata_payload)
+        index["records"][0]["metadata_sha256"] = _sha(metadata_payload)
+        index["records"][0]["metadata_byte_count"] = len(metadata_payload)
+        index_file.write_bytes(_canonical_json_bytes(index))
+    elif attack == "extra_blob":
+        _write(
+            root,
+            "data_usgs/raw_snapshots/confirmatory-candidates-v1/unindexed.bin",
+            b"extra\n",
+        )
+    else:
+        (root / "data_usgs/raw_snapshots/confirmatory-candidates-v1/unindexed-link").symlink_to(
+            "snapshot_index.json"
+        )
+    commit = _commit(root, f"candidate attack {attack}")
+    with pytest.raises(ChronologyError, match=r"(?i)(snapshot|metadata|namespace)"):
+        _collect_snapshot_files(
+            {},
+            root,
+            commit,
+            index_path,
+            require_metadata_binding=True,
+            require_candidate_metadata_contract=True,
+        )
 
 
 def _seed_stage16_completion(
@@ -574,9 +698,19 @@ def _seed_model_commit(
         if not (root / path).exists():
             _write(root, path, f"# frozen gate fixture: {path}\n")
 
-    _write(root, "data_usgs/frozen_panel_v1.json", "{}\n")
     _write(root, "data_usgs/panel_usgs_120v2.parquet", b"development-panel")
     _write(root, "data_usgs/station_registry_v1.csv", "site_no,lat,lon\n1,1,2\n")
+    _write(
+        root,
+        "data_usgs/frozen_panel_v1.json",
+        _json_bytes({
+            "schema_version": 1,
+            "station_registry": {
+                "path": "station_registry_v1.csv",
+                "sha256": _file_sha(root, "data_usgs/station_registry_v1.csv"),
+            },
+        }),
+    )
     _write(root, "outputs/development/predictions.parquet", b"predictions")
     _write(root, "outputs/development/predictions.parquet.meta.json", "{}\n")
     prediction = {
@@ -1059,22 +1193,101 @@ def _seed_model_commit(
     return _commit(root, "freeze model suite and chronology implementation")
 
 
-def _seed_evidence_commit(root: Path, *, candidate_already_exists: bool) -> str:
+def _seed_evidence_commit(
+    root: Path, *, candidate_already_exists: bool, lock_attack: str | None = None
+) -> str:
     candidate_table = "data_usgs/confirmatory_candidate_sites_v1.csv"
-    if not candidate_already_exists:
-        _write(root, candidate_table, "site_no\n9\n")
+    del candidate_already_exists
+    candidate_table_payload = (
+        "site_no,station_nm,lat,lon,state,site_type,huc_cd,drain_area_va\n"
+        "00000009,Fixture River,40.125,-105.25,CO,ST,10190005,42.5\n"
+    ).encode("utf-8")
+    _write(root, candidate_table, candidate_table_payload)
     candidate_provenance = "data_usgs/confirmatory_candidate_sites_v1.provenance.json"
-    _write(root, candidate_provenance, "{}\n")
     candidate_index = (
         "data_usgs/raw_snapshots/confirmatory-candidates-v1/snapshot_index.json"
     )
-    _snapshot(root, candidate_index, payload=b"candidate metadata")
+    snapshot = _candidate_snapshot(root, candidate_index)
+    protocol_payload = (
+        root / "protocols/route_a_confirmatory_v1.json"
+    ).read_bytes()
+    provenance = {
+        "schema_version": 1,
+        "artifact_role": "PRE_LABEL_METADATA_ONLY_CANDIDATE_UNIVERSE",
+        "protocol_sha256": _sha(protocol_payload),
+        "state_universe": ["CO"],
+        "state_universe_rule": (
+            "states represented in the frozen 120-site development registry; "
+            "no post-2020 outcome or coverage information"
+        ),
+        "candidate_rule": (
+            "USGS stream sites whose site metadata advertises daily-value "
+            "parameter 00010 capability; siteStatus=all"
+        ),
+        "candidate_count": 1,
+        "site_primary_key": "site_no",
+        "sort_order": ["site_no", "state"],
+        "columns": [
+            "site_no", "station_nm", "lat", "lon", "state", "site_type",
+            "huc_cd", "drain_area_va",
+        ],
+        "outcome_endpoint_requested": False,
+        "outcome_values_requested": False,
+        "holdout_coverage_requested_or_computed": False,
+        "raw_snapshot_index": candidate_index,
+        "raw_snapshot_index_sha256": snapshot["index_sha256"],
+        "candidate_table_sha256": _sha(candidate_table_payload),
+        "requests": [{
+            "state": "CO",
+            "candidate_count": 1,
+            "request_sha256": snapshot["request_sha256"],
+            "response_sha256": snapshot["response_sha256"],
+            "retrieved_at_utc": snapshot["retrieved_at_utc"],
+            "byte_count": snapshot["byte_count"],
+        }],
+    }
+    _write(root, candidate_provenance, _canonical_json_bytes(provenance))
     external_registry = "data_usgs/confirmatory_site_registry_v1.csv"
-    _write(root, external_registry, "site_no,lat,lon\n9,3,4\n")
+    rank = _sha(b"route-a-confirmatory-v1-public-seed:00000009")
+    _write(
+        root,
+        external_registry,
+        (
+            "site_no,station_nm,lat,lon,state,site_type,huc_cd,drain_area_va,"
+            "selection_rank_sha256\n"
+            "00000009,Fixture River,40.125,-105.25,CO,ST,10190005,42.5,"
+            f"{rank}\n"
+        ),
+    )
     external_lock = "data_usgs/confirmatory_site_registry_v1.lock.json"
+    protocol = json.loads(protocol_payload)
     lock = {
         "schema_version": 1,
+        "protocol_id": protocol["protocol_id"],
+        "protocol_sha256": _sha(protocol_payload),
+        "authoritative_protocol_commit": protocol["authoritative_protocol_commit"],
+        "pre_label_amendments_sha256": _repro_sha([]),
         "status": "REGISTRY_FROZEN_LABELS_SEALED",
+        "site_count": 1,
+        "site_primary_key": "site_no",
+        "selection_seed": "route-a-confirmatory-v1-public-seed",
+        "holdout_start": "2021-01-01",
+        "holdout_end": "2023-12-31",
+        "development_panel_spec_sha256": _file_sha(
+            root, "data_usgs/frozen_panel_v1.json"
+        ),
+        "candidate_table_sha256": _file_sha(root, candidate_table),
+        "candidate_provenance_sha256": _file_sha(root, candidate_provenance),
+        "candidate_snapshot_index_sha256": _file_sha(root, candidate_index),
+        "candidate_acquisition_session": {
+            "maximum_duration_seconds": 86400,
+            "retrieved_at_min_utc": snapshot["retrieved_at_utc"],
+            "retrieved_at_max_utc": snapshot["retrieved_at_utc"],
+            "clock_source": "LOCAL_SYSTEM_CLOCK_NOT_EXTERNALLY_ATTESTED",
+        },
+        "chronology_trust_boundary": (
+            "LOCAL_HONEST_OWNER_ONLY_NO_EXTERNAL_TIMESTAMP_OR_CUSTODIAN"
+        ),
         "confirmatory_registry_sha256": _file_sha(root, external_registry),
         "frozen_artifacts": {
             "development_panel_spec": _binding(root, "data_usgs/frozen_panel_v1.json"),
@@ -1082,8 +1295,14 @@ def _seed_evidence_commit(root: Path, *, candidate_already_exists: bool) -> str:
             "candidate_provenance": _binding(root, candidate_provenance),
             "candidate_snapshot_index": _binding(root, candidate_index),
         },
+        "labels_state": "SEALED_NOT_ACQUIRED",
+        "opening_count": 0,
+        "registry_frozen_at_utc": "2020-01-02T00:00:00+00:00",
+        "created_at_utc": "2020-01-02T00:00:00+00:00",
     }
-    _write(root, external_lock, _json_bytes(lock))
+    if lock_attack == "extra_key":
+        lock["unbound_extra"] = True
+    _write(root, external_lock, _canonical_json_bytes(lock))
 
     temporal_table = (
         "data_usgs/confirmatory_predictors/historical-retrospective-v1/"
@@ -1157,6 +1376,7 @@ def _repository(
     lightgbm_bundle_format: str = "thermoroute.lightgbm-bundle.v2",
     stage16_attack: str | None = None,
     matrix_attack: str | None = None,
+    lock_attack: str | None = None,
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
     root.mkdir()
@@ -1166,7 +1386,27 @@ def _repository(
     _write(root, "protocols/route_a_confirmatory_protocol.md", "original protocol\n")
     original = _commit(root, "original preregistration")
     _write(root, "protocols/route_a_confirmatory_protocol.md", "final protocol\n")
-    _write(root, "protocols/route_a_confirmatory_v1.json", "{\"schema_version\": 1}\n")
+    _write(
+        root,
+        "protocols/route_a_confirmatory_v1.json",
+        _json_bytes({
+            "schema_version": 1,
+            "status": "PLANNED_NOT_ACQUIRED",
+            "protocol_id": "route-a-fixture",
+            "authoritative_protocol_commit": original,
+            "pre_label_amendments": [],
+            "new_site_external_validation": {
+                "status": "PLANNED_NOT_ACQUIRED",
+                "planned_site_count": 1,
+                "selection_seed": "route-a-confirmatory-v1-public-seed",
+            },
+            "metadata_candidate_contract": {"state_universe": ["CO"]},
+            "time_holdout": {
+                "start": "2021-01-01",
+                "end": "2023-12-31",
+            },
+        }),
+    )
     final = _commit(root, "final prelabel protocol")
     matrix = _seed_model_matrix_governance(root, attack=matrix_attack)
     model = _seed_model_commit(
@@ -1180,7 +1420,9 @@ def _repository(
         stage16_attack=stage16_attack,
     )
     evidence = _seed_evidence_commit(
-        root, candidate_already_exists=leak_before_model
+        root,
+        candidate_already_exists=leak_before_model,
+        lock_attack=lock_attack,
     )
     marker = evidence
     if creation_base:
@@ -1261,6 +1503,12 @@ def test_chronology_freezes_and_replays_every_git_bound_artifact(tmp_path):
     assert validate_prelabel_chronology(
         state["receipt"], root=state["root"]
     ) == document
+
+
+def test_chronology_rejects_nonexact_external_registry_lock(tmp_path):
+    state = _repository(tmp_path, lock_attack="extra_key")
+    with pytest.raises(ChronologyError, match=r"external registry lock contract"):
+        _freeze(state)
 
 
 @pytest.mark.parametrize(
