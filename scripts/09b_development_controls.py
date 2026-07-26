@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _WORKER_ARGUMENT = "--_thermoroute-stage09b-worker"
 _WORKER_CACHE_ENV = "THERMOROUTE_STAGE09B_PYCACHE"
 _WORKER_NONCE_ENV = "THERMOROUTE_STAGE09B_NONCE"
+_MEMBER_WORK_ORDER_OPTION = "--_thermoroute-stage09b-member-work-order"
 
 
 def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
@@ -201,6 +202,7 @@ from thermoroute.predictor_bridge import (  # noqa: E402
 from thermoroute.registry import FORECAST_KEY, targets_match_at_model_precision  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     RunIdentity,
+    advisory_file_lock,
     assert_formal_numerical_policy,
     configure_deterministic_runtime,
     initialise_run_directory,
@@ -210,6 +212,22 @@ from thermoroute.repro import (  # noqa: E402
     sha256_json,
     sidecar_path,
     validate_artifact_sidecar,
+)
+from thermoroute.stage09b_precompute import (  # noqa: E402
+    MAX_PARALLEL_WORKERS,
+    Stage09bMember,
+    Stage09bPrecomputeError,
+    ValidatedStage09bWorkOrder,
+    allocate_create_only_artifact_temp,
+    execute_stage09b_member_work_orders,
+    finalize_stage09b_precompute,
+    freeze_stage09b_precompute_plan,
+    publish_create_only_artifact_from_temp,
+    publish_stage09b_member_receipt,
+    recover_create_only_artifact_state,
+    stage09b_member_execution_lock,
+    validate_stage09b_member_work_order,
+    validate_stage09b_model_matrix_gate,
 )
 from thermoroute.train import (  # noqa: E402
     FitResult,
@@ -387,14 +405,19 @@ def _create_only_file_from_temp(
     destination: Path,
     *,
     publication_guard: Callable[[], object],
+    _fault_injector: Callable[[str, Path, Path], object] | None = None,
 ) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    publication_guard()
     try:
-        os.link(temp_path, destination)
-    except FileExistsError as exc:
-        raise ControlExperimentError(f"refusing to overwrite immutable artifact: {destination}") from exc
-    _fsync_parent(destination)
+        publish_create_only_artifact_from_temp(
+            temp_path,
+            destination,
+            publication_guard=publication_guard,
+            _fault_injector=_fault_injector,
+        )
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"create-only artifact publication failed: {destination}"
+        ) from exc
 
 
 def write_arm_prediction(
@@ -412,16 +435,24 @@ def write_arm_prediction(
     publication_guard: Callable[[], object],
 ) -> None:
     """Publish one prediction and sidecar without replacing existing bytes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        recover_create_only_artifact_state(path)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"arm prediction publication state is unsafe: {path}"
+        ) from exc
     if path.exists() or sidecar_path(path).exists():
         raise ControlExperimentError(f"refusing to overwrite immutable arm cache: {path}")
     _validate_arm_frame(frame, arm, seed)
     _validate_training_summary(dict(training_summary))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
+    try:
+        file_descriptor, temporary_path = allocate_create_only_artifact_temp(path)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"cannot stage immutable arm prediction: {path}"
+        ) from exc
     os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
     try:
         frame.loc[:, R.PRED_COLS].to_parquet(temporary_path, index=False)
         with temporary_path.open("rb") as handle:
@@ -476,11 +507,23 @@ def recover_arm_prediction_sidecar(
         if isinstance(exc, ControlExperimentError):
             raise
         raise ControlExperimentError("orphan prediction is semantically invalid") from exc
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.replay.", suffix=".tmp", dir=path.parent,
-    )
+    probe = path.with_name(f".{path.name}.sidecar-replay-probe")
+    try:
+        recovered_probe = recover_create_only_artifact_state(probe)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            "arm sidecar recovery-probe state is unsafe"
+        ) from exc
+    if recovered_probe:
+        probe.unlink()
+        _fsync_parent(probe)
+    try:
+        descriptor, temporary = allocate_create_only_artifact_temp(probe)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            "cannot stage arm sidecar recovery probe"
+        ) from exc
     os.close(descriptor)
-    temporary = Path(temporary_name)
     try:
         replayed.loc[:, R.PRED_COLS].to_parquet(temporary, index=False)
         if sha256_file(temporary) != sha256_file(path):
@@ -627,6 +670,7 @@ def train_arm_group(
     eval_batch_size: int,
     verbose: bool,
     publication_guard: Callable[[], object],
+    only_member: tuple[str, int] | None = None,
     fit_function: FitCallable = fit_model,  # type: ignore[assignment]
 ) -> list[Path]:
     """Train/cache all arms sharing one window tensor without retaining frames."""
@@ -634,6 +678,8 @@ def train_arm_group(
     for arm in arms:
         parameters = parameter_count(arm, n_stations=n_stations)
         for seed in arm.seeds:
+            if only_member is not None and (arm.arm_id, int(seed)) != only_member:
+                continue
             prediction_path = run_dir / "arm_predictions" / arm.arm_id / f"seed{seed}.parquet"
             checkpoint_path = run_dir / "checkpoints" / arm.arm_id / f"seed{seed}.pt"
             arm_config = {
@@ -642,6 +688,14 @@ def train_arm_group(
                 "seed": int(seed),
                 "trainable_parameters": parameters,
             }
+
+            prediction_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                recover_create_only_artifact_state(prediction_path)
+            except Stage09bPrecomputeError as exc:
+                raise ControlExperimentError(
+                    f"prediction create-only state is unsafe: {prediction_path}"
+                ) from exc
 
             def factory(arm: ArmSpec = arm, seed: int = seed) -> torch.nn.Module:
                 return build_arm_model(arm, seed=seed, n_stations=n_stations)
@@ -740,6 +794,10 @@ def train_arm_group(
                 publication_guard=publication_guard,
             )
             paths.append(prediction_path)
+    if only_member is not None and len(paths) != 1:
+        raise ControlExperimentError(
+            f"member filter did not resolve exactly once: {only_member}"
+        )
     return paths
 
 
@@ -755,6 +813,36 @@ def _normalised_key_truth(frame: pd.DataFrame) -> pd.DataFrame:
     if out.duplicated(key).any():
         raise ControlExperimentError("arm prediction contains a duplicate forecast key")
     return out.sort_values(key, kind="mergesort").reset_index(drop=True)
+
+
+def _member_semantic_evidence(
+    frame: pd.DataFrame,
+    *,
+    arm: ArmSpec,
+    seed: int,
+    canonical_registry: pd.DataFrame,
+) -> dict[str, Any]:
+    """Return independently reproducible receipt evidence for one prediction."""
+    try:
+        normalised = normalise_prediction_frame(
+            frame,
+            arm=arm,
+            seed=seed,
+            canonical_registry=canonical_registry,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ControlExperimentError(
+            f"{arm.arm_id}/seed{seed} semantic evidence is invalid"
+        ) from exc
+    content = prediction_content_digest(normalised)
+    return {
+        "prediction_content_sha256": content,
+        "forecast_key_truth_sha256": window_registry_digest(
+            normalised[["split", *FORECAST_KEY, "y_true"]]
+        ),
+        "prediction_rows": len(normalised),
+        "checkpoint_exact_replay_sha256": content,
+    }
 
 
 def validate_complete_prediction_matrix(
@@ -912,14 +1000,28 @@ def _create_only_bytes(
     destination: Path,
     *,
     publication_guard: Callable[[], object],
+    _fault_injector: Callable[[str, Path, Path], object] | None = None,
 ) -> None:
-    if destination.exists():
-        raise ControlExperimentError(f"refusing to overwrite immutable artifact: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-    )
-    temporary_path = Path(temporary_name)
+    try:
+        recover_create_only_artifact_state(destination)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"final byte-artifact publication state is unsafe: {destination}"
+        ) from exc
+    if destination.exists():
+        if destination.read_bytes() != payload:
+            raise ControlExperimentError(
+                f"refusing to overwrite immutable artifact: {destination}"
+            )
+        publication_guard()
+        return
+    try:
+        descriptor, temporary_path = allocate_create_only_artifact_temp(destination)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"cannot stage immutable byte artifact: {destination}"
+        ) from exc
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
@@ -929,6 +1031,7 @@ def _create_only_bytes(
             temporary_path,
             destination,
             publication_guard=publication_guard,
+            _fault_injector=_fault_injector,
         )
     finally:
         temporary_path.unlink(missing_ok=True)
@@ -939,18 +1042,27 @@ def _stream_combined_predictions(
     destination: Path,
     *,
     publication_guard: Callable[[], object],
+    _fault_injector: Callable[[str, Path, Path], object] | None = None,
 ) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        recover_create_only_artifact_state(destination)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"combined prediction publication state is unsafe: {destination}"
+        ) from exc
     if destination.exists():
         raise ControlExperimentError(f"refusing to overwrite combined artifact: {destination}")
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-    )
+    try:
+        descriptor, temporary_path = allocate_create_only_artifact_temp(destination)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            f"cannot stage combined predictions: {destination}"
+        ) from exc
     os.close(descriptor)
-    temporary_path = Path(temporary_name)
     writer: pq.ParquetWriter | None = None
     schema: pa.Schema | None = None
     try:
@@ -976,6 +1088,7 @@ def _stream_combined_predictions(
             temporary_path,
             destination,
             publication_guard=publication_guard,
+            _fault_injector=_fault_injector,
         )
     finally:
         if writer is not None:
@@ -1247,6 +1360,13 @@ def publish_final_artifacts(
         *((path, sidecar_path(path)) for path in exact_bytes),
         (semantic_audit_path, sidecar_path(semantic_audit_path)),
     ):
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            recover_create_only_artifact_state(artifact)
+        except Stage09bPrecomputeError as exc:
+            raise ControlExperimentError(
+                f"final create-only artifact state is unsafe: {artifact}"
+            ) from exc
         if metadata_path.exists() and not artifact.exists():
             raise ControlExperimentError(f"sidecar exists without artifact: {artifact}")
 
@@ -1261,6 +1381,18 @@ def publish_final_artifacts(
         # freshly streamed reconstruction before blessing the orphan artifact.
         probe = prediction_path.with_name(f".{prediction_path.name}.recovery-probe")
         try:
+            try:
+                recovered_probe = recover_create_only_artifact_state(probe)
+            except Stage09bPrecomputeError as exc:
+                raise ControlExperimentError(
+                    "combined recovery-probe publication state is unsafe"
+                ) from exc
+            if recovered_probe:
+                # A probe is scratch state, never evidence.  Once its own exact
+                # internal hard-link crash window has been recovered, discard it
+                # and reconstruct again from the current 45 bound members.
+                probe.unlink()
+                _fsync_parent(probe)
             _stream_combined_predictions(
                 member_paths,
                 probe,
@@ -1373,15 +1505,177 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=4096,
         help="CPU validation/export batch size; part of the scientific run identity",
     )
+    parser.add_argument(
+        "--precompute-workers",
+        type=int,
+        default=2,
+        help=(
+            "execution-only member-process concurrency (excluded from the "
+            "scientific configuration and run identity)"
+        ),
+    )
+    parser.add_argument(
+        _MEMBER_WORK_ORDER_OPTION,
+        dest="member_work_order",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--verbose", action="store_true", help="print epoch diagnostics")
     args = parser.parse_args(argv)
     if args.eval_batch_size < 1:
         parser.error("--eval-batch-size must be positive")
+    if not 1 <= args.precompute_workers <= MAX_PARALLEL_WORKERS:
+        parser.error(
+            f"--precompute-workers must be between 1 and {MAX_PARALLEL_WORKERS}"
+        )
     return args
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parse_args(argv)
+def _launch_stage09b_member_process(
+    work_order: Path,
+    *,
+    panel: str,
+    registry: str,
+    eval_batch_size: int,
+    verbose: bool,
+) -> None:
+    """Launch one isolated single-native-thread member process."""
+    with tempfile.TemporaryDirectory(prefix="thermoroute-stage09b-member-pycache-") as cache:
+        cache_path = Path(cache).resolve()
+        if any(cache_path.iterdir()):
+            raise ControlExperimentError("member pycache was not initially empty")
+        nonce = secrets.token_hex(32)
+        (cache_path / ".controller-nonce").write_text(nonce, encoding="utf-8")
+        command = [
+            sys.executable,
+            "-I",
+            "-X",
+            f"pycache_prefix={cache_path}",
+            str(Path(__file__).resolve()),
+            _WORKER_ARGUMENT,
+            "--panel",
+            panel,
+            "--registry",
+            registry,
+            "--eval-batch-size",
+            str(eval_batch_size),
+            _MEMBER_WORK_ORDER_OPTION,
+            str(work_order),
+        ]
+        if verbose:
+            command.append("--verbose")
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=_formal_worker_environment(cache_path, nonce),
+            check=False,
+        )
+    if result.returncode:
+        raise ControlExperimentError(
+            f"Stage-09b member process failed ({result.returncode}): {work_order}"
+        )
+
+
+def _execute_authorized_member(
+    *,
+    validated: ValidatedStage09bWorkOrder,
+    arms: Sequence[ArmSpec],
+    panel_imputed: pd.DataFrame,
+    masks: D.SplitMasks,
+    climatology: F.HarmonicClimatology,
+    thresholds: dict[str, float],
+    stations: Sequence[str],
+    identity: RunIdentity,
+    run_config: Mapping[str, Any],
+    run_dir: Path,
+    parents: Mapping[str, str],
+    eval_batch_size: int,
+    verbose: bool,
+    publication_guard: Callable[[], object],
+) -> int:
+    """Train/replay/commit exactly one locked Stage-09b member."""
+    with stage09b_member_execution_lock(validated):
+        member = validated.member
+        arm = next((candidate for candidate in arms if candidate.arm_id == member.arm_id), None)
+        if arm is None or member.seed not in arm.seeds:
+            raise ControlExperimentError("authorized Stage-09b member is undeclared")
+        wd = DS.build_windows(
+            panel_imputed,
+            masks,
+            climatology,
+            context=C.CONTEXT_LENGTH,
+            horizons=C.HORIZONS,
+            variables=arm.variables,
+            require_observed_target=True,
+        )
+        paths = train_arm_group(
+            (arm,),
+            wd=wd,
+            thresholds=thresholds,
+            n_stations=len(stations),
+            identity=identity,
+            run_config=run_config,
+            run_dir=run_dir,
+            parents=parents,
+            eval_batch_size=eval_batch_size,
+            verbose=verbose,
+            # Checkpoint/prediction/bundle files remain intermediate until the
+            # member's exact replay and create-only receipt complete. Enforce
+            # the live native policy at each internal publication boundary;
+            # the enclosing member lock replays the stronger source/input gate
+            # before and after the complete transaction.
+            publication_guard=assert_formal_numerical_policy,
+            only_member=(member.arm_id, member.seed),
+        )
+        prediction_path = paths[0]
+        checkpoint_path = (
+            run_dir / "checkpoints" / member.arm_id / f"seed{member.seed}.pt"
+        )
+        replayed, _training_summary = replay_best_model_state_prediction(
+            checkpoint_path=checkpoint_path,
+            arm=arm,
+            seed=member.seed,
+            wd=wd,
+            thresholds=thresholds,
+            n_stations=len(stations),
+            identity=identity,
+            run_config=run_config,
+            eval_batch_size=eval_batch_size,
+            recover_missing_checkpoint_sidecar=True,
+            publication_guard=publication_guard,
+        )
+        observed = pd.read_parquet(prediction_path, columns=R.PRED_COLS)
+        _assert_exact_prediction_replay(
+            observed, replayed, arm=arm, seed=member.seed
+        )
+        member_registry = window_registry_from_windowed(wd, stations)
+        semantic = _member_semantic_evidence(
+            replayed,
+            arm=arm,
+            seed=member.seed,
+            canonical_registry=member_registry,
+        )
+        validated.assert_unchanged()
+        try:
+            member_receipt = publish_stage09b_member_receipt(
+                validated,
+                semantic_evidence=semantic,
+                exact_replay_verified=True,
+                publication_guard=publication_guard,
+            )
+        except Stage09bPrecomputeError as exc:
+            raise ControlExperimentError("Stage-09b member receipt failed closed") from exc
+        print(json.dumps({
+            "status": "COMPLETE_STAGE09B_MEMBER",
+            "run_id": identity.run_id,
+            "member_id": member.member_id,
+            "member_receipt": str(member_receipt),
+        }, sort_keys=True))
+        return 0
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Execute one already-parsed parent or authorized-member invocation."""
     configure_deterministic_runtime()
     runtime_policy = assert_formal_numerical_policy(require_hash_randomization=True)
     if torch.device("cpu").type != "cpu":  # pragma: no cover - defensive declaration
@@ -1422,10 +1716,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     arms = declared_arms()
     development_input_closure = resolve_development_input_closure(ROOT)
     development_input_closure.assert_unchanged()
+    try:
+        model_matrix_gate = validate_stage09b_model_matrix_gate(ROOT)
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError(
+            "Stage 09b requires the frozen prelabel 9-arm x 5-seed matrix"
+        ) from exc
 
     def assert_stage09b_publication_inputs() -> None:
         assert_formal_numerical_policy(require_hash_randomization=True)
         development_input_closure.assert_unchanged()
+        model_matrix_gate.assert_bytes_unchanged(ROOT)
 
     station_count = cast(int, evidence["station_count"])
     counts = assert_parameter_budgets(arms, n_stations=station_count)
@@ -1473,18 +1774,54 @@ def main(argv: Sequence[str] | None = None) -> int:
         config=run_config,
         input_closure_sha256=development_input_closure.binding_digest,
     )
-    run_dir = initialise_run_directory(
-        ROOT / "outputs" / "runs" / "09b_development_controls",
-        identity,
-        run_config,
-        provenance={
-            "development_only": True,
-            "post_2020_outcomes_requested_or_read": False,
-            "suite_pointer_written": False,
-            "training_device": "cpu",
-        },
-        publication_guard=assert_stage09b_publication_inputs,
-    )
+    validated_work_order: ValidatedStage09bWorkOrder | None = None
+    authorization_path: Path | None = None
+    if args.member_work_order is not None:
+        try:
+            validated_work_order = validate_stage09b_member_work_order(
+                root=ROOT,
+                work_order=args.member_work_order,
+                expected_identity=identity,
+                expected_config=run_config,
+            )
+        except Stage09bPrecomputeError as exc:
+            raise ControlExperimentError("Stage-09b member work order failed closed") from exc
+        run_dir = validated_work_order.run_directory
+    else:
+        run_dir = initialise_run_directory(
+            ROOT / "outputs" / "runs" / "09b_development_controls",
+            identity,
+            run_config,
+            provenance={
+                "development_only": True,
+                "post_2020_outcomes_requested_or_read": False,
+                "suite_pointer_written": False,
+                "training_device": "cpu",
+            },
+            publication_guard=assert_stage09b_publication_inputs,
+        )
+        try:
+            authorization_path, work_orders = freeze_stage09b_precompute_plan(
+                root=ROOT,
+                run_directory=run_dir,
+                identity=identity,
+                resolved_config=run_config,
+                matrix_gate=model_matrix_gate,
+                publication_guard=assert_stage09b_publication_inputs,
+            )
+            execute_stage09b_member_work_orders(
+                work_orders,
+                workers=int(args.precompute_workers),
+                launch=lambda work_order: _launch_stage09b_member_process(
+                    work_order,
+                    panel=str(panel_path),
+                    registry=str(registry_path),
+                    eval_batch_size=int(args.eval_batch_size),
+                    verbose=bool(args.verbose),
+                ),
+            )
+        except Stage09bPrecomputeError as exc:
+            raise ControlExperimentError("Stage-09b member precompute failed") from exc
     parents = _parent_bindings(identity, predictor_bridge)
 
     bundle = D.prepare_dataset_from_panel(
@@ -1514,11 +1851,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     if any(not math.isfinite(value) for value in thresholds.values()):
         raise ControlExperimentError("a station lacks a finite train-only event threshold")
 
-    member_paths: list[Path] = []
+    if validated_work_order is not None:
+        return _execute_authorized_member(
+            validated=validated_work_order,
+            arms=arms,
+            panel_imputed=panel_imputed,
+            masks=masks,
+            climatology=climatology,
+            thresholds=thresholds,
+            stations=stations,
+            identity=identity,
+            run_config=run_config,
+            run_dir=run_dir,
+            parents=parents,
+            eval_batch_size=int(args.eval_batch_size),
+            verbose=bool(args.verbose),
+            publication_guard=assert_stage09b_publication_inputs,
+        )
+
     train_examples: int | None = None
     canonical_registry: pd.DataFrame | None = None
     canonical_train_registry: pd.DataFrame | None = None
-    for variables, grouped_arms in _group_arms_by_variables(arms):
+    for variables, _grouped_arms in _group_arms_by_variables(arms):
         wd = DS.build_windows(
             panel_imputed,
             masks,
@@ -1564,27 +1918,41 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ControlExperimentError(
                     "feature ladder changed the exact training-window registry"
                 )
-        member_paths.extend(
-            train_arm_group(
-                grouped_arms,
-                wd=wd,
-                thresholds=thresholds,
-                n_stations=len(stations),
-                identity=identity,
-                run_config=run_config,
-                run_dir=run_dir,
-                parents=parents,
-                eval_batch_size=args.eval_batch_size,
-                verbose=args.verbose,
-                publication_guard=assert_stage09b_publication_inputs,
-            )
-        )
         del wd, current_registry, current_train_registry
     assert (
         train_examples is not None
         and canonical_registry is not None
         and canonical_train_registry is not None
     )
+    if authorization_path is None:  # pragma: no cover - parent/worker split invariant
+        raise ControlExperimentError("Stage-09b parent authorization is absent")
+    arm_by_id = {arm.arm_id: arm for arm in arms}
+
+    def inspect_member_semantics(
+        member: Stage09bMember,
+        prediction_path: Path,
+    ) -> Mapping[str, Any]:
+        frame = pd.read_parquet(prediction_path, columns=R.PRED_COLS)
+        return _member_semantic_evidence(
+            frame,
+            arm=arm_by_id[member.arm_id],
+            seed=member.seed,
+            canonical_registry=canonical_registry,
+        )
+
+    try:
+        precomputed_members, coordinator_receipt = finalize_stage09b_precompute(
+            root=ROOT,
+            authorization_path=authorization_path,
+            semantic_inspector=inspect_member_semantics,
+            publication_guard=assert_stage09b_publication_inputs,
+        )
+    except Stage09bPrecomputeError as exc:
+        raise ControlExperimentError("Stage-09b 45-member aggregation failed closed") from exc
+    member_paths = [
+        precomputed_members[member]
+        for member in expected_member_registry(arms)
+    ]
 
     audit, resolved_members, summaries = validate_prediction_paths(
         member_paths,
@@ -1618,7 +1986,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         canonical_train_registry_sha256=window_registry_digest(
             canonical_train_registry
         ),
-        publication_guard=assert_stage09b_publication_inputs,
+        # These files are not authoritative without the final completion
+        # receipt. The full source/input gate surrounds this call, while each
+        # internal atomic write directly rechecks the live native runtime.
+        publication_guard=assert_formal_numerical_policy,
     )
     predictions, architecture_budget, metric_summary, report, semantic_audit = outputs
     receipt_path = ROOT / STAGE09B_COMPLETION_RECEIPT_PATH
@@ -1642,11 +2013,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # member, budget/report failure, sidecar drift, or common-key mismatch raises
     # before the stable receipt can be replaced.
     assert_stage09b_publication_inputs()
+    assert_formal_numerical_policy()
     publish_stage09b_completion_receipt(
         receipt_path,
         receipt,
         root=ROOT,
-        publication_guard=assert_stage09b_publication_inputs,
+        publication_guard=assert_formal_numerical_policy,
     )
     print(
         json.dumps(
@@ -1656,12 +2028,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "run_dir": str(run_dir),
                 "members": audit.expected_members,
                 "common_forecast_keys": audit.common_forecast_keys,
+                "precompute_coordinator_receipt": str(coordinator_receipt),
                 "completion_receipt": str(receipt_path),
             },
             sort_keys=True,
         )
     )
     return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if args.member_work_order is not None:
+        # Member workers use their own exact per-member locks. Taking the parent
+        # lock here would deadlock against the controller that launched them.
+        return _run(args)
+    # The create-only publisher deliberately assumes one enclosing owner for
+    # plan/coordinator namespaces. Hold that ownership across plan freezing,
+    # all member launches, independent aggregation, final artifacts, and the
+    # completion receipt. A second controller may resume only after the first
+    # complete parent transaction releases this lock.
+    manager = advisory_file_lock(
+        C.OUTPUTS / ".stage09b-parent.lock",
+        exclusive=True,
+    )
+    try:
+        manager.__enter__()
+    except RuntimeError as exc:
+        raise ControlExperimentError(
+            "cannot acquire the Stage-09b parent transaction lock"
+        ) from exc
+    try:
+        return _run(args)
+    finally:
+        manager.__exit__(None, None, None)
 
 
 if __name__ == "__main__":

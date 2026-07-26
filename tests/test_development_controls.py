@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -41,6 +44,124 @@ def _load_script():
 
 
 DC = _load_script()
+
+
+def test_parent_controller_lock_spans_the_complete_stage09b_run(monkeypatch) -> None:
+    events: list[object] = []
+    arguments = SimpleNamespace(member_work_order=None)
+
+    class _Lock:
+        def __enter__(self):
+            events.append("lock-enter")
+            return DC.C.OUTPUTS / ".stage09b-parent.lock"
+
+        def __exit__(self, exc_type, exc, traceback):
+            events.append("lock-exit")
+            return False
+
+    def fake_lock(path, *, exclusive):
+        events.extend((path, exclusive))
+        return _Lock()
+
+    def fake_run(observed):
+        assert observed is arguments
+        events.append("run")
+        return 17
+
+    monkeypatch.setattr(DC, "_parse_args", lambda _argv: arguments)
+    monkeypatch.setattr(DC, "advisory_file_lock", fake_lock)
+    monkeypatch.setattr(DC, "_run", fake_run)
+
+    assert DC.main([]) == 17
+    assert events == [
+        DC.C.OUTPUTS / ".stage09b-parent.lock",
+        True,
+        "lock-enter",
+        "run",
+        "lock-exit",
+    ]
+
+
+def test_authorized_member_worker_never_waits_on_parent_lock(monkeypatch) -> None:
+    arguments = SimpleNamespace(member_work_order="member-work-order.json")
+    monkeypatch.setattr(DC, "_parse_args", lambda _argv: arguments)
+    monkeypatch.setattr(
+        DC,
+        "advisory_file_lock",
+        lambda *_args, **_kwargs: pytest.fail("member worker took parent lock"),
+    )
+    monkeypatch.setattr(DC, "_run", lambda observed: 19 if observed is arguments else -1)
+
+    assert DC.main([]) == 19
+
+
+def test_parent_controller_lock_releases_when_stage09b_run_raises(monkeypatch) -> None:
+    events: list[str] = []
+    arguments = SimpleNamespace(member_work_order=None)
+
+    class _Lock:
+        def __enter__(self):
+            events.append("lock-enter")
+
+        def __exit__(self, _exc_type, _exc, _traceback):
+            events.append("lock-exit")
+
+    monkeypatch.setattr(DC, "_parse_args", lambda _argv: arguments)
+    monkeypatch.setattr(DC, "advisory_file_lock", lambda *_args, **_kwargs: _Lock())
+
+    def fail(_arguments):
+        events.append("run-error")
+        raise RuntimeError("simulated parent failure")
+
+    monkeypatch.setattr(DC, "_run", fail)
+    with pytest.raises(RuntimeError, match="simulated parent failure"):
+        DC.main([])
+    assert events == ["lock-enter", "run-error", "lock-exit"]
+
+
+def test_byte_artifact_retry_recovers_exact_internal_hardlink(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "outputs" / "summary.csv"
+    destination.parent.mkdir()
+    payload = b"model,rmse\narm00,1.25\n"
+    descriptor, temporary = DC.allocate_create_only_artifact_temp(destination)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.link(temporary, destination)
+    assert destination.stat().st_nlink == 2
+
+    DC._create_only_bytes(
+        payload,
+        destination,
+        publication_guard=lambda: None,
+    )
+
+    assert destination.read_bytes() == payload
+    assert destination.stat().st_nlink == 1
+    assert not temporary.exists()
+
+
+def test_all_large_or_streamed_publishers_use_hardened_create_only_protocol() -> None:
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in ("write_arm_prediction", "_create_only_bytes", "_stream_combined_predictions"):
+        calls = {
+            node.func.id
+            for node in ast.walk(functions[name])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert {
+            "recover_create_only_artifact_state",
+            "allocate_create_only_artifact_temp",
+            "_create_only_file_from_temp",
+        }.issubset(calls)
 
 
 def _identity() -> RunIdentity:
@@ -602,6 +723,11 @@ def test_tiny_mocked_training_runs_exact_declared_matrix_and_publishes(
     orphan = paths[0]
     orphan_digest = hashlib.sha256(orphan.read_bytes()).hexdigest()
     sidecar_path(orphan).unlink()
+    orphan_link_temp = orphan.with_name(
+        f".{orphan.name}.thermoroute-create-only.{'a' * 64}.tmp"
+    )
+    os.link(orphan, orphan_link_temp)
+    assert orphan.stat().st_nlink == 2
     recovered = DC.train_arm_group(
         [arms[0]],
         wd=object(),
@@ -618,6 +744,8 @@ def test_tiny_mocked_training_runs_exact_declared_matrix_and_publishes(
     )
     assert orphan in recovered
     assert sidecar_path(orphan).is_file()
+    assert orphan.stat().st_nlink == 1
+    assert not orphan_link_temp.exists()
     assert hashlib.sha256(orphan.read_bytes()).hexdigest() == orphan_digest
 
     attacked_orphan = paths[1]
@@ -726,6 +854,11 @@ def test_tiny_mocked_training_runs_exact_declared_matrix_and_publishes(
     sidecar_path(semantic_audit_path).unlink()
     semantic_audit_path.unlink()
     sidecar_path(combined).unlink()
+    combined_link_temp = combined.with_name(
+        f".{combined.name}.thermoroute-create-only.{'b' * 64}.tmp"
+    )
+    os.link(combined, combined_link_temp)
+    assert combined.stat().st_nlink == 2
     recovered_outputs = DC.publish_final_artifacts(
         run_dir=tmp_path,
         identity=_identity(),
@@ -742,6 +875,8 @@ def test_tiny_mocked_training_runs_exact_declared_matrix_and_publishes(
     )
     assert recovered_outputs[0] == combined
     assert hashlib.sha256(combined.read_bytes()).hexdigest() == combined_digest
+    assert combined.stat().st_nlink == 1
+    assert not combined_link_temp.exists()
     assert sidecar_path(combined).is_file()
 
     sidecar_path(semantic_audit_path).unlink()
