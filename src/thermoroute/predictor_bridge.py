@@ -567,13 +567,50 @@ def validate_development_bridge_manifest_offline(
         label="stored refreshed predictor table",
     )
     expected_report = compare_predictor_bridge(frozen, refreshed)
-    if _read_json_object(report_path, label="development bridge report") != expected_report:
+    stored_report = _read_json_object(report_path, label="development bridge report")
+    if not _bridge_report_matches(stored_report, expected_report):
         raise PredictorBridgeError("development bridge report is not parser-replay-derived")
     return expected_report
 
 
 def _finite_or_none(value: float) -> float | None:
     return float(value) if np.isfinite(value) else None
+
+
+def _bridge_report_matches(
+    stored: object,
+    expected: object,
+    *,
+    atol: float = 1e-12,
+) -> bool:
+    """Structural report equality with float slack for diagnostic metrics.
+
+    Product gates already enforce `_VALUE_ATOL`; report floats such as
+    ``np.corrcoef`` can still differ by ~1 ULP across libm/BLAS builds.
+    """
+    if isinstance(stored, Mapping) and isinstance(expected, Mapping):
+        if set(stored) != set(expected):
+            return False
+        return all(
+            _bridge_report_matches(stored[key], expected[key], atol=atol)
+            for key in stored
+        )
+    if isinstance(stored, list) and isinstance(expected, list):
+        if len(stored) != len(expected):
+            return False
+        return all(
+            _bridge_report_matches(left, right, atol=atol)
+            for left, right in zip(stored, expected)
+        )
+    if isinstance(stored, bool) or isinstance(expected, bool):
+        return stored is expected
+    if isinstance(stored, (int, float)) and isinstance(expected, (int, float)):
+        left = float(stored)
+        right = float(expected)
+        if not np.isfinite(left) and not np.isfinite(right):
+            return True
+        return bool(np.isfinite(left) and np.isfinite(right) and abs(left - right) <= atol)
+    return stored == expected
 
 
 def _normalise_table(frame: pd.DataFrame, *, label: str) -> pd.DataFrame:
@@ -637,16 +674,26 @@ def frozen_bridge_slice(
 def assert_exact_predictor_table(
     expected: pd.DataFrame, observed: pd.DataFrame, *, label: str,
 ) -> pd.DataFrame:
-    """Require identical normalized keys and IEEE-754 values (NaNs included)."""
+    """Require identical keys/NaN patterns and values within bridge atol.
+
+    Cross-platform raw replay can differ at ~1e-14 in transcendental fields
+    such as RHMEAN; the bridge contract therefore uses `_VALUE_ATOL` (1e-9),
+    matching `compare_predictor_bridge`, rather than bit-identical IEEE-754.
+    """
     left = _normalise_table(expected, label=f"expected {label}")
     right = _normalise_table(observed, label=f"observed {label}")
     if not left[["site_no", "DATE"]].equals(right[["site_no", "DATE"]]):
         raise PredictorBridgeError(f"{label} key registry differs from raw replay")
     for field in BRIDGE_FIELDS:
-        if not np.array_equal(
-            left[field].to_numpy(dtype="float64"),
-            right[field].to_numpy(dtype="float64"),
-            equal_nan=True,
+        left_values = left[field].to_numpy(dtype="float64")
+        right_values = right[field].to_numpy(dtype="float64")
+        left_missing = np.isnan(left_values)
+        right_missing = np.isnan(right_values)
+        if not np.array_equal(left_missing, right_missing):
+            raise PredictorBridgeError(f"{label}/{field} differs from raw replay")
+        paired = ~left_missing
+        if paired.any() and not np.all(
+            np.abs(left_values[paired] - right_values[paired]) <= _VALUE_ATOL[field]
         ):
             raise PredictorBridgeError(f"{label}/{field} differs from raw replay")
     return right
