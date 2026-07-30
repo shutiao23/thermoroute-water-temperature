@@ -5,6 +5,8 @@ __pycache__/
 build/
 .pytest_cache/
 .ipynb_checkpoints/
+.venv-route-a/
+.venv/
 
 # OS / editor / local
 .DS_Store
@@ -16,6 +18,13 @@ build/
 outputs/predictions/
 outputs/models/
 outputs/logs/
+# Content-addressed Stage run caches and regenerable score/table dumps.
+# Authoritative completion receipts live under outputs/models/
+# (route_a_stage{09,09b,16,25}_completion.json); opening receipts live under
+# outputs/confirmatory/ — neither belongs in runs/ or tables/ caches. Do not
+# carve runs/tables exceptions for "receipt-like" filenames.
+outputs/runs/
+outputs/tables/
 outputs/.stage19-probabilistic.lock
 outputs/.stage16-lstm.lock
 outputs/.stage25-external.lock
@@ -42,12 +51,11 @@ data_usgs/raw_snapshots/*
 # Stray run checkpoints
 *_ckpt/
 
-# Mutable advisory-lock diagnostics sit beside content-addressed run
-# directories; scientific run manifests/checkpoints remain trackable.
+# Defense-in-depth: even if a future ! exception re-tracks parts of runs/,
+# mutable advisory-lock diagnostics stay ignored.
 outputs/runs/**/.*.formal-run.lock
 # Stage-09 member locks are execution-only and intentionally persist after the
-# corresponding process exits. Resume checkpoints and staging objects are not
-# ignored: an abnormal leftover must remain visible to clean-tree validation.
+# corresponding process exits; keep them ignored under any future runs/ carve-out.
 outputs/runs/**/.stage09-control-member-locks/*.lock
 
 # LaTeX build artifacts
