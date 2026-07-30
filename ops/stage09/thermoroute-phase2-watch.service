@@ -1,0 +1,23 @@
+[Unit]
+Description=ThermoRoute Phase-2 watcher (bind new Stage-09 source_sha256)
+Documentation=file://%h/workspace/projects_part_time/project1/thermoroute-water-temperature/ops/stage09/README.md
+After=default.target
+# Does NOT start Stage-09 training. Only re-arms the receipt→Phase-2 watcher.
+
+[Service]
+Type=simple
+WorkingDirectory=%h/workspace/projects_part_time/project1/thermoroute-water-temperature
+Environment=PHASE2_WATCH_ENV=%h/workspace/projects_part_time/project1/thermoroute-water-temperature/ops/stage09/phase2_watch.env
+Environment=ENABLE_STAGE09_AUTOSTART=0
+ExecStartPre=/bin/bash %h/workspace/projects_part_time/project1/thermoroute-water-temperature/ops/stage09/ensure_phase2_watch.sh
+# ensure already nohup's the watcher; re-ensure periodically.
+# Fail-closed: if ensure exits non-zero, stop the loop so systemd does not stay
+# falsely "active" after flock contention / hash mismatch / arming failure.
+ExecStart=/bin/bash -c 'while true; do /bin/bash "%h/workspace/projects_part_time/project1/thermoroute-water-temperature/ops/stage09/ensure_phase2_watch.sh" || exit $?; sleep 120; done'
+Restart=on-failure
+RestartSec=30
+# User-level unit: install with systemctl --user enable --now thermoroute-phase2-watch.service
+# Requires: systemd user session (WSL: enable systemd in /etc/wsl.conf).
+
+[Install]
+WantedBy=default.target

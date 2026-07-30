@@ -68,3 +68,6 @@ outputs/runs/**/.stage09-control-member-locks/*.lock
 
 # Zenodo release archive (regenerable via scripts/make_release_archive.sh)
 dist/
+
+# Local Phase-2 watcher binding (machine-specific)
+ops/stage09/phase2_watch.env
