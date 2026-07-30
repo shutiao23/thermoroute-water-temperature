@@ -18,6 +18,34 @@
 
 ## Abstract
 
+<!-- B-02 LOCKED WORDING (2026-07-30; docs/B02_PERMANENT_DESCRIPTIVE_CLAIM_WORDING.md).
+     Scope: locks ONLY five confirmatory claim eligibility (DESCRIPTIVE_ONLY_…
+     GATE_FAILED / fixed-cohort descriptive). Does NOT erase exploratory/secondary.
+     Facts: ≤15 HUC2; effective_cluster≈9.54; gate n_clusters≥30,
+     effective_fraction≥0.75, largest_share<0.25 → fails independent of outcomes.
+     Ban: p/CI/Holm as confirmatory decision evidence; forbidden-verb list in B-02 doc;
+     no superiority/non-inferiority/equivalence/parity/national rewrite of the five rows.
+     Paste-ready EN: Because the frozen Route-A cohort contains at most 15 HUC2 groups
+     (inverse-Herfindahl effective cluster count ≈ 9.54) and therefore fails the
+     outcome-free inference gate requiring n_clusters ≥ 30, effective_cluster_fraction
+     ≥ 0.75, and largest_cluster_share < 0.25, the formal five confirmatory comparisons
+     are permanently restricted to fixed-cohort descriptive effects under
+     DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED for confirmatory claim eligibility;
+     exploratory and secondary analyses remain reportable as such and are not erased
+     by the gate. Whole-HUC2 bootstrap intervals, exact sign-flip p-values, and Holm
+     adjustments are assumption-conditional sensitivities only and must not be written
+     as confirmatory decision evidence; after opening they must not be rewritten as
+     superiority, non-inferiority, equivalence, parity, or national / U.S.-river
+     generalization.
+     Paste-ready ZH: 由于冻结的 Route-A cohort 至多只有 15 个 HUC2 组（逆 Herfindahl
+     有效簇数 ≈ 9.54），必然无法通过 outcome-free 推断门控（n_clusters ≥ 30、
+     effective_cluster_fraction ≥ 0.75、largest_cluster_share < 0.25），因此正式五比较
+     在 confirmatory claim eligibility 上永久限定为固定 cohort 的描述性效应，裁定为
+     DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED；exploratory / secondary 仍可按既有标签
+     报告，门控不抹掉它们。全 HUC2 bootstrap 区间、精确 sign-flip p 值与 Holm 校正
+     仅可作为假设条件敏感度，禁止写成 confirmatory 决策证据；开封后禁止改写为
+     superiority、non-inferiority、equivalence、parity，或全美/全国河流总体推广结论。 -->
+
 Daily river water temperature is difficult to hindcast honestly because persistence
 is strong, issue-time information must be separated from future observations, sensor
 records are incomplete, and nearby sites are not statistically independent. We
@@ -631,6 +659,13 @@ those provenance and license questions are resolved.
 
 ## 10. Conclusion
 
+<!-- B-02 LOCKED CONCLUSION ANCHOR (2026-07-30; R2-1 reviewer patch).
+     Five confirmatory rows only → DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED;
+     exploratory/secondary not erased; p/CI/Holm ≠ decision evidence;
+     forbidden verbs in docs/B02_PERMANENT_DESCRIPTIVE_CLAIM_WORDING.md.
+     ≤15 HUC2; effective_cluster≈9.54; gate conjunction fails; opening cannot
+     upgrade five-row wording to superiority/national. Full paste blocks: same doc. -->
+
 At the time of this byte-frozen pre-opening snapshot, ThermoRoute is a specified
 research system rather than a completed empirical finding. The repository has
 fail-closed controls for leakage,
@@ -643,3 +678,11 @@ layer appears below, it supersedes only this pre-opening readiness status; the o
 headline numbers still do not represent the current repository. Irrespective of
 the numerical outcome, Route A remains a fixed availability-enriched cohort
 description because the frozen minimum-cluster inference gate cannot pass.
+Because the frozen cohort has at most 15 HUC2 groups (effective cluster count
+≈ 9.54) and fails the outcome-free gate (n_clusters ≥ 30,
+effective_cluster_fraction ≥ 0.75, largest_cluster_share < 0.25), every formal
+comparison is permanently `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`: a
+fixed-cohort descriptive effect only. After opening, bootstrap intervals,
+sign-flip p-values, and Holm values must stay assumption-conditional
+sensitivities and must not be rewritten as superiority, non-inferiority,
+equivalence, parity, or national / U.S.-river generalization.

@@ -22,6 +22,36 @@
 
 本计划不能用来绕过上述协议，也不能把未完成缓存写成正式结果。
 
+### 1.1 B-02 永久 descriptive 措辞（定稿，2026-07-30；R2-1 监督修补）
+
+> **Permanent descriptive / 永久 fixed-cohort descriptive（仅锁五比较 confirmatory
+> claim eligibility）。**  
+> 本小节是执行计划中的**永久 descriptive 段落**，不改变协议字节，也不进入
+> source hash。权威粘贴稿见
+> [`docs/B02_PERMANENT_DESCRIPTIVE_CLAIM_WORDING.md`](docs/B02_PERMANENT_DESCRIPTIVE_CLAIM_WORDING.md)。
+> **不抹掉** exploratory / secondary；禁止把 p/CI/Holm 写成 confirmatory 决策证据；
+> 须遵守该文档的**禁止动词清单**。
+
+**事实（outcome-free，开封前后不变）：**
+
+- 冻结 cohort 至多 **15** 个 HUC2；逆 Herfindahl **effective_cluster ≈ 9.54**；
+- 推断门控要求 **n_clusters ≥ 30**、**effective_fraction ≥ 0.75**、
+  **largest_share < 0.25** → 合取必然失败；
+- 门控**仅**锁定正式五比较的 confirmatory claim eligibility；唯一合格裁定永久为
+  **`DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`**（fixed-cohort descriptive）；
+- exploratory / secondary **仍保留**，可按既有标签报告；
+- **opening 之后禁止**把点估计、bootstrap CI、sign-flip/Holm 写成决策证据，或
+  改写成 superiority / non-inferiority / equivalence / parity，或 national /
+  U.S.-river 总体推广；禁止动词见 B-02 文档清单。
+
+**可粘贴英文（摘要/结论）：**
+
+Because the frozen Route-A cohort contains at most 15 HUC2 groups (inverse-Herfindahl effective cluster count ≈ 9.54) and therefore fails the outcome-free inference gate requiring n_clusters ≥ 30, effective_cluster_fraction ≥ 0.75, and largest_cluster_share < 0.25, the formal five confirmatory comparisons are permanently restricted to fixed-cohort descriptive effects under DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED for confirmatory claim eligibility; exploratory and secondary analyses remain reportable as such and are not erased by the gate. Whole-HUC2 bootstrap intervals, exact sign-flip p-values, and Holm adjustments are assumption-conditional sensitivities only and must not be written as confirmatory decision evidence; after opening they must not be rewritten as superiority, non-inferiority, equivalence, parity, or national / U.S.-river generalization.
+
+**可粘贴中文（摘要/结论）：**
+
+由于冻结的 Route-A cohort 至多只有 15 个 HUC2 组（逆 Herfindahl 有效簇数 ≈ 9.54），必然无法通过 outcome-free 推断门控（n_clusters ≥ 30、effective_cluster_fraction ≥ 0.75、largest_cluster_share < 0.25），因此正式五比较在 confirmatory claim eligibility 上永久限定为固定 cohort 的描述性效应，裁定为 DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED；exploratory / secondary 分析仍可按既有标签报告，门控不抹掉它们。全 HUC2 bootstrap 区间、精确 sign-flip p 值与 Holm 校正仅可作为假设条件敏感度，禁止写成 confirmatory 决策证据；开封后禁止改写为 superiority、non-inferiority、equivalence、parity，或全美/全国河流总体推广结论。
+
 ## 2. 不可违反的当前指令
 
 1. **未经用户再次明确授权，不启动、恢复或并行运行任何实验。**
