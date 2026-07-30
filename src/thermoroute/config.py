@@ -156,11 +156,17 @@ class TrainConfig:
     max_epochs: int = 80
     patience: int = 12
     grad_clip: float = 1.0
-    lambda_event: float = 0.3       # weight on the exceedance BCE
-    lambda_residual: float = 1e-2   # L1 keeping the net close to the frozen anchor
+    lambda_event: float = 0.3       # weight on the exceedance BCE (dimensionless)
+    lambda_residual: float = 1e-2   # L1 leash, after / temperature_loss_scale
     # Serialization compatibility only: neural quantiles are ordered by
     # construction, so the corresponding loss term is identically zero.
     lambda_crossing: float = 1.0
+    # Positive temperature scale in the same units as ``y`` / heads / prior.
+    # Composite loss divides MSE by scale² and °C-bearing pinball / crossing /
+    # residual terms by scale so λ_* stay unit-covariant under affine changes
+    # of temperature unit (°C↔°F).  Route A stores targets in °C and uses the
+    # explicit 1 °C reference by default (preserves historical λ numerics).
+    temperature_loss_scale: float = 1.0
 
 
 TRAIN = TrainConfig()

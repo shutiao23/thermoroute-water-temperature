@@ -216,6 +216,73 @@ def test_confirmation_targets_are_available_independently_by_horizon(
     assert wd.target_valid[row[0]].tolist() == [True, True, False]
 
 
+def test_development_calibration_targets_are_independent_by_horizon(
+    synthetic_bundle,
+):
+    """CQR/Platt inclusion must match confirmation: not joint complete-case."""
+    bundle, clim = synthetic_bundle
+    panel = bundle["panel"].copy()
+    site = str(C.STATIONS[0])
+    calib_lo, calib_hi = C.SPLIT.calib
+    # Knock out one mid-year calib date so h=7 can fail while h=1 remains.
+    missing_date = pd.Timestamp("2018-06-15")
+    panel.loc[
+        panel.site_id.eq(site) & panel.DATE.eq(missing_date),
+        "WTEMP_observed",
+    ] = False
+
+    joint = DS.build_windows(panel, bundle["masks"], clim)
+    independent = DS.build_windows(
+        panel,
+        bundle["masks"],
+        clim,
+        require_observed_target=True,
+    )
+
+    joint_calib = joint.split == "calib"
+    indep_calib = independent.split == "calib"
+    assert joint_calib.any() and indep_calib.any()
+
+    # Train/val/test remain jointly labelled under the observed-target path.
+    for split_name in ("train", "val", "test"):
+        selected = independent.split == split_name
+        if not selected.any():
+            continue
+        assert independent.target_valid[selected].all()
+        assert np.isfinite(independent.y[selected]).all()
+
+    # Calibration admits partial-horizon rows; late h=1 issues survive h=7.
+    assert independent.target_valid[indep_calib].any()
+    assert not independent.target_valid[indep_calib].all()
+    assert np.isnan(independent.y[indep_calib][~independent.target_valid[indep_calib]]).all()
+
+    for column, horizon in enumerate(independent.horizons):
+        selected = indep_calib & independent.target_valid[:, column]
+        assert selected.any()
+        assert independent.issue_date[selected].max() == (
+            np.datetime64(calib_hi) - np.timedelta64(horizon, "D")
+        )
+        assert (
+            independent.target_date[selected, column] <= np.datetime64(calib_hi)
+        ).all()
+        assert (
+            independent.target_date[selected, column] >= np.datetime64(calib_lo)
+        ).all()
+
+    # The asynchronous missing label must not delete surviving shorter horizons.
+    station_rows = independent.station == 0
+    issue = np.datetime64("2018-06-08")  # h=7 → 2018-06-15
+    row = np.flatnonzero(station_rows & indep_calib & (independent.issue_date == issue))
+    assert len(row) == 1
+    assert independent.target_valid[row[0]].tolist() == [True, True, False]
+
+    # Legacy joint builders still embargo by max(horizon) and keep all heads.
+    assert joint.target_valid[joint_calib].all()
+    assert joint.issue_date[joint_calib].max() <= (
+        np.datetime64(calib_hi) - np.timedelta64(max(joint.horizons), "D")
+    )
+
+
 def test_target_is_strictly_future(synthetic_bundle):
     """The stored target y[:, hi] must equal panel WTEMP at issue_date + h —
     verified against the panel itself on a subsample, not just h > 0."""

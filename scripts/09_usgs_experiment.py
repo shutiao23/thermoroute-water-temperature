@@ -1241,8 +1241,22 @@ def ensemble_prediction_frame(predictions):
 
 
 def calibration_artifacts(predictions, thresholds):
+    """Fit CQR/Platt on the independent-horizon 2018 calibration population.
+
+    Callers must supply calib rows whose inclusion already matches confirmation
+    (per-horizon observed targets inside ``C.SPLIT.calib``).  Masked / non-finite
+    labels are dropped fail-closed before fitting.
+    """
     ensemble = ensemble_prediction_frame(predictions)
     calibration = ensemble[ensemble.split == "calib"].copy()
+    if calibration.empty:
+        raise ValueError("calibration artifacts require a non-empty calib split")
+    y_true = calibration["y_true"].to_numpy(float)
+    finite = np.isfinite(y_true)
+    if not finite.any():
+        raise ValueError("calibration artifacts lack finite observed targets")
+    if not finite.all():
+        calibration = calibration.loc[finite].copy()
     calibration["threshold"] = calibration["site_id"].astype(str).map(thresholds)
     if calibration["threshold"].isna().any():
         raise KeyError("calibration rows contain a site without an event threshold")

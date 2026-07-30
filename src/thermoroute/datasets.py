@@ -136,12 +136,17 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
                   evaluation_split: str = "confirm",
                   independent_horizon_targets: bool = False) -> WindowedData:
     """Build windowed tensors. With ``require_observed_target`` a sample is kept
-    only if the issue-day and every target WTEMP are genuinely observed (used for
-    gappy large-sample panels, where history may be imputed but labels must be
-    real).  Confirmation-only ``independent_horizon_targets`` retains an issue
-    whenever at least one horizon has an observed, in-bound target and records a
-    per-horizon validity mask.  It never changes development training semantics.
-    Missing WLEVEL (all-NaN channel) is handled by zeroing its z-score."""
+    only if the issue-day WTEMP is genuinely observed (used for gappy
+    large-sample panels, where history may be imputed but labels must be real).
+
+    Development training/validation/test rows still require every horizon label
+    jointly.  Development calibration rows, however, use the same
+    per-horizon inclusion rule as confirmation: an issue is retained when at
+    least one horizon has an observed target inside ``C.SPLIT.calib``, and
+    missing/out-of-bound horizons are masked.  Confirmation-only
+    ``independent_horizon_targets`` applies that rule to an explicit evaluation
+    interval and never changes development training semantics.  Missing WLEVEL
+    (all-NaN channel) is handled by zeroing its z-score."""
     # Positional lags/horizons are valid only on an exact daily calendar.  This
     # gate must run before fitting scalers, climatologies, or anchors.
     F.assert_strict_daily_panel(panel, expected_stations=tuple(C.STATIONS))
@@ -162,6 +167,14 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         raise ValueError(
             "independent_horizon_targets requires an explicit evaluation interval"
         )
+    # USGS / observed-label development windows align CQR/Platt inclusion with
+    # confirmation.  Legacy complete-case panels (no observed-target gate) keep
+    # the historical joint calibration rule.
+    independent_calibration_horizons = (
+        require_observed_target
+        and evaluation_interval is None
+        and not independent_horizon_targets
+    )
     scaler = scaler or D.StandardScalerPerStation.fit(
         panel, masks.train, variables=variables,
         fit_stations=scaler_fit_stations, pooled=pooled_scaler)
@@ -173,6 +186,7 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
     phys_vars = schema.physics_forcings
     P = len(phys_vars)
     st_index = {s: i for i, s in enumerate(C.STATIONS)}
+    calib_lo, calib_hi = map(np.datetime64, C.SPLIT.calib)
 
     rows: dict[str, list[Any]] = {k: [] for k in
             ("X", "Mask", "wtemp_t", "clim_t", "clim_tgt", "phys_std",
@@ -216,7 +230,9 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         cos_d = np.cos(2 * np.pi * doy / C.SEASONAL_PERIOD)
 
         n = len(sub)
-        stop = n if independent_horizon_targets else n - max_h
+        stop = n if (
+            independent_horizon_targets or independent_calibration_horizons
+        ) else n - max_h
         for t in range(context - 1, stop):
             d = dates[t]
             target_dates = np.asarray(
@@ -236,6 +252,34 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
                     for column, h in enumerate(horizons)
                 ], dtype=bool)
                 sp = evaluation_split if target_valid.any() else "none"
+            elif evaluation_interval is None and independent_calibration_horizons:
+                # Train/val/test stay jointly labelled.  Calibration matches the
+                # confirmation per-horizon rule on C.SPLIT.calib.
+                joint_ok = t + max_h < n
+                sp_joint = (
+                    D.split_for_forecast_interval(d, target_dates)
+                    if joint_ok else "none"
+                )
+                calib_valid = np.asarray([
+                    calib_lo <= d <= calib_hi
+                    and t + h < n
+                    and calib_lo <= target_dates[column] <= calib_hi
+                    and bool(obs_wt[t + h])
+                    for column, h in enumerate(horizons)
+                ], dtype=bool)
+                if sp_joint in ("train", "val", "test"):
+                    if all(bool(obs_wt[t + h]) for h in horizons):
+                        sp = sp_joint
+                        target_valid = np.ones(len(horizons), dtype=bool)
+                    else:
+                        sp = "none"
+                        target_valid = np.zeros(len(horizons), dtype=bool)
+                elif calib_valid.any():
+                    sp = "calib"
+                    target_valid = calib_valid
+                else:
+                    sp = "none"
+                    target_valid = np.zeros(len(horizons), dtype=bool)
             elif evaluation_interval is None:
                 sp = D.split_for_forecast_interval(d, target_dates)
                 target_valid = np.ones(len(horizons), dtype=bool)
@@ -251,7 +295,9 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
             if require_observed_target:
                 if not obs_wt[t]:
                     continue
-                if independent_horizon_targets:
+                if independent_horizon_targets or (
+                    independent_calibration_horizons and sp == "calib"
+                ):
                     # Re-evaluate after the observed issue-day gate so retained
                     # rows always have at least one genuinely observed label.
                     if not target_valid.any():
@@ -309,6 +355,7 @@ def build_windows(panel: pd.DataFrame, masks: D.SplitMasks,
         evaluation_interval=evaluation_interval,
         evaluation_split=evaluation_split,
         independent_horizon_targets=independent_horizon_targets,
+        independent_calibration_horizons=independent_calibration_horizons,
     )
     return wd
 
@@ -320,6 +367,7 @@ def _assert_no_leakage(
     evaluation_interval: tuple[str, str] | None = None,
     evaluation_split: str = "confirm",
     independent_horizon_targets: bool = False,
+    independent_calibration_horizons: bool = False,
 ) -> None:
     """Spot-check that the last history step equals WTEMP_t (no future bleed)."""
     if len(wd.X) == 0:
@@ -329,12 +377,36 @@ def _assert_no_leakage(
     if not np.array_equal(wd.target_date, expected_targets):
         raise AssertionError("stored target dates do not equal issue_date + horizon")
     if evaluation_interval is None:
+        calib_lo, calib_hi = map(np.datetime64, C.SPLIT.calib)
         for split_name in C.SPLIT.as_dict():
             selected = wd.split == split_name
             if not selected.any():
                 continue
             for i in np.where(selected)[0]:
-                if D.split_for_forecast_interval(
+                if (
+                    independent_calibration_horizons
+                    and split_name == "calib"
+                    and not wd.target_valid[i].all()
+                ):
+                    if not wd.target_valid[i].any():
+                        raise AssertionError("calibration issue lacks every valid target")
+                    if not (calib_lo <= wd.issue_date[i] <= calib_hi):
+                        raise AssertionError(
+                            "independent calibration issue falls outside the calib interval"
+                        )
+                    for column in range(len(wd.horizons)):
+                        if not wd.target_valid[i, column]:
+                            continue
+                        target = wd.target_date[i, column]
+                        if not (calib_lo <= target <= calib_hi):
+                            raise AssertionError(
+                                "independent calibration target crosses the calib boundary"
+                            )
+                    if not np.isnan(wd.y[i, ~wd.target_valid[i]]).all():
+                        raise AssertionError(
+                            "invalid calibration targets must remain masked"
+                        )
+                elif D.split_for_forecast_interval(
                         wd.issue_date[i], wd.target_date[i]) != split_name:
                     raise AssertionError("forecast target crosses a split boundary")
     else:

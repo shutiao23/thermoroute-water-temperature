@@ -123,6 +123,7 @@ def _formal_config() -> dict[str, Any]:
         "lambda_event": 0.3,
         "lambda_residual": 0.01,
         "lambda_crossing": 1.0,
+        "temperature_loss_scale": 1.0,
     }
     return {
         "stage": "09_usgs_experiment",

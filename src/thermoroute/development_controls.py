@@ -488,11 +488,17 @@ def window_registry_from_windowed(
         site_index = int(wd.station[row_index])
         if not 0 <= site_index < len(station_ids):
             raise DevelopmentControlsContractError("window station index is out of range")
+        split_name = str(wd.split[row_index])
         for column, horizon in enumerate(wd.horizons):
             if not bool(wd.target_valid[row_index, column]):
-                raise DevelopmentControlsContractError("development window has a masked target")
+                if split_name != "calib":
+                    raise DevelopmentControlsContractError(
+                        "development window has a masked non-calibration target"
+                    )
+                # Independent-horizon calibration may mask unavailable heads.
+                continue
             records.append({
-                "split": str(wd.split[row_index]),
+                "split": split_name,
                 "site_id": station_ids[site_index],
                 "horizon": int(horizon),
                 "issue_date": wd.issue_date[row_index],

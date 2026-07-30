@@ -237,12 +237,16 @@ def restrict_tabular_to_window_registry(
     except ValueError as exc:
         raise ValueError(f"horizon {horizon} absent from WindowedData") from exc
     sites = np.asarray([station_names[int(i)] for i in wd.station], dtype=object)
+    if hasattr(wd, "target_valid"):
+        valid = np.asarray(wd.target_valid[:, hi], dtype=bool)
+    else:
+        valid = np.ones(len(wd.station), dtype=bool)
     registry = pd.DataFrame({
-        "site_id": sites,
-        "issue_date": pd.to_datetime(wd.issue_date),
-        "target_date": pd.to_datetime(wd.target_date[:, hi]),
-        "split": wd.split,
-        "__window_y": wd.y[:, hi],
+        "site_id": sites[valid],
+        "issue_date": pd.to_datetime(wd.issue_date[valid]),
+        "target_date": pd.to_datetime(wd.target_date[valid, hi]),
+        "split": wd.split[valid],
+        "__window_y": wd.y[valid, hi],
     })
     key = ["site_id", "issue_date", "target_date", "split"]
     if registry.duplicated(key).any():

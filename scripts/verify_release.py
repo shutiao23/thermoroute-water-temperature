@@ -5450,6 +5450,7 @@ def _stage09b_formal_configuration(
         "max_epochs": 80, "patience": 12, "grad_clip": 1.0,
         "lambda_event": 0.3, "lambda_residual": 0.01,
         "lambda_crossing": 1.0,
+        "temperature_loss_scale": 1.0,
     }
     parameter_counts = {
         "PlainMLP-7var": 38_860,
@@ -6633,6 +6634,7 @@ def _stage25_expected_formal_configuration(
         "lambda_event": 0.3,
         "lambda_residual": 0.01,
         "lambda_crossing": 1.0,
+        "temperature_loss_scale": 1.0,
     }
     return {
         "stage": "25_train_external_pooled_suite",
@@ -6966,6 +6968,7 @@ def _stage16_train_config() -> dict[str, object]:
         "lambda_event": 0.3,
         "lambda_residual": 0.01,
         "lambda_crossing": 1.0,
+        "temperature_loss_scale": 1.0,
     }
 
 

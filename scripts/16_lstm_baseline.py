@@ -262,6 +262,14 @@ def _ensemble_prediction_frame(predictions: pd.DataFrame) -> pd.DataFrame:
 def _calibration_artifacts(predictions: pd.DataFrame, thresholds: dict[str, float]):
     calibration = _ensemble_prediction_frame(predictions)
     calibration = calibration[calibration.split.eq("calib")].copy()
+    if calibration.empty:
+        raise ValueError("LSTM calibration artifacts require a non-empty calib split")
+    y_true = calibration.y_true.to_numpy(float)
+    finite = np.isfinite(y_true)
+    if not finite.any():
+        raise ValueError("LSTM calibration artifacts lack finite observed targets")
+    if not finite.all():
+        calibration = calibration.loc[finite].copy()
     calibration["threshold"] = calibration.site_id.astype(str).map(thresholds)
     if calibration["threshold"].isna().any():
         raise KeyError("LSTM calibration contains an unknown site")

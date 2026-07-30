@@ -6,6 +6,12 @@ The remaining terms are exceedance BCE and an L1 leash from the point forecast
 to the frozen damped-persistence anchor. This is a bounded-deviation reference,
 not a physical or safety guarantee. All weights are fixed in
 ``config.TrainConfig`` and selected on the validation years only.
+
+Temperature-bearing terms are nondimensionalized by
+``TrainConfig.temperature_loss_scale`` (same units as ``y``): MSE / σ² and
+pinball / crossing / residual L1 / σ.  BCE is already dimensionless and is not
+rescaled.  With σ transforming as the affine unit factor (°C→°F ⇒ σ ↦ 1.8σ),
+relative λ_* weights and the total loss are invariant.
 """
 
 from __future__ import annotations
@@ -25,6 +31,11 @@ from . import config as C
 from . import results as R
 from .checkpoint import load_training_checkpoint, save_training_checkpoint
 from .datasets import WindowedData
+
+
+# Affine °C → °F factor for difference / scale quantities (offset drops out).
+CELSIUS_TO_FAHRENHEIT_SCALE = 1.8
+CELSIUS_TO_FAHRENHEIT_OFFSET = 32.0
 
 
 def _configure_torch_determinism_only(*, threads: int = 1) -> None:
@@ -78,25 +89,125 @@ def pinball_loss(y: Tensor, q: Tensor, tau: float) -> Tensor:
     return torch.mean(torch.maximum(tau * d, (tau - 1.0) * d))
 
 
-def composite_loss(out, y: Tensor, ybin: Tensor, cfg: C.TrainConfig) -> Tensor:
+def resolve_temperature_loss_scale(cfg: C.TrainConfig) -> float:
+    """Return the positive temperature scale used to nondimensionalize loss."""
+    scale = float(cfg.temperature_loss_scale)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError(
+            "temperature_loss_scale must be a finite positive temperature "
+            "magnitude in the same units as the regression targets"
+        )
+    return scale
+
+
+def training_temperature_loss_scale(
+    wd: WindowedData, *, split: str = "train"
+) -> float:
+    """Pooled issue-day WTEMP standard deviation on ``split`` (native units).
+
+    Optional alternative to the explicit 1 °C Route-A reference: callers that
+    want σ = train-period temperature dispersion may set
+    ``TrainConfig.temperature_loss_scale`` from this helper.  Under an affine
+    unit change the returned value scales by the multiplicative factor only.
+    """
+    index = np.asarray(wd.idx(split))
+    if index.size == 0:
+        raise ValueError(f"cannot derive temperature_loss_scale: split '{split}' is empty")
+    values = np.asarray(wd.wtemp_t[index], dtype=np.float64)
+    scale = float(np.std(values, ddof=0))
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError(
+            "training temperature_loss_scale is non-finite or non-positive"
+        )
+    return scale
+
+
+@dataclass(frozen=True)
+class CompositeLossTerms:
+    """Nondimensional composite-loss parts (σ-scaled) plus the weighted total."""
+
+    point: Tensor
+    quantile: Tensor
+    event: Tensor
+    crossing: Tensor
+    residual: Tensor
+    total: Tensor
+
+    def as_weighted_parts(self, cfg: C.TrainConfig) -> dict[str, Tensor]:
+        """Named terms after λ_* (still nondimensional; sums to ``total``)."""
+        return {
+            "point": self.point,
+            "quantile": self.quantile,
+            "event": cfg.lambda_event * self.event,
+            "crossing": cfg.lambda_crossing * self.crossing,
+            "residual": cfg.lambda_residual * self.residual,
+        }
+
+
+def composite_loss_terms(
+    out, y: Tensor, ybin: Tensor, cfg: C.TrainConfig
+) -> CompositeLossTerms:
+    """Unit-covariant composite loss with an explicit term breakdown.
+
+    Let σ = ``cfg.temperature_loss_scale`` > 0 in the same units as ``y``.
+    With affine unit map T' = a T + b (a > 0) and σ' = a σ, each returned term
+    is invariant when heads / prior / thresholds (hence ``ybin``) transform
+    consistently:
+
+    * point = MSE(y, point) / σ²
+    * quantile = (pinball_05 + pinball_50 + pinball_95) / σ
+    * crossing = mean ReLU non-crossing gaps / σ
+    * residual = mean |point − prior| on finite prior / σ
+    * event = BCEWithLogits (already dimensionless; not divided by σ)
+    * total = point + quantile + λ_event·event + λ_crossing·crossing
+      + λ_residual·residual
+    """
+    scale = resolve_temperature_loss_scale(cfg)
+    scale_t = y.new_tensor(scale)
+    scale_sq_t = y.new_tensor(scale * scale)
     # Point head trained on MSE so it targets the (RMSE-optimal) conditional mean;
     # q50 has its own pinball-trained parameters and is never an alias/sorted
     # version of that point forecast.
-    point = torch.mean((y - out.point) ** 2)
-    lq = (pinball_loss(y, out.q05, 0.05)
-          + pinball_loss(y, out.q50, 0.50)
-          + pinball_loss(y, out.q95, 0.95))
+    point = torch.mean((y - out.point) ** 2) / scale_sq_t
+    lq = (
+        pinball_loss(y, out.q05, 0.05)
+        + pinball_loss(y, out.q50, 0.50)
+        + pinball_loss(y, out.q95, 0.95)
+    ) / scale_t
     # Every supported neural forecaster constructs q05=q50-softplus(.) and
     # q95=q50+softplus(.).  This compatibility term is therefore identically
     # zero; it is retained only so historical TrainConfig fields remain
     # explicit, not because it supplies an effective non-crossing penalty.
-    cross = (torch.relu(out.q05 - out.q50) + torch.relu(out.q50 - out.q95)).mean()
+    cross = (
+        (torch.relu(out.q05 - out.q50) + torch.relu(out.q50 - out.q95)).mean()
+        / scale_t
+    )
     evt = nn.functional.binary_cross_entropy_with_logits(out.exceed_logit, ybin)
     finite_prior = torch.isfinite(out.prior)
-    resid = ((out.point[finite_prior] - out.prior[finite_prior]).abs().mean()
-             if finite_prior.any() else out.point.new_zeros(()))
-    return point + lq + cfg.lambda_event * evt + cfg.lambda_crossing * cross \
+    resid = (
+        (out.point[finite_prior] - out.prior[finite_prior]).abs().mean() / scale_t
+        if finite_prior.any()
+        else out.point.new_zeros(())
+    )
+    total = (
+        point
+        + lq
+        + cfg.lambda_event * evt
+        + cfg.lambda_crossing * cross
         + cfg.lambda_residual * resid
+    )
+    return CompositeLossTerms(
+        point=point,
+        quantile=lq,
+        event=evt,
+        crossing=cross,
+        residual=resid,
+        total=total,
+    )
+
+
+def composite_loss(out, y: Tensor, ybin: Tensor, cfg: C.TrainConfig) -> Tensor:
+    return composite_loss_terms(out, y, ybin, cfg).total
 
 
 # --------------------------------------------------------------------------- #
@@ -545,17 +656,26 @@ def export_predictions(model, wd, thresholds, device, model_name, scope,
             q95 = out.q95.detach().cpu().numpy()
             pexc = torch.sigmoid(out.exceed_logit).detach().cpu().numpy()
             for hi, h in enumerate(wd.horizons):
-                site = np.array([C.STATIONS[i] for i in wd.station[chunk]])
-                issue = wd.issue_date[chunk]
+                if hasattr(wd, "target_valid"):
+                    keep = np.asarray(wd.target_valid[chunk][:, hi], dtype=bool)
+                else:
+                    keep = np.ones(n, dtype=bool)
+                if not keep.any():
+                    continue
+                site = np.array([C.STATIONS[i] for i in wd.station[chunk]])[keep]
+                issue = wd.issue_date[chunk][keep]
                 tdate = (wd.target_date[chunk][:, hi] if hasattr(wd, "target_date")
                          else issue + np.timedelta64(h, "D"))
+                if hasattr(wd, "target_date"):
+                    tdate = tdate[keep]
                 frames.append(R.make_pred_frame(
                     model=model_name, scope=scope, feature_set=feature_set, seed=seed,
-                    site_id=site, horizon=np.full(n, h), split=np.full(n, split),
+                    site_id=site, horizon=np.full(int(keep.sum()), h),
+                    split=np.full(int(keep.sum()), split),
                     issue_date=issue, target_date=tdate,
-                    y_true=wd.y[chunk][:, hi], y_pred=point[:, hi],
-                    q05=q05[:, hi], q50=q50[:, hi], q95=q95[:, hi],
-                    p_exceed=pexc[:, hi]))
+                    y_true=wd.y[chunk][:, hi][keep], y_pred=point[:, hi][keep],
+                    q05=q05[:, hi][keep], q50=q50[:, hi][keep], q95=q95[:, hi][keep],
+                    p_exceed=pexc[:, hi][keep]))
     return pd.concat(frames, ignore_index=True) if frames else R.empty_predictions()
 
 

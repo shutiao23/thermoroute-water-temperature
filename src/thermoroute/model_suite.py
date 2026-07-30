@@ -2522,7 +2522,15 @@ def validate_development_calibrated_head_gate(
     )
 
     calibration = ensemble[ensemble["split"].astype(str).eq("calib")].copy()
-    if calibration.empty or (
+    if calibration.empty:
+        raise ModelSuiteError(f"{label} calibration replay is empty")
+    y_true = calibration["y_true"].to_numpy(float)
+    finite = np.isfinite(y_true)
+    if not finite.any():
+        raise ModelSuiteError(f"{label} calibration replay lacks finite observed targets")
+    if not finite.all():
+        calibration = calibration.loc[finite].copy()
+    if (
         pd.to_datetime(calibration["target_date"])
         > pd.Timestamp(C.SPLIT.calib[1])
     ).any():
