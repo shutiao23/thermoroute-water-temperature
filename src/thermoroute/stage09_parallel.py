@@ -129,6 +129,9 @@ FORMAL_RUN_CONFIG_FIELDS = frozenset(
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _RUN_ID = re.compile(r"[0-9a-f]{20}")
 _MAX_RECEIPT_BYTES = 2 * 1024 * 1024
+# Inference-bundle metadata embeds fit-time preprocessing tables; on the
+# 120-station USGS panel this is ~8-9 MiB and must remain loadable at freeze.
+_MAX_BUNDLE_METADATA_BYTES = 16 * 1024 * 1024
 _MAX_ARCHIVE_MEMBERS = 256
 _MAX_ARCHIVE_BYTES = 32 * 1024 * 1024 * 1024
 SEMANTIC_VALIDATION_FORMAT = (
@@ -2522,6 +2525,7 @@ def _thermoroute_reference_registry(
         metadata = _load_json(
             bundle_files["metadata.json"],
             label=f"ThermoRoute seed{seed} bundle metadata",
+            maximum=_MAX_BUNDLE_METADATA_BYTES,
             repository_style=True,
         )
         if (
