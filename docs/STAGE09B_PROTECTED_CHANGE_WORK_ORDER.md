@@ -324,3 +324,33 @@ inference boundary.
 > model-matrix changes, manual output/receipt/work-order edits, direct worker
 > launches, or any 2021–2023 outcome request, read, opening, scoring, or claim.
 
+## 11. Authorization record
+
+**Authorized by user on 2026-08-02 (14:23 UTC+01:00).** The user provided the
+following explicit authorization, which satisfies the prerequisites in
+Section 2:
+
+> I authorize running a new Stage-09 under the new source `a4b174e1...`,
+> accepting the old `7cb2...` receipt as historical evidence only and not
+> promoting it across hashes; reuse only caches validated as eligible by the
+> guarded entrypoint; no opening authorization; no protocol changes; no manual
+> receipt construction.
+
+Authorized scope, bound to this work order and to
+`docs/RUN_PACKAGE_20260802/README.md`:
+
+1. The new source identity is `a4b174e10d2ffae192a4411b3b29c5c00b52cd355e3cf409b0fa9dfe2e276002`
+   (verified by `preflight_env.sh` on the target host, `PREFLIGHT OK`,
+   2026-08-02).
+2. The target host environment is `route-a` (conda, Python 3.12.13) with
+   `torch 2.12.0+cpu` and lock-aligned dependencies; full focused regression
+   passed (`tests/test_development_controls.py`,
+   `tests/test_stage09b_precompute.py`).
+3. Execution sequence per Section 7: quiescent preflight → guarded Stage-09
+   launcher → independent receipt validation → watcher binding → Phase-2.
+4. Not authorized by this record: target-period (2021–2023) acquisition or
+   opening; protocol/model-matrix amendment; manual construction or editing of
+   receipts, work orders, or manifests; direct member-worker invocation;
+   promotion of `7cb2...`, `bb02498a...`, or `a930...` artifacts.
+
+
