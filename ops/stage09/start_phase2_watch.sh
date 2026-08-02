@@ -41,8 +41,8 @@ unset PYTHONHASHSEED PYTHONPYCACHEPREFIX || true
 export THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-$PWD/.venv-route-a/bin/python}"
 
 HOST_CPUS="$(nproc --all 2>/dev/null || nproc)"
-PHASE2_09B_WORKERS="${PHASE2_09B_WORKERS:-6}"
-if [[ "$PHASE2_09B_WORKERS" -gt 8 ]]; then PHASE2_09B_WORKERS=8; fi
+PHASE2_09B_WORKERS="${PHASE2_09B_WORKERS:-96}"
+if [[ "$PHASE2_09B_WORKERS" -gt 96 ]]; then PHASE2_09B_WORKERS=96; fi
 if [[ "$PHASE2_09B_WORKERS" -lt 1 ]]; then PHASE2_09B_WORKERS=1; fi
 
 # Binding: source digest is mandatory. run_id is optional until the new run exists.

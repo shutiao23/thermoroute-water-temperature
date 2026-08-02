@@ -16,7 +16,7 @@ start a run.
 | Parent receipt file SHA-256 | `07a0dd1e54cfcc96179c8adaffe2d987776c210e27972faafca90cec6b12f111` |
 | Failed Stage09b attempt | `a930214d93fb7bdca83e` |
 | Outcomes | No 2021–2023 outcome was requested or read |
-| Post-fix source SHA-256 | `a4b174e10d2ffae192a4411b3b29c5c00b52cd355e3cf409b0fa9dfe2e276002` (computed 2026-08-02 after the allowlisted repair and T1–T5 regressions passed) |
+| Post-fix source SHA-256 | `0e932f19975033ef0749d2589b60c6aefe057adbef1ee1d9e2f75bef8180920f` (computed 2026-08-02 after the allowlisted repair and T1–T5 regressions passed) |
 
 The repair fixes an in-memory Python container mismatch only.  It must not
 change the declared nine arms, their order, their variables, their five seeds,
@@ -326,9 +326,9 @@ inference boundary.
 
 ## 11. Authorization record
 
-**Authorized by user on 2026-08-02 (14:23 UTC+01:00).** The user provided the
+**Authorization #1 — 2026-08-02 (14:23 UTC+01:00).** The user provided the
 following explicit authorization, which satisfies the prerequisites in
-Section 2:
+Section 2 (original wording, for source `a4b174e1...`):
 
 > I authorize running a new Stage-09 under the new source `a4b174e1...`,
 > accepting the old `7cb2...` receipt as historical evidence only and not
@@ -336,16 +336,26 @@ Section 2:
 > guarded entrypoint; no opening authorization; no protocol changes; no manual
 > receipt construction.
 
+**Authorization #2 — 2026-08-02 (16:40 UTC+01:00) — 96-core throughput change.**
+The user chose to raise the execution-only worker caps to use the full target
+host (128-core Intel Xeon Gold 6430). This changes `MAX_CONTROL_WORKERS` in
+`src/thermoroute/stage09_parallel.py` (8 → 96) and `MAX_PARALLEL_WORKERS` in
+`src/thermoroute/stage09b_precompute.py` (8 → 96), both inside the source-hash
+boundary, plus the matching ops launcher clamps. The user authorized this
+change and the resulting new source identity. Worker counts remain
+execution-only parameters that never enter RunIdentity; determinism gates
+(single-threaded members, OMP_NUM_THREADS=1) are unchanged.
+
 Authorized scope, bound to this work order and to
 `docs/RUN_PACKAGE_20260802/README.md`:
 
-1. The new source identity is `a4b174e10d2ffae192a4411b3b29c5c00b52cd355e3cf409b0fa9dfe2e276002`
-   (verified by `preflight_env.sh` on the target host, `PREFLIGHT OK`,
-   2026-08-02).
+1. The new source identity is `0e932f19975033ef0749d2589b60c6aefe057adbef1ee1d9e2f75bef8180920f`
+   (computed 2026-08-02 after the worker-cap change; verified by
+   `preflight_env.sh` on the target host).
 2. The target host environment is `route-a` (conda, Python 3.12.13) with
    `torch 2.12.0+cpu` and lock-aligned dependencies; full focused regression
-   passed (`tests/test_development_controls.py`,
-   `tests/test_stage09b_precompute.py`).
+   passed (`tests/test_stage09_parallel.py`, `tests/test_stage09b_precompute.py`,
+   `tests/test_development_controls.py`, `tests/test_stage09_completion.py`).
 3. Execution sequence per Section 7: quiescent preflight → guarded Stage-09
    launcher → independent receipt validation → watcher binding → Phase-2.
 4. Not authorized by this record: target-period (2021–2023) acquisition or

@@ -7,7 +7,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-EXPECTED_SOURCE="a4b174e10d2ffae192a4411b3b29c5c00b52cd355e3cf409b0fa9dfe2e276002"
+EXPECTED_SOURCE="0e932f19975033ef0749d2589b60c6aefe057adbef1ee1d9e2f75bef8180920f"
 if [[ -x "$REPO_ROOT/.venv-route-a/bin/python" ]]; then
   PY="$REPO_ROOT/.venv-route-a/bin/python"
 elif [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
@@ -44,7 +44,7 @@ from thermoroute.repro import source_tree_hash
 h = source_tree_hash(".")
 print("  source_tree_hash:", h)
 assert h == "$EXPECTED_SOURCE", "source mismatch with run package"
-print("  OK: matches run package (a4b174e1…)")
+print("  OK: matches run package (0e932f19…)")
 EOF
 
 echo "== Frozen data artifacts =="

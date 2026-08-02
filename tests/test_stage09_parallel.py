@@ -671,7 +671,8 @@ def test_control_plan_is_exact_7x5_and_worker_width_is_not_scientific_identity(
     run_directory = authorization.parent.parent
     assert (run_directory / ".stage09-control-member-locks").is_dir()
     assert (run_directory / ".stage09-control-member-staging").is_dir()
-    assert DEFAULT_CONTROL_WORKERS == RECOMMENDED_MAX_CONTROL_WORKERS == 2
+    assert DEFAULT_CONTROL_WORKERS == RECOMMENDED_MAX_CONTROL_WORKERS
+    assert RECOMMENDED_MAX_CONTROL_WORKERS >= 8
     assert MAX_CONTROL_WORKERS >= RECOMMENDED_MAX_CONTROL_WORKERS
 
 

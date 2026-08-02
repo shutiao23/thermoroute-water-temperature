@@ -4,7 +4,7 @@
 | --- | --- |
 | Date | 2026-08-02 |
 | Branch | `feat/route-a-completion` |
-| Source SHA-256 (post-fix) | `a4b174e10d2ffae192a4411b3b29c5c00b52cd355e3cf409b0fa9dfe2e276002` |
+| Source SHA-256 (post-fix) | `0e932f19975033ef0749d2589b60c6aefe057adbef1ee1d9e2f75bef8180920f` |
 | Previous source (historical only) | `19289553aa0929bdb5803a8a3eaa96b38a651b3d52da441fb6298f2ac9228b55` |
 | Purpose | Execute the new Stage-09 → 09b → 16 → 25 lineage on a target machine (A100 GPU box or high-core CPU host) |
 | Status | **NOT A COMPLETION RECEIPT.** This package prepares execution; it does not authorize opening or claims |
@@ -19,8 +19,8 @@ A100 GPUs cannot accelerate the formal chain.
 
 | Workload | Recommended hardware | Estimated wall time |
 | --- | --- | --- |
-| Stage-09 (9 models × 5 seeds, 438k rows) | 64–128-core CPU | 4–8 h (22 cores: 12–16 h) |
-| Stage-09b (45 members, same scale) | 64–128-core CPU | 4–8 h |
+| Stage-09 (9 models × 5 seeds, 438k rows) | 64–128-core CPU, 96 workers | ~1–2 h (128-core Xeon; 22 cores/8 workers: 12–16 h) |
+| Stage-09b (45 members, same scale) | 64–128-core CPU, 96 workers | ~1–2 h |
 | Stage-16 LSTM / Stage-25 external | 64–128-core CPU | 1–3 h each |
 | Exploratory prototypes / hyperparameter sweeps | A100 (any device) | 1–3 h total |
 
@@ -61,7 +61,7 @@ PYTHONPATH=src python - <<'EOF'
 from thermoroute.repro import source_tree_hash
 h = source_tree_hash(".")
 print("source_tree_hash:", h)
-assert h == "a4b174e10d2ffae192a4411b3b29c5c00b52cd355e3cf409b0fa9dfe2e276002", "source mismatch"
+assert h == "0e932f19975033ef0749d2589b60c6aefe057adbef1ee1d9e2f75bef8180920f", "source mismatch"
 print("OK: matches run package")
 EOF
 ```
@@ -93,9 +93,9 @@ The watcher pin file `ops/stage09/phase2_watch.env` is already updated with the
 new source hash and an empty `EXPECTED_STAGE09_RUN_ID`.
 
 ```bash
-# Step A: new guarded Stage-09 (creates new content-addressed run under a4b174e1…)
-# Memory-sensitive hosts: STAGE09_CONTROL_WORKERS=4
-export STAGE09_CONTROL_WORKERS=6
+# Step A: new guarded Stage-09 (creates new content-addressed run under 0e932f19…)
+# Memory-sensitive hosts: STAGE09_CONTROL_WORKERS=8; 96 on 128-core/128GB hosts
+export STAGE09_CONTROL_WORKERS=96
 bash ops/stage09/start_stage09.sh
 
 # Step B: independently validate the new receipt
@@ -130,7 +130,7 @@ Do NOT:
 
 | Artifact | Acceptance |
 | --- | --- |
-| New Stage-09 receipt | `PASS_FORMAL_STAGE09_COMPLETE`, source bound to `a4b174e1…`, outcome flag false |
+| New Stage-09 receipt | `PASS_FORMAL_STAGE09_COMPLETE`, source bound to `0e932f19…`, outcome flag false |
 | Stage-09b receipt | `PASS`, 9 arms × 5 seeds = 45 member receipts, no outcome access |
 | Stage-16 receipt | global LSTM closure + transfer folds |
 | Stage-25 receipt | external pooled suite closure |

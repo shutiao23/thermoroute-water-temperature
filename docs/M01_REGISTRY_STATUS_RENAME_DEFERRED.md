@@ -5,7 +5,7 @@
 | Date | 2026-08-02 |
 | Status | `DEFERRED_TO_NEW_LINEAGE` — design only, not applied |
 | Review item | Review `m-01` — `USGS_SNAPSHOT_SITE_NO_MATCH` is treated as "verified" by code while its name reads like a match failure |
-| Source boundary | Must be coordinated with the new Stage-09 lineage (post `a4b174e1...`); it changes `registry_sha256` and therefore run identity |
+| Source boundary | Must be coordinated with the new Stage-09 lineage (post `0e932f19...`); it changes `registry_sha256` and therefore run identity |
 
 ## 1. Why it is deferred
 
@@ -42,7 +42,7 @@ as verified. The legacy `LEGACY_SOURCE_SITE_NO_MATCH` path (used when
 ## 4. Migration steps (with the new lineage)
 
 1. Apply the rename within the same authorized protected-change batch that
-   creates the new Stage-09 lineage (after the `a4b174e1...` boundary exists).
+   creates the new Stage-09 lineage (after the `0e932f19...` boundary exists).
 2. Regenerate the frozen panel and registry via `scripts/data_usgs/freeze_panel.py`
    with the USGS snapshot source; verify the status counts stay 120/120.
 3. Run `pytest -q tests/test_data_evidence.py tests/test_confirmatory_inputs.py
