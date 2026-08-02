@@ -1,12 +1,12 @@
 # ThermoRoute Route-A 剩余工作与完成计划
 
-更新日期：2026-07-27
+更新日期：2026-08-02
 
-当前状态：**PAUSED（暂停）**
+当前状态：**Stage-09 已正式完成；Phase-2 在 Stage-09b 的预成员门禁 fail-closed。** run `7cb2bfb18c1f9aa3dba7`（`source_sha256=19289553aa0929bdb5803a8a3eaa96b38a651b3d52da441fb6298f2ac9228b55`）已取得 `PASS_FORMAL_STAGE09_COMPLETE`，completion receipt SHA-256 为 `07a0dd1e54cfcc96179c8adaffe2d987776c210e27972faafca90cec6b12f111`。既有 watcher 验证该回执后启动 09b；09b run `a930214d93fb7bdca83e` 在任何成员训练前因 arm/seed config 的 tuple/list 类型契约不一致而停止。它没有 authorization、work order、成员缓存或 completion receipt，当前没有相关进程。已作废 `bb02498a…` 仍禁止 resume（见 [`docs/BB02498A_VOID_EVENT.md`](docs/BB02498A_VOID_EVENT.md)）。
 
 工作分支：`feat/route-a-completion`
 
-最近的源代码边界提交：`b9f6e01`（`fix(route-a): finalize preopening source boundary`）
+最近的源代码边界：`19289553…` 是已完成 `7cb2bfb…` receipt 的精确身份（R0-2 后正式重跑；HEAD ≈ `bc6d4eac`：`008e1f34` R0-2、`fdd70c42` gitignore、`41d9485f` ops watcher、`6f27b552` docs、`c0c556f7` metadata）。09b 的类型契约缺陷位于受保护执行链；**未获明确授权前不得改** `src/` / `scripts/` / `tests/` / `protocols/` 等 hashed 路径。若获准修复，必产生新 source hash，现有 Stage-09 receipt 只能保留为旧身份下的完整历史证据，不能推进新身份的 Phase-2。
 
 ## 1. 这份文档是什么
 
@@ -54,10 +54,10 @@ Because the frozen Route-A cohort contains at most 15 HUC2 groups (inverse-Herfi
 
 ## 2. 不可违反的当前指令
 
-1. **未经用户再次明确授权，不启动、恢复或并行运行任何实验。**
-2. 当前只允许做轻量级的 Git、文档和只读状态检查。
+1. **授权边界**：同树 Stage-09 `7cb2bfb18c1f9aa3dba7` 已由 guarded entrypoint 完成，watcher 的 receipt 验证和首次 09b 启动也已发生。09b 的 config 类型契约缺陷需要修改 hashed 源码；**在用户明确授权前**，不得修复、不得另开新 source identity 的 Stage-09、不得手工重放或伪造 09b 工单。**禁止** resume/promote void run `bb02498a8396ea7c6110`。
+2. 文档与只读检查可并行；在新的受保护源码修复获得授权前，**禁止**修改 `src/`、`scripts/`、`tests/`、`protocols/` 等进入 `source_tree_hash` 的路径（含“顺手修” pytest hermeticity）。
 3. 不修改 APFS、操作系统内核或用户的系统配置。实验只应使用普通文件；恢复前只做磁盘余量、文件完整性和运行环境检查。
-4. 不删除现有断点、`.tmp` 事务文件、锁文件或成员缓存。恢复程序应先按代码中的事务规则验证，再决定能否回收或继续。
+4. 不删除现有断点、`.tmp` 事务文件、锁文件或成员缓存（含 void run 目录，直至新 receipt 落地）。恢复程序应先按代码中的事务规则验证，再决定能否回收或继续。
 5. 不在原始工作树 `feat/yiqu-upgrade` 上继续 Route-A 工作，不修改或提交用户原有的结果文件。
 6. 当前工作树中的 `outputs/tables/lightgbm_joint_validation_selection.csv` 不随计划文档一起处理或提交。
 7. 可以按冻结流程生成 authorization 并完成只读 preflight；但在创建 opening intent、请求 2021--2023 目标标签或执行 opening 前，必须再次停下来让用户审核并明确批准。
@@ -76,22 +76,30 @@ Because the frozen Route-A cohort contains at most 15 HUC2 groups (inverse-Herfi
 - “三个普通监测站而非水库级联”的语义修正与发布边界保护；
 - 已跟踪的代码、协议和测试改动已经提交到 `feat/route-a-completion`。
 
-### 3.2 当前实验缓存快照
+### 3.2 当前实验与 receipt 快照
 
-当前 Stage-09 run ID 为 `74aba73df5559f626c91`。以下内容只是可恢复缓存，**在 completion receipt 生成并验证前都不是正式结果**：
+**当前权威 Stage-09 formal run ID：`7cb2bfb18c1f9aa3dba7`**（`source_sha256=19289553aa0929bdb5803a8a3eaa96b38a651b3d52da441fb6298f2ac9228b55`）。`outputs/models/route_a_stage09_completion.json` 已为该身份给出 `PASS_FORMAL_STAGE09_COMPLETE`；其 receipt 文件 SHA-256 为 `07a0dd1e54cfcc96179c8adaffe2d987776c210e27972faafca90cec6b12f111`。这证明 Stage-09 的受绑定开发产物已完成，**不**构成 2021--2023 outcome 结果或 opening 授权；**不得**把 void 的 `bb02498a…` 缓存当作可恢复正式证据。
 
-- ThermoRoute 正式 5 个 seed 的 checkpoint、member bundle 和 development prediction 已存在；
-- 一个 random held-station warm-start diagnostic checkpoint/prediction 已存在；
-- LightGBM 已完成 87 次拟合：
-  - 4 个候选配置 × 3 个 horizon = 12 次 validation selection 拟合；
-  - 5 个 seed × 3 个 horizon × 5 个 head = 75 次冻结配置拟合；
-- Stage-09 的 7 个 mandatory control arm × 5 个 seed，共应有 35 个成员：
-  - 已生成 20 个最终 member archive；
-  - 仍有 15 个成员未完成，其中 `arm04/seed0` 已到 epoch 15，`arm04/seed1` 已到 epoch 11；
-  - 另外 13 个成员尚未形成最终 archive；
-- Stage-09 completion receipt 仍不存在，因此 Stage-09 整体状态只能写成 **INCOMPLETE / PAUSED**；
+历史 lineage（勿混用）：
+
+- `74aba73df5559f626c91`：计划文档旧快照 ID，**已过时，不是当前权威**；
+- `f1ab4da5736f5c25e2b0`：更早 formal 尝试，audit-only；
+- `bb02498a8396ea7c6110`：**已 void**（改代码重跑使旧 `ee99225c…` 树作废；约付 ~12 机器小时、曾至 ~27/35 member）。目录约 1.1 GB **保留至新 receipt 落地**（M-01 前后对照）；**禁止 resume / promote**；
+- `7cb2bfb18c1f9aa3dba7`：**当前权威 completed formal run**（仅限上述 source hash）。
+
+2026-07-30 的 OOM/缓存事件（历史记录；已被后续 guarded completion 覆盖）：
+
+- control `seedN.member.tar`（口径：仅本 run 的 `stage09_control_precompute_v1/members/**`）：**35/35**（`EXACT_35_MEMBER_MATRIX_COMPLETE`，missing=0）；**禁止**把 void `bb02498a` 的 tar 计入进度；
+- LightGBM shards：**75** JSON；nohup 末行 `[26555s] saved predictions (27491819 rows)`（mtime ~20:07）；其后 **无**新日志；
+- ~20:49 dmesg OOM：`Killed process 17129 (python) anon-rss≈24.1 GiB`；Stage-09 python **已死**；
+- formal lock JSON 仍 `state=held` / pid=`597120`，但 `/proc/597120` 与 `/proc/17129` 皆不存在；**OS flock 已空闲**（孤儿元数据，非活持有）；
+- 当时 phase2 watcher pid `596058` 仍活（`ENABLE_STAGE09_AUTOSTART=0`）并空等；`VOID_STAGE09_RUN_IDS=bb02498a…`；
+- 当时尚缺 `outputs/models/route_a_stage09_completion.json`（成员齐 ≠ Stage-09 完结）；该历史状态已由后续 guarded completion 取代；
 - Stage-09b、Stage-16、Stage-25 的正式 completion receipt 均未生成；
 - model-suite freeze、development replay、输入证据 freeze、chronology、authorization 和 opening 均未完成。
+- 历史卡死账本：[`outputs/logs/STAGE09_7CB2_OOM_STUCK_20260730.md`](outputs/logs/STAGE09_7CB2_OOM_STUCK_20260730.md)。
+
+2026-08-02 当前勘误：guarded relaunch 完成了 Stage-09，receipt 通过独立验证；watcher 随后启动 09b。09b run `a930214d93fb7bdca83e` 在预计算 freeze 中拒绝 live config：`dataclasses.asdict(ArmSpec)` 保留 tuple，而 formal arm/seed contract 要求 JSON-list 形状。此故障发生在任何成员训练前；没有 authorization、work order、成员缓存或 09b completion receipt，watcher 已退出。下一道门禁不是重试该 run，而是获得受保护源码修复授权；修复后必须建立新的 source identity 并重新走其所需的 Stage-09→09b lineage。
 
 ## 4. “项目完成”的定义
 
@@ -108,40 +116,23 @@ Because the frozen Route-A cohort contains at most 15 HUC2 groups (inverse-Herfi
 
 ### Phase 0：恢复前安全检查
 
-状态：**等待用户授权，不执行**
+状态：**已完成（2026-07-30）** — 用户已授权「改代码重跑」并启动 live `7cb2bfb…`；本阶段不再阻塞。
 
-恢复实验前需要：
+历史完成要点（保留，勿读成「现在应去 resume void run」）：
 
-1. 确认没有训练进程在运行；
-2. 检查剩余磁盘空间、目标目录可写性和已有缓存的可读性；
-3. 对两个 resumable checkpoint 只做格式、hash、sidecar 和事务状态验证；
-4. 保留原有缓存副本或可恢复备份，绝不手工拼接模型文件；
-5. 选择运行平台：
-   - 若继续使用当前 Mac，Stage-09 先以 `--control-workers 1`、Stage-09b 以 `--precompute-workers 1` 的低负载方式验证一个恢复成员；
-   - 若迁移，优先使用稳定的 Linux 环境或 Windows + WSL2；
-   - 原生 Windows 需要改写 POSIX shell、文件锁、权限、`fsync`/同主机 fresh-process 等平台逻辑；
-   - 不同操作系统、CPU 或数值库属于新的 runtime identity，不能把旧缓存和新结果直接混成一条 canonical evidence chain。
-6. 一个成员恢复成功后，再根据实测内存、磁盘写入和耗时决定是否继续；不自动提高并发。
+1. WSL2 环境与磁盘余量检查；
+2. 陈旧 `bb02498a` formal lock 按事务规则标 `released`（文件保留审计）；**未** resume 该 void run；
+3. ops watcher 绑定 `EXPECTED_SOURCE_SHA256=19289553…`，`VOID_STAGE09_RUN_IDS=bb02498a8396ea7c6110`；
+4. live source hash 全等后启动**新** Stage-09（workers=6）；void 目录 ~1.1 GB 保留作 M-01/M-04 前后对照；
+5. 2026-07-27 只读备注：当时 `outputs/` ~876 MB、磁盘充裕——死机主因不是写满盘，而是 WSL 重启带走进程（已由自愈 watcher 对症）。
 
-2026-07-27 的只读检查显示，当前 `outputs/` 约 876 MB，磁盘仍约有 405 GiB 可用。因此暂时没有证据表明死机是“文件太大把磁盘写满”导致的；恢复时应优先排查并发、内存压力、普通文件 I/O/事务恢复和主机稳定性。
-
-完成标准：形成一份只读恢复检查记录；没有修改正式输出，也没有请求 post-2020 标签。
+完成标准（已满足）：启动检查记录存在；未请求 post-2020 标签；未误 promote void 缓存。
 
 ### Phase 1：完成 Stage-09 并生成正式回执
 
-状态：**部分完成，暂停中**
+状态：**已完成（receipt-validated）** — `7cb2bfb18c1f9aa3dba7` / `19289553…` 的 completion receipt 存在、独立校验通过，receipt SHA-256 为 `07a0dd1e54cfcc96179c8adaffe2d987776c210e27972faafca90cec6b12f111`。完成过程中没有读取 2021--2023 outcome；**勿** resume void 的 `bb02498a…`。
 
-待做工作：
-
-1. 由恢复代码验证并处理两个中断的 checkpoint 事务；
-2. 完成剩余 15/35 个 control member；
-3. 验证 35 个 control member 的 seed、forecast key、target bytes、预算和源代码身份完全一致；
-4. 从已验证成员重新物化正式 control predictions/bundles；
-5. 重新验证 5-seed ThermoRoute、5-seed LightGBM、baseline 和 diagnostic outputs；
-6. 生成 canonical Stage-09 predictions、scores、report、三类 pointer 和 `route_a_stage09_completion.json`；
-7. 对 completion receipt 和它绑定的全部文件做独立校验。
-
-完成标准：Stage-09 completion receipt 存在、self-hash 正确、所有绑定文件可重放，且没有读取 2021--2023 outcome。
+后续约束：这一完成态只绑定现有 source hash。09b 的 tuple/list contract 修复若获授权，会改变该边界；届时必须使用新 source hash 的 guarded Stage-09 lifecycle，而不能把本 receipt 重新标记为新源码下的完成证据。
 
 ### Phase 2：完成开发阶段 19 步流水线
 
@@ -149,8 +140,8 @@ Because the frozen Route-A cohort contains at most 15 HUC2 groups (inverse-Herfi
 
 | # | 工作 | 当前状态 | 完成证据 |
 |---:|---|---|---|
-| 1 | Stage-09：baseline、ThermoRoute、LightGBM、LGO、7×5 controls | 部分完成、暂停 | Stage-09 completion receipt |
-| 2 | Stage-09b：PlainMLP、PlainCausalTCN、完整五 seed feature ladder，共 45 个成员 | 未完成 | Stage-09b v3 completion receipt |
+| 1 | Stage-09：baseline、ThermoRoute、LightGBM、LGO、7×5 controls | **完成**（`7cb2bfb…` / `19289553…`；`PASS_FORMAL_STAGE09_COMPLETE`；receipt SHA-256 `07a0dd1e…f111`） | Stage-09 completion receipt |
+| 2 | Stage-09b：PlainMLP、PlainCausalTCN、完整五 seed feature ladder，共 45 个成员 | **受保护源码授权门禁**：`a930214d93fb7bdca83e` 在成员训练前因 tuple/list config contract fail-closed；无 authorization/work order/cache/receipt | 修复后新 source identity 下的 Stage-09b v3 completion receipt |
 | 3 | per-station LightGBM exploratory foil | 未完成 | 当前版本输出及校验记录 |
 | 4 | development holdout 与 5-seed ablations | 未完成 | 当前版本诊断输出 |
 | 5 | 4 个 leave-HUC2-region-out ThermoRoute fold | 未完成 | 4 个 fold checkpoint/prediction |
@@ -263,13 +254,13 @@ M、I、G 必须是三个不同的提交，并保持 `M` 严格早于 `I`、`I` 
 
 ## 7. 时间估计
 
-以下是机器墙钟时间的区间估计，不是承诺。它依赖机器、是否复用通过校验的缓存、是否单 worker、磁盘稳定性、网络 API 和失败重跑次数。当前用户指令下计时为 **0**，因为实验不会自动恢复。
+以下是机器墙钟时间的区间估计，不是承诺。依赖机器、worker 数、磁盘与失败重跑。**不得**把 void `bb02498a` 的缓存或速率当成可复用正式进度。2026-07-30 的 Stage-09 OOM 是历史事件；当前 `7cb2bfb…` 已 receipt-complete。新的时间估计必须等待是否授权修复 09b 的受保护源码边界，不能把当前 completed receipt 误报为可跨 source hash 复用。
 
 | 工作包 | 估计时间 |
 |---|---:|
-| Phase 0 恢复前安全检查 | 1--3 小时人工/轻量检查 |
-| 完成 Stage-09 剩余 15 个 control member、物化与回执 | 约 4--12 机器小时 |
-| Stage-09b 45 个成员及回执 | 约 12--30 机器小时 |
+| Phase 0 恢复前安全检查 | 已完成（WSL2）；不再作为阻塞项 |
+| 已完成的 Stage-09（`7cb2bfb…` 全矩阵 + 物化与回执） | **已完成**；receipt SHA-256 `07a0dd1e…f111`。该条不估为剩余工作。 |
+| Stage-09b 45 个成员及回执 | 当前先受 tuple/list config contract 的受保护源码授权门禁限制；若修复获准，新 source identity 的前置 Stage-09 lifecycle 和 09b 都须重新估时 |
 | per-station、ablation、4-fold transfer、诊断与 robustness | 约 10--24 机器小时 |
 | Stage-16 LSTM、4-fold transfer 和正式回执 | 约 12--30 机器小时 |
 | Stage-25、model freeze、isolated replay、manifest | 约 6--12 机器小时 |
@@ -279,20 +270,26 @@ M、I、G 必须是三个不同的提交，并保持 `M` 严格早于 `I`、`I` 
 
 合计粗估：
 
-- 剩余训练和开发计算链约 **50--100 机器小时**，高不确定性；
+- **已沉没（void）**：`bb02498a` 约 **~12 机器小时**（进度曾 ~27/35 → 新 run 从 0/35 重算；账要记清，见 void 文档）；
+- 剩余训练和开发计算链的旧 **50--100 机器小时**估计已失效：当前 Stage-09 已完成，但若授权修复 09b，新的 source identity 必须重新建立其 Stage-09→09b 证据链；
 - input、gate、opening、论文和发布还需要约 **3--7 个工作日**，不包含无法预先估算的许可/rights review；
-- 在稳定机器上连续运行、且缓存全部有效时，整个技术链约 **4--10 个自然日**；
-- 在当前 Mac 上为了避免再次死机而坚持单 worker、分段运行和冷却检查，建议按 **7--15 个自然日**准备；
-- 若发生缓存损坏、跨操作系统重建 runtime identity、API 限流或需要重新训练，时间会进一步增加。
-
-第一次安全恢复出一个完整成员后，应使用真实速度重算后续 ETA，而不是继续沿用这个宽区间。
+- WSL2 workers=6：~17:35 盘点 **12/35**；A 实测 ~2.0–2.8 h vs Review 保守 **4–6 h**（**对外取保守**）；勿采信 ~1.6 h；勿沿用 void「剩 8 member」；
+- 若再发生 hashed 源码改动、跨 runtime identity 混缓存或 API 限流，时间会进一步增加。
 
 ## 8. 下一步动作
 
-当前唯一允许的下一步是：
+**当前阻塞点（2026-08-02）：** Stage-09 已有有效 receipt；09b 在成员训练前因 tuple/list config contract fail-closed，watcher 已退出。继续需要用户明确授权修改受保护源码，并接受新 source hash 下重新建立 Stage-09→09b evidence lineage。
 
-1. 保持所有实验暂停；
-2. 让用户审核本计划；
-3. 用户明确允许后，先执行 Phase 0，只汇报安全检查结果；
-4. 用户再次确认后，才以单 worker 恢复 Stage-09；
-5. 到 opening 前必须再次停止，不能自动越过人工审核点。
+1. **【需授权】** 仅修复 09b arm/seed config 的 tuple→JSON-list 形状不一致，并加入对应回归验证；此举改变 source hash，不能在 `7cb2bfb…` identity 下继续 Phase-2；
+2. 获授权后，先封印新 source identity，再通过 guarded entrypoint 启动新身份的 Stage-09；仅由入口验证允许的缓存可复用。禁止 bb02498a、禁止手工伪造 receipt、禁止手工创造 09b authorization/work order；
+3. 新 Stage-09 receipt 通过后，重新启动/绑定 watcher，并让其按既定门禁继续 09b；旧 `a930214d93fb7bdca83e` 不能 resume；
+4. 在每个相关训练停机的静止窗口再跑全量 pytest 并归档；**勿**为 mtime 竞态绕开或偷改 `tests/**`；
+5. 文档并行（不占机器、不碰 hashed 源；**草稿/风险地图，非放行**）：
+   - R2-2：[`docs/RIGHTS_CRITICAL_PATH.md`](docs/RIGHTS_CRITICAL_PATH.md) + [`docs/RIGHTS_INVENTORY_DRAFT.md`](docs/RIGHTS_INVENTORY_DRAFT.md)
+   - R2-3：[`docs/REPORTING_POLICY_DESCRIPTIVE_ONLY.md`](docs/REPORTING_POLICY_DESCRIPTIVE_ONLY.md)
+   - R3-1：[`docs/ROUTE_B_GE30_CLUSTER_SAMPLING_FRAME_DRAFT.md`](docs/ROUTE_B_GE30_CLUSTER_SAMPLING_FRAME_DRAFT.md)
+   - void / 历史卡死账本：[`docs/BB02498A_VOID_EVENT.md`](docs/BB02498A_VOID_EVENT.md)、[`outputs/logs/STAGE09_7CB2_OOM_STUCK_20260730.md`](outputs/logs/STAGE09_7CB2_OOM_STUCK_20260730.md)
+6. 到 opening 前必须再次停止，不能自动越过人工审核点；在上述源码修复获得授权前，**禁止**改 hashed 源码。
+
+精确根因、非法绕过路径、最小补丁/测试和新身份恢复顺序见
+[`docs/STAGE09B_CONFIG_SHAPE_FAILURE_20260802.md`](docs/STAGE09B_CONFIG_SHAPE_FAILURE_20260802.md)。
