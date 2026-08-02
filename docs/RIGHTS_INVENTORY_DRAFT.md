@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 | --- | --- |
-| 角色 | R2-2 Worker A（权利/FAIR 审计启动） |
+| 角色 | R2-2 清单草案（Worker A 启动；Worker B 对抗式补 §6 + 闭合刀回指） |
 | 仓库 | `https://github.com/shutiao23/thermoroute-water-temperature` |
 | 可见性（gh 只读，2026-07-30） | **PUBLIC**（`isPrivate=false`，forks=0）— **仅事实快照，≠ 再分发/再许可授权** |
 | 默认分支 tip | `origin/main` @ `510f5bc824ce4bb37895adbb2bea6be02af4d75b` |
@@ -13,6 +13,8 @@
 | 依据 | `LICENSE`、`README.md` License / public-remote governance stop、`paper/agu_submission/README.md`、`scripts/make_release_archive.sh` 门闩、`git ls-tree` / `git rev-list` / `gh repo view` |
 
 > **声明**：公开可读 ≠ 再分发授权。本清单是本地审计草稿，不是权利结论或放行凭证。
+>
+> **R2-2 闭合刀**：最长隐藏风险路径（AGU class、legacy CSV、panel 再分发、history 可达、PUBLIC≠授权）与**显式未完成**逐字节审查清单见 [`docs/RIGHTS_CRITICAL_PATH.md`](RIGHTS_CRITICAL_PATH.md)。本文件不因「草案写完」而变为放行凭证。
 
 ---
 
@@ -216,4 +218,21 @@ git -C "$REPO" ls-remote origin > "$OUT/${DATE}_ls_remote.txt"
 
 ---
 
-*草案结束。路径：`outputs/logs/RIGHTS_INVENTORY_DRAFT.md`*
+## 6. R2-2 闭合状态（对抗式；2026-07-30 Worker B）
+
+| 项 | 状态 |
+| --- | --- |
+| 暴露面分类（§1） | 草案有；**≠**逐字节完成 |
+| MIT vs 数据/AGU 缺口表（§2） | 缺口已标；**未闭合** |
+| SHA-256 inventory 命令（§3） | 仅命令草案；**未**当作已执行放行证据 |
+| 不得分发列表（§4） | 当前证据下有效禁令；**≠**已获替代授权 |
+| 最长隐藏路径 P1–P5 | 见 `docs/RIGHTS_CRITICAL_PATH.md`；**授权未颁** |
+| 逐字节 / 分数据类 ToS 审查 | **未完成** — 禁止假装已完成 |
+| PUBLIC remote = 授权 | **否** |
+| 本清单 = FAIR 发布完成 | **否** |
+
+**已砍危险措辞（本更新刻意不写入）**：`权利审查完成`、`byte-level review complete`、`redistribution authorized`、`数据亦 MIT`、`panel ready for Zenodo PUBLIC`、`history sanitized for release`、`清单闭合即可改协议`。
+
+---
+
+*草案结束（docs 副本）。闭合刀：`docs/RIGHTS_CRITICAL_PATH.md`。状态：缺口已标；授权未颁；逐字节审查未完成。*
