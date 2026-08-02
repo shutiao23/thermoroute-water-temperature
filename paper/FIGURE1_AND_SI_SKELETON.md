@@ -3,7 +3,9 @@
 **Status:** pre-opening design scaffold only.  
 **Constraint:** no fabricated performance numbers. Every result cell is
 `[pending — 探索期数据，不可写入结论]`. Values may be filled only from a
-verified opening / completion receipt after Route-A authorization.
+verified opening receipt, claim registry, inference/QC gates and POST evidence
+manifest after Route-A authorization. A development-stage completion receipt
+never authorizes a target-result cell by itself.
 
 **Canonical manuscript:** `paper/ThermoRoute_paper.md`  
 **Do not edit:** `src/`, `scripts/`, `tests/`, `protocols/` (source-hash tree).
@@ -80,16 +82,22 @@ interpretation.
 \[
 \hat{y}_{t+h}
 =
-a_{t+h}
+A_{t+h}
 +
-\delta\,\tanh\!\Bigl(\frac{r_{t+h}}{\delta}\Bigr),
+\delta\,\tanh\!\Bigl(
+\frac{P_{t+h}-A_{t+h}+r_{\theta,t+h}}{\delta}
+\Bigr),
 \qquad
 \delta = \texttt{delta\_scale}
 \]
 
-where \(a_{t+h}\) is the frozen damped-persistence anchor and \(r_{t+h}\) is the
-learned unrestricted residual proposal. With finite \(\delta\), the point forecast
-lies in \([a_{t+h}-\delta,\,a_{t+h}+\delta]\).
+where \(A_{t+h}\) is the frozen damped-persistence anchor,
+\(P_{t+h}\) is the learned thermal proposal and \(r_{\theta,t+h}\) is the neural
+residual. The total unrestricted displacement passed through `tanh` is
+\(P_{t+h}-A_{t+h}+r_{\theta,t+h}\). With finite \(\delta\), the point forecast
+lies in \([A_{t+h}-\delta,\,A_{t+h}+\delta]\). This matches the frozen
+implementation path and the materialized SVG; the internal proposal is not a
+separately identifiable physical state.
 
 **Canonical configuration note (design, not performance):** manuscript freezes
 `delta_scale = 1.0 °C` as an algebraic point bound relative to the anchor.
@@ -179,11 +187,15 @@ receipts can drop in without redesign.
 
 ### Figure 1 production checklist
 
-- [ ] Draft vector layout (Inkscape / matplotlib / TikZ) matching 2×2 grid
+- [x] Draft self-contained vector layout matching 2×2 grid:
+  `paper/agu_submission/figures/fig01_preopening_concept.svg` (PRE scaffold;
+  XML well-formed; raster/page visual QA still pending)
 - [ ] Panel (c) redraw script from `data_usgs/station_registry_v1.csv` (no scores)
 - [ ] Panel (d) binder: map receipt JSON fields → table cells (fail-closed if missing)
 - [ ] Bilingual 非安全界 callout locked in art file
-- [ ] AGU figure file path TBD under `paper/agu_submission/figures/` (not created yet)
+- [x] AGU PRE scaffold path created under
+  `paper/agu_submission/figures/fig01_preopening_concept.svg`; final filled figure,
+  caption integration and submission render remain receipt/page-QA gated
 
 ---
 
@@ -230,79 +242,53 @@ Each new entry: Crossref/DataCite verify → `paper/references.bib` → one sent
 
 ## 3. Supporting Information (SI) directory skeleton
 
-**Proposed tree** (files are placeholders; create content only when evidence exists):
+**Materialized PRE document tree and planned figure inventory** (result files
+remain placeholders until evidence exists):
 
 ```text
 paper/si/
 ├── README.md                          # SI index + fill rules (mirror §0)
 ├── SI00_inventory.md                  # checklist of SI items ↔ receipt fields
-├── SI01_cohort_and_registry.md        # 120-site registry, HUC2 imbalance, missingness
+├── SI01_cohort_and_registry.md        # historical cohort/registry geometry and HUC2 imbalance
 ├── SI02_information_boundary.md       # issue-time covariates, bridge gate, limitations
-├── SI03_model_equations.md            # full identities: anchor, router, TCN, bounded residual, CQR/Platt
+├── SI03_model_equations.md            # available identities, units, architecture/identifiability limits
 ├── SI04_protocol_and_amendments.md    # confirmatory family, inference amendment, errata pointers
 ├── SI05_comparison_family.md          # five rows, margins, estimands (geometry only)
-├── SI06_primary_effects_RECEIPT.md    # ← ALL CELLS: [pending — 探索期数据，不可写入结论]
-├── SI07_interval_and_probability_RECEIPT.md
-├── SI08_architecture_controls_RECEIPT.md   # Stage 09 / 09b sensitivities
-├── SI09_temporal_coverage_audit_RECEIPT.md
-├── SI10_external_cohort_RECEIPT.md         # 30-site metadata-disjoint arm
-├── SI11_air2stream_style_note.md      # unofficial a4/a8; no official claim
-├── SI12_reproducibility_hashes.md     # source_tree_hash, panel digest, chronology pointers
+├── SI06_formal_five_rows_RECEIPT.md
+├── SI07_all_model_scores_RECEIPT.md
+├── SI08_probability_metrics_RECEIPT.md
+├── SI09_development_controls_RECEIPT.md
+├── SI10_temporal_coverage_RECEIPT.md
+├── SI11_spatial_sensitivity_RECEIPT.md
+├── SI12_qc_qualifiers_RECEIPT.md
+├── SI13_external_history_arm_RECEIPT.md
+├── SI14_missingness_failures_RECEIPT.md
+├── SI15_reproduction_hashes_RECEIPT.md
+├── SI16_rights_data_dictionary.md
 └── figures/
-    ├── FigS1_huc2_station_counts.svg      # (c)-style enlarge
-    ├── FigS2_information_boundary.svg
-    ├── FigS3_effect_forest_RECEIPT.svg    # receipt-derived only
-    └── FigS4_missingness_maps.svg
+    └── README.md                       # planned FigS1–FigS8 inventory and gates
 ```
 
 ### 3.1 Per-item fill policy
 
 | SI item | May draft now | Numbers |
 |---|---|---|
-| SI01–SI05, SI11–SI12 | Yes (design / protocol) | Structural facts from sealed text / registry only |
-| SI06–SI10 + FigS3 | Shell captions + empty tables only | Every cell: `[pending — 探索期数据，不可写入结论]` |
+| SI01–SI05 | Yes (design / protocol) | Structural facts from sealed text / registry only |
+| SI06–SI14 + FigS3 | Shell captions + empty tables only | Every result cell: `[pending — 探索期数据，不可写入结论]` |
+| SI15–SI16 | Schema and acceptance routing only | No replay, rights, DOI or FAIR completion claim without bound receipts/decisions |
 | Any “skill vs Air2stream official” table | No until Route B | N/A |
 
-### 3.2 SI06 table shell (example)
+### 3.2 Receipt-shell coverage
 
-| Comparison | h | Effect °C | CI_lo | CI_hi | raw p | Holm p | eligibility |
-|---|---:|---|---|---|---|---|---|
-| TR − damped | 1 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-| TR − damped | 3 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-| TR − damped | 7 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-| TR − LGB | 3 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-| TR − LGB | 7 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-
-### 3.3 SI07–SI10 receipt shells (pending markers required)
-
-All numeric / verdict cells below use the verbatim token
-`[pending — 探索期数据，不可写入结论]`. Do not fill from exploratory caches.
-
-**SI07 — interval / probability (receipt-derived)**
-
-| Horizon | Coverage % | Interval width | Brier / prob score | eligibility |
-|---|---|---|---|---|
-| 1 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-| 3 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-| 7 | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-
-**SI08 — architecture controls (Stage 09 / 09b; receipt-derived)**
-
-| Control arm | Horizon | Δ vs reference | CI / sensitivity | verdict |
-|---|---:|---|---|---|
-| *(row per sealed control)* | *h* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-
-**SI09 — temporal coverage audit (receipt-derived; not a skill claim)**
-
-| Window / stratum | n stations | coverage / completeness | score cells |
-|---|---|---|---|
-| *(stratum)* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
-
-**SI10 — external 30-site metadata-disjoint arm (receipt-derived)**
-
-| Comparison | h | Effect °C | CI | eligibility |
-|---|---:|---|---|---|
-| *(external arm row)* | *h* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
+The materialized SI documents follow the canonical index in
+`docs/POST_PAPER_PROJECTION_DESIGN.md`: formal rows (SI06), all-model scores
+(SI07), probability metrics (SI08), development controls (SI09), temporal and
+spatial sensitivities (SI10–SI11), QC (SI12), the explicitly history-dependent
+external arm (SI13), missingness/failure cases (SI14), reproduction (SI15), and
+rights/data-dictionary routing (SI16). Every result/verdict cell uses the
+verbatim pending token and cannot be filled from development caches. FigS1–FigS8
+remain planned entries in `paper/si/figures/README.md`; no unrendered figure is
+described as materialized.
 
 **FigS3:** same five-row geometry as Figure 1d / SI06; every plotted
 coordinate remains `[pending — 探索期数据，不可写入结论]` until receipt.
@@ -313,7 +299,8 @@ coordinate remains `[pending — 探索期数据，不可写入结论]` until re
 
 - This file is the **R2-5 paper skeleton** only; it does not authorize opening,
   alter estimands, or change source hashes.
-- Panel (d) and SI06–SI10 must remain empty of scores until a verified receipt
+- Panel (d) and SI06–SI14 must remain empty of scores until a verified receipt
   exists; exploratory Stage-09 caches are not citable.
-- Next mechanical steps (out of scope here): draw Fig.1 art; expand China-basin
-  bib TODOs; optionally materialize empty `paper/si/` stubs.
+- SI15–SI16 remain schemas until replay/render receipts and qualified rights
+  decisions exist; a visible repository is not a PUBLIC-release authorization.
+- Next mechanical steps remain receipt-gated Figure/SI binders and final page QA.
