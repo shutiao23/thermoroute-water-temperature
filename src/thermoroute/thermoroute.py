@@ -12,7 +12,10 @@ With a finite ``delta_scale`` the final point forecast lies algebraically within
 ``±delta_scale`` of the fixed damped-persistence forecast.  This is not a bound
 on truth error, tail risk, or deployment safety.  ``safety_anchor`` is retained
 only as a legacy checkpoint/configuration key. Setting ``delta_scale=None`` gives
-the otherwise identical unbounded sensitivity model.
+the otherwise identical unbounded sensitivity model.  The constructor exposes no
+scientific default for ``delta_scale``: canonical runs must pass
+``delta_scale=C.DELTA_SCALE`` explicitly so that a bare constructor call can
+never silently diverge from the frozen scientific configuration.
 """
 
 from __future__ import annotations
@@ -255,7 +258,7 @@ class ThermoRoute(nn.Module):
                  station_agnostic: bool = False, n_phys: int | None = None,
                  use_prior: bool = True, use_router: bool = True,
                  use_moe: bool = True, sparse_router: bool = True,
-                 fixed_kappa: bool = False, delta_scale: float | None = 0.4,
+                 fixed_kappa: bool = False, delta_scale: float | None = None,
                  use_tcn: bool = True, residual_model: bool = True,
                  safety_anchor: str = "damped", use_wlevel: bool = False):
         super().__init__()
