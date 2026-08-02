@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Formal Stage-09 launcher (25Gi WSL).
-# Native BLAS/Torch/LightGBM threads stay at 1 (Route-A deterministic gate).
-# Throughput = process-level --control-workers (execution-only; not in RunIdentity).
+# Formal Stage-09 launcher (multicore Route-A amendment v1).
+# Native BLAS/Torch/LightGBM threads are capped at $THERMOROUTE_FORMAL_THREADS
+# per process (amendment route_a_numerical_policy_amendment_v1); throughput is
+# process-level: seed workers + --control-workers (execution-only; not in
+# RunIdentity).  Memory is budgeted for a 125Gi host: seed phase 5x~6.6Gi and
+# control phase 32 workers x ~2.6Gi stay below the 96Gi ceiling.
 #
-# This starts a NEW content-addressed run under the current source tree
-# (source_sha256=19289553… as of 2026-07-30). It does NOT resume bb02498a.
+# This starts a NEW content-addressed run under the current source tree.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -26,17 +28,22 @@ for envf in "${ENV_CANDIDATES[@]}"; do
 done
 
 export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src
-export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-export VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 WORKER_THREADS=1
+export THERMOROUTE_FORMAL_THREADS="${THERMOROUTE_FORMAL_THREADS:-16}"
+export OMP_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS" \
+  MKL_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS" \
+  OPENBLAS_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
+export VECLIB_MAXIMUM_THREADS="$THERMOROUTE_FORMAL_THREADS" \
+  NUMEXPR_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS" \
+  WORKER_THREADS="$THERMOROUTE_FORMAL_THREADS"
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 unset PYTHONHASHSEED PYTHONPYCACHEPREFIX || true
 
 THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-$PWD/.venv-route-a/bin/python}"
-CONTROL_WORKERS="${STAGE09_CONTROL_WORKERS:-96}"
+CONTROL_WORKERS="${STAGE09_CONTROL_WORKERS:-32}"
 if [[ "$CONTROL_WORKERS" -gt 96 ]]; then CONTROL_WORKERS=96; fi
 if [[ "$CONTROL_WORKERS" -lt 1 ]]; then CONTROL_WORKERS=1; fi
 
-EXPECTED_SOURCE_SHA256="${EXPECTED_SOURCE_SHA256:-0e932f19975033ef0749d2589b60c6aefe057adbef1ee1d9e2f75bef8180920f}"
+EXPECTED_SOURCE_SHA256="${EXPECTED_SOURCE_SHA256:-631382c30aee5a4630869e05524420a3449135a83a330e4a9abe74630d00fba4}"
 VOID_SOURCE_SHA256="${VOID_SOURCE_SHA256:-ee99225c55b2ceacdac6fdf596f0b452d5dbdb4d417edb81e234732b81521ab1}"
 VOID_STAGE09_RUN_IDS="${VOID_STAGE09_RUN_IDS:-bb02498a8396ea7c6110}"
 
@@ -92,9 +99,9 @@ if [[ -n "${EXPECTED_STAGE09_RUN_ID:-}" ]]; then
   esac
 fi
 
-echo "[$(date -Is)] launching NEW Stage-09 under source_sha256=${SOURCE:0:12}… (workers=$CONTROL_WORKERS)" | tee -a "$LOG"
+echo "[$(date -Is)] launching NEW Stage-09 under source_sha256=${SOURCE:0:12}… (workers=$CONTROL_WORKERS, threads=$THERMOROUTE_FORMAL_THREADS)" | tee -a "$LOG"
 
-# ~25Gi: parent ~6GB + ~2.3GB/member. workers=8 ≈ OOM edge; default 6.
+# 125Gi host: parent ~7GB + control member ~2.6GB; 32 workers ≈ 90Gi peak.
 exec "$THERMOROUTE_PYTHON" scripts/09_usgs_experiment.py \
   --panel data_usgs/panel_usgs_120v2.parquet \
   --seeds 5 --device cpu --control-workers "$CONTROL_WORKERS" \

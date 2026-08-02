@@ -41,8 +41,12 @@ STAGE19 = _load_stage19()
 
 
 def test_stage19_import_activates_live_formal_numerical_policy():
+    import thermoroute.repro as repro_module
+
     policy = STAGE19.assert_formal_numerical_policy()
-    assert set(policy["thread_environment"].values()) == {"1"}
+    assert set(policy["thread_environment"].values()) == {
+        str(repro_module.FORMAL_THREAD_LIMIT)
+    }
     assert policy["cublas_workspace_config"] == ":4096:8"
 
 

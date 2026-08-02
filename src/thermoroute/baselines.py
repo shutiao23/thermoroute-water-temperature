@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import os
 import pandas as pd
 from scipy.optimize import least_squares
 from sklearn.linear_model import Ridge
@@ -158,16 +159,28 @@ def station_equal_sample_weight(site_ids) -> np.ndarray:
     return _station_equal_sample_weight(site_ids)
 
 
+def _lgb_n_jobs() -> int:
+    """Return the fixed LightGBM training concurrency for this process.
+
+    LightGBM (deterministic=True, force_col_wise=True) is empirically
+    bit-identical across n_jobs on the same machine (verified for this
+    environment), so training can safely use the process-declared thread cap
+    without changing any prediction.  Prediction calls remain pinned to
+    ``num_threads=1`` for exact replay equivalence.
+    """
+    return int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or "1")
+
+
 def _lgb_fit(Xtr, ytr, Xval, yval, objective, alpha=None, n_est=800,
              params_override: dict | None = None, sample_weight=None,
              val_sample_weight=None):
-    # n_jobs=1 avoids an OpenMP (libomp/libiomp) conflict with PyTorch that
-    # segfaults when both are imported in the same process on macOS/anaconda.
+    # The thread cap is process-declared (THERMOROUTE_FORMAL_THREADS) and
+    # verified deterministic across thread counts on this machine.
     params = dict(objective=objective, learning_rate=0.03, num_leaves=31,
                   min_child_samples=40, subsample=0.8, subsample_freq=1,
                   colsample_bytree=0.8, reg_lambda=1.0, n_estimators=n_est,
-                  verbosity=-1, seed=0, n_jobs=1, deterministic=True,
-                  force_col_wise=True)
+                  verbosity=-1, seed=0, n_jobs=_lgb_n_jobs(),
+                  deterministic=True, force_col_wise=True)
     if alpha is not None:
         params["alpha"] = alpha
     if params_override:
@@ -227,7 +240,7 @@ def run_lightgbm(tabs, thresholds, feature_set: str = "V3",
                     n_estimators=600, learning_rate=0.03, num_leaves=31,
                     min_child_samples=40, subsample=0.8, subsample_freq=1,
                     colsample_bytree=0.8, reg_lambda=1.0, verbosity=-1,
-                    seed=0, n_jobs=1, deterministic=True,
+                    seed=0, n_jobs=_lgb_n_jobs(), deterministic=True,
                     force_col_wise=True)
                 clf.fit(Xtr, (ytr > thr).astype(int), eval_set=[(Xva, (yva > thr).astype(int))],
                         callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)])

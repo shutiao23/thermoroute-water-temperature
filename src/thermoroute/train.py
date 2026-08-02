@@ -16,6 +16,7 @@ relative λ_* weights and the total loss are invariant.
 
 from __future__ import annotations
 
+import os
 import random
 from dataclasses import asdict
 from dataclasses import dataclass
@@ -38,20 +39,26 @@ CELSIUS_TO_FAHRENHEIT_SCALE = 1.8
 CELSIUS_TO_FAHRENHEIT_OFFSET = 32.0
 
 
-def _configure_torch_determinism_only(*, threads: int = 1) -> None:
+def _configure_torch_determinism_only(
+    threads: int | None = None,
+) -> None:
     """Apply only the Torch portion of the deterministic runtime contract.
 
     This is an internal seed helper, not a formal runtime gate.  Formal
     entrypoints must use :func:`thermoroute.repro.configure_deterministic_runtime`
     so the live BLAS/OpenMP pools and the process-lifetime limiter are verified.
+    The thread cap defaults to the process-declared formal policy
+    (``THERMOROUTE_FORMAL_THREADS``).
     """
-    if threads != 1:
-        raise ValueError("formal numerical runtime requires one Torch thread")
+    if threads is None:
+        threads = int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or "1")
+    if threads < 1:
+        raise ValueError("formal numerical runtime requires a positive Torch thread cap")
     torch.set_num_threads(threads)
     try:
-        torch.set_num_interop_threads(threads)
+        torch.set_num_interop_threads(1)
     except RuntimeError:
-        if torch.get_num_interop_threads() != threads:
+        if torch.get_num_interop_threads() != 1:
             raise
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True

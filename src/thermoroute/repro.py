@@ -54,6 +54,29 @@ _NATIVE_BINARY_HASH_CACHE: dict[tuple[str, int, int], str] = {}
 _FORMAL_NATIVE_USER_APIS = frozenset({"blas", "openmp"})
 
 
+def _formal_thread_limit() -> int:
+    """Return the per-process native thread cap declared for this process.
+
+    ``THERMOROUTE_FORMAL_THREADS`` is a fixed execution policy per formal
+    process (seed workers, control members, replay workers each declare their
+    own cap).  The value is deliberately fixed at import time so the same
+    process cannot drift between the declared policy and the live pools.
+    """
+    raw = os.environ.get("THERMOROUTE_FORMAL_THREADS") or "1"
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "THERMOROUTE_FORMAL_THREADS must be a positive integer"
+        ) from exc
+    if limit < 1:
+        raise RuntimeError("THERMOROUTE_FORMAL_THREADS must be a positive integer")
+    return limit
+
+
+FORMAL_THREAD_LIMIT = _formal_thread_limit()
+
+
 def _loaded_native_threadpools() -> list[dict[str, Any]]:
     """Return the live ``threadpoolctl`` view or fail closed.
 
@@ -74,8 +97,10 @@ def _loaded_native_threadpools() -> list[dict[str, Any]]:
     return value
 
 
-def _assert_native_threadpools_single_thread(value: object) -> None:
-    """Reject an absent, malformed, unknown, or non-single-thread pool view."""
+def _assert_native_threadpools_within_limit(
+    value: object, limit: int = FORMAL_THREAD_LIMIT,
+) -> None:
+    """Reject an absent, malformed, unknown, or over-limit thread-pool view."""
     if not isinstance(value, list) or not value:
         raise RuntimeError(
             "formal run requires at least one inspectable BLAS/OpenMP thread pool"
@@ -91,10 +116,15 @@ def _assert_native_threadpools_single_thread(value: object) -> None:
                 f"native thread-pool record {index} has unknown user_api"
             )
         threads = pool.get("num_threads")
-        if type(threads) is not int or threads != 1:
+        if (
+            type(threads) is not int
+            or threads < 1
+            or threads > limit
+        ):
             raise RuntimeError(
                 "formal run requires every loaded BLAS/OpenMP pool to report "
-                f"exactly one thread; record {index} ({user_api}) did not"
+                f"between one and the declared cap {limit} threads; record "
+                f"{index} ({user_api}) did not"
             )
 
 
@@ -158,10 +188,11 @@ def advisory_file_lock(
 
 
 def configure_deterministic_runtime() -> dict[str, Any]:
-    """Apply and verify the formal single-threaded Torch/native policy."""
+    """Apply and verify the formal capped-thread Torch/native policy."""
     global _FORMAL_THREADPOOL_CONTROLLER
+    limit = FORMAL_THREAD_LIMIT
     for name in FORMAL_THREAD_ENVIRONMENT:
-        os.environ[name] = "1"
+        os.environ[name] = str(limit)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     # Under ``python -I`` CPython ignores this variable while choosing its hash
     # secret.  It is retained only as a compatibility declaration for
@@ -174,7 +205,7 @@ def configure_deterministic_runtime() -> dict[str, Any]:
 
         # Retain the controller for the process lifetime.  A temporary context
         # would restore the previous limits before training starts.
-        _FORMAL_THREADPOOL_CONTROLLER = threadpool_limits(limits=1)
+        _FORMAL_THREADPOOL_CONTROLLER = threadpool_limits(limits=limit)
     except Exception as exc:  # pragma: no cover - formal dependency failure
         _FORMAL_THREADPOOL_CONTROLLER = None
         raise RuntimeError(
@@ -182,7 +213,7 @@ def configure_deterministic_runtime() -> dict[str, Any]:
         ) from exc
     import torch
 
-    torch.set_num_threads(1)
+    torch.set_num_threads(limit)
     try:
         torch.set_num_interop_threads(1)
     except RuntimeError:
@@ -208,7 +239,7 @@ def formal_numerical_policy() -> dict[str, Any]:
         "python_hash_randomization_enabled": bool(sys.flags.hash_randomization),
         "python_hash_policy": hash_policy,
         "required": {
-            "threads": 1,
+            "threads": FORMAL_THREAD_LIMIT,
             "cublas_workspace_config": ":4096:8",
             "python_hash_policy": hash_policy,
             "torch_deterministic_algorithms": True,
@@ -248,11 +279,15 @@ def assert_formal_numerical_policy(
     identities from canonical sorting rather than from a fixed secret.
     """
     policy = formal_numerical_policy()
+    limit = FORMAL_THREAD_LIMIT
     if any(
-        policy["thread_environment"].get(name) != "1"
+        policy["thread_environment"].get(name) != str(limit)
         for name in FORMAL_THREAD_ENVIRONMENT
     ):
-        raise RuntimeError("formal run requires every BLAS/OpenMP thread count to be 1")
+        raise RuntimeError(
+            "formal run requires every BLAS/OpenMP thread count to equal the "
+            f"declared cap {limit}"
+        )
     if policy["cublas_workspace_config"] != ":4096:8":
         raise RuntimeError("formal run requires CUBLAS_WORKSPACE_CONFIG=:4096:8")
     if policy["python_hash_policy"] != (
@@ -267,7 +302,7 @@ def assert_formal_numerical_policy(
         raise RuntimeError(f"formal run requires Python hash randomization {expected}")
     torch_policy = policy.get("torch")
     expected_torch = {
-        "num_threads": 1,
+        "num_threads": limit,
         "num_interop_threads": 1,
         "deterministic_algorithms": True,
         "cudnn_deterministic": True,
@@ -282,7 +317,7 @@ def assert_formal_numerical_policy(
         raise RuntimeError("formal Torch numerical policy is not active")
     if _FORMAL_THREADPOOL_CONTROLLER is None:
         raise RuntimeError("formal native thread-pool limiter is not active")
-    _assert_native_threadpools_single_thread(_loaded_native_threadpools())
+    _assert_native_threadpools_within_limit(_loaded_native_threadpools())
     return policy
 
 

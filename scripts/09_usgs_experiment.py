@@ -31,11 +31,15 @@ import tempfile
 import threading
 from typing import Callable, Mapping
 
+MAIN_THREADS = int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or "16")
+CONTROL_MEMBER_THREADS = int(os.environ.get("THERMOROUTE_CONTROL_MEMBER_THREADS") or "2")
+
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
 ):
-    os.environ[_thread_variable] = "1"
+    os.environ.setdefault(_thread_variable, str(MAIN_THREADS))
+os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(MAIN_THREADS))
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,19 +48,25 @@ _WORKER_CACHE_ENV = "THERMOROUTE_STAGE09_PYCACHE"
 _WORKER_NONCE_ENV = "THERMOROUTE_STAGE09_NONCE"
 
 
-def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
+def _formal_worker_environment(
+    cache: Path, nonce: str, threads: int | None = None,
+) -> dict[str, str]:
     """Return the complete allowlisted Stage-09 worker environment."""
+    if threads is None:
+        threads = int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or MAIN_THREADS)
+    thread_value = str(threads)
     return {
         "PATH": os.defpath,
         "LANG": "C",
         "LC_ALL": "C",
         "TZ": "UTC",
         "TMPDIR": str(cache.resolve()),
-        "OMP_NUM_THREADS": "1",
-        "MKL_NUM_THREADS": "1",
-        "OPENBLAS_NUM_THREADS": "1",
-        "VECLIB_MAXIMUM_THREADS": "1",
-        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": thread_value,
+        "MKL_NUM_THREADS": thread_value,
+        "OPENBLAS_NUM_THREADS": thread_value,
+        "VECLIB_MAXIMUM_THREADS": thread_value,
+        "NUMEXPR_NUM_THREADS": thread_value,
+        "THERMOROUTE_FORMAL_THREADS": thread_value,
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTHONHASHSEED": "0",
         _WORKER_CACHE_ENV: str(cache.resolve()),
@@ -128,8 +138,6 @@ sys.path.insert(0, str(ROOT / "src"))
 import numpy as np
 import pandas as pd
 import torch
-
-torch.set_num_threads(1)
 
 from thermoroute import config as C
 from thermoroute.chronology import STAGE09_ARTIFACT_PATHS
@@ -208,6 +216,7 @@ from thermoroute.stage09_parallel import (
     validate_stage09_model_matrix_gate,
 )
 from thermoroute.repro import (
+    RunIdentity,
     assert_formal_numerical_policy,
     atomic_write_bytes,
     atomic_write_json,
@@ -1445,7 +1454,7 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                 "reg_lambda": 1.0,
                 "n_estimators": 800,
                 "verbosity": -1,
-                "n_jobs": 1,
+                "n_jobs": MAIN_THREADS,
                 "deterministic": True,
                 "force_col_wise": True,
                 "early_stopping_rounds": 50,
@@ -1486,7 +1495,7 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                 classifier = lgb.LGBMClassifier(
                     n_estimators=800, **seed_params,
                     subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
-                    reg_lambda=1.0, verbosity=-1, n_jobs=1,
+                    reg_lambda=1.0, verbosity=-1, n_jobs=MAIN_THREADS,
                     deterministic=True, force_col_wise=True,
                 )
                 classifier.fit(
@@ -1511,7 +1520,7 @@ def lightgbm_joint(panel_imp, panel_raw, clim, masks, thr, wd, *,
                     "colsample_bytree": 0.8,
                     "reg_lambda": 1.0,
                     "verbosity": -1,
-                    "n_jobs": 1,
+                    "n_jobs": MAIN_THREADS,
                     "deterministic": True,
                     "force_col_wise": True,
                     "early_stopping_rounds": 50,
@@ -1784,7 +1793,9 @@ class _Stage09WorkerLauncher:
             (cache_path / ".controller-nonce").write_text(
                 nonce, encoding="utf-8"
             )
-            environment = _formal_worker_environment(cache_path, nonce)
+            environment = _formal_worker_environment(
+                cache_path, nonce, threads=CONTROL_MEMBER_THREADS
+            )
             process = subprocess.Popen(
                 [
                     sys.executable,
@@ -1836,6 +1847,233 @@ class _Stage09WorkerLauncher:
 def _launch_stage09_control_member(work_order_path: Path) -> int:
     """Compatibility wrapper for one independently owned member launch."""
     return _Stage09WorkerLauncher()(work_order_path)
+
+
+_SEED_WORKER_STATE: dict[str, object] = {}
+SEED_WORKER_PROCESSES = int(
+    os.environ.get("THERMOROUTE_SEED_PROCESSES") or "5"
+)
+
+
+class _SeedWorkerLauncher:
+    """Own and terminate the isolated ThermoRoute seed worker processes."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._active: dict[int, subprocess.Popen[bytes]] = {}
+        self._stopping = False
+
+    @staticmethod
+    def _signal_group(process: subprocess.Popen[bytes], value: int) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, value)
+        except ProcessLookupError:
+            return
+
+    def __call__(self, order_path: Path) -> int:
+        """Launch one clean interpreter in its own cancellable process group."""
+        seed = int(
+            json.loads(order_path.read_text(encoding="utf-8"))["seed"]
+        )
+        with tempfile.TemporaryDirectory(
+            prefix="thermoroute-stage09-seed-pycache-"
+        ) as cache:
+            cache_path = Path(cache).resolve()
+            if any(cache_path.iterdir()):
+                raise RuntimeError(
+                    "Stage-09 seed pycache was not initially empty"
+                )
+            nonce = secrets.token_hex(32)
+            (cache_path / ".controller-nonce").write_text(
+                nonce, encoding="utf-8"
+            )
+            environment = _formal_worker_environment(
+                cache_path, nonce, threads=MAIN_THREADS
+            )
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    "-X",
+                    f"pycache_prefix={cache}",
+                    str(Path(__file__).resolve()),
+                    _WORKER_ARGUMENT,
+                    "--_thermoroute-seed-worker",
+                    str(order_path.resolve()),
+                ],
+                cwd=ROOT,
+                env=environment,
+                start_new_session=True,
+            )
+            with self._lock:
+                stopping = self._stopping
+                if not stopping:
+                    self._active[process.pid] = process
+            if stopping:
+                self._signal_group(process, signal.SIGTERM)
+            try:
+                return int(process.wait())
+            finally:
+                with self._lock:
+                    self._active.pop(process.pid, None)
+
+    def terminate_all(self) -> None:
+        """Stop and reap every active process after failure or interruption."""
+        with self._lock:
+            self._stopping = True
+            active = tuple(self._active.values())
+        for process in active:
+            self._signal_group(process, signal.SIGTERM)
+        for process in active:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                self._signal_group(process, signal.SIGKILL)
+        for process in active:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired as exc:  # pragma: no cover - OS fault
+                raise RuntimeError(
+                    f"Stage-09 seed worker would not terminate: {process.pid}"
+                ) from exc
+
+
+def _launch_seed_workers(
+    orders: Mapping[int, Path],
+    *,
+    max_workers: int,
+    launch: Callable[[Path], int],
+    terminate: Callable[[], None],
+) -> list:
+    """Run the independent seed workers with bounded concurrency, fail fast."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(launch, order): seed for seed, order in orders.items()
+        }
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except BaseException:
+                terminate()
+                raise
+            completed += 1
+    if completed != len(orders):
+        raise RuntimeError("Stage-09 seed worker set is incomplete")
+    return []
+
+
+def _run_stage09_seed_worker(order_path: Path) -> int:
+    """Execute exactly one independently authorized ThermoRoute seed."""
+    try:
+        order = json.loads(order_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Stage-09 seed order is invalid") from exc
+    if (
+        not isinstance(order, dict)
+        or order.get("format") != "thermoroute.stage09-seed-order.v1"
+    ):
+        raise RuntimeError("Stage-09 seed order format changed")
+    seed = order.get("seed")
+    if type(seed) is not int or seed not in C.USGS_SEEDS:
+        raise RuntimeError("Stage-09 seed order seed is invalid")
+    identity = RunIdentity(**order["identity"])
+    run_config = order["run_config"]
+    panel_path = Path(order["panel"]).resolve()
+    registry_path = ROOT / "data_usgs" / "station_registry_v1.csv"
+    resolved_device = str(order["device"])
+    delta_scale = float(order["delta_scale"])
+    station_sampling = str(order["station_sampling"])
+    eval_batch_size = int(order["eval_batch_size"])
+    prediction_path = Path(order["prediction"]).resolve()
+    bundle_path = Path(order["bundle"]).resolve()
+    checkpoint_path = Path(order["checkpoint"]).resolve()
+
+    development_input_closure = resolve_development_input_closure(ROOT)
+    input_closure_sha256 = (
+        development_input_closure.binding_digest
+        if development_input_closure is not None
+        else compose_input_closure_digest({
+            "panel": sha256_file(panel_path),
+            "registry": sha256_file(registry_path),
+        })
+    )
+    rederived = resolve_run_identity(
+        root=ROOT,
+        panel=panel_path,
+        registry=registry_path,
+        config=run_config,
+        input_closure_sha256=input_closure_sha256,
+    )
+    if rederived != identity:
+        raise RuntimeError("Stage-09 seed order identity changed")
+
+    panel, panel_imp, masks, clim, stations, imputer = prep(str(panel_path))
+    wd = DS.build_windows(panel_imp, masks, clim, variables=USGS_VARS,
+                          require_observed_target=True)
+    thr = {
+        station: float(
+            panel.loc[masks.train]
+            .query("site_id==@station")
+            .WTEMP.quantile(0.9)
+        )
+        for station in stations
+    }
+    event_reference = fit_frozen_seasonal_event_reference(
+        panel,
+        thr,
+        pooled=False,
+        fit_interval=("2006-01-01", "2018-12-31"),
+    )
+    member_name = f"seed{seed}"
+    factory = lambda: ThermoRoute(
+        n_vars=len(wd.var_names), n_stations=len(stations), n_phys=wd.n_phys,
+        delta_scale=delta_scale, safety_anchor="damped")
+    res = fit_model(
+        factory, wd, thr, cfg=CFG, seed=seed,
+        device=resolved_device, eval_batch_size=eval_batch_size,
+        model_name="ThermoRoute", scope="joint_usgs",
+        feature_set="USGS",
+        station_balanced=station_sampling == "balanced",
+        selection_metric=(
+            "station_macro" if station_sampling == "balanced" else "micro"
+        ),
+        checkpoint_path=checkpoint_path,
+        run_id=identity.run_id,
+        resolved_config={**run_config, "arm": "ThermoRoute", "seed": seed},
+        artifact_publication_guard=assert_formal_numerical_policy,
+    )
+    model = res.model
+    res.pred["seed"] = seed
+    write_prediction_artifact(
+        res.pred, prediction_path, identity,
+        kind="thermoroute_seed_predictions",
+        publication_guard=assert_formal_numerical_policy,
+    )
+    seed_offsets, seed_offset_audit, seed_calibrators = calibration_artifacts(
+        res.pred, thr
+    )
+    save_inference_bundle(
+        bundle_path,
+        members={member_name: model},
+        metadata=bundle_metadata(
+            identity, wd, clim, imputer, thr, event_reference,
+            delta_scale,
+            seed_offsets, seed_offset_audit, seed_calibrators,
+            training_device=resolved_device,
+        ),
+        expected_member_count=1,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    log(
+        f"  ThermoRoute seed{seed}: {res.epochs+1}ep "
+        f"val={res.best_val:.4f}"
+    )
+    return 0
 
 
 def main():
@@ -1896,7 +2134,25 @@ def main():
         "--_control-member-work-order",
         help=argparse.SUPPRESS,
     )
+    ap.add_argument(
+        "--_thermoroute-seed-worker",
+        help=argparse.SUPPRESS,
+    )
     args = ap.parse_args()
+    if args._thermoroute_seed_worker is not None:
+        # This mode accepts no ambient scientific override.  Every value is
+        # recovered from and checked against the parent-frozen seed order.
+        if sys.argv[1:] != [
+            "--_thermoroute-seed-worker",
+            args._thermoroute_seed_worker,
+        ]:
+            ap.error(
+                "the internal seed worker accepts only its exact "
+                "work-order argument"
+            )
+        return _run_stage09_seed_worker(
+            Path(args._thermoroute_seed_worker)
+        )
     if args._control_member_work_order is not None:
         # This mode accepts no ambient scientific override.  Every value is
         # recovered from and checked against the parent-frozen work order.
@@ -2186,6 +2442,7 @@ def main():
     # ---- ThermoRoute joint, multiple seeds (resumable per seed) ---------- #
     tr_preds = []
     ensemble_members = {}
+    seed_work = []
     for sd in C.USGS_SEEDS[:args.seeds]:
         member_name = f"seed{sd}"
         seed_file = prediction_cache / f"thermoroute_{member_name}.parquet"
@@ -2198,48 +2455,62 @@ def main():
             ensemble_members[member_name] = cached_member
             log(f"  ThermoRoute {member_name}: verified content cache")
             continue
-        te = time.time()
-        factory = lambda: ThermoRoute(
-            n_vars=len(wd.var_names), n_stations=len(stations), n_phys=wd.n_phys,
-            delta_scale=args.delta_scale, safety_anchor="damped")
-        res = fit_model(factory, wd, thr, cfg=CFG, seed=sd,
-                        device=resolved_device, eval_batch_size=args.eval_batch_size,
-                        model_name="ThermoRoute", scope="joint_usgs",
-                        feature_set="USGS",
-                        station_balanced=args.station_sampling == "balanced",
-                        selection_metric=("station_macro" if args.station_sampling == "balanced"
-                                          else "micro"),
-                        checkpoint_path=training_checkpoints / f"{member_name}.pt",
-                        run_id=identity.run_id,
-                        resolved_config={**run_config, "arm": "ThermoRoute", "seed": sd},
-                        artifact_publication_guard=assert_formal_numerical_policy)
-        model = res.model
-        res.pred["seed"] = sd
-        write_prediction_artifact(
-            res.pred, seed_file, identity, kind="thermoroute_seed_predictions",
-            publication_guard=assert_formal_numerical_policy,
+        seed_work.append(sd)
+    if seed_work:
+        seed_order_dir = run_dir / "stage09_seed_orders_v1"
+        seed_order_dir.mkdir(parents=True, exist_ok=True)
+        seed_orders: dict[int, Path] = {}
+        for sd in seed_work:
+            order_path = seed_order_dir / f"seed{sd}.json"
+            atomic_write_json(
+                order_path,
+                {
+                    "format": "thermoroute.stage09-seed-order.v1",
+                    "seed": sd,
+                    "identity": identity.as_dict(),
+                    "run_config": run_config,
+                    "panel": str(panel_path),
+                    "device": resolved_device,
+                    "delta_scale": args.delta_scale,
+                    "station_sampling": args.station_sampling,
+                    "eval_batch_size": args.eval_batch_size,
+                    "prediction": str(
+                        prediction_cache / f"thermoroute_seed{sd}.parquet"
+                    ),
+                    "bundle": str(member_cache / f"seed{sd}"),
+                    "checkpoint": str(
+                        training_checkpoints / f"seed{sd}.pt"
+                    ),
+                },
+            )
+            seed_orders[sd] = order_path
+        launcher = _SeedWorkerLauncher()
+        started = time.time()
+        for future in _launch_seed_workers(
+            seed_orders,
+            max_workers=SEED_WORKER_PROCESSES,
+            launch=launcher,
+            terminate=launcher.terminate_all,
+        ):
+            future.result()
+        log(f"  ThermoRoute seeds {sorted(seed_orders)}: {time.time()-started:.0f}s")
+        for sd in seed_work:
+            member_name = f"seed{sd}"
+            seed_file = prediction_cache / f"thermoroute_{member_name}.parquet"
+            seed_bundle = member_cache / member_name
+            cached_prediction = read_prediction_cache(seed_file, identity)
+            cached_member = read_member_bundle(seed_bundle, identity, member_name)
+            if cached_prediction is None or cached_member is None:
+                raise RuntimeError(
+                    f"ThermoRoute seed{sd} worker completed without its "
+                    "prediction and bundle artifacts"
+                )
+            tr_preds.append(cached_prediction)
+            ensemble_members[member_name] = cached_member
+    if {f"seed{sd}" for sd in C.USGS_SEEDS[:args.seeds]} != set(ensemble_members):
+        raise RuntimeError(
+            "ThermoRoute seed ensemble is incomplete after training"
         )
-        tr_preds.append(res.pred)
-        seed_offsets, seed_offset_audit, seed_calibrators = calibration_artifacts(
-            res.pred, thr
-        )
-        save_inference_bundle(
-            seed_bundle,
-            members={member_name: model},
-            metadata=bundle_metadata(
-                identity, wd, clim, imputer, thr, event_reference,
-                args.delta_scale,
-                seed_offsets, seed_offset_audit, seed_calibrators,
-                training_device=resolved_device,
-            ),
-            expected_member_count=1,
-            publication_guard=assert_formal_numerical_policy,
-        )
-        ensemble_members[member_name] = {
-            key: value.detach().cpu().contiguous()
-            for key, value in model.state_dict().items()
-        }
-        log(f"  ThermoRoute seed{sd}: {res.epochs+1}ep {time.time()-te:.0f}s val={res.best_val:.4f}")
     chunks.append(pd.concat(tr_preds, ignore_index=True))
 
     # ---- leave-group-out ------------------------------------------------ #
@@ -2586,7 +2857,7 @@ def main():
             },
             "training_weighting": "equal_total_weight_per_station",
             "deterministic_training": {
-                "deterministic": True, "force_col_wise": True, "n_jobs": 1,
+                "deterministic": True, "force_col_wise": True, "n_jobs": MAIN_THREADS,
             },
             "validation_selection": lightgbm_selection.to_dict(orient="records"),
             "event_thresholds": {str(site): float(value)

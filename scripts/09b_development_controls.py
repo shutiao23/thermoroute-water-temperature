@@ -28,6 +28,10 @@ import sys
 import tempfile
 
 
+STAGE09B_MEMBER_THREADS = int(
+    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "2"
+)
+
 for _thread_variable in (
     "OMP_NUM_THREADS",
     "MKL_NUM_THREADS",
@@ -35,7 +39,8 @@ for _thread_variable in (
     "VECLIB_MAXIMUM_THREADS",
     "NUMEXPR_NUM_THREADS",
 ):
-    os.environ[_thread_variable] = "1"
+    os.environ.setdefault(_thread_variable, str(STAGE09B_MEMBER_THREADS))
+os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(STAGE09B_MEMBER_THREADS))
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,19 +50,28 @@ _WORKER_NONCE_ENV = "THERMOROUTE_STAGE09B_NONCE"
 _MEMBER_WORK_ORDER_OPTION = "--_thermoroute-stage09b-member-work-order"
 
 
-def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
+def _formal_worker_environment(
+    cache: Path, nonce: str, threads: int | None = None,
+) -> dict[str, str]:
     """Return the complete allowlisted Stage-09b worker environment."""
+    if threads is None:
+        threads = int(
+            os.environ.get("THERMOROUTE_FORMAL_THREADS")
+            or STAGE09B_MEMBER_THREADS
+        )
+    thread_value = str(threads)
     return {
         "PATH": os.defpath,
         "LANG": "C",
         "LC_ALL": "C",
         "TZ": "UTC",
         "TMPDIR": str(cache.resolve()),
-        "OMP_NUM_THREADS": "1",
-        "MKL_NUM_THREADS": "1",
-        "OPENBLAS_NUM_THREADS": "1",
-        "VECLIB_MAXIMUM_THREADS": "1",
-        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": thread_value,
+        "MKL_NUM_THREADS": thread_value,
+        "OPENBLAS_NUM_THREADS": thread_value,
+        "VECLIB_MAXIMUM_THREADS": thread_value,
+        "NUMEXPR_NUM_THREADS": thread_value,
+        "THERMOROUTE_FORMAL_THREADS": thread_value,
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTHONHASHSEED": "0",
         _WORKER_CACHE_ENV: str(cache.resolve()),
@@ -1585,7 +1599,9 @@ def _launch_stage09b_member_process(
         result = subprocess.run(
             command,
             cwd=ROOT,
-            env=_formal_worker_environment(cache_path, nonce),
+            env=_formal_worker_environment(
+                cache_path, nonce, threads=STAGE09B_MEMBER_THREADS
+            ),
             check=False,
         )
     if result.returncode:

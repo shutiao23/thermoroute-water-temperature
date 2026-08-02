@@ -31,24 +31,30 @@ Run:  python3 scripts/16_lstm_baseline.py --insample
 from __future__ import annotations
 
 import os
+LSTM_WORKER_THREADS = int(
+    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "10"
+)
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
 ):
-    os.environ[_thread_variable] = "1"
+    os.environ.setdefault(_thread_variable, str(LSTM_WORKER_THREADS))
+os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(LSTM_WORKER_THREADS))
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 # Stage 13c is imported below and uses this value when setting Torch threads.
-# Keep its default aligned with the formal single-thread contract while still
-# failing closed if a caller explicitly requests a different worker count.
-os.environ.setdefault("WORKER_THREADS", "1")
+# Keep it aligned with the process-declared formal thread cap.
+os.environ.setdefault("WORKER_THREADS", str(LSTM_WORKER_THREADS))
 
 import argparse
 import gc
 import importlib.util
+import json
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -58,22 +64,30 @@ _WORKER_CACHE_ENV = "THERMOROUTE_STAGE16_PYCACHE"
 _WORKER_NONCE_ENV = "THERMOROUTE_STAGE16_NONCE"
 
 
-def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
+def _formal_worker_environment(
+    cache: Path, nonce: str, threads: int | None = None,
+) -> dict[str, str]:
     """Return the complete allowlisted Stage-16 worker environment."""
+    if threads is None:
+        threads = int(
+            os.environ.get("THERMOROUTE_FORMAL_THREADS") or LSTM_WORKER_THREADS
+        )
+    thread_value = str(threads)
     return {
         "PATH": os.defpath,
         "LANG": "C",
         "LC_ALL": "C",
         "TZ": "UTC",
         "TMPDIR": str(cache.resolve()),
-        "OMP_NUM_THREADS": "1",
-        "MKL_NUM_THREADS": "1",
-        "OPENBLAS_NUM_THREADS": "1",
-        "VECLIB_MAXIMUM_THREADS": "1",
-        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": thread_value,
+        "MKL_NUM_THREADS": thread_value,
+        "OPENBLAS_NUM_THREADS": thread_value,
+        "VECLIB_MAXIMUM_THREADS": thread_value,
+        "NUMEXPR_NUM_THREADS": thread_value,
+        "THERMOROUTE_FORMAL_THREADS": thread_value,
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTHONHASHSEED": "0",
-        "WORKER_THREADS": "1",
+        "WORKER_THREADS": thread_value,
         _WORKER_CACHE_ENV: str(cache.resolve()),
         _WORKER_NONCE_ENV: nonce,
     }
@@ -134,8 +148,6 @@ import pandas as pd
 import torch
 from scipy.stats import wilcoxon
 
-torch.set_num_threads(1)
-
 from thermoroute import config as C
 from thermoroute import conformal as CF
 from thermoroute import data as D
@@ -175,6 +187,7 @@ from thermoroute.registry import (
     enforce_common_forecast_keys,
 )
 from thermoroute.repro import (
+    RunIdentity,
     advisory_file_lock,
     assert_formal_numerical_policy,
     atomic_write_bytes,
@@ -433,57 +446,64 @@ def insample():
 
     # Architecture selection is a small predeclared grid.  Candidates export
     # validation rows only; calibration and test cannot affect the choice.
+    selection_order_dir = run_dir / "selection_orders_v1"
+    selection_order_dir.mkdir(parents=True, exist_ok=True)
+    for candidate_id, candidate in enumerate(LSTM_VALIDATION_GRID):
+        atomic_write_json(
+            selection_order_dir / f"candidate{candidate_id}.json",
+            {
+                "format": "thermoroute.stage16-lstm-order.v1",
+                "kind": "selection",
+                "candidate_id": candidate_id,
+                "candidate": candidate,
+                "n_vars": len(wd.var_names),
+                "n_stations": len(stations),
+                "identity": identity.as_dict(),
+                "run_config": run_config,
+                "panel": str(R13.PANEL.resolve()),
+                "registry": str(R13.STATION_REGISTRY.resolve()),
+                "checkpoint": str(
+                    run_dir / "selection" / f"candidate{candidate_id}.pt"
+                ),
+                "prediction": str(
+                    run_dir / "selection" / f"candidate{candidate_id}.parquet"
+                ),
+                "selection_json": str(
+                    selection_order_dir
+                    / f"candidate{candidate_id}.selection.json"
+                ),
+            },
+        )
+    selection_launcher = _LSTMWorkerLauncher()
+    _launch_lstm_workers(
+        {
+            candidate_id: (
+                selection_order_dir / f"candidate{candidate_id}.json"
+            )
+            for candidate_id in range(len(LSTM_VALIDATION_GRID))
+        },
+        max_workers=min(len(LSTM_VALIDATION_GRID), LSTM_WORKER_PROCESSES),
+        launch=selection_launcher,
+        terminate=selection_launcher.terminate_all,
+    )
     selection_rows = []
     candidates = []
     for candidate_id, candidate in enumerate(LSTM_VALIDATION_GRID):
-        factory = lambda candidate=candidate, n_vars=len(
-            wd.var_names
-        ), n_stations=len(stations): LSTMForecaster(
-            n_vars=n_vars, n_stations=n_stations,
-            context=C.CONTEXT_LENGTH, station_agnostic=False, **candidate,
-        )
-        result = fit_model(
-            factory, wd, thr, cfg=CFG, seed=SEEDS[0],
-            model_name=f"LSTM-grid-{candidate_id}", scope="validation_selection",
-            feature_set="USGS", station_balanced=True,
-            selection_metric="station_macro", export_splits=("val",),
-            device="cpu",
-            checkpoint_path=run_dir / "selection" / f"candidate{candidate_id}.pt",
-            run_id=identity.run_id,
-            resolved_config={**run_config, "candidate_id": candidate_id,
-                             "candidate": candidate},
-            # The checkpoint is intermediate rather than an authority object.
-            # Enforce the live native policy at its exact publication boundary;
-            # the stronger source/input closure is replayed before and after the
-            # enclosing candidate transaction.
-            artifact_publication_guard=assert_formal_numerical_policy,
+        info = json.loads(
+            (
+                selection_order_dir
+                / f"candidate{candidate_id}.selection.json"
+            ).read_text(encoding="utf-8")
         )
         candidate_prediction = (
             run_dir / "selection" / f"candidate{candidate_id}.parquet"
         )
-        R.write_predictions(
-            result.pred,
-            candidate_prediction,
-            publication_guard=assert_stage16_publication_inputs,
-        )
-        seal_artifact(
-            candidate_prediction,
-            identity,
-            kind="lstm_validation_candidate_predictions",
-            schema=R.PREDICTION_SCHEMA_VERSION,
-            extra={
-                "candidate_id": candidate_id,
-                "candidate": candidate,
-                "selection_split": "2016-2017 validation",
-            },
-            publication_guard=assert_stage16_publication_inputs,
-        )
         selection_rows.append({
             "candidate_id": candidate_id, **candidate,
-            "val_station_macro_rmse": result.best_val,
+            "val_station_macro_rmse": info["best_val"],
             "selected": False, "selection_split": "2016-2017 validation",
         })
-        candidates.append((result.best_val, candidate_id, candidate))
+        candidates.append((info["best_val"], candidate_id, candidate))
     selected_id = stage16_validation_winner(
         [float(row[0]) for row in candidates]
     )
@@ -499,11 +519,11 @@ def insample():
         "n_vars": len(wd.var_names), "n_stations": len(stations),
         "context": C.CONTEXT_LENGTH, "station_agnostic": False, **selected,
     }
-    del result, candidates, selection_rows
+    del candidates, selection_rows
 
     preds = []
     ensemble_members = {}
-    r = None
+    seed_work = []
     for sd in SEEDS:
         member = f"seed{sd}"
         f = run_dir / "predictions" / f"{member}.parquet"
@@ -522,64 +542,62 @@ def insample():
             ensemble_members[member] = cached_weights
             log(f"LSTM {member}: verified content cache")
             continue
-        te = time.time()
-        factory = lambda: LSTMForecaster(**architecture_kwargs)
-        r = fit_model(factory, wd, thr, cfg=CFG, seed=sd, model_name="LSTM",
-                      scope="joint_usgs", feature_set="USGS", verbose=True,
-                      device="cpu",
-                      station_balanced=True, selection_metric="station_macro",
-                      checkpoint_path=run_dir / "checkpoints" / f"{member}.pt",
-                      run_id=identity.run_id,
-                      resolved_config={**run_config, "selected_candidate": selected,
-                                       "arm": "LSTM", "seed": sd},
-                      # The checkpoint is intermediate; exact native-policy
-                      # enforcement happens here and the enclosing transaction
-                      # separately replays the full source/input closure.
-                      artifact_publication_guard=assert_formal_numerical_policy)
-        r.pred["seed"] = sd
-        R.write_predictions(
-            r.pred,
-            f,
-            publication_guard=assert_stage16_publication_inputs,
+        seed_work.append(sd)
+    if seed_work:
+        lstm_order_dir = run_dir / "lstm_seed_orders_v1"
+        lstm_order_dir.mkdir(parents=True, exist_ok=True)
+        orders = {}
+        for sd in seed_work:
+            member = f"seed{sd}"
+            order_path = lstm_order_dir / f"{member}.json"
+            atomic_write_json(
+                order_path,
+                {
+                    "format": "thermoroute.stage16-lstm-order.v1",
+                    "kind": "insample",
+                    "seed": sd,
+                    "identity": identity.as_dict(),
+                    "run_config": run_config,
+                    "architecture_kwargs": architecture_kwargs,
+                    "selected": selected,
+                    "panel": str(R13.PANEL.resolve()),
+                    "registry": str(R13.STATION_REGISTRY.resolve()),
+                    "prediction": str(
+                        run_dir / "predictions" / f"{member}.parquet"
+                    ),
+                    "bundle": str(run_dir / "member_bundles" / member),
+                    "checkpoint": str(
+                        run_dir / "checkpoints" / f"{member}.pt"
+                    ),
+                },
+            )
+            orders[member] = order_path
+        lstm_launcher = _LSTMWorkerLauncher()
+        _launch_lstm_workers(
+            orders,
+            max_workers=min(len(orders), LSTM_WORKER_PROCESSES),
+            launch=lstm_launcher,
+            terminate=lstm_launcher.terminate_all,
         )
-        seal_artifact(
-            f, identity, kind="lstm_seed_predictions",
-            schema=R.PREDICTION_SCHEMA_VERSION,
-            publication_guard=assert_stage16_publication_inputs,
-        )
-        (
-            member_offsets,
-            member_offset_audit,
-            member_calibrators,
-        ) = _calibration_artifacts(r.pred, thr)
-        save_inference_bundle(
-            bundle, members={member: r.model},
-            metadata=sequence_bundle_metadata(
-                run_id=identity.run_id,
-                architecture_class="thermoroute.train.LSTMForecaster",
-                architecture_kwargs=architecture_kwargs, train_config=CFG,
-                wd=wd, climatology=clim, imputer=imputer, thresholds=thr,
-                event_reference_climatology=event_reference,
-                conformal_offsets=member_offsets,
-                conformal_offset_audit=member_offset_audit,
-                event_calibrators=member_calibrators,
-                source_sha256=identity.source_sha256,
-                panel_sha256=identity.panel_sha256,
-                registry_sha256=identity.registry_sha256,
-                config_sha256=identity.config_sha256,
-                runtime_sha256=identity.runtime_sha256,
-                input_closure_sha256=identity.input_closure_sha256,
-                training_device="cpu",
-                development_prediction={},
-            ), expected_member_count=1,
-            publication_guard=assert_stage16_publication_inputs,
-        )
-        ensemble_members[member] = {
-            key: value.detach().cpu().contiguous()
-            for key, value in r.model.state_dict().items()
-        }
-        preds.append(r.pred)
-        log(f"LSTM seed{sd}: {r.epochs+1}ep {time.time()-te:.0f}s val_rmse={r.best_val:.4f}")
+        for sd in seed_work:
+            member = f"seed{sd}"
+            f = run_dir / "predictions" / f"{member}.parquet"
+            bundle = run_dir / "member_bundles" / member
+            cached = None
+            if cache_is_valid(f, identity, schema=R.PREDICTION_SCHEMA_VERSION):
+                try:
+                    cached = pd.read_parquet(f)
+                    R.validate_predictions(cached)
+                except Exception:
+                    cached = None
+            cached_weights = _read_member_bundle(bundle, identity, member)
+            if cached is None or cached_weights is None:
+                raise RuntimeError(
+                    f"LSTM seed{sd} worker completed without its "
+                    "prediction and bundle artifacts"
+                )
+            preds.append(cached)
+            ensemble_members[member] = cached_weights
     # Reject any native-library thread drift before deriving canonical outputs.
     assert_stage16_publication_inputs()
     lstm = pd.concat(preds, ignore_index=True)
@@ -744,7 +762,7 @@ def insample():
     del (
         preds, ensemble_members, lstm, allp, lstm_rows, lv, lc, lt,
         panel, panel_imp, masks, clim, thr, wd, stations, imputer,
-        event_reference, offsets, offset_audit, calibrators, r, cached,
+        event_reference, offsets, offset_audit, calibrators, cached,
         cached_weights,
     )
     gc.collect()
@@ -783,31 +801,37 @@ def transfer(fold=None):
     panel, panel_imp, masks, clim, thr, wd, stations = R13.prep()
     folds, _ = R13.region_folds(stations)
     todo = range(len(folds)) if fold is None else [fold]
-    for fi in todo:
-        f = REGION_CKPT / f"lstm_ctx32_fold{fi}.parquet"
-        if f.exists():
+    missing = [
+        fi for fi in todo
+        if not (REGION_CKPT / f"lstm_ctx32_fold{fi}.parquet").exists()
+    ]
+    if not missing:
+        for fi in todo:
             assert_formal_numerical_policy()
-            log(f"LSTM fold{fi}: already done"); continue
-        _, _, _, thr, wd, stations, train_st, hold = R13.prep_fold(fi)
-        te = time.time()
-        log(f"LSTM fold{fi}: train {len(train_st)} -> hold {len(hold)} region stations")
-        factory = lambda: LSTMForecaster(
-            n_vars=len(wd.var_names), n_stations=len(stations),
-            context=C.CONTEXT_LENGTH, station_agnostic=True)
-        r = fit_model(factory, wd, thr, cfg=CFG, seed=0, scope="region_lgo",
-                      feature_set="USGS", train_stations=train_st,
-                      device="cpu",
-                      station_balanced=True, selection_metric="station_macro",
-                      artifact_publication_guard=assert_formal_numerical_policy)
-        pred = r.pred[(r.pred.split == "test") & (r.pred.site_id.isin(hold))].copy()
-        pred["model"] = "LSTM-regionLGO"
-        atomic_write_parquet(
-            pred,
-            f,
-            index=False,
-            publication_guard=assert_formal_numerical_policy,
+            log(f"LSTM fold{fi}: already done")
+        return
+    order_dir = REGION_CKPT / "lstm_fold_orders_v1"
+    order_dir.mkdir(parents=True, exist_ok=True)
+    orders = {}
+    for fi in missing:
+        order_path = order_dir / f"fold{fi}.json"
+        atomic_write_json(
+            order_path,
+            {
+                "format": "thermoroute.stage16-lstm-order.v1",
+                "kind": "transfer",
+                "fold": fi,
+                "prediction": str(REGION_CKPT / f"lstm_ctx32_fold{fi}.parquet"),
+            },
         )
-        log(f"LSTM fold{fi}: DONE {r.epochs+1}ep {time.time()-te:.0f}s -> {f.name}")
+        orders[fi] = order_path
+    launcher = _LSTMWorkerLauncher()
+    _launch_lstm_workers(
+        orders,
+        max_workers=min(len(orders), LSTM_WORKER_PROCESSES),
+        launch=launcher,
+        terminate=launcher.terminate_all,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -899,13 +923,326 @@ def report():
     log(f"wrote {out}")
 
 
+LSTM_WORKER_PROCESSES = int(
+    os.environ.get("THERMOROUTE_LSTM_PROCESSES") or "5"
+)
+
+
+class _LSTMWorkerLauncher:
+    """Own and terminate the isolated Stage-16 LSTM worker processes."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._active: dict[int, subprocess.Popen[bytes]] = {}
+        self._stopping = False
+
+    @staticmethod
+    def _signal_group(process: subprocess.Popen[bytes], value: int) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, value)
+        except ProcessLookupError:
+            return
+
+    def __call__(self, order_path: Path) -> int:
+        """Launch one clean interpreter in its own cancellable process group."""
+        with tempfile.TemporaryDirectory(
+            prefix="thermoroute-stage16-worker-pycache-"
+        ) as cache:
+            cache_path = Path(cache).resolve()
+            if any(cache_path.iterdir()):
+                raise RuntimeError(
+                    "Stage-16 worker pycache was not initially empty"
+                )
+            nonce = secrets.token_hex(32)
+            (cache_path / ".controller-nonce").write_text(
+                nonce, encoding="utf-8"
+            )
+            environment = _formal_worker_environment(
+                cache_path, nonce, threads=LSTM_WORKER_THREADS
+            )
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    "-X",
+                    f"pycache_prefix={cache}",
+                    str(Path(__file__).resolve()),
+                    _WORKER_ARGUMENT,
+                    "--_lstm-worker",
+                    str(order_path.resolve()),
+                ],
+                cwd=ROOT,
+                env=environment,
+                start_new_session=True,
+            )
+            with self._lock:
+                stopping = self._stopping
+                if not stopping:
+                    self._active[process.pid] = process
+            if stopping:
+                self._signal_group(process, signal.SIGTERM)
+            try:
+                return int(process.wait())
+            finally:
+                with self._lock:
+                    self._active.pop(process.pid, None)
+
+    def terminate_all(self) -> None:
+        """Stop and reap every active process after failure or interruption."""
+        with self._lock:
+            self._stopping = True
+            active = tuple(self._active.values())
+        for process in active:
+            self._signal_group(process, signal.SIGTERM)
+        for process in active:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                self._signal_group(process, signal.SIGKILL)
+        for process in active:
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired as exc:  # pragma: no cover - OS fault
+                raise RuntimeError(
+                    f"Stage-16 worker would not terminate: {process.pid}"
+                ) from exc
+
+
+def _launch_lstm_workers(
+    orders: dict,
+    *,
+    max_workers: int,
+    launch,
+    terminate,
+) -> None:
+    """Run the independent Stage-16 workers with bounded concurrency."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(launch, order): key for key, order in orders.items()
+        }
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except BaseException:
+                terminate()
+                raise
+            completed += 1
+    if completed != len(orders):
+        raise RuntimeError("Stage-16 worker set is incomplete")
+
+
+def _run_lstm_worker(order_path: Path) -> int:
+    """Execute exactly one independently authorized Stage-16 LSTM task."""
+    try:
+        order = json.loads(order_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Stage-16 LSTM order is invalid") from exc
+    if (
+        not isinstance(order, dict)
+        or order.get("format") != "thermoroute.stage16-lstm-order.v1"
+    ):
+        raise RuntimeError("Stage-16 LSTM order format changed")
+    kind = order.get("kind")
+    if kind not in ("selection", "insample", "transfer"):
+        raise RuntimeError("Stage-16 LSTM order kind changed")
+
+    if kind in ("selection", "insample"):
+        identity = RunIdentity(**order["identity"])
+        run_config = order["run_config"]
+        panel = Path(order["panel"]).resolve()
+        registry = Path(order["registry"]).resolve()
+        development_input_closure = resolve_development_input_closure(ROOT)
+        stage09_input_paths = {
+            "stage09_parent_prediction": PARENT,
+            "stage09_parent_sidecar": sidecar_path(PARENT),
+            "stage09_completion_receipt": ROOT / STAGE9_COMPLETION_RECEIPT_PATH,
+            "stage09_components": STAGE9_POINTER,
+        }
+        closure = compose_input_closure_digest({
+            "development": development_input_closure.binding_digest,
+            **{
+                name: sha256_file(path)
+                for name, path in stage09_input_paths.items()
+            },
+        })
+        rederived = resolve_run_identity(
+            root=ROOT,
+            panel=panel,
+            registry=registry,
+            config=run_config,
+            input_closure_sha256=closure,
+        )
+        if rederived != identity:
+            raise RuntimeError("Stage-16 LSTM order identity changed")
+        panel_raw, panel_imp, masks, clim, thr, wd, stations = R13.prep()
+        event_reference = fit_frozen_seasonal_event_reference(
+            panel_raw,
+            thr,
+            pooled=False,
+            fit_interval=("2006-01-01", "2018-12-31"),
+        )
+        prepared = D.prepare_dataset_from_panel(str(panel))
+        imputer = prepared["imputer"]
+        if tuple(prepared["stations"]) != tuple(stations):
+            raise AssertionError(
+                "LSTM worker imputer and window station registries differ"
+            )
+    else:
+        identity = None
+        thr = wd = stations = None
+        event_reference = None
+        imputer = None
+
+    if kind == "selection":
+        candidate_id = order["candidate_id"]
+        candidate = order["candidate"]
+        factory = lambda candidate=candidate, n_vars=order["n_vars"], \
+            n_stations=order["n_stations"]: LSTMForecaster(
+                n_vars=n_vars, n_stations=n_stations,
+                context=C.CONTEXT_LENGTH, station_agnostic=False, **candidate,
+            )
+        result = fit_model(
+            factory, wd, thr, cfg=CFG, seed=SEEDS[0],
+            model_name=f"LSTM-grid-{candidate_id}", scope="validation_selection",
+            feature_set="USGS", station_balanced=True,
+            selection_metric="station_macro", export_splits=("val",),
+            device="cpu",
+            checkpoint_path=Path(order["checkpoint"]),
+            run_id=identity.run_id,
+            resolved_config={**run_config, "candidate_id": candidate_id,
+                             "candidate": candidate},
+            artifact_publication_guard=assert_formal_numerical_policy,
+        )
+        R.write_predictions(
+            result.pred,
+            Path(order["prediction"]),
+            publication_guard=assert_formal_numerical_policy,
+        )
+        seal_artifact(
+            Path(order["prediction"]),
+            identity,
+            kind="lstm_validation_candidate_predictions",
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            extra={
+                "candidate_id": candidate_id,
+                "candidate": candidate,
+                "selection_split": "2016-2017 validation",
+            },
+            publication_guard=assert_formal_numerical_policy,
+        )
+        atomic_write_json(
+            Path(order["selection_json"]),
+            {
+                "candidate_id": candidate_id,
+                "best_val": float(result.best_val),
+            },
+            publication_guard=assert_formal_numerical_policy,
+        )
+        log(f"LSTM grid candidate {candidate_id}: val_rmse={result.best_val:.4f}")
+        return 0
+
+    if kind == "insample":
+        sd = order["seed"]
+        member = f"seed{sd}"
+        architecture_kwargs = order["architecture_kwargs"]
+        factory = lambda architecture_kwargs=architecture_kwargs: \
+            LSTMForecaster(**architecture_kwargs)
+        r = fit_model(
+            factory, wd, thr, cfg=CFG, seed=sd, model_name="LSTM",
+            scope="joint_usgs", feature_set="USGS", verbose=True,
+            device="cpu",
+            station_balanced=True, selection_metric="station_macro",
+            checkpoint_path=Path(order["checkpoint"]),
+            run_id=identity.run_id,
+            resolved_config={**run_config, "selected_candidate": order["selected"],
+                             "arm": "LSTM", "seed": sd},
+            artifact_publication_guard=assert_formal_numerical_policy,
+        )
+        r.pred["seed"] = sd
+        R.write_predictions(
+            r.pred,
+            Path(order["prediction"]),
+            publication_guard=assert_formal_numerical_policy,
+        )
+        seal_artifact(
+            Path(order["prediction"]),
+            identity,
+            kind="lstm_seed_predictions",
+            schema=R.PREDICTION_SCHEMA_VERSION,
+            publication_guard=assert_formal_numerical_policy,
+        )
+        member_offsets, member_offset_audit, member_calibrators = (
+            _calibration_artifacts(r.pred, thr)
+        )
+        save_inference_bundle(
+            Path(order["bundle"]),
+            members={member: r.model},
+            metadata=sequence_bundle_metadata(
+                run_id=identity.run_id,
+                architecture_class="thermoroute.train.LSTMForecaster",
+                architecture_kwargs=architecture_kwargs, train_config=CFG,
+                wd=wd, climatology=clim, imputer=imputer, thresholds=thr,
+                event_reference_climatology=event_reference,
+                conformal_offsets=member_offsets,
+                conformal_offset_audit=member_offset_audit,
+                event_calibrators=member_calibrators,
+                source_sha256=identity.source_sha256,
+                panel_sha256=identity.panel_sha256,
+                registry_sha256=identity.registry_sha256,
+                config_sha256=identity.config_sha256,
+                runtime_sha256=identity.runtime_sha256,
+                input_closure_sha256=identity.input_closure_sha256,
+                training_device="cpu",
+                development_prediction={},
+            ),
+            expected_member_count=1,
+            publication_guard=assert_formal_numerical_policy,
+        )
+        log(f"LSTM seed{sd}: {r.epochs+1}ep val_rmse={r.best_val:.4f}")
+        return 0
+
+    fi = order["fold"]
+    _, _, _, thr, wd, stations, train_st, hold = R13.prep_fold(fi)
+    factory = lambda: LSTMForecaster(
+        n_vars=len(wd.var_names), n_stations=len(stations),
+        context=C.CONTEXT_LENGTH, station_agnostic=True)
+    r = fit_model(
+        factory, wd, thr, cfg=CFG, seed=0, scope="region_lgo",
+        feature_set="USGS", train_stations=train_st,
+        device="cpu",
+        station_balanced=True, selection_metric="station_macro",
+        artifact_publication_guard=assert_formal_numerical_policy,
+    )
+    pred = r.pred[(r.pred.split == "test") & (r.pred.site_id.isin(hold))].copy()
+    pred["model"] = "LSTM-regionLGO"
+    atomic_write_parquet(
+        pred,
+        Path(order["prediction"]),
+        index=False,
+        publication_guard=assert_formal_numerical_policy,
+    )
+    log(f"LSTM fold{fi}: DONE {r.epochs+1}ep -> {Path(order['prediction']).name}")
+    return 0
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--insample", action="store_true")
     ap.add_argument("--transfer", action="store_true")
     ap.add_argument("--fold", type=int, default=None)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--_lstm-worker", help=argparse.SUPPRESS)
     a = ap.parse_args()
+    if a._lstm_worker is not None:
+        if sys.argv[1:] != ["--_lstm-worker", a._lstm_worker]:
+            ap.error("the internal LSTM worker accepts only its exact "
+                     "work-order argument")
+        raise SystemExit(_run_lstm_worker(Path(a._lstm_worker)))
     if a.insample:
         with advisory_file_lock(C.STAGE16_TRANSACTION_LOCK, exclusive=True):
             insample()

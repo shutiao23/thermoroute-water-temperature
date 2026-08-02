@@ -24,11 +24,16 @@ import sys
 import tempfile
 import time
 
+STAGE25_THREADS = int(
+    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "16"
+)
+
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
 ):
-    os.environ[_thread_variable] = "1"
+    os.environ.setdefault(_thread_variable, str(STAGE25_THREADS))
+os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(STAGE25_THREADS))
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,19 +42,27 @@ _WORKER_CACHE_ENV = "THERMOROUTE_STAGE25_PYCACHE"
 _WORKER_NONCE_ENV = "THERMOROUTE_STAGE25_NONCE"
 
 
-def _formal_worker_environment(cache: Path, nonce: str) -> dict[str, str]:
+def _formal_worker_environment(
+    cache: Path, nonce: str, threads: int | None = None,
+) -> dict[str, str]:
     """Return the complete allowlisted Stage-25 worker environment."""
+    if threads is None:
+        threads = int(
+            os.environ.get("THERMOROUTE_FORMAL_THREADS") or STAGE25_THREADS
+        )
+    thread_value = str(threads)
     return {
         "PATH": os.defpath,
         "LANG": "C",
         "LC_ALL": "C",
         "TZ": "UTC",
         "TMPDIR": str(cache.resolve()),
-        "OMP_NUM_THREADS": "1",
-        "MKL_NUM_THREADS": "1",
-        "OPENBLAS_NUM_THREADS": "1",
-        "VECLIB_MAXIMUM_THREADS": "1",
-        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": thread_value,
+        "MKL_NUM_THREADS": thread_value,
+        "OPENBLAS_NUM_THREADS": thread_value,
+        "VECLIB_MAXIMUM_THREADS": thread_value,
+        "NUMEXPR_NUM_THREADS": thread_value,
+        "THERMOROUTE_FORMAL_THREADS": thread_value,
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTHONHASHSEED": "0",
         _WORKER_CACHE_ENV: str(cache.resolve()),
@@ -544,7 +557,8 @@ def _run(args: argparse.Namespace) -> None:
             },
             "training_weighting": "equal_total_weight_per_station",
             "deterministic_training": {
-                "deterministic": True, "force_col_wise": True, "n_jobs": 1,
+                "deterministic": True, "force_col_wise": True,
+                "n_jobs": STAGE25_THREADS,
             },
             "validation_selection": lgb_selection.to_dict(orient="records"),
             "event_thresholds": {"__pooled__": pooled_threshold},

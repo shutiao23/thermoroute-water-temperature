@@ -109,8 +109,8 @@ def _native_library(**overrides):
     return library
 
 
-def test_native_threadpool_policy_accepts_only_live_single_thread_pools():
-    repro_module._assert_native_threadpools_single_thread([
+def test_native_threadpool_policy_accepts_live_pools_within_declared_cap():
+    repro_module._assert_native_threadpools_within_limit([
         {"user_api": "openmp", "num_threads": 1},
         _native_library(
             user_api="blas",
@@ -118,6 +118,13 @@ def test_native_threadpool_policy_accepts_only_live_single_thread_pools():
             prefix="libopenblas",
         ),
     ])
+    repro_module._assert_native_threadpools_within_limit(
+        [
+            _native_library(user_api="blas", num_threads=16),
+            {"user_api": "openmp", "num_threads": 16},
+        ],
+        limit=16,
+    )
 
 
 @pytest.mark.parametrize(
@@ -142,13 +149,19 @@ def test_native_threadpool_policy_accepts_only_live_single_thread_pools():
         [_native_library(num_threads="1")],
         [_native_library(num_threads=-1)],
         [_native_library(num_threads=0)],
-        [_native_library(num_threads=2)],
-        [_native_library(), _native_library(num_threads=8)],
     ),
 )
 def test_native_threadpool_policy_fails_closed_for_unproved_state(value):
     with pytest.raises(RuntimeError, match="thread-pool|BLAS/OpenMP"):
-        repro_module._assert_native_threadpools_single_thread(value)
+        repro_module._assert_native_threadpools_within_limit(value)
+
+
+def test_native_threadpool_policy_rejects_over_cap_threads():
+    with pytest.raises(RuntimeError, match="thread-pool|BLAS/OpenMP"):
+        repro_module._assert_native_threadpools_within_limit(
+            [_native_library(num_threads=17)],
+            limit=16,
+        )
 
 
 def test_native_threadpool_inspection_error_fails_closed(monkeypatch):
@@ -202,15 +215,20 @@ def _formal_policy_fixture():
 
 
 def test_formal_policy_assertion_rejects_effective_native_drift(monkeypatch):
+    limit = repro_module.FORMAL_THREAD_LIMIT
     policy = _formal_policy_fixture()
+    for name in repro_module.FORMAL_THREAD_ENVIRONMENT:
+        policy["thread_environment"][name] = str(limit)
+    policy["required"]["threads"] = limit
+    policy["torch"]["num_threads"] = limit
     monkeypatch.setattr(repro_module, "formal_numerical_policy", lambda: policy)
     monkeypatch.setattr(repro_module, "_FORMAL_THREADPOOL_CONTROLLER", object())
     monkeypatch.setattr(
         repro_module,
         "_loaded_native_threadpools",
-        lambda: [_native_library(num_threads=2)],
+        lambda: [_native_library(num_threads=limit + 1)],
     )
-    with pytest.raises(RuntimeError, match="exactly one thread"):
+    with pytest.raises(RuntimeError, match="declared cap"):
         repro_module.assert_formal_numerical_policy()
 
 
@@ -218,6 +236,11 @@ def test_formal_policy_assertion_returns_stable_policy_without_live_snapshot(
     monkeypatch,
 ):
     policy = _formal_policy_fixture()
+    limit = repro_module.FORMAL_THREAD_LIMIT
+    for name in repro_module.FORMAL_THREAD_ENVIRONMENT:
+        policy["thread_environment"][name] = str(limit)
+    policy["required"]["threads"] = limit
+    policy["torch"]["num_threads"] = limit
     monkeypatch.setattr(repro_module, "formal_numerical_policy", lambda: policy)
     monkeypatch.setattr(repro_module, "_FORMAL_THREADPOOL_CONTROLLER", object())
     monkeypatch.setattr(
@@ -231,6 +254,11 @@ def test_formal_policy_assertion_returns_stable_policy_without_live_snapshot(
 
 def test_formal_policy_assertion_requires_process_lifetime_limiter(monkeypatch):
     policy = _formal_policy_fixture()
+    limit = repro_module.FORMAL_THREAD_LIMIT
+    for name in repro_module.FORMAL_THREAD_ENVIRONMENT:
+        policy["thread_environment"][name] = str(limit)
+    policy["required"]["threads"] = limit
+    policy["torch"]["num_threads"] = limit
     monkeypatch.setattr(repro_module, "formal_numerical_policy", lambda: policy)
     monkeypatch.setattr(repro_module, "_FORMAL_THREADPOOL_CONTROLLER", None)
     monkeypatch.setattr(
