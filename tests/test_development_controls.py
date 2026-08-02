@@ -46,6 +46,60 @@ def _load_script():
 DC = _load_script()
 
 
+def test_production_canonical_arm_descriptor_uses_json_list_shapes() -> None:
+    arms = DC.declared_arms()
+    descriptors = [DC.canonical_arm_descriptor(arm) for arm in arms]
+    assert len(descriptors) == len(arms)
+    for arm, descriptor in zip(arms, descriptors):
+        assert set(descriptor.keys()) == {
+            "arm_id",
+            "family",
+            "feature_set",
+            "variables",
+            "seeds",
+        }
+        assert isinstance(descriptor["variables"], list)
+        assert isinstance(descriptor["seeds"], list)
+        assert descriptor["variables"] == list(arm.variables)
+        assert descriptor["seeds"] == list(arm.seeds)
+
+
+def test_production_canonical_arm_descriptor_preserves_frozen_registry() -> None:
+    arms = DC.declared_arms()
+    descriptors = [DC.canonical_arm_descriptor(arm) for arm in arms]
+    expected_registry = DC.expected_member_registry(arms)
+    assert len(descriptors) == 9
+    for descriptor, arm in zip(descriptors, arms):
+        assert descriptor["arm_id"] == arm.arm_id
+        assert descriptor["family"] == arm.family
+        assert descriptor["feature_set"] == arm.feature_set
+        assert tuple(descriptor["variables"]) == arm.variables
+        assert tuple(descriptor["seeds"]) == arm.seeds
+    built_registry = [
+        [descriptor["arm_id"], seed]
+        for descriptor in descriptors
+        for seed in descriptor["seeds"]
+    ]
+    assert [list(member) for member in expected_registry] == built_registry
+    assert len(built_registry) == 45
+
+
+def test_production_run_config_arms_are_canonical_lists() -> None:
+    arms = DC.declared_arms()
+    run_config = {
+        "arms": [DC.canonical_arm_descriptor(arm) for arm in arms],
+        "expected_member_registry": [
+            list(member) for member in DC.expected_member_registry(arms)
+        ],
+    }
+    for arm in run_config["arms"]:
+        assert isinstance(arm["variables"], list)
+        assert isinstance(arm["seeds"], list)
+    canonical_round_trip = json.loads(json.dumps(run_config))
+    assert run_config == canonical_round_trip
+
+
+
 def test_parent_controller_lock_spans_the_complete_stage09b_run(monkeypatch) -> None:
     events: list[object] = []
     arguments = SimpleNamespace(member_work_order=None)

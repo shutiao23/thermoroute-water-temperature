@@ -272,6 +272,24 @@ def _parent_bindings(
     }
 
 
+def canonical_arm_descriptor(arm: ArmSpec) -> dict[str, Any]:
+    """Return the JSON-native resolved-config descriptor for one Stage09b arm.
+
+    ``ArmSpec.variables`` and ``ArmSpec.seeds`` are deliberately tuples; the
+    formal Stage09b config contract requires Python lists so that run-manifest,
+    authorization and worker work-order equality never depends on a JSON
+    serialization side effect.  This helper is the single boundary where the
+    tuple-to-list normalization happens, before run-identity calculation and
+    plan freeze.
+    """
+    descriptor = asdict(arm)
+    return {
+        **descriptor,
+        "variables": list(arm.variables),
+        "seeds": list(arm.seeds),
+    }
+
+
 def _arm_extra_static(
     arm: ArmSpec,
     *,
@@ -1744,11 +1762,14 @@ def _run(args: argparse.Namespace) -> int:
         "variables": list(FULL_VARIABLES),
         "context_length": C.CONTEXT_LENGTH,
         "horizons": list(C.HORIZONS),
-        "time_split": C.SPLIT.as_dict(),
+        "time_split": {
+            split_name: list(split_dates)
+            for split_name, split_dates in C.SPLIT.as_dict().items()
+        },
         "station_sampling": "balanced",
         "selection_metric": "station_macro",
         "train_config": asdict(TRAIN_CONFIG),
-        "arms": [asdict(arm) for arm in arms],
+        "arms": [canonical_arm_descriptor(arm) for arm in arms],
         "expected_member_registry": [list(member) for member in expected_member_registry(arms)],
         "parameter_counts": counts,
         "architecture_templates": {

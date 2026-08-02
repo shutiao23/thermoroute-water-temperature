@@ -3,9 +3,11 @@ from __future__ import annotations
 import ast
 from dataclasses import asdict
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
+import sys
 import threading
 from typing import Any
 
@@ -27,6 +29,24 @@ import thermoroute.stage09b_precompute as P
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+_SCRIPT = ROOT / "scripts" / "09b_development_controls.py"
+
+
+def _load_production_script():
+    module_name = "thermoroute_test_stage09b_production"
+    spec = importlib.util.spec_from_file_location(module_name, _SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
+    return module
+
+
+DC = _load_production_script()
 
 
 class _Closure:
@@ -59,11 +79,14 @@ def _formal_config(closure: _Closure) -> dict[str, Any]:
         "variables": list(FULL_VARIABLES),
         "context_length": C.CONTEXT_LENGTH,
         "horizons": list(C.HORIZONS),
-        "time_split": C.SPLIT.as_dict(),
+        "time_split": {
+            split_name: list(split_dates)
+            for split_name, split_dates in C.SPLIT.as_dict().items()
+        },
         "station_sampling": "balanced",
         "selection_metric": "station_macro",
         "train_config": asdict(TRAIN_CONFIG),
-        "arms": [asdict(arm) for arm in arms],
+        "arms": [DC.canonical_arm_descriptor(arm) for arm in arms],
         "expected_member_registry": [
             list(member) for member in expected_member_registry(arms)
         ],
@@ -80,7 +103,7 @@ def _formal_config(closure: _Closure) -> dict[str, Any]:
         "input_closure_sha256": closure.binding_digest,
         "input_closure_file_count": len(closure.inventory),
     }
-    return json.loads(json.dumps(config))
+    return config
 
 
 def _identity(root: Path, config: dict[str, Any], closure: _Closure) -> RunIdentity:
@@ -718,5 +741,78 @@ def test_work_order_collision_is_never_overwritten(
             identity=fixture["identity"],
             resolved_config=fixture["config"],
             matrix_gate=fixture["gate"],
+            publication_guard=lambda: None,
+        )
+
+
+def test_live_config_matches_canonical_json_round_trip_without_fixture_repair() -> None:
+    arms = declared_arms()
+    closure = _Closure("a" * 64)
+    config = _formal_config(closure)
+    assert config == json.loads(json.dumps(config))
+    for arm in config["arms"]:
+        assert isinstance(arm["variables"], list)
+        assert isinstance(arm["seeds"], list)
+    assert all(
+        isinstance(dates, list)
+        for dates in config["time_split"].values()
+    )
+
+
+def test_parent_freeze_and_worker_equality_pass_on_live_list_shaped_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = _fixture(tmp_path, monkeypatch)
+    for work_order in fixture["work_orders"]:
+        raw = json.loads(work_order.read_text(encoding="utf-8"))
+        member = P.Stage09bMember(
+            raw["member"]["arm_index"], raw["member"]["arm_id"], raw["member"]["seed"]
+        )
+        validated = P.validate_stage09b_member_work_order(
+            root=fixture["root"],
+            work_order=work_order,
+            expected_identity=fixture["identity"],
+            expected_config=fixture["config"],
+        )
+        assert validated.member == member
+    assert len(fixture["work_orders"]) == 45
+
+
+def test_tuple_shaped_arm_descriptor_fails_closed() -> None:
+    arms = declared_arms()
+    closure = _Closure("a" * 64)
+    config = _formal_config(closure)
+    config["arms"] = [asdict(arm) for arm in arms]
+    with pytest.raises(P.Stage09bPrecomputeError, match="arm/seed contract"):
+        P._validate_formal_config(config)
+
+
+def test_tuple_shaped_descriptor_rejected_by_plan_freeze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path.resolve()
+    closure = _Closure("a" * 64)
+    config = _formal_config(closure)
+    arms = declared_arms()
+    config["arms"] = [asdict(arm) for arm in arms]
+    identity = _identity(root, config, closure)
+    gate = _gate(root)
+    run_dir = root / "outputs/runs/09b_development_controls" / identity.run_id
+    _json_write(run_dir / "run.json", {
+        "identity": identity.as_dict(),
+        "resolved_config": config,
+    })
+    monkeypatch.setattr(P, "assert_formal_numerical_policy", lambda **_kwargs: {})
+    monkeypatch.setattr(P, "resolve_development_input_closure", lambda _root: closure)
+    monkeypatch.setattr(P, "source_tree_hash", lambda _root: identity.source_sha256)
+    monkeypatch.setattr(P, "numerical_runtime_contract", lambda: {"fixture": "runtime"})
+    monkeypatch.setattr(P, "validate_stage09b_model_matrix_gate", lambda _root: gate)
+    with pytest.raises(P.Stage09bPrecomputeError, match="arm/seed contract"):
+        P.freeze_stage09b_precompute_plan(
+            root=root,
+            run_directory=run_dir,
+            identity=identity,
+            resolved_config=config,
+            matrix_gate=gate,
             publication_guard=lambda: None,
         )
