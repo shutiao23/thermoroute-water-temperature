@@ -66,6 +66,8 @@ from .repro import (
     RunIdentity,
     advisory_file_lock,
     assert_formal_numerical_policy,
+    numerical_policy_document_sha256,
+    numerical_policy_role_cap,
     numerical_runtime_contract,
     resolve_run_identity,
     sha256_json,
@@ -1087,7 +1089,12 @@ def _authorization_document(
             "missing_duplicate_or_extra_member_allowed": False,
         },
         "scientific_execution_contract": {
-            "one_native_thread_per_member_process": True,
+            "member_process_thread_cap": numerical_policy_role_cap(
+                root, "stage09"
+            ),
+            "numerical_policy_document_sha256": numerical_policy_document_sha256(
+                root
+            ),
             "fixed_member_seed_config_and_epoch_policy": True,
             "members_share_no_mutable_scientific_state": True,
             "aggregation_uses_frozen_arm_major_seed_minor_order": True,
@@ -1355,7 +1362,8 @@ def _validate_authorization(
         or not isinstance(contract, Mapping)
         or set(contract)
         != {
-            "one_native_thread_per_member_process",
+            "member_process_thread_cap",
+            "numerical_policy_document_sha256",
             "fixed_member_seed_config_and_epoch_policy",
             "members_share_no_mutable_scientific_state",
             "aggregation_uses_frozen_arm_major_seed_minor_order",
@@ -1364,10 +1372,13 @@ def _validate_authorization(
             "worker_count_enters_run_identity",
             "scheduling_order_enters_scientific_config",
         }
+        or contract.get("member_process_thread_cap")
+        != numerical_policy_role_cap(root, "stage09")
+        or contract.get("numerical_policy_document_sha256")
+        != numerical_policy_document_sha256(root)
         or any(
             contract.get(field) is not True
             for field in (
-                "one_native_thread_per_member_process",
                 "fixed_member_seed_config_and_epoch_policy",
                 "members_share_no_mutable_scientific_state",
                 "aggregation_uses_frozen_arm_major_seed_minor_order",

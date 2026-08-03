@@ -61,6 +61,8 @@ from .repro import (
     RUN_SCHEMA_VERSION,
     RunIdentity,
     assert_formal_numerical_policy,
+    numerical_policy_document_sha256,
+    numerical_policy_role_cap,
     numerical_runtime_contract,
     sha256_file,
     sha256_json,
@@ -1477,7 +1479,11 @@ def _member_lock_relative(identity: RunIdentity, member: Stage09bMember) -> str:
 
 
 def _authorization_document(
-    *, identity: RunIdentity, config: Mapping[str, Any], gate: Stage09bMatrixGate
+    *,
+    root: Path,
+    identity: RunIdentity,
+    config: Mapping[str, Any],
+    gate: Stage09bMatrixGate,
 ) -> dict[str, Any]:
     matrix = [
         {
@@ -1513,7 +1519,8 @@ def _authorization_document(
             "plain_control_information_fairness_required": True,
         },
         "scientific_execution_contract": {
-            "one_native_thread_per_member_process": True,
+            "member_process_thread_cap": numerical_policy_role_cap(root, "stage09b"),
+            "numerical_policy_document_sha256": numerical_policy_document_sha256(root),
             "fixed_arm_seed_config_and_epoch_policy": True,
             "same_training_and_prediction_functions_as_serial_stage09b": True,
             "exclusive_deterministic_member_namespaces": True,
@@ -1591,7 +1598,12 @@ def freeze_stage09b_precompute_plan(
         expected_run / MEMBER_LOCK_DIRECTORY,
         parent=expected_run,
     )
-    authorization = _authorization_document(identity=identity, config=config, gate=matrix_gate)
+    authorization = _authorization_document(
+        root=Path(root),
+        identity=identity,
+        config=config,
+        gate=matrix_gate,
+    )
     authorization_path = precompute / "authorization.json"
     _publish_create_only(authorization_path, _canonical_bytes(authorization) + b"\n")
     work_orders: list[Path] = []
@@ -1639,6 +1651,7 @@ def _validate_authorization(
         raise Stage09bPrecomputeError("authorization config digest changed")
     matrix_binding = _validate_matrix_binding(document.get("model_matrix"))
     expected = _authorization_document(
+        root=Path(root),
         identity=identity,
         config=config,
         gate=Stage09bMatrixGate(

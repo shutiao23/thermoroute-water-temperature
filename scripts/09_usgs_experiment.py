@@ -31,8 +31,7 @@ import tempfile
 import threading
 from typing import Callable, Mapping
 
-MAIN_THREADS = int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or "16")
-CONTROL_MEMBER_THREADS = int(os.environ.get("THERMOROUTE_CONTROL_MEMBER_THREADS") or "2")
+MAIN_THREADS = int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or "8")
 
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
@@ -218,6 +217,7 @@ from thermoroute.stage09_parallel import (
 from thermoroute.repro import (
     RunIdentity,
     assert_formal_numerical_policy,
+    assert_role_thread_cap,
     atomic_write_bytes,
     atomic_write_json,
     cache_is_valid,
@@ -246,6 +246,7 @@ from thermoroute.train import (
 from thermoroute.weighting import STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
+assert_role_thread_cap(ROOT, "stage09")
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")  # +gridMET wind
 CFG = C.TrainConfig(batch_size=1536)         # larger batch ⇒ fewer steps on 100k+ samples
@@ -1794,7 +1795,7 @@ class _Stage09WorkerLauncher:
                 nonce, encoding="utf-8"
             )
             environment = _formal_worker_environment(
-                cache_path, nonce, threads=CONTROL_MEMBER_THREADS
+                cache_path, nonce, threads=MAIN_THREADS
             )
             process = subprocess.Popen(
                 [
@@ -1957,10 +1958,15 @@ def _launch_seed_workers(
         }
         for future in as_completed(futures):
             try:
-                future.result()
+                return_code = future.result()
             except BaseException:
                 terminate()
                 raise
+            if type(return_code) is not int or return_code != 0:
+                terminate()
+                raise RuntimeError(
+                    f"Stage-09 seed worker failed with exit code {return_code}"
+                )
             completed += 1
     if completed != len(orders):
         raise RuntimeError("Stage-09 seed worker set is incomplete")

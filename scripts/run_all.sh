@@ -36,12 +36,16 @@ fi
 
 mkdir -p outputs/{tables,figures,predictions,reports,models,logs}
 export PYTHONPATH=src
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export VECLIB_MAXIMUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
-export WORKER_THREADS=1
+# Numerical policy: protocols/route_a_numerical_policy_v2.json freezes the
+# role caps (8 for every stage-09/09b/16/25 role).  The ambient value must
+# equal the frozen role cap; scripts fail closed via assert_role_thread_cap.
+export THERMOROUTE_FORMAL_THREADS="${THERMOROUTE_FORMAL_THREADS:-8}"
+export OMP_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
+export MKL_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
+export OPENBLAS_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
+export VECLIB_MAXIMUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
+export NUMEXPR_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
+export WORKER_THREADS="$THERMOROUTE_FORMAL_THREADS"
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 readonly CANONICAL_USGS_PANEL="data_usgs/panel_usgs_120v2.parquet"
 readonly CANONICAL_USGS_STATION_REGISTRY="data_usgs/station_registry_v1.csv"

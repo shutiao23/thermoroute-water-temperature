@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Formal Stage-09 launcher (multicore Route-A amendment v1).
-# Native BLAS/Torch/LightGBM threads are capped at $THERMOROUTE_FORMAL_THREADS
-# per process (amendment route_a_numerical_policy_amendment_v1); throughput is
-# process-level: seed workers + --control-workers (execution-only; not in
-# RunIdentity).  Memory is budgeted for a 125Gi host: seed phase 5x~6.6Gi and
-# control phase 32 workers x ~2.6Gi stay below the 96Gi ceiling.
+# Formal Stage-09 launcher (multicore Route-A amendment v2).
+# Numerical policy route_a_numerical_policy_v2.json freezes cap 8 for every
+# role; parent and worker processes share the cap so the runtime identity
+# check holds.  Throughput is process-level: 5 seed workers + control workers
+# (execution-only; not in RunIdentity).  Memory budget for a 125Gi host:
+# seed phase ~35Gi, control phase 16 x ~2.8Gi ≈ 45Gi peak.
 #
 # This starts a NEW content-addressed run under the current source tree.
 set -euo pipefail
@@ -28,7 +28,7 @@ for envf in "${ENV_CANDIDATES[@]}"; do
 done
 
 export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src
-export THERMOROUTE_FORMAL_THREADS="${THERMOROUTE_FORMAL_THREADS:-16}"
+export THERMOROUTE_FORMAL_THREADS="${THERMOROUTE_FORMAL_THREADS:-8}"
 export OMP_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS" \
   MKL_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS" \
   OPENBLAS_NUM_THREADS="$THERMOROUTE_FORMAL_THREADS"
@@ -39,11 +39,11 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 unset PYTHONHASHSEED PYTHONPYCACHEPREFIX || true
 
 THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-$PWD/.venv-route-a/bin/python}"
-CONTROL_WORKERS="${STAGE09_CONTROL_WORKERS:-32}"
+CONTROL_WORKERS="${STAGE09_CONTROL_WORKERS:-16}"
 if [[ "$CONTROL_WORKERS" -gt 96 ]]; then CONTROL_WORKERS=96; fi
 if [[ "$CONTROL_WORKERS" -lt 1 ]]; then CONTROL_WORKERS=1; fi
 
-EXPECTED_SOURCE_SHA256="${EXPECTED_SOURCE_SHA256:-631382c30aee5a4630869e05524420a3449135a83a330e4a9abe74630d00fba4}"
+EXPECTED_SOURCE_SHA256="${EXPECTED_SOURCE_SHA256:-<NEW_SOURCE_SHA256>}"
 VOID_SOURCE_SHA256="${VOID_SOURCE_SHA256:-ee99225c55b2ceacdac6fdf596f0b452d5dbdb4d417edb81e234732b81521ab1}"
 VOID_STAGE09_RUN_IDS="${VOID_STAGE09_RUN_IDS:-bb02498a8396ea7c6110}"
 
@@ -101,7 +101,7 @@ fi
 
 echo "[$(date -Is)] launching NEW Stage-09 under source_sha256=${SOURCE:0:12}… (workers=$CONTROL_WORKERS, threads=$THERMOROUTE_FORMAL_THREADS)" | tee -a "$LOG"
 
-# 125Gi host: parent ~7GB + control member ~2.6GB; 32 workers ≈ 90Gi peak.
+# 125Gi host: parent ~7GB + control member ~2.8GB; 16 workers ≈ 45Gi peak.
 exec "$THERMOROUTE_PYTHON" scripts/09_usgs_experiment.py \
   --panel data_usgs/panel_usgs_120v2.parquet \
   --seeds 5 --device cpu --control-workers "$CONTROL_WORKERS" \

@@ -1,0 +1,83 @@
+{
+  "format": "thermoroute.route-a-numerical-policy-amendment.v2",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "amendment_id": "route-a-prelabel-numerical-policy-multicore-002",
+  "recorded_date": "2026-08-03",
+  "prelabel_attestation": {
+    "post_2020_wtemp_requested_or_inspected": false,
+    "confirmation_outcomes_requested_or_inspected": false,
+    "confirmation_outcome_artifact_present": false,
+    "outcome_endpoint_called": false,
+    "outcome_independent": true,
+    "network_used": false
+  },
+  "supersedes": {
+    "amendment": "protocols/route_a_numerical_policy_amendment_v1.json",
+    "relationship": "REPLACES_WITH_UNIFIED_ROLE_CAP",
+    "v1_defects": [
+      "v1 declared per-role caps of 16 (mainline) and 2 (control members); the Stage-09 RunIdentity embeds the process thread cap, so child runtime recomputation could not equal the parent runtime_sha256 and the control closure fails closed",
+      "v1 rationale contradicted itself: it first stated bit-exact cross-run reproducibility as the previous policy, then claimed cross-machine bit-exactness was never claimed",
+      "v1 declared prediction_replay_atol_zero, but the implemented verifiers use 1e-12 for LightGBM and 1e-5 for neural sequence replay"
+    ]
+  },
+  "policy_document": {
+    "path": "protocols/route_a_numerical_policy_v2.json",
+    "relationship": "THE_SINGLE_SOURCE_OF_TRUTH_FOR_ROLE_CAPS_AND_REPLAY_TOLERANCES"
+  },
+  "numerical_policy": {
+    "previous": {
+      "threads_per_process": 1,
+      "rationale": "bit-exact cross-run and cross-machine reproducibility"
+    },
+    "amended": {
+      "threads_per_process_declared": "THERMOROUTE_FORMAL_THREADS",
+      "role_caps": {
+        "stage09": 8,
+        "stage09b": 8,
+        "stage16": 8,
+        "stage25": 8
+      },
+      "cap_source": "protocols/route_a_numerical_policy_v2.json (ambient value must equal the frozen role cap; the environment variable can never define the policy)",
+      "every_process_in_a_role_shares_the_role_cap": true,
+      "parent_and_child_roles_of_one_run_share_one_cap": true,
+      "torch_deterministic_algorithms": true,
+      "torch_float32_matmul_precision": "highest",
+      "tf32": false,
+      "cudnn_benchmark": false,
+      "python_hash_policy": "canonical-sort-identity-collections-independent-of-hash-secret",
+      "seed_and_dependency_versions_pinned": true,
+      "reproducibility_level": "fixed-seed-metric-level"
+    },
+    "unchanged_scientific_inputs": [
+      "cohort",
+      "panel_bytes",
+      "station_registry",
+      "variables",
+      "time_split",
+      "targets",
+      "model_architecture",
+      "loss",
+      "hyperparameters",
+      "seeds",
+      "calibration_fits",
+      "estimand",
+      "statistical_decision_rules",
+      "forecast_keys",
+      "claim_wording"
+    ],
+    "replay_tolerances": {
+      "lightgbm": 1e-12,
+      "thermoroute": 1e-5,
+      "lstm": 1e-5,
+      "probability": 1e-6
+    },
+    "internal_exactness_retained": {
+      "lightgbm_shard_parity_1e-12": true,
+      "neural_sequence_replay_1e-5": true,
+      "common_key_registry": true,
+      "same_process_train_replay_thread_cap": true,
+      "lightgbm_bit_identical_across_thread_counts_verified": true
+    }
+  },
+  "rationale": "The Stage-09 RunIdentity embeds the numerical runtime contract, and worker processes recompute it and require exact equality with the parent. Per-role thread caps therefore cannot coexist with a single parent identity: every process in a run must use the same cap. v2 freezes cap 8 for all Stage-09/09b/16/25 roles, enforces the cap from the policy document (not the ambient environment), records the implemented replay tolerances, and preserves all scientific inputs. This amendment concerns execution evidence only; no scientific input changes."
+}
