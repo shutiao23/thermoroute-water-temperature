@@ -35,6 +35,7 @@ from thermoroute.conformal import (  # noqa: E402
 from thermoroute.evidence import FrozenPanelSpec  # noqa: E402
 from thermoroute.frozen_inference import lstm_factory_from_metadata  # noqa: E402
 from thermoroute.model_suite import (  # noqa: E402
+    _frozen_lightgbm_n_jobs,
     LIGHTGBM_HEADS,
     MODEL_SUITE_FORMAT,
     STAGE25_COMPLETION_RECEIPT_PATH,
@@ -108,7 +109,8 @@ def _lgb_metadata(columns):
         "preprocessing": {"fixture": True},
         "training_weighting": "equal_total_weight_per_station",
         "deterministic_training": {
-            "deterministic": True, "force_col_wise": True, "n_jobs": 1,
+            "deterministic": True, "force_col_wise": True,
+            "n_jobs": _frozen_lightgbm_n_jobs(),
         },
         "event_thresholds": {"__pooled__": 20.0},
         "event_calibrators": {},
