@@ -1,0 +1,36 @@
+{
+  "amendment": {
+    "path": "protocols/route_a_numerical_policy_amendment_v2.json",
+    "sha256": "1342357b88e56615eb922f999b41bcbe7d9957dadc9b44e4e3723ca627f3851c"
+  },
+  "amendment_document_commit": "61eb21b",
+  "amendment_id": "route-a-prelabel-numerical-policy-multicore-002",
+  "format": "thermoroute.route-a-numerical-policy-amendment-seal.v1",
+  "governance_seals": {
+    "base_protocol_seal": {
+      "path": "protocols/route_a_protocol_seal_v1.json",
+      "sha256": "df700fe2fac170d0466cbcaa0fae25efb4748ab82b44d49272c1e85ff5e060cd"
+    },
+    "model_matrix_amendment_seal": {
+      "path": "protocols/route_a_model_matrix_amendment_seal_v1.json",
+      "sha256": "6c80e929ba90a1df07b07623e32b2144f0012de354ea7ac34a32995839a1b2d9"
+    }
+  },
+  "history_contract": {
+    "amendment_and_seal_immutable_to_release_tip": true,
+    "amendment_blob_must_match_document_commit": true,
+    "amendment_document_created_exactly_once": true,
+    "document_commit_must_precede_seal_commit": true,
+    "governance_seal_commits_must_be_strict_ancestors": true,
+    "seal_created_exactly_once": true
+  },
+  "prelabel_attestation": {
+    "confirmation_outcome_artifact_present": false,
+    "confirmation_outcomes_requested_or_inspected": false,
+    "network_used": false,
+    "outcome_endpoint_called": false,
+    "outcome_independent": true,
+    "post_2020_wtemp_requested_or_inspected": false
+  },
+  "status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED"
+}
