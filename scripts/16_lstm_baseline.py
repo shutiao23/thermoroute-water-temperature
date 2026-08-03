@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import os
 LSTM_WORKER_THREADS = int(
-    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "10"
+    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "8"
 )
 for _thread_variable in (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
@@ -190,6 +190,7 @@ from thermoroute.repro import (
     RunIdentity,
     advisory_file_lock,
     assert_formal_numerical_policy,
+    assert_role_thread_cap,
     atomic_write_bytes,
     atomic_write_json,
     atomic_write_parquet,
@@ -209,6 +210,7 @@ from thermoroute.train import (
 from thermoroute.weighting import STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
+assert_role_thread_cap(ROOT, "stage16")
 
 # Reuse 13c's exact fold packing / prep / LightGBM-per-fold so the transfer arm
 # is identical to ThermoRoute's (same regions, same in-fold stations).
@@ -1027,10 +1029,15 @@ def _launch_lstm_workers(
         }
         for future in as_completed(futures):
             try:
-                future.result()
+                return_code = future.result()
             except BaseException:
                 terminate()
                 raise
+            if type(return_code) is not int or return_code != 0:
+                terminate()
+                raise RuntimeError(
+                    f"Stage-16 LSTM worker failed with exit code {return_code}"
+                )
             completed += 1
     if completed != len(orders):
         raise RuntimeError("Stage-16 worker set is incomplete")

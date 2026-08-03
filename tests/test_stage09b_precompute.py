@@ -133,6 +133,15 @@ def _gate(root: Path) -> P.Stage09bMatrixGate:
     amendment_path = root / "protocols/route_a_model_matrix_amendment_v1.json"
     seal_path = root / "protocols/route_a_model_matrix_amendment_seal_v1.json"
     _json_write(amendment_path, amendment)
+    for relative in (
+        "protocols/route_a_numerical_policy_v2.json",
+        "protocols/route_a_numerical_policy_amendment_v2.json",
+    ):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(
+            (ROOT / relative).read_bytes()
+        )
     _json_write(seal_path, {"fixture": "separate prelabel seal"})
 
     def binding(path: Path) -> dict[str, Any]:

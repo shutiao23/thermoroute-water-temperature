@@ -164,7 +164,12 @@ def _fixture_repository(tmp_path: Path) -> tuple[
     Path,
     tuple[Path, ...],
 ]:
-    for relative in (AMENDMENT_RELATIVE, AMENDMENT_SEAL_RELATIVE):
+    for relative in (
+        AMENDMENT_RELATIVE,
+        AMENDMENT_SEAL_RELATIVE,
+        "protocols/route_a_numerical_policy_v2.json",
+        "protocols/route_a_numerical_policy_amendment_v2.json",
+    ):
         source = ROOT / relative
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1538,3 +1543,21 @@ def test_frozen_registry_names_match_amendment_order() -> None:
     )
     assert [member.seed for member in members[:5]] == [0, 1, 2, 3, 4]
     assert len({(member.arm_id, member.seed) for member in members}) == 35
+
+
+def test_authorization_binds_numerical_policy_v2_document(
+    tmp_path: Path,
+) -> None:
+    from thermoroute.repro import numerical_policy_document_sha256
+
+    root, identity, gate, authorization_path, work_orders = _fixture_repository(
+        tmp_path
+    )
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    contract = authorization["scientific_execution_contract"]
+    assert contract["member_process_thread_cap"] == 8
+    assert contract["numerical_policy_document_sha256"] == (
+        numerical_policy_document_sha256(root)
+    )
+    assert "one_native_thread_per_member_process" not in contract
+    _validated(root, identity, gate, work_orders[0])

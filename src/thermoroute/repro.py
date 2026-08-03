@@ -75,6 +75,76 @@ def _formal_thread_limit() -> int:
 
 
 FORMAL_THREAD_LIMIT = _formal_thread_limit()
+NUMERICAL_POLICY_DOCUMENT_PATH = (
+    "protocols/route_a_numerical_policy_v2.json"
+)
+
+
+def formal_policy_document(root: str | Path) -> dict[str, Any]:
+    """Load the frozen numerical-policy document.
+
+    This document is the single source of truth for role thread caps and
+    replay tolerances; the ambient ``THERMOROUTE_FORMAL_THREADS`` value must
+    equal the role cap, never define it.
+    """
+    path = Path(root).resolve() / NUMERICAL_POLICY_DOCUMENT_PATH
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "numerical policy document is missing or invalid"
+        ) from exc
+    if (
+        not isinstance(doc, dict)
+        or doc.get("format") != "thermoroute.route-a-numerical-policy.v2"
+    ):
+        raise RuntimeError("numerical policy document format changed")
+    return doc
+
+
+def assert_role_thread_cap(root: str | Path, role: str) -> int:
+    """Fail closed when the process-declared cap differs from the frozen
+    role cap in the numerical-policy document."""
+    doc = formal_policy_document(root)
+    caps = doc.get("role_thread_caps")
+    if (
+        not isinstance(caps, Mapping)
+        or type(role) is not str
+        or role not in caps
+    ):
+        raise RuntimeError("numerical policy role caps are invalid")
+    expected = caps[role]
+    if type(expected) is not int or expected < 1:
+        raise RuntimeError("numerical policy role cap is invalid")
+    if FORMAL_THREAD_LIMIT != expected:
+        raise RuntimeError(
+            "process thread cap "
+            f"{FORMAL_THREAD_LIMIT} differs from the frozen policy cap "
+            f"{expected} for role {role}"
+        )
+    return expected
+
+
+def numerical_policy_role_cap(root: str | Path, role: str) -> int:
+    """Return the frozen role cap without asserting the live process cap."""
+    doc = formal_policy_document(root)
+    caps = doc.get("role_thread_caps")
+    if (
+        not isinstance(caps, Mapping)
+        or type(role) is not str
+        or role not in caps
+    ):
+        raise RuntimeError("numerical policy role caps are invalid")
+    expected = caps[role]
+    if type(expected) is not int or expected < 1:
+        raise RuntimeError("numerical policy role cap is invalid")
+    return expected
+
+
+def numerical_policy_document_sha256(root: str | Path) -> str:
+    """Return the policy-document digest used by execution authorizations."""
+    path = Path(root).resolve() / NUMERICAL_POLICY_DOCUMENT_PATH
+    return sha256_file(path)
 
 
 def _loaded_native_threadpools() -> list[dict[str, Any]]:

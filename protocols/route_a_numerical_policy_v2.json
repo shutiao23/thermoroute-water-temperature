@@ -1,0 +1,37 @@
+{
+  "format": "thermoroute.route-a-numerical-policy.v2",
+  "policy_id": "route-a-numerical-policy-v2",
+  "status": "FROZEN_PRELABEL_OUTCOME_FREE",
+  "recorded_date": "2026-08-03",
+  "supersedes": {
+    "amendment": "protocols/route_a_numerical_policy_amendment_v1.json",
+    "relationship": "REPLACES_WITH_UNIFIED_ROLE_CAP"
+  },
+  "role_thread_caps": {
+    "stage09": 8,
+    "stage09b": 8,
+    "stage16": 8,
+    "stage25": 8
+  },
+  "replay_tolerances": {
+    "lightgbm": 1e-12,
+    "thermoroute": 1e-5,
+    "lstm": 1e-5,
+    "probability": 1e-6
+  },
+  "rules": {
+    "every_process_in_a_role_uses_the_exact_role_cap": true,
+    "parent_and_child_roles_of_one_run_share_one_cap": true,
+    "cap_derived_from_this_document_not_ambient_choice": true,
+    "train_and_replay_share_process_cap": true,
+    "lightgbm_prediction_num_threads": 1,
+    "torch_deterministic_algorithms": true,
+    "torch_float32_matmul_precision": "highest",
+    "tf32": false,
+    "cudnn_benchmark": false,
+    "python_hash_policy": "canonical-sort-identity-collections-independent-of-hash-secret",
+    "seed_and_dependency_versions_pinned": true,
+    "reproducibility_level": "fixed-seed-metric-level"
+  },
+  "rationale": "A parent and its worker processes share one RunIdentity; the runtime contract embeds the process thread cap, so any per-role divergence breaks fail-closed identity equality. v2 therefore freezes a single cap of 8 threads for every Stage-09/09b/16/25 role. Replay tolerances match the implemented verifiers (LightGBM 1e-12; neural sequence models 1e-5; probabilistic 1e-6)."
+}

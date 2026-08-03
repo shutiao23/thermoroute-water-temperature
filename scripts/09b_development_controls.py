@@ -29,7 +29,7 @@ import tempfile
 
 
 STAGE09B_MEMBER_THREADS = int(
-    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "2"
+    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "8"
 )
 
 for _thread_variable in (
@@ -218,6 +218,7 @@ from thermoroute.repro import (  # noqa: E402
     RunIdentity,
     advisory_file_lock,
     assert_formal_numerical_policy,
+    assert_role_thread_cap,
     configure_deterministic_runtime,
     initialise_run_directory,
     resolve_run_identity,
@@ -1711,6 +1712,7 @@ def _execute_authorized_member(
 def _run(args: argparse.Namespace) -> int:
     """Execute one already-parsed parent or authorized-member invocation."""
     configure_deterministic_runtime()
+    assert_role_thread_cap(ROOT, "stage09b")
     runtime_policy = assert_formal_numerical_policy(require_hash_randomization=True)
     if torch.device("cpu").type != "cpu":  # pragma: no cover - defensive declaration
         raise ControlExperimentError("development controls require CPU execution")

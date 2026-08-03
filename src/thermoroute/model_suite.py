@@ -94,6 +94,7 @@ from .repro import (
     atomic_write_bytes,
     atomic_write_json,
     canonical_json,
+    formal_policy_document,
     numerical_runtime_contract,
     sha256_json,
     sidecar_path,
@@ -1223,6 +1224,24 @@ def _validate_lightgbm_quantile_metadata(manifest: Mapping[str, Any]) -> None:
             horizon_keys[horizon] = rows_and_keys
 
 
+def _frozen_lightgbm_n_jobs() -> int:
+    """Return the frozen LightGBM training concurrency from the policy.
+
+    The numerical-policy document (route_a_numerical_policy_v2.json) freezes
+    one uniform role cap for every stage; the bundle metadata must declare
+    exactly that cap.  The per-process cap itself is enforced by
+    ``assert_role_thread_cap`` before training.
+    """
+    policy = formal_policy_document(Path(__file__).resolve().parents[2])
+    caps = policy.get("role_thread_caps")
+    if not isinstance(caps, Mapping) or not caps:
+        raise ModelSuiteError("numerical policy role caps are invalid")
+    values = {caps[role] for role in caps}
+    if len(values) != 1 or next(iter(values)) < 1:
+        raise ModelSuiteError("numerical policy role caps are not uniform")
+    return next(iter(values))
+
+
 def save_lightgbm_bundle(
     directory: str | Path,
     *,
@@ -1281,7 +1300,8 @@ def save_lightgbm_bundle(
     if metadata.get("training_weighting") != "equal_total_weight_per_station":
         raise ModelSuiteError("LightGBM training is not station-balanced")
     if metadata.get("deterministic_training") != {
-        "deterministic": True, "force_col_wise": True, "n_jobs": 1,
+        "deterministic": True, "force_col_wise": True,
+        "n_jobs": _frozen_lightgbm_n_jobs(),
     }:
         raise ModelSuiteError("LightGBM deterministic training contract changed")
     if metadata.get("training_device") != "cpu":
@@ -1470,7 +1490,8 @@ def load_lightgbm_bundle(
     if manifest.get("training_weighting") != "equal_total_weight_per_station":
         raise ModelSuiteError("LightGBM training weighting is not frozen")
     if manifest.get("deterministic_training") != {
-        "deterministic": True, "force_col_wise": True, "n_jobs": 1,
+        "deterministic": True, "force_col_wise": True,
+        "n_jobs": _frozen_lightgbm_n_jobs(),
     }:
         raise ModelSuiteError("LightGBM deterministic contract is not frozen")
     if uses_category:

@@ -25,7 +25,7 @@ import tempfile
 import time
 
 STAGE25_THREADS = int(
-    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "16"
+    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "8"
 )
 
 for _thread_variable in (
@@ -173,6 +173,7 @@ from thermoroute.input_closure import (
 from thermoroute.repro import (
     advisory_file_lock,
     assert_formal_numerical_policy,
+    assert_role_thread_cap,
     atomic_write_json,
     configure_deterministic_runtime,
     initialise_run_directory,
@@ -189,6 +190,7 @@ from thermoroute.train import (
 from thermoroute.weighting import ROW_EQUAL_WEIGHTING, STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
+assert_role_thread_cap(ROOT, "stage25")
 
 
 _stage9_spec = importlib.util.spec_from_file_location(
