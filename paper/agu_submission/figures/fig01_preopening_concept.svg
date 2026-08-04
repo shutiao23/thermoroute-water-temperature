@@ -42,22 +42,22 @@
     <text x="74" y="107" class="base panel-title">Issue-time information boundary</text>
     <text x="74" y="127" class="base small muted">Route-A retrospective, date-indexed hindcast</text>
 
-    <rect x="54" y="150" width="250" height="148" rx="4" class="allowed"/>
-    <rect x="306" y="150" width="250" height="148" rx="4" class="forbidden"/>
+    <rect x="54" y="150" width="240" height="148" rx="4" class="allowed"/>
+    <rect x="320" y="150" width="240" height="148" rx="4" class="forbidden"/>
     <text x="70" y="175" class="base label strong" fill="#006b5b">ALLOWED at issue time</text>
     <text x="70" y="198" class="base small">• WTEMP history through day t</text>
     <text x="70" y="220" class="base small">• historical date-indexed Daymet / gridMET</text>
     <text x="70" y="242" class="base small">• frozen climatology and damped anchor inputs</text>
-    <text x="322" y="175" class="base label strong" fill="#a62a17">FORBIDDEN at issue time</text>
-    <text x="322" y="198" class="base small">• target-date WTEMP outcomes</text>
-    <text x="322" y="220" class="base small">• horizon-specific future weather forecasts</text>
-    <text x="322" y="242" class="base small">• anticipatory covariate vintages</text>
-    <text x="322" y="267" class="base tiny strong" fill="#a62a17">No leakage across the issue-time boundary</text>
+    <text x="336" y="175" class="base label strong" fill="#a62a17">FORBIDDEN at issue time</text>
+    <text x="336" y="198" class="base small">• target-date WTEMP outcomes</text>
+    <text x="336" y="220" class="base small">• horizon-specific future weather forecasts</text>
+    <text x="336" y="242" class="base small">• anticipatory covariate vintages</text>
+    <text x="336" y="267" class="base tiny strong" fill="#a62a17">No leakage across the issue-time boundary</text>
 
     <line x1="70" y1="335" x2="532" y2="335" class="arrow"/>
-    <line x1="304" y1="315" x2="304" y2="363" stroke="#1b1b1b" stroke-width="2"/>
-    <text x="295" y="384" class="base label strong">t</text>
-    <text x="255" y="404" class="base small">issue date</text>
+    <line x1="307" y1="315" x2="307" y2="363" stroke="#1b1b1b" stroke-width="2"/>
+    <text x="298" y="384" class="base label strong">t</text>
+    <text x="258" y="404" class="base small">issue date</text>
     <text x="360" y="324" class="base small">targets: h ∈ {1, 3, 7} d</text>
     <text x="70" y="414" class="base tiny muted">Not as-issued operational availability • not ungauged prediction • not causal transport</text>
   </g>
@@ -70,18 +70,18 @@
     <text x="654" y="107" class="base panel-title">Bounded point correction</text>
     <text x="654" y="127" class="base small muted">Algebraic identity only; no scored-error claim</text>
 
-    <rect x="638" y="151" width="504" height="89" rx="4" class="blue"/>
+    <rect x="638" y="150" width="504" height="108" rx="4" class="blue"/>
     <text x="890" y="180" text-anchor="middle" class="base" style="font-size:17px; font-weight:700;">ŷ(t+h) = A(t+h) + δ tanh( z(t+h) / δ )</text>
     <text x="890" y="203" text-anchor="middle" class="base label">z(t+h) = P(t+h) − A(t+h) + rθ(t+h)</text>
-    <text x="890" y="224" text-anchor="middle" class="base small">δ = delta_scale = 1.0 °C; therefore ŷ(t+h) lies within A(t+h) ± δ</text>
-    <text x="890" y="239" text-anchor="middle" class="base tiny muted">A: frozen damped anchor • P: learned thermal proposal • rθ: neural residual</text>
+    <text x="890" y="225" text-anchor="middle" class="base small">δ = delta_scale = 1.0 °C; therefore ŷ(t+h) lies within A(t+h) ± δ</text>
+    <text x="890" y="247" text-anchor="middle" class="base tiny muted">A: frozen damped anchor • P: learned thermal proposal • rθ: neural residual</text>
 
-    <rect x="638" y="261" width="504" height="132" rx="4" class="orange"/>
-    <text x="890" y="289" text-anchor="middle" class="base label strong" fill="#9b3f00">非安全界 / NOT A SAFETY BOUND</text>
-    <text x="658" y="315" class="base small">The ±δ envelope bounds deviation from the anchor only.</text>
-    <text x="658" y="337" class="base small">It does not bound absolute error, event-tail risk, interval width,</text>
-    <text x="658" y="359" class="base small">post-shift behavior, or deployment safety. No regulatory guarantee.</text>
-    <text x="658" y="381" class="base tiny strong" fill="#9b3f00">LIMIT_NO_SAFETY_GUARANTEE</text>
+    <rect x="638" y="270" width="504" height="125" rx="4" class="orange"/>
+    <text x="890" y="298" text-anchor="middle" class="base label strong" fill="#9b3f00">非安全界 / NOT A SAFETY BOUND</text>
+    <text x="658" y="324" class="base small">The ±δ envelope bounds deviation from the anchor only.</text>
+    <text x="658" y="346" class="base small">It does not bound absolute error, event-tail risk, interval width,</text>
+    <text x="658" y="368" class="base small">post-shift behavior, or deployment safety. No regulatory guarantee.</text>
+    <text x="658" y="390" class="base tiny strong" fill="#9b3f00">LIMIT_NO_SAFETY_GUARANTEE</text>
   </g>
 
   <!-- Panel c -->
@@ -92,20 +92,20 @@
     <text x="74" y="485" class="base panel-title">Fixed cohort geometry and inference gate</text>
     <text x="74" y="505" class="base small muted">Geometry is frozen before target-period outcomes are viewed.</text>
 
-    <rect x="55" y="526" width="207" height="146" rx="4" fill="#eee7f4" stroke="#6a3d9a" stroke-width="1.2"/>
-    <text x="158" y="552" text-anchor="middle" class="base label strong" fill="#532d79">FROZEN COHORT</text>
-    <text x="158" y="582" text-anchor="middle" class="base" style="font-size:26px; font-weight:700;">120 sites</text>
-    <text x="158" y="608" text-anchor="middle" class="base label">across 15 reportable HUC2 groups</text>
-    <text x="158" y="632" text-anchor="middle" class="base tiny">2–26 sites per HUC2; largest share ≈ 21.7%</text>
-    <text x="158" y="653" text-anchor="middle" class="base tiny">inverse-Herfindahl effective count ≈ 9.54</text>
+    <rect x="55" y="526" width="240" height="146" rx="4" fill="#eee7f4" stroke="#6a3d9a" stroke-width="1.2"/>
+    <text x="175" y="552" text-anchor="middle" class="base label strong" fill="#532d79">FROZEN COHORT</text>
+    <text x="175" y="582" text-anchor="middle" class="base" style="font-size:26px; font-weight:700;">120 sites</text>
+    <text x="175" y="608" text-anchor="middle" class="base label">across 15 reportable HUC2 groups</text>
+    <text x="175" y="632" text-anchor="middle" class="base tiny" style="font-size:10.5px;">2–26 sites per HUC2; largest share ≈ 21.7%</text>
+    <text x="175" y="653" text-anchor="middle" class="base tiny" style="font-size:10.5px;">inverse-Herfindahl effective count ≈ 9.54</text>
 
-    <path d="M270 599 L318 599" class="arrow"/>
-    <rect x="326" y="526" width="202" height="146" rx="4" class="gate"/>
-    <text x="427" y="552" text-anchor="middle" class="base label strong" fill="#8d1020">INFERENCE GATE</text>
-    <text x="427" y="581" text-anchor="middle" class="base" style="font-size:19px; font-weight:700;">requires nclusters ≥ 30</text>
-    <text x="427" y="606" text-anchor="middle" class="base small">effective fraction ≥ 0.75</text>
-    <text x="427" y="627" text-anchor="middle" class="base small">largest share &lt; 0.25</text>
-    <text x="427" y="654" text-anchor="middle" class="base label strong" fill="#8d1020">NECESSARILY FAILS</text>
+    <path d="M295 599 L320 599" class="arrow"/>
+    <rect x="320" y="526" width="235" height="146" rx="4" class="gate"/>
+    <text x="437" y="552" text-anchor="middle" class="base label strong" fill="#8d1020">INFERENCE GATE</text>
+    <text x="437" y="581" text-anchor="middle" class="base" style="font-size:19px; font-weight:700;">requires nclusters ≥ 30</text>
+    <text x="437" y="606" text-anchor="middle" class="base small">effective fraction ≥ 0.75</text>
+    <text x="437" y="627" text-anchor="middle" class="base small">largest share &lt; 0.25</text>
+    <text x="437" y="654" text-anchor="middle" class="base label strong" fill="#8d1020">NECESSARILY FAILS</text>
 
     <line x1="55" y1="698" x2="554" y2="698" class="rule"/>
     <text x="55" y="723" class="base label strong">Consequent scope:</text>
