@@ -1,4 +1,11 @@
-# Figure 1 and SI skeleton (R2-5)
+# Figure 1 and SI skeleton (R2-5; superseded visual layout)
+
+> **Supersession note (2026-08-04).** This file preserves the earlier
+> four-panel/PRE receipt-shell geometry for audit provenance.  It is no longer
+> the visual specification for the paper figures.  The governing redraw,
+> evidence gates, panel responsibilities, and removal of the old pending forest
+> are defined in `paper/FIGURE_REDRAW_SPEC.md`.  Result cells remain receipt-gated;
+> this supersession does not authorize opening or result filling.
 
 **Status:** pre-opening design scaffold only.  
 **Constraint:** no fabricated performance numbers. Every result cell is

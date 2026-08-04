@@ -1,0 +1,843 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg role="img" aria-labelledby="svg-title svg-desc" xmlns:xlink="http://www.w3.org/1999/xlink" width="396.850394pt" height="515.905512pt" viewBox="0 0 396.850394 515.905512" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <title id="svg-title">Fig. S2 Temporal roles and issue-time information boundary</title>
+ <desc id="svg-desc">Four panels separate temporal roles, the issue-time predictor boundary, all seven provider/source-date rules, and the equally weighted capabilities and limitations of the outcome-free 2018–2020 predictor bridge.</desc>
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>ThermoRoute PRE supporting-figure renderer</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 515.905512 
+L 396.850394 515.905512 
+L 396.850394 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 25.795276 78.265319 
+L 386.929134 78.265319 
+L 386.929134 20.63622 
+L 25.795276 20.63622 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 30.128882 71.753231 
+L 93.688441 71.753231 
+Q 95.132976 71.753231 95.132976 71.522714 
+L 95.132976 31.989153 
+Q 95.132976 31.758636 93.688441 31.758636 
+L 30.128882 31.758636 
+Q 28.684346 31.758636 28.684346 31.989153 
+L 28.684346 71.522714 
+Q 28.684346 71.753231 30.128882 71.753231 
+z
+" style="fill: #0072b2; fill-opacity: 0.14; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 102.355654 71.753231 
+L 165.915213 71.753231 
+Q 167.359748 71.753231 167.359748 71.522714 
+L 167.359748 31.989153 
+Q 167.359748 31.758636 165.915213 31.758636 
+L 102.355654 31.758636 
+Q 100.911118 31.758636 100.911118 31.989153 
+L 100.911118 71.522714 
+Q 100.911118 71.753231 102.355654 71.753231 
+z
+" style="fill: url(#h8f85b44811); fill-opacity: 0.14; stroke: #56b4e9; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 174.582425 71.753231 
+L 238.141984 71.753231 
+Q 239.58652 71.753231 239.58652 71.522714 
+L 239.58652 31.989153 
+Q 239.58652 31.758636 238.141984 31.758636 
+L 174.582425 31.758636 
+Q 173.13789 31.758636 173.13789 31.989153 
+L 173.13789 71.522714 
+Q 173.13789 71.753231 174.582425 71.753231 
+z
+" style="fill: #009e73; fill-opacity: 0.14; stroke: #009e73; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 246.809197 71.753231 
+L 310.368756 71.753231 
+Q 311.813291 71.753231 311.813291 71.522714 
+L 311.813291 31.989153 
+Q 311.813291 31.758636 310.368756 31.758636 
+L 246.809197 31.758636 
+Q 245.364661 31.758636 245.364661 31.989153 
+L 245.364661 71.522714 
+Q 245.364661 71.753231 246.809197 71.753231 
+z
+" style="fill: url(#ha20b8cf561); fill-opacity: 0.14; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 319.035969 71.753231 
+L 382.595528 71.753231 
+Q 384.040063 71.753231 384.040063 71.522714 
+L 384.040063 31.989153 
+Q 384.040063 31.758636 382.595528 31.758636 
+L 319.035969 31.758636 
+Q 317.591433 31.758636 317.591433 31.989153 
+L 317.591433 71.522714 
+Q 317.591433 71.753231 319.035969 71.753231 
+z
+" style="fill: #cc79a7; fill-opacity: 0.14; stroke: #cc79a7; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2"/>
+   <g id="text_1">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="25.795276" y="17.61192" transform="rotate(-0 25.795276 17.61192)">(a)</text>
+   </g>
+   <g id="text_2">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="17.541607" transform="rotate(-0 76.354016 17.541607)">Frozen role chronology</text>
+   </g>
+   <g id="text_3">
+    <text style="fill: #202020; font: 700 8.4px 'DejaVu Sans'; text-anchor: middle" x="61.908661" y="48.310899" transform="rotate(-0 61.908661 48.310899)">2006–2015</text>
+   </g>
+   <g id="text_4">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="61.908661" y="63.04612" transform="rotate(-0 61.908661 63.04612)">TRAIN</text>
+   </g>
+   <g id="patch_8">
+    <path d="M 94.771843 49.45077 
+Q 97.660913 49.45077 99.43195 49.45077 
+" style="fill: none; stroke: #666666; stroke-linecap: round"/>
+    <path d="M 96.23195 47.85077 
+L 99.43195 49.45077 
+L 96.23195 51.05077 
+z
+" style="fill: #666666; stroke: #666666; stroke-linecap: round"/>
+   </g>
+   <g id="text_5">
+    <text style="fill: #202020; font: 700 8.4px 'DejaVu Sans'; text-anchor: middle" x="134.135433" y="48.310899" transform="rotate(-0 134.135433 48.310899)">2016–2017</text>
+   </g>
+   <g id="text_6">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="134.135433" y="63.04612" transform="rotate(-0 134.135433 63.04612)">VALIDATION</text>
+   </g>
+   <g id="patch_9">
+    <path d="M 166.998614 49.45077 
+Q 169.887685 49.45077 171.658722 49.45077 
+" style="fill: none; stroke: #666666; stroke-linecap: round"/>
+    <path d="M 168.458722 47.85077 
+L 171.658722 49.45077 
+L 168.458722 51.05077 
+z
+" style="fill: #666666; stroke: #666666; stroke-linecap: round"/>
+   </g>
+   <g id="text_7">
+    <text style="fill: #202020; font: 700 8.4px 'DejaVu Sans'; text-anchor: middle" x="206.362205" y="48.310899" transform="rotate(-0 206.362205 48.310899)">2018</text>
+   </g>
+   <g id="text_8">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="206.362205" y="63.04612" transform="rotate(-0 206.362205 63.04612)">CALIBRATION</text>
+   </g>
+   <g id="patch_10">
+    <path d="M 239.225386 49.45077 
+Q 242.114457 49.45077 243.885494 49.45077 
+" style="fill: none; stroke: #666666; stroke-linecap: round"/>
+    <path d="M 240.685494 47.85077 
+L 243.885494 49.45077 
+L 240.685494 51.05077 
+z
+" style="fill: #666666; stroke: #666666; stroke-linecap: round"/>
+   </g>
+   <g id="text_9">
+    <text style="fill: #202020; font: 700 8.4px 'DejaVu Sans'; text-anchor: middle" x="278.588976" y="48.310899" transform="rotate(-0 278.588976 48.310899)">2019–2020</text>
+   </g>
+   <g id="text_10">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="278.588976" y="59.012084" transform="rotate(-0 278.588976 59.012084)">INSPECTED</text>
+   </g>
+   <g id="text_11">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="278.588976" y="67.656448" transform="rotate(-0 278.588976 67.656448)">EXPLORATORY</text>
+   </g>
+   <g id="patch_11">
+    <path d="M 311.452157 49.45077 
+Q 314.341228 49.45077 316.112265 49.45077 
+" style="fill: none; stroke: #666666; stroke-linecap: round"/>
+    <path d="M 312.912265 47.85077 
+L 316.112265 49.45077 
+L 312.912265 51.05077 
+z
+" style="fill: #666666; stroke: #666666; stroke-linecap: round"/>
+   </g>
+   <g id="text_12">
+    <text style="fill: #202020; font: 700 8.4px 'DejaVu Sans'; text-anchor: middle" x="350.815748" y="48.310899" transform="rotate(-0 350.815748 48.310899)">2021–2023</text>
+   </g>
+   <g id="text_13">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="350.815748" y="59.012084" transform="rotate(-0 350.815748 59.012084)">ONE-TIME</text>
+   </g>
+   <g id="text_14">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="350.815748" y="67.656448" transform="rotate(-0 350.815748 67.656448)">TARGET</text>
+   </g>
+   <g id="text_15">
+    <text style="fill: #666666; font: 7.5px 'DejaVu Sans'; text-anchor: end" x="381.512126" y="74.400389" transform="rotate(-0 381.512126 74.400389)">time →</text>
+   </g>
+   <g id="PathCollection_1">
+    <defs>
+     <path id="m6b5f93cd7c" d="M 0 3.24037 
+C 0.859356 3.24037 1.683631 2.898944 2.291288 2.291288 
+C 2.898944 1.683631 3.24037 0.859356 3.24037 0 
+C 3.24037 -0.859356 2.898944 -1.683631 2.291288 -2.291288 
+C 1.683631 -2.898944 0.859356 -3.24037 0 -3.24037 
+C -0.859356 -3.24037 -1.683631 -2.898944 -2.291288 -2.291288 
+C -2.898944 -1.683631 -3.24037 -0.859356 -3.24037 0 
+C -3.24037 0.859356 -2.898944 1.683631 -2.291288 2.291288 
+C -1.683631 2.898944 -0.859356 3.24037 0 3.24037 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p24d2d66ade)">
+     <use xlink:href="#m6b5f93cd7c" x="61.908661" y="36.772368" style="fill: #0072b2; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_2">
+    <defs>
+     <path id="m9866555f23" d="M 0 -3.24037 
+L -3.24037 3.24037 
+L 3.24037 3.24037 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p24d2d66ade)">
+     <use xlink:href="#m9866555f23" x="134.135433" y="36.772368" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_3">
+    <defs>
+     <path id="md1bf56d951" d="M -0 4.582576 
+L 4.582576 0 
+L 0 -4.582576 
+L -4.582576 -0 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p24d2d66ade)">
+     <use xlink:href="#md1bf56d951" x="206.362205" y="36.772368" style="fill: #009e73; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_4">
+    <defs>
+     <path id="m5c605c7932" d="M -3.24037 3.24037 
+L 3.24037 3.24037 
+L 3.24037 -3.24037 
+L -3.24037 -3.24037 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p24d2d66ade)">
+     <use xlink:href="#m5c605c7932" x="278.588976" y="36.772368" style="fill: #e69f00; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_5">
+    <defs>
+     <path id="mc1356830d8" d="M 0 -4 
+L -0.898056 -1.236068 
+L -3.804226 -1.236068 
+L -1.453085 0.472136 
+L -2.351141 3.236068 
+L -0 1.527864 
+L 2.351141 3.236068 
+L 1.453085 0.472136 
+L 3.804226 -1.236068 
+L 0.898056 -1.236068 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p24d2d66ade)">
+     <use xlink:href="#mc1356830d8" x="350.815748" y="36.772368" style="fill: #cc79a7; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_12">
+    <path d="M 25.795276 205.905538 
+L 386.929134 205.905538 
+L 386.929134 121.93171 
+L 25.795276 121.93171 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 33.017953 189.110773 
+L 191.91685 189.110773 
+L 191.91685 130.329093 
+L 33.017953 130.329093 
+z
+" clip-path="url(#p36d89e4ed6)" style="fill: #dcefea; stroke: #008c7a; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 220.807559 189.110773 
+L 379.706457 189.110773 
+L 379.706457 130.329093 
+L 220.807559 130.329093 
+z
+" clip-path="url(#p36d89e4ed6)" style="fill: url(#hca565c2b4f); stroke: #d55e00; stroke-linejoin: miter"/>
+   </g>
+   <g id="matplotlib.axis_3"/>
+   <g id="matplotlib.axis_4"/>
+   <g id="text_16">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="25.795276" y="118.380514" transform="rotate(-0 25.795276 118.380514)">(b)</text>
+   </g>
+   <g id="text_17">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="118.310202" transform="rotate(-0 76.354016 118.310202)">Issue-time boundary</text>
+   </g>
+   <g id="text_18">
+    <text style="fill: #202020; font: 700 8.8px 'DejaVu Sans'; text-anchor: middle" x="206.362205" y="124.300276" transform="rotate(-0 206.362205 124.300276)">ISSUE  t</text>
+   </g>
+   <g id="text_19">
+    <text style="fill: #008c7a; font: 700 7.8px 'DejaVu Sans'; text-anchor: middle" x="112.467402" y="139.199311" transform="rotate(-0 112.467402 139.199311)">✓  ALLOWED: date ≤ t</text>
+   </g>
+   <g id="text_20">
+    <text style="fill: #0072b2; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="54.685984" y="152.966249" transform="rotate(-0 54.685984 152.966249)">○</text>
+   </g>
+   <g id="text_21">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="152.552343" transform="rotate(-0 76.354016 152.552343)">Observed WTEMP history</text>
+   </g>
+   <g id="text_22">
+    <text style="fill: #0072b2; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="54.685984" y="165.562323" transform="rotate(-0 54.685984 165.562323)">△</text>
+   </g>
+   <g id="text_23">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="165.148417" transform="rotate(-0 76.354016 165.148417)">FLOW + dated meteorology</text>
+   </g>
+   <g id="text_24">
+    <text style="fill: #0072b2; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="54.685984" y="178.158398" transform="rotate(-0 54.685984 178.158398)">◇</text>
+   </g>
+   <g id="text_25">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="177.744491" transform="rotate(-0 76.354016 177.744491)">Frozen reference inputs</text>
+   </g>
+   <g id="text_26">
+    <text style="fill: #d55e00; font: 700 7.8px 'DejaVu Sans'; text-anchor: middle" x="300.257008" y="139.199311" transform="rotate(-0 300.257008 139.199311)">✕  EXCLUDED AS INPUT</text>
+   </g>
+   <g id="text_27">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="152.552343" transform="rotate(-0 264.143622 152.552343)">Target WTEMP at t+h</text>
+   </g>
+   <g id="text_28">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="165.148417" transform="rotate(-0 264.143622 165.148417)">Future weather</text>
+   </g>
+   <g id="text_29">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="177.744491" transform="rotate(-0 264.143622 177.744491)">Future vintages</text>
+   </g>
+   <g id="text_30">
+    <text style="fill: #d55e00; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="300.257008" y="181.523314" transform="rotate(-0 300.257008 181.523314)">h = 1, 3, 7 d</text>
+   </g>
+   <g id="text_31">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="206.362205" y="202.096902" transform="rotate(-0 206.362205 202.096902)">date-indexed retrospective hindcast</text>
+   </g>
+   <g id="line2d_1">
+    <path d="M 206.362205 187.431296 
+L 206.362205 126.970139 
+" clip-path="url(#p36d89e4ed6)" style="fill: none; stroke: #202020; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="PathCollection_6">
+    <defs>
+     <path id="m87d20e98db" d="M -1.25 2.5 
+L 0 1.25 
+L 1.25 2.5 
+L 2.5 1.25 
+L 1.25 0 
+L 2.5 -1.25 
+L 1.25 -2.5 
+L 0 -1.25 
+L -1.25 -2.5 
+L -2.5 -1.25 
+L -1.25 0 
+L -2.5 1.25 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p36d89e4ed6)">
+     <use xlink:href="#m87d20e98db" x="242.475591" y="150.482811" style="fill: #d55e00; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_7">
+    <g clip-path="url(#p36d89e4ed6)">
+     <use xlink:href="#m87d20e98db" x="242.475591" y="163.078886" style="fill: #d55e00; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_8">
+    <g clip-path="url(#p36d89e4ed6)">
+     <use xlink:href="#m87d20e98db" x="242.475591" y="175.67496" style="fill: #d55e00; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+  </g>
+  <g id="axes_3">
+   <g id="patch_15">
+    <path d="M 25.795276 341.778487 
+L 386.929134 341.778487 
+L 386.929134 249.571929 
+L 25.795276 249.571929 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 40.24063 274.283287 
+L 372.48378 274.283287 
+L 372.48378 267.275588 
+L 40.24063 267.275588 
+z
+" clip-path="url(#p69e7415afe)" style="fill: #f4f4f4"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 40.24063 290.327228 
+L 372.48378 290.327228 
+L 372.48378 283.319529 
+L 40.24063 283.319529 
+z
+" clip-path="url(#p69e7415afe)" style="fill: #f4f4f4"/>
+   </g>
+   <g id="patch_18">
+    <path d="M 40.24063 306.371169 
+L 372.48378 306.371169 
+L 372.48378 299.36347 
+L 40.24063 299.36347 
+z
+" clip-path="url(#p69e7415afe)" style="fill: #f4f4f4"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 40.24063 322.41511 
+L 372.48378 322.41511 
+L 372.48378 315.407411 
+L 40.24063 315.407411 
+z
+" clip-path="url(#p69e7415afe)" style="fill: #f4f4f4"/>
+   </g>
+   <g id="matplotlib.axis_5"/>
+   <g id="matplotlib.axis_6"/>
+   <g id="line2d_2">
+    <path d="M 40.24063 264.786011 
+L 372.48378 264.786011 
+" clip-path="url(#p69e7415afe)" style="fill: none; stroke: #666666; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="text_32">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="25.795276" y="245.85608" transform="rotate(-0 25.795276 245.85608)">(c)</text>
+   </g>
+   <g id="text_33">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="245.85608" transform="rotate(-0 76.354016 245.85608)">Predictor source rules</text>
+   </g>
+   <g id="text_34">
+    <text style="fill: #666666; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="51.074646" y="262.706248" transform="rotate(-0 51.074646 262.706248)">VARIABLE</text>
+   </g>
+   <g id="text_35">
+    <text style="fill: #666666; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="262.706248" transform="rotate(-0 163.026142 262.706248)">PROVIDER</text>
+   </g>
+   <g id="text_36">
+    <text style="fill: #666666; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="262.706248" transform="rotate(-0 264.143622 262.706248)">SOURCE DATE</text>
+   </g>
+   <g id="text_37">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="272.848969" transform="rotate(-0 67.325669 272.848969)">WTEMP</text>
+   </g>
+   <g id="text_38">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="272.848969" transform="rotate(-0 163.026142 272.848969)">NWIS</text>
+   </g>
+   <g id="text_39">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="272.848969" transform="rotate(-0 264.143622 272.848969)">date ≤ t</text>
+   </g>
+   <g id="text_40">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="280.870939" transform="rotate(-0 67.325669 280.870939)">FLOW</text>
+   </g>
+   <g id="text_41">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="280.870939" transform="rotate(-0 163.026142 280.870939)">NWIS</text>
+   </g>
+   <g id="text_42">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="280.870939" transform="rotate(-0 264.143622 280.870939)">date ≤ t</text>
+   </g>
+   <g id="text_43">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="288.89291" transform="rotate(-0 67.325669 288.89291)">TEMP</text>
+   </g>
+   <g id="text_44">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="288.89291" transform="rotate(-0 163.026142 288.89291)">Daymet</text>
+   </g>
+   <g id="text_45">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="288.89291" transform="rotate(-0 264.143622 288.89291)">date ≤ t</text>
+   </g>
+   <g id="text_46">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="296.91488" transform="rotate(-0 67.325669 296.91488)">PRCP</text>
+   </g>
+   <g id="text_47">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="296.91488" transform="rotate(-0 163.026142 296.91488)">Daymet</text>
+   </g>
+   <g id="text_48">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="296.91488" transform="rotate(-0 264.143622 296.91488)">date ≤ t</text>
+   </g>
+   <g id="text_49">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="304.936851" transform="rotate(-0 67.325669 304.936851)">RHMEAN</text>
+   </g>
+   <g id="text_50">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="304.936851" transform="rotate(-0 163.026142 304.936851)">Daymet</text>
+   </g>
+   <g id="text_51">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="304.936851" transform="rotate(-0 264.143622 304.936851)">date ≤ t</text>
+   </g>
+   <g id="text_52">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="312.958821" transform="rotate(-0 67.325669 312.958821)">DH</text>
+   </g>
+   <g id="text_53">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="312.958821" transform="rotate(-0 163.026142 312.958821)">Daymet</text>
+   </g>
+   <g id="text_54">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="312.958821" transform="rotate(-0 264.143622 312.958821)">date ≤ t</text>
+   </g>
+   <g id="text_55">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: start" x="67.325669" y="320.980792" transform="rotate(-0 67.325669 320.980792)">WDSP</text>
+   </g>
+   <g id="text_56">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="163.026142" y="320.980792" transform="rotate(-0 163.026142 320.980792)">gridMET</text>
+   </g>
+   <g id="text_57">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: start" x="264.143622" y="320.980792" transform="rotate(-0 264.143622 320.980792)">date ≤ t</text>
+   </g>
+   <g id="text_58">
+    <text style="fill: #0072b2; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="206.362205" y="336.442196" transform="rotate(-0 206.362205 336.442196)">vintage: latest values served at retrieval</text>
+   </g>
+   <g id="PathCollection_9">
+    <defs>
+     <path id="m8c99b54086" d="M 0 2 
+C 0.530406 2 1.03916 1.789267 1.414214 1.414214 
+C 1.789267 1.03916 2 0.530406 2 0 
+C 2 -0.530406 1.789267 -1.03916 1.414214 -1.414214 
+C 1.03916 -1.789267 0.530406 -2 0 -2 
+C -0.530406 -2 -1.03916 -1.789267 -1.414214 -1.414214 
+C -1.789267 -1.03916 -2 -0.530406 -2 0 
+C -2 0.530406 -1.789267 1.03916 -1.414214 1.414214 
+C -1.03916 1.789267 -0.530406 2 0 2 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#m8c99b54086" x="52.880315" y="270.779438" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_10">
+    <defs>
+     <path id="mf20b7dfcff" d="M -2 2 
+L 2 2 
+L 2 -2 
+L -2 -2 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#mf20b7dfcff" x="52.880315" y="278.801408" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_11">
+    <defs>
+     <path id="md70b0bd888" d="M 0 -2 
+L -2 2 
+L 2 2 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#md70b0bd888" x="52.880315" y="286.823379" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_12">
+    <defs>
+     <path id="m1f810515f7" d="M -0 2.828427 
+L 2.828427 0 
+L 0 -2.828427 
+L -2.828427 -0 
+z
+" style="stroke: #202020; stroke-width: 0.6"/>
+    </defs>
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#m1f810515f7" x="52.880315" y="294.845349" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_13">
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#m8c99b54086" x="52.880315" y="302.867319" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_14">
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#mf20b7dfcff" x="52.880315" y="310.88929" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+   <g id="PathCollection_15">
+    <g clip-path="url(#p69e7415afe)">
+     <use xlink:href="#md70b0bd888" x="52.880315" y="318.91126" style="fill: #56b4e9; stroke: #202020; stroke-width: 0.6"/>
+    </g>
+   </g>
+  </g>
+  <g id="axes_4">
+   <g id="patch_20">
+    <path d="M 25.795276 487.530709 
+L 386.929134 487.530709 
+L 386.929134 385.444878 
+L 25.795276 385.444878 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 33.017953 475.280409 
+L 199.139528 475.280409 
+L 199.139528 397.695177 
+L 33.017953 397.695177 
+z
+" clip-path="url(#pa1317a04c8)" style="fill: #dcefea; stroke: #008c7a; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_22">
+    <path d="M 213.584882 475.280409 
+L 379.706457 475.280409 
+L 379.706457 397.695177 
+L 213.584882 397.695177 
+z
+" clip-path="url(#pa1317a04c8)" style="fill: url(#hca565c2b4f); stroke: #d55e00; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="matplotlib.axis_7"/>
+   <g id="matplotlib.axis_8"/>
+   <g id="text_59">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="25.795276" y="381.531442" transform="rotate(-0 25.795276 381.531442)">(d)</text>
+   </g>
+   <g id="text_60">
+    <text style="fill: #202020; font: 700 9px 'DejaVu Sans'; text-anchor: start" x="76.354016" y="381.46113" transform="rotate(-0 76.354016 381.46113)">Outcome-free predictor bridge: capability and limit</text>
+   </g>
+   <g id="text_61">
+    <text style="fill: #008c7a; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="409.292355" transform="rotate(-0 116.07874 409.292355)">✓  PASS_EXACT_PRODUCT_BRIDGE</text>
+   </g>
+   <g id="text_62">
+    <text style="fill: #d55e00; font: 700 8px 'DejaVu Sans'; text-anchor: middle" x="296.645669" y="409.600831" transform="rotate(-0 296.645669 409.600831)">!  LIMITS — NOT ESTABLISHED</text>
+   </g>
+   <g id="text_63">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="419.13172" transform="rotate(-0 116.07874 419.13172)">2018–2020 only</text>
+   </g>
+   <g id="text_64">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="426.511196" transform="rotate(-0 116.07874 426.511196)">120 sites • 131,520 rows</text>
+   </g>
+   <g id="text_65">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="433.861376" transform="rotate(-0 116.07874 433.861376)">5 meteorological fields only:</text>
+   </g>
+   <g id="text_66">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="441.211556" transform="rotate(-0 116.07874 441.211556)">TEMP • PRCP • RHMEAN • DH • WDSP</text>
+   </g>
+   <g id="text_67">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="448.561736" transform="rotate(-0 116.07874 448.561736)">product / parser compatibility</text>
+   </g>
+   <g id="text_68">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="455.911916" transform="rotate(-0 116.07874 455.911916)">missing-pattern agreement</text>
+   </g>
+   <g id="text_69">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="116.07874" y="463.262095" transform="rotate(-0 116.07874 463.262095)">±1-day value-alignment check</text>
+   </g>
+   <g id="text_70">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="296.645669" y="421.173436" transform="rotate(-0 296.645669 421.173436)">not as-issued availability</text>
+   </g>
+   <g id="text_71">
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'" transform="translate(257.645083 427.693269)">not NWIS/provider</text>
+    <text style="fill: #202020; font: 700 7.5px 'DejaVu Sans'" transform="translate(250.917349 436.091628)">local-day equivalence</text>
+   </g>
+   <g id="text_72">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="296.645669" y="442.640758" transform="rotate(-0 296.645669 442.640758)">not target-period input availability</text>
+   </g>
+   <g id="text_73">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="296.645669" y="453.35977" transform="rotate(-0 296.645669 453.35977)">not an operational replay</text>
+   </g>
+   <g id="text_74">
+    <text style="fill: #202020; font: 7.5px 'DejaVu Sans'; text-anchor: middle" x="296.645669" y="464.078782" transform="rotate(-0 296.645669 464.078782)">outcomes not requested or read</text>
+   </g>
+   <g id="text_75">
+    <text style="fill: #666666; font: 700 7.5px 'DejaVu Sans'; text-anchor: middle" x="206.362205" y="485.006378" transform="rotate(-0 206.362205 485.006378)">bound report + 120-request source map • latest retrospective retrieval</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p24d2d66ade">
+   <rect x="25.795276" y="20.63622" width="361.133858" height="57.629098"/>
+  </clipPath>
+  <clipPath id="p36d89e4ed6">
+   <rect x="25.795276" y="121.93171" width="361.133858" height="83.973829"/>
+  </clipPath>
+  <clipPath id="p69e7415afe">
+   <rect x="25.795276" y="249.571929" width="361.133858" height="92.206557"/>
+  </clipPath>
+  <clipPath id="pa1317a04c8">
+   <rect x="25.795276" y="385.444878" width="361.133858" height="102.085831"/>
+  </clipPath>
+ </defs>
+ <defs>
+  <pattern id="h8f85b44811" patternUnits="userSpaceOnUse" x="0" y="0" width="72" height="72">
+   <rect x="0" y="0" width="73" height="73" fill="#56b4e9"/>
+   <path d="M -36 36 
+L 36 -36 
+M -32 40 
+L 40 -32 
+M -28 44 
+L 44 -28 
+M -24 48 
+L 48 -24 
+M -20 52 
+L 52 -20 
+M -16 56 
+L 56 -16 
+M -12 60 
+L 60 -12 
+M -8 64 
+L 64 -8 
+M -4 68 
+L 68 -4 
+M 0 72 
+L 72 0 
+M 4 76 
+L 76 4 
+M 8 80 
+L 80 8 
+M 12 84 
+L 84 12 
+M 16 88 
+L 88 16 
+M 20 92 
+L 92 20 
+M 24 96 
+L 96 24 
+M 28 100 
+L 100 28 
+M 32 104 
+L 104 32 
+M 36 108 
+L 108 36 
+" style="fill: #56b4e9; stroke: #56b4e9; stroke-width: 1.0; stroke-linecap: butt; stroke-linejoin: miter"/>
+  </pattern>
+  <pattern id="ha20b8cf561" patternUnits="userSpaceOnUse" x="0" y="0" width="72" height="72">
+   <rect x="0" y="0" width="73" height="73" fill="#e69f00"/>
+   <path d="M -36 36 
+L 36 -36 
+M -32 40 
+L 40 -32 
+M -28 44 
+L 44 -28 
+M -24 48 
+L 48 -24 
+M -20 52 
+L 52 -20 
+M -16 56 
+L 56 -16 
+M -12 60 
+L 60 -12 
+M -8 64 
+L 64 -8 
+M -4 68 
+L 68 -4 
+M 0 72 
+L 72 0 
+M 4 76 
+L 76 4 
+M 8 80 
+L 80 8 
+M 12 84 
+L 84 12 
+M 16 88 
+L 88 16 
+M 20 92 
+L 92 20 
+M 24 96 
+L 96 24 
+M 28 100 
+L 100 28 
+M 32 104 
+L 104 32 
+M 36 108 
+L 108 36 
+M -36 36 
+L 36 108 
+M -32 32 
+L 40 104 
+M -28 28 
+L 44 100 
+M -24 24 
+L 48 96 
+M -20 20 
+L 52 92 
+M -16 16 
+L 56 88 
+M -12 12 
+L 60 84 
+M -8 8 
+L 64 80 
+M -4 4 
+L 68 76 
+M 0 0 
+L 72 72 
+M 4 -4 
+L 76 68 
+M 8 -8 
+L 80 64 
+M 12 -12 
+L 84 60 
+M 16 -16 
+L 88 56 
+M 20 -20 
+L 92 52 
+M 24 -24 
+L 96 48 
+M 28 -28 
+L 100 44 
+M 32 -32 
+L 104 40 
+M 36 -36 
+L 108 36 
+" style="fill: #e69f00; stroke: #e69f00; stroke-width: 1.0; stroke-linecap: butt; stroke-linejoin: miter"/>
+  </pattern>
+  <pattern id="hca565c2b4f" patternUnits="userSpaceOnUse" x="0" y="0" width="72" height="72">
+   <rect x="0" y="0" width="73" height="73" fill="#f9e3d6"/>
+   <path d="M -36 36 
+L 36 -36 
+M -32 40 
+L 40 -32 
+M -28 44 
+L 44 -28 
+M -24 48 
+L 48 -24 
+M -20 52 
+L 52 -20 
+M -16 56 
+L 56 -16 
+M -12 60 
+L 60 -12 
+M -8 64 
+L 64 -8 
+M -4 68 
+L 68 -4 
+M 0 72 
+L 72 0 
+M 4 76 
+L 76 4 
+M 8 80 
+L 80 8 
+M 12 84 
+L 84 12 
+M 16 88 
+L 88 16 
+M 20 92 
+L 92 20 
+M 24 96 
+L 96 24 
+M 28 100 
+L 100 28 
+M 32 104 
+L 104 32 
+M 36 108 
+L 108 36 
+" style="fill: #d55e00; stroke: #d55e00; stroke-width: 1.0; stroke-linecap: butt; stroke-linejoin: miter"/>
+  </pattern>
+ </defs>
+</svg>

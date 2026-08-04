@@ -49,7 +49,8 @@ exists.
 | Source path | Role in this scaffold | Readout allowed here |
 |---|---|---|
 | `paper/ThermoRoute_paper.md` | canonical frozen PRE narrative | design facts and permanent limitations only |
-| `paper/FIGURE1_AND_SI_SKELETON.md` | Figure-1/SI geometry and placeholder rule | layout, captions, registered rows and fill rule |
+| `paper/FIGURE1_AND_SI_SKELETON.md` | superseded four-panel geometry retained for audit provenance | historical placeholder and receipt-gate rules only |
+| `paper/FIGURE_REDRAW_SPEC.md` | current Figure 1--4 / Figure S1--S8 visual and evidence contract | redraw layout, captions, source bindings, gates and QA |
 | `docs/POST_PAPER_PROJECTION_DESIGN.md` | deterministic POST projection design | manifest schema and future authority routing |
 | `protocols/route_a_confirmatory_v1.json` | sealed registered-family source | pointer only; no rewriting from SI |
 | `protocols/route_a_inference_amendment_v2.json` | inference-scope overlay source | pointer only; no eligibility override |
