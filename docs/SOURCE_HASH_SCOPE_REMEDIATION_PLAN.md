@@ -105,12 +105,17 @@ freeze ([`CODE_FREEZE_DISCIPLINE_20260805.md`](CODE_FREEZE_DISCIPLINE_20260805.m
 | R2 | Stage-19 `q05 >= q95` → `q05 > q95`, plus a recorded `degenerate_zero_width_rows` count in the receipt | `scripts/19_probabilistic.py` | hashed path; see [disposition](STAGE19_DEGENERATE_INTERVAL_DISPOSITION_20260805.md) |
 | R3 | Route-B protocol seal | `protocols/route_b_*.json` | hashed path; see [suspension](ROUTE_B_SUSPENSION_20260805.md) |
 | R4 | Remove the thread cap from the runtime identity contract; keep it recorded | `protocols/route_a_numerical_policy_v*.json`, runtime contract | makes parallelism tunable without a retrain |
-| R5 | Partition the prediction tables (§4) | `scripts/09_*.py`, readers | hashed path |
+| R5 | Partition the prediction tables (§4) | `scripts/09_*.py`, readers | **DEFERRED — see §3.2** |
 | R6 | Claim registry should pin the **claim blocks**, not the whole-manuscript sha256 | `protocols/route_a_claim_registry_v1.json` | hashed path; see §3.1 |
 | R7 | `_validate_member_predictions` must establish (or assert) the deterministic runtime itself; add `assert_role_thread_cap` to Stage-24 | `src/thermoroute/development_controls_gate.py`, `scripts/24_freeze_model_suite.py` | hashed path; see [Stage-24 defect](STAGE24_REPLAY_RUNTIME_DEFECT_20260805.md) |
+| **R8** | Stage-24 worker environment must read the policy cap and export `THERMOROUTE_FORMAL_THREADS`; unify the three conflicting defaults | `scripts/24_freeze_model_suite.py`, `scripts/09b_development_controls.py`, `scripts/16_lstm_baseline.py`, `src/thermoroute/repro.py` | **BLOCKING** — see [blocker](STAGE24_WORKER_THREAD_CAP_BLOCKER_20260805.md) |
+| **R9** | `opening.py` applies a strict `q05 < q95` to member-averaged nominal heads and aborts the whole one-shot opening on failure | `src/thermoroute/opening.py` | protects the one-time opening; see §3.3 |
 
-Executing R1 first means R2–R7 are cheap forever after; but they must still be
+Executing R1 first means the rest are cheap forever after; but they must still be
 applied together in the same lineage to avoid paying twice.
+
+**Decision 2026-08-05:** R1, R2, R3, R4, R6, R7, R8 and R9 land in this lineage.
+R5 is deferred (§3.2).
 
 ### 3.1 Why R6 matters
 
@@ -140,6 +145,52 @@ the mismatch is expected and documented; do not "fix" it by editing `protocols/`
 worktree, which still holds the pre-rewrite manuscript bytes, so Stage-26 passes
 there. The mismatch appears only after the manuscript work is merged in. Do not
 re-run Stage-26 after the merge and read its failure as a regression.
+
+### 3.2 Why R5 is deferred out of this lineage
+
+R5 changes the on-disk layout of the prediction artifacts and therefore their content
+digests, and those artifacts are consumed by roughly a dozen scripts and validated by
+the manifest and release verifiers.
+
+This lineage has exactly one job: **succeed once.** Adding the only change in the
+queue with a large blast radius to the one run that must not fail is precisely the
+pattern that consumed the previous five lineages. R5 buys wall-clock speed, not
+correctness, and it can be taken at any later point as an isolated change once R1 has
+made source edits cheap.
+
+R5 is therefore scheduled **after** submission, as a standalone change with its own
+verification pass.
+
+### 3.3 Why R9 was added
+
+`src/thermoroute/opening.py` applies a **strict** `q05 < q95` to member-averaged
+nominal quantile heads and raises `OpeningContractError`, which aborts the entire
+one-time opening. It is the same degeneracy trap as Stage-19, one layer up — but the
+consequence is far worse, because the opening downloads the evaluation labels exactly
+once.
+
+Read-only measurement over the development panel (27.7 M rows):
+
+| Quantity | Value |
+|---|---|
+| Member-level `q05 == q95` rows | 135, across 120 forecast keys |
+| Keys still degenerate **after member averaging** | **12** |
+| Those 12 | all `LightGBM-perstation` (single member, so averaging cannot help) |
+| LightGBM keys surviving the 5-member mean | **0** (all 108 cleared) |
+
+`LightGBM-perstation` is absent from `PRIMARY_MODELS` and appears zero times in the
+confirmatory protocol, so on development data nothing in the opening's registry would
+trip the check. That is reassuring but not conclusive: 2021–2023 is different data,
+and a single degenerate key in a primary model would abort the one irreversible step
+in the project.
+
+R9 makes the opening treat a zero-width nominal interval the way the corrected
+Stage-19 does — record it, count it, widen it through CQR — and fail only on genuine
+ordering violations.
+
+**Independently of R9**, run the same read-only degeneracy check against the
+target-period predictions *before* executing the opening. It costs minutes and guards
+a step that cannot be repeated.
 
 ## 4. Performance remediation (same lineage, R5)
 

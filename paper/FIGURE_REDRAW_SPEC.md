@@ -37,11 +37,40 @@ The states in this table are exhaustive.
 | Figure S6 | temporal opportunity, missingness, and attrition | `POST_TEMPLATE_ONLY` | **No** |
 | Figure S7 | spatial influence and cluster sensitivity | `POST_TEMPLATE_ONLY` | **No** |
 | Figure S8 | outcome QC, external-history arm, and failure disposition | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S9 | development-period conformal calibration sensitivity (optional) | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **No** |
 
-For a `POST_TEMPLATE_ONLY` item, “template” means this written panel, caption,
-and binder contract only.  It does **not** mean a rendered empty figure.  A blank
-forest, a `PENDING` box, a dummy coordinate, or a zero substituted for a missing
-value is a prohibited result rendering.
+For any state containing `TEMPLATE_ONLY`, “template” means this written panel,
+caption, and binder contract only.  It does **not** mean a rendered empty figure.
+A blank forest, a `PENDING` box, a dummy coordinate, or a zero substituted for a
+missing value is a prohibited result rendering.  The POST skeletons refuse on the
+substring `TEMPLATE_ONLY`, so a rebound figure keeps its fail-closed behaviour
+while recording the rebinding in its state token.
+
+**Stage-19 disposition (2026-08-05, final).** The Stage-19 **development**
+script will not be produced for this submission, and Stage-10 cascades from it.
+Figures 3 and S5 are **not** affected: their target-period metrics are computed
+independently by the trusted scorer inside the one-time opening
+(`src/thermoroute/opening.py:8932-8948`), which emits the full probabilistic
+family per cohort × model × horizon plus station-balanced reliability bins.  Both
+figures keep their original designs and no panel is dropped.
+
+Stage-19 is downgraded from a hard blocker to a **recorded provenance
+qualifier**: its absence is reported in the render receipt and never refuses a
+render.  The corrected failure numbers — 0 strict quantile crossings, 135
+zero-width nominal intervals in 26,993,675 member-level rows — are in
+`docs/STAGE19_DEGENERATE_INTERVAL_DISPOSITION_20260805.md`; the figure
+determination is in `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md`.
+
+The Stage-22 adaptive-conformal evidence is **development-period**
+(2019-01-01 to 2020-12-24) and is governed by §2.1 layer 2.  It is confined to
+Figure S9, which declares its evidence period and renders a mandatory in-panel
+scope band.  It may never be read as a target-period result, and no value in it
+may be compared numerically with Figure 3 or S5; the confirmatory target period
+starts 2021-01-01.
+
+**One figure never mixes two evidence periods.**  A figure binds either
+target-period or development-period evidence, declares which, and — when
+development — renders an in-panel scope band.  The POST skeletons enforce this.
 
 ---
 
@@ -130,7 +159,13 @@ the render.  Figure 2's formal rows and main Table T2 must use the same value ID
   counts and station-balanced rates are labelled as different quantities.
 - Three-quantile pinball uses the nominal member-averaged pre-CQR heads; coverage
   and width use the deployed CQR interval; event metrics use the post-Platt
-  probability.
+  probability.  All three clauses hold at target period: the trusted scorer
+  inside the one-time opening computes them, so the withheld Stage-19
+  development script does not affect them.
+- A coverage or width number is always reported next to the interval score that
+  buys it.  An adaptive conformal variant is never described as cost-free, and a
+  non-finite width is bound as an explicit NA with its row count, never clipped,
+  dropped, or imputed.
 - The +0.05 degrees C comparison ceiling is a frozen numerical threshold, not an
   ecological, regulatory, measurement-error, or stakeholder-importance margin.
 
@@ -169,9 +204,15 @@ decisive.
 ### 3.2 Typography and geometry
 
 - Final full-width target: 140 mm, matching the 5.5-inch text width in the
-  committed AGU class; single-column target: 88 mm only when every label remains
+  committed AGU class; single-column target: 85 mm only when every label remains
   legible.  A 180-mm export is a publisher-requested variant, not the governing
   placed-size assumption.
+  Rationale for 85 mm (revised from 88 mm on 2026-08-05): AGU's published
+  single-column range is 50--85 mm.  A figure authored at 88 mm is scaled to
+  85/88 = 96.6% during production, which pulls 7.5 pt ticks down to 7.24 pt and
+  8 pt axis text to 7.73 pt -- below the floor declared in the next bullet.
+  Authoring at 85 mm removes the scaling step so the type-size floor holds as
+  stated.
 - Body and axis text target 8 pt or larger; the absolute final-size floor is
   7.5 pt for ticks, legends, or compact annotations.  Panel labels target
   9--10 pt bold.
@@ -395,22 +436,49 @@ or x-axis chosen after inspecting favourable values.
 ## Figure 3 — Marginal intervals and event-probability behavior
 
 **State:** `POST_TEMPLATE_ONLY`
+**Restored:** 2026-08-05, superseding the same-day interim rebinding onto
+Stage-22.  See `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` §3.
 **Research question:** How sharp and empirically calibrated are the frozen
 uncertainty outputs, and what probability discrimination/calibration trade-offs
 remain?
 **Narrative role:** benefit-plus-cost evidence for probabilistic outputs.
+**Evidence period:** target, 2021-01-01 through 2023-12-31.
+
+### Stage-19 does not affect this figure
+
+The withheld `scripts/19_probabilistic.py` is a **development** tool.  The
+target-period probabilistic family is computed independently by the trusted
+scorer inside the one-time opening.  `src/thermoroute/opening.py:8932-8948`
+emits, per cohort × model × horizon:
+
+`coverage_90`, `mean_interval_width_c`, `pinball_q05_c`, `pinball_q50_c`,
+`pinball_q95_c`, `equal_weight_three_quantile_pinball_mean_c`, `brier_score`,
+`frozen_reference_brier_score`, `brier_skill_frozen_seasonal`, `log_loss`,
+`auroc`, `auprc`, `ece_10_equal_width`, `calibration_intercept`,
+`calibration_slope`, `event_rate`
+
+plus station-balanced reliability bins whose weights must sum to one
+(`opening.py:8920-8926`), against a frozen seasonal event reference validated by
+`validate_frozen_seasonal_event_reference`.  That is a superset of what this
+figure requires, at exactly the granularity it requires.  The original design is
+therefore retained in full and no panel is dropped.
+
+The development-period Stage-22 conformal evidence is **not** used here.  It is
+confined to Figure S9.
 
 ### Panel structure and plot types
 
 **(a) Coverage--width plane.** Plot station-balanced empirical 90% marginal
 coverage against mean interval width for every eligible learned model and
 horizon.  Use horizon markers and model colors; draw the 0.90 nominal reference
-without implying a formal coverage test.
+without implying a formal coverage test.  Point-only models bind a
+`NOT_AVAILABLE` status and never receive invented heads.
 
 **(b) Event score.** Plot Brier skill against the frozen seasonal reference by
 model and horizon.  Show the zero-skill line and the bound reference identity.
-Log score and three-quantile pinball remain in SI/Table unless a predeclared
-layout requires them.
+The reference is the frozen seasonal climatology; confirmation-period event
+prevalence is never used as the Brier reference.  Log score and three-quantile
+pinball remain in SI/Table unless a predeclared layout requires them.
 
 **(c)--(e) Reliability.** One panel per horizon.  Plot observed station-balanced
 event frequency against mean forecast probability with the identity line.  Point
@@ -442,15 +510,29 @@ invented heads.
 ### Gate
 
 - **PRE:** schema text only; no axes or dummy reliability points may be rendered.
-- **POST:** verified probability evaluation and erratum bindings, opening receipt,
-  common-key/reportability registry, and render receipt.
+- **POST:** opening receipt; `trusted/probabilistic_evaluation_v2.json`;
+  `trusted/temporal_predictions_v1.parquet`;
+  `trusted/availability_registry_v1.csv`; erratum binding; confirmatory protocol;
+  SI08; render receipt.
+
+### Pre-opening guard (blocking risk, not a figure risk)
+
+`opening.py:7093-7094` applies a **strict** `q05 < q95` to the member-averaged
+nominal heads and raises `OpeningContractError` — aborting the entire one-time
+opening — on violation.  This is the Stage-19 degeneracy trap one layer up.
+Measured on the development panel: member averaging clears every affected
+LightGBM key (5 members); the only 12 survivors are single-member
+`LightGBM-perstation` keys, and that model appears in neither `PRIMARY_MODELS`
+nor the confirmatory protocol.  **Re-run this check on the target-period
+predictions before executing the one-time opening.**
 
 ### Prohibited semantics
 
 Conditional coverage; distribution-free target-period guarantee; CRPS; operational
 forecast reliability; economic value; merged or silently removed empty bins;
 unreported single-class/fit-failure NA; coverage without width; using confirmation
-event prevalence as the Brier reference.
+event prevalence as the Brier reference; "quantile crossing" as the Stage-19
+cause; development-period conformal numbers presented as target-period results.
 
 ### Acceptance
 
@@ -459,8 +541,7 @@ event prevalence as the Brier reference.
 - Every bin exposes support and weighting.
 - Undefined metrics remain visible with their reason.
 - Identity, nominal, and zero-skill references are visually distinct and named.
-
----
+- No value in this figure is development-period.
 
 ## Figure 4 — Mechanism sensitivities and applicability boundaries
 
@@ -684,32 +765,56 @@ legible at final size.
 ## Figure S5 — Expanded probabilistic diagnostics
 
 **State:** `POST_TEMPLATE_ONLY`
+**Restored:** 2026-08-05, superseding the same-day interim rebinding onto
+Stage-22.  See `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` §3.
 **Question:** Do the aggregate probabilistic summaries in Figure 3 conceal model,
 horizon, station, or bin-level failure?
-**Panels/plot types:** full model-by-horizon coverage/width dot matrix; pinball,
-interval, Brier, and log-score matrix; reliability panels with every registered
-bin/count; calibration slope/intercept and discrimination diagnostics with bound
-NA reasons.
+**Evidence period:** target, 2021-01-01 through 2023-12-31.
+
+**Stage-19 does not affect this figure.** The SI08 metric family is produced at
+target period by the trusted scorer inside the one-time opening
+(`src/thermoroute/opening.py:8932-8948`), per cohort × model × horizon, with
+station-balanced reliability bins.  The original expanded design is retained in
+full and no panel is dropped.  The development-period Stage-22 conformal evidence
+is confined to Figure S9 and is never mixed into this figure.
+
+**Panels/plot types:** `(a)` full model-by-horizon coverage/width dot matrix,
+every cell bound or explicit NA; `(b)` pinball, interval, Brier, and log-score
+matrix with an explicit scoring-stage legend distinguishing nominal pre-CQR
+heads, the deployed CQR interval, and the post-Platt probability; `(c)`
+reliability panels with every registered bin and count, empty bins explicit, and
+station-balanced bin weights reconciling to one; `(d)` calibration
+slope/intercept and AUROC/AUPRC/ECE discrimination diagnostics with bound NA
+reasons for single-class or fit-failure cases.  This figure expands Figure 3 and
+does not repeat its aggregate plane.
 
 **Caption takeaway:** Probability diagnostics are reported with their scoring
 stage, station-balanced weighting, support, and non-estimability state; no single
 coverage number is treated as a conditional or distribution-free guarantee.
 
 **Fields/value IDs:** all SI08 metric fields, probability source stage, model and
-horizon counts, every bin boundary/statistic, undefined reasons, reference
-identity, and calibration-fit status.
+horizon counts, every bin boundary/statistic/denominator/station-balanced weight,
+undefined reasons, reference identity, event-reference binding, threshold scope,
+and calibration-fit status.
 
-**Gate:** verified POST probability receipt and erratum binding.  PRE rendering
-is prohibited.
+**Gate:** opening receipt; `trusted/probabilistic_evaluation_v2.json`;
+`trusted/temporal_predictions_v1.parquet`;
+`trusted/external_predictions_v1.parquet`;
+`trusted/availability_registry_v1.csv`; erratum binding; SI08; confirmatory
+protocol.  PRE rendering is prohibited.
 
 **Forbidden:** three-quantile score labelled CRPS; silent metric substitution;
-empty-bin merging; conditional-coverage language; model rows with invented heads.
+empty-bin merging; conditional-coverage language; model rows with invented heads;
+distribution-free target-period guarantee; confirmation event prevalence as the
+Brier reference; "quantile crossing" as the Stage-19 cause; development-period
+conformal numbers presented as target-period results.
 
 **Acceptance:** all registered metrics appear or bind explicit NA; reliability
 support reconciles to parent counts; the scoring-stage legend prevents pre-/post-
-calibration conflation.
+calibration conflation; no value in this figure is development-period.
 
 ---
+
 
 ## Figure S6 — Temporal opportunity, missingness, and attrition
 
@@ -814,6 +919,66 @@ external history warning is in-panel; adverse and non-estimable rows remain.
 
 ---
 
+## Figure S9 — Development-period conformal calibration sensitivity
+
+**State:** `POST_TEMPLATE_ONLY_DEVELOPMENT`
+**Added:** 2026-08-05.  See `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` §4.
+**Question:** Over the development period, how sensitive is interval validity to
+the choice of conformal calibration method, and what does adaptivity cost?
+**Evidence period:** **development, 2019-01-01 through 2020-12-24** — not a
+target-period result.
+
+This figure carries the Stage-22 adaptive-conformal evidence
+(`scripts/22_adaptive_conformal.py`; 249,072 exact keys, 120 sites, 15 HUC2
+groups, leads {1, 3, 7}).  It is a **separate** figure rather than a panel of S5
+because S5 is target-period and this is development-period, and one figure never
+mixes two evidence periods.  It is **optional**: dropping it weakens no
+registered claim, because nothing in the confirmatory five-test family depends on
+it.
+
+**Panels/plot types:** `(a)` method-by-slice coverage matrix over the five frozen
+methods (`split-CQR`, `7-retained-row block-max CQR`, idealized delayed ACI at
+γ ∈ {0.005, 0.02, 0.05}) × five slices (overall, warm train-q90 tail, leads
+1/3/7 d), every cell bound or explicit NA with key counts; `(b)` width and
+interval-score matrix on the same grid, with non-finite cells rendered as bound
+NA carrying their row counts (44 / 782 / 4,068 at γ = 0.005 / 0.02 / 0.05) rather
+than clipped or imputed numbers; `(c)` per-HUC2 dispersion across all 15 groups
+under equal-station weighting against unweighted row rates, labelled as two
+different quantities; `(d)` ACI feedback-update counts by γ with the in-panel
+statement that `target_date` is an idealized feedback proxy and that no verified
+publication timestamp, source revision, or reporting-latency record exists.
+
+**Caption takeaway:** Over the 2019--2020 development period, interval validity
+is reported for five frozen conformal calibration systems together with the width
+and interval score that buy it. These are station-balanced descriptive
+development diagnostics on a fixed cohort. They are not target-period results,
+they cannot be compared numerically with Figures 3 or S5, and no adaptive variant
+is cost-free.
+
+**Fields/value IDs:** `conformal.*` (method ID/definition, slice, lead, key and
+site counts, marginal coverage, mean width, interval score, nominal target,
+non-finite width count and reason, ACI feedback count, feedback proxy role, block
+semantics note); `weighting.*`; `huc2.*`; `provenance.*` (evidence period, target
+start, source digest).
+
+**Gate:** opening receipt; Stage-22 row table and report; confirmatory protocol;
+bound evidence-period declaration; in-panel scope band
+(`figS9.scope.development_period_not_confirmation`).  PRE rendering is prohibited.
+
+**Forbidden:** target-period coverage or any confirmatory interval claim;
+conditional coverage; distribution-free finite-sample guarantee; adaptive
+conformal presented as cost-free; silently dropped or clipped non-finite widths;
+"seven calendar-day blocks" (the block method uses 7 **retained rows**); real
+feedback latency or publication-vintage replay; station-balanced and row-count
+rates merged into one mark; numerical comparison against Figure 3 or S5 as if the
+two were the same cohort.
+
+**Acceptance:** every method × slice cell appears or binds explicit NA;
+non-finite widths appear with their counts; the two weighting denominators are
+separately labelled; the evidence-period scope band is legible inside the figure.
+
+---
+
 ## 6. Explicit retirements and removals
 
 ### 6.1 Current pre-opening SVG
@@ -892,6 +1057,7 @@ appropriate PRE/POST renderer:
 | Figure S2 | Target-period inputs and issue-time boundary |
 | Figure S3 | Model-design overview before component prose |
 | Figures S4--S8 | the matching POST Results, sensitivity, QC, or limitation paragraph |
+| Figure S9 | the Limitations paragraph on interval calibration, cited only as development-period sensitivity |
 
 The PRE-only `paper/agu_submission/build_agu.py` is not a POST figure renderer.
 No manual `\includegraphics`, caption, or result transcription is authorized by
@@ -918,6 +1084,13 @@ claims resolve to the same value IDs.
 - [ ] Figure 1 alone communicates mismatch -> insight -> evidence boundary.
 - [ ] Figure 2 supplies end-to-end point evidence without confirmatory wording.
 - [ ] Figure 3 reports probability benefit together with width/support/cost.
+- [ ] No figure or caption attributes the Stage-19 withdrawal to "quantile
+      crossing"; the measured cause is a zero-width nominal interval and strict
+      crossings were 0.
+- [ ] Every figure declares one evidence period, and any development-period
+      figure renders an in-panel scope band.
+- [ ] No development-period value is compared numerically with a target-period
+      value.
 - [ ] Figure 4 tests the mechanism and exposes temporal/external limits.
 - [ ] SI figures expand rather than duplicate main figures.
 - [ ] Every claimed mechanism has a registered sensitivity or is described only as design.
