@@ -260,10 +260,20 @@ fifteen markers.
 
 ### 5.3 Why the TeX could not be regenerated
 
+> **Correction, 2026-08-05 (AGU-2025 migration).** Blocker 1 below was wrong.
+> `pandoc` **is** available: pypandoc vendors it at
+> `…/envs/route-a/lib/python3.12/site-packages/pypandoc/files/pandoc`, off `PATH`
+> but exactly where `_pandoc_path()` already looks. The original search used the
+> conda *base* interpreter, which lacks pypandoc, and concluded absence. Use
+> `/home/lzq/anaconda3/envs/route-a/bin/python` for every invocation. Blocker 2
+> was and remains correct. See `docs/AGU2025_TEMPLATE_MIGRATION.md`, where the
+> TeX is regenerated and compiled to a 44-page PDF.
+
 Two independent blockers, both outside `paper/`:
 
-1. **`pandoc` is absent.** Neither `pandoc` nor `pypandoc` is installed, and a
-   filesystem search found no binary. `build_agu.py` requires one.
+1. ~~**`pandoc` is absent.** Neither `pandoc` nor `pypandoc` is installed, and a
+   filesystem search found no binary. `build_agu.py` requires one.~~
+   **Withdrawn — see the correction above; pandoc was present all along.**
 2. **The PRE-OPEN render guard refuses, correctly.**
    `assert_preopen_manuscript_render_allowed` requires
    `paper/ThermoRoute_paper.md`, `paper/highlights.md`, and
@@ -440,14 +450,20 @@ identifier.
 
 ## 10. What this task did not do
 
-1. **Did not regenerate `ThermoRoute_WRR.tex`** — `pandoc` absent and the render
-   guard refuses (§5.3).
+1. **Did not regenerate `ThermoRoute_WRR.tex`** — ~~`pandoc` absent and~~ the
+   render guard refuses (§5.3). *Superseded 2026-08-05: pandoc was in fact
+   available and the TeX has since been regenerated and compiled under
+   `agujournal2025.cls`; see `docs/AGU2025_TEMPLATE_MIGRATION.md`. The render
+   guard still refuses in-repo until §8 is re-sealed.*
 2. **Did not re-seal `preopen_document_sha256`** — a `protocols/` change, outside
    the boundary. Four documents now need re-sealing together.
 3. **Did not add figure cross-references** — forbidden by `FIGURE_REDRAW_SPEC.md`
    §7 (§8.9).
 4. **Did not wire BibTeX into the generator** — a citation-convention decision
-   for the authors (§5.4, checklist 6.4).
+   for the authors (§5.4, checklist 6.4). *Partly superseded 2026-08-05: the
+   generator now emits `\bibliography{../references}` and the reference list
+   builds (41 entries, apacite). The in-text `\cite`/`\citeA` conversion is still
+   an author decision.*
 5. **Did not re-verify the bibliography against Crossref/DataCite** — no network,
    and `outputs/` is outside the write scope (§6.1).
 6. **Did not materialise the Stage-19 measurement as a receipt-bound artifact** —

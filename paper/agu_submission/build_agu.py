@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 
 HERE = Path(__file__).resolve().parent
@@ -56,8 +57,14 @@ REQUIRED_STATUS_TEXT = (
 # AGU allows at most three Key Points of at most 140 characters each.  They are
 # authored once, in the canonical Markdown, and mirrored in
 # ``paper/highlights.md``; this generator reads them rather than restating them.
+#
+# ``agujournal2025.cls`` takes the Key Points as a three-argument macro
+# (``\keypoints{}{}{}``) rather than the ``keypoints`` environment of
+# ``agujournal2019.cls``.  The arity is fixed by the class, so KEYPOINT_COUNT is
+# not free: ``_render`` re-asserts it before formatting the macro call.
 KEYPOINT_LIMIT = 140
 KEYPOINT_COUNT = 3
+KEYPOINTS_MACRO_ARITY = 3
 
 # Every evaluation-period result slot carries this literal marker.  The count is
 # fixed by the canonical Markdown and must survive conversion unchanged: a
@@ -66,9 +73,92 @@ KEYPOINT_COUNT = 3
 RESULT_SLOT_MARKER = "[TO BE FILLED AFTER OPENING]"
 RESULT_SLOT_MARKER_COUNT = 15
 
+
+def _result_slot_pattern() -> re.Pattern[str]:
+    """Match one result-slot marker in *converted* LaTeX, not in Markdown.
+
+    The canonical Markdown writes each slot inside a code span, so Pandoc emits
+    it as ``\\texttt{{[}TO\\ BE\\ FILLED\\ AFTER\\ OPENING{]}}``: the brackets are
+    brace-wrapped and the spaces are escaped.  Counting the raw Markdown literal
+    in the LaTeX therefore always finds zero, which would silently turn the
+    "no slot may be lost in conversion" guarantee into a guarantee that never
+    holds.  The pattern is derived from RESULT_SLOT_MARKER rather than hard-coding
+    Pandoc's output, so it keeps working if the slot text changes, and it accepts
+    both the escaped and the unescaped rendering of each character.
+    """
+    pieces: list[str] = []
+    for character in RESULT_SLOT_MARKER:
+        if character == " ":
+            pieces.append(r"(?:\\ |\s)+")
+        elif character == "[":
+            pieces.append(r"(?:\{\[\}|\[)")
+        elif character == "]":
+            pieces.append(r"(?:\{\]\}|\])")
+        else:
+            pieces.append(re.escape(character))
+    return re.compile("".join(pieces))
+
+
+RESULT_SLOT_LATEX = _result_slot_pattern()
+
 # The Stage-19 disposition bans this phrase: zero strict ordering violations were
 # observed, and the affected rows are zero-width (degenerate) nominal intervals.
 BANNED_PHRASES = ("quantile crossing",)
+
+# agujournal2025.cls is a pdfTeX class and loads neither inputenc nor a Unicode
+# font encoding, so every non-ASCII codepoint the manuscript uses must be mapped
+# explicitly.  This table is the single source of truth: it emits the
+# ``\DeclareUnicodeCharacter`` preamble *and* backs a pre-write check, so an
+# unmapped character fails the generator with a named character instead of
+# failing pdflatex dozens of pages into the run.  Do not delete entries that are
+# currently unused; they are cheap and they keep prose edits from breaking the
+# build.
+UNICODE_DECLARATIONS: dict[int, str] = {
+    0x00A7: r"\S{}",
+    0x00B0: r"\ensuremath{^\circ}",
+    0x00B1: r"\ensuremath{\pm}",
+    0x00B2: r"\textsuperscript{2}",
+    0x00B3: r"\textsuperscript{3}",
+    0x00B7: r"\ensuremath{\cdot}",
+    0x00D7: r"\ensuremath{\times}",
+    0x00FC: r"\"u",
+    0x0177: r"\^y",
+    0x03B3: r"\ensuremath{\gamma}",
+    0x2013: "--",
+    0x2014: "---",
+    0x2192: r"\ensuremath{\rightarrow}",
+    0x207B: r"\textsuperscript{-}",
+    0x2212: r"\ensuremath{-}",
+    0x2264: r"\ensuremath{\leq}",
+    0x2265: r"\ensuremath{\geq}",
+}
+
+
+def _unicode_declarations() -> str:
+    return "\n".join(
+        rf"\DeclareUnicodeCharacter{{{codepoint:04X}}}{{{replacement}}}"
+        for codepoint, replacement in sorted(UNICODE_DECLARATIONS.items())
+    )
+
+
+def _assert_unicode_is_declared(latex: str) -> None:
+    """Refuse to emit TeX carrying a codepoint pdflatex has no mapping for."""
+    unmapped = sorted(
+        {
+            character
+            for character in latex
+            if ord(character) > 127 and ord(character) not in UNICODE_DECLARATIONS
+        }
+    )
+    if unmapped:
+        detail = ", ".join(
+            f"U+{ord(character):04X} ({unicodedata.name(character, 'unnamed')})"
+            for character in unmapped
+        )
+        raise ValueError(
+            "generated TeX uses undeclared non-ASCII characters; add them to "
+            f"UNICODE_DECLARATIONS or reword the Markdown: {detail}"
+        )
 
 
 def _pandoc_path() -> str:
@@ -219,18 +309,71 @@ def _latex_escape(value: str) -> str:
 
 
 def _make_code_spans_breakable(latex: str) -> str:
-    """Render Pandoc code spans as breakable, non-linking URL-style text."""
-    pattern = re.compile(r"\\texttt\{([^{}]+)\}")
+    """Render Pandoc code spans as breakable, non-linking URL-style text.
+
+    The payload pattern admits one level of nested braces.  A flat ``[^{}]+``
+    silently skipped every code span Pandoc had brace-protected -- which is
+    exactly the widest ones, because Pandoc writes ``[`` and ``]`` as ``{[}`` and
+    ``{]}``.  Those spans were then the unbreakable cells that pushed the
+    five-comparison table past the text block.
+    """
+    pattern = re.compile(r"\\texttt\{((?:[^{}]|\{[^{}]*\})*)\}")
 
     def replace(match: re.Match[str]) -> str:
         payload = match.group(1)
         payload = payload.replace(r"\_", r"\_\allowbreak{}")
         payload = payload.replace("/", r"/\allowbreak{}")
+        # Pandoc escapes spaces inside code spans as ``\ ``; without an explicit
+        # break opportunity a multi-word code span is one unbreakable box.
+        payload = payload.replace("\\ ", "\\ \\allowbreak{}")
         return rf"\texttt{{{payload}}}"
 
     rendered = pattern.sub(replace, latex)
     return rendered.replace(
         "station/date/horizon", r"station/\allowbreak date/\allowbreak horizon"
+    )
+
+
+# A column whose widest cell reaches this many characters cannot be trusted to a
+# natural-width ``l`` column: several such columns in one table overrun the text
+# block no matter how many break opportunities the cell content carries, because
+# ``l`` never wraps.  Such columns are promoted to bounded, wrapping ``X``.
+WRAPPING_COLUMN_CHARACTERS = 24
+
+_UNESCAPED_AMPERSAND = re.compile(r"(?<!\\)&")
+_X_COLUMN = r">{\raggedright\arraybackslash}X"
+
+
+def _column_content_widths(columns: str, content: str) -> list[int]:
+    """Widest cell per column, measured over the table's data and header rows."""
+    widths = [0] * len(columns)
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("\\"):
+            continue
+        cells = _UNESCAPED_AMPERSAND.split(stripped.removesuffix(r"\\"))
+        if len(cells) != len(columns):
+            continue
+        for index, cell in enumerate(cells):
+            widths[index] = max(widths[index], len(cell.strip()))
+    return widths
+
+
+def _bounded_column_spec(columns: str, content: str) -> str:
+    """Bound a Pandoc ``lcr`` spec, wrapping every column that needs to wrap.
+
+    The last column is always bounded, which is what the 2019-era conversion did
+    and what tabularx requires (at least one ``X``).  Any other column whose
+    content is wide is bounded as well; leaving them natural-width is what let
+    the formal-comparison table run 155pt past the margin.
+    """
+    widths = _column_content_widths(columns, content)
+    last = len(columns) - 1
+    return "".join(
+        _X_COLUMN
+        if index == last or widths[index] >= WRAPPING_COLUMN_CHARACTERS
+        else letter
+        for index, letter in enumerate(columns)
     )
 
 
@@ -248,7 +391,7 @@ def _fit_longtables(latex: str) -> str:
         columns = match.group(1)
         if not columns:
             raise ValueError("Pandoc longtable has no columns")
-        bounded_columns = columns[:-1] + r">{\raggedright\arraybackslash}X"
+        bounded_columns = _bounded_column_spec(columns, match.group(2))
         content = match.group(2)
         content = content.replace("\\endhead\n", "")
         content = content.replace(
@@ -267,7 +410,19 @@ def _fit_longtables(latex: str) -> str:
             "}"
         )
 
-    return pattern.sub(replace, latex)
+    fitted = pattern.sub(replace, latex)
+    # The 2019 preamble carried a ``c@none`` counter shim so that a longtable
+    # Pandoc had tagged ``\LTcaptype{none}`` could still be typeset.  Every table
+    # is now converted to tabularx, so that shim was dead code and has been
+    # dropped.  Assert the precondition instead of silently depending on it: a
+    # table this converter does not recognise must fail the build, not reach
+    # pdflatex and error there.
+    if "\\begin{longtable}" in fitted or "\\LTcaptype" in fitted:
+        raise ValueError(
+            "a Pandoc longtable survived tabularx conversion; either extend "
+            "_fit_longtables or restore the c@none counter shim in the preamble"
+        )
+    return fitted
 
 
 def _agu_back_matter(latex: str) -> str:
@@ -276,12 +431,22 @@ def _agu_back_matter(latex: str) -> str:
     AGU numbers the narrative sections itself but expects Open Research,
     Acknowledgments, and Supporting Information to stand outside that numbering,
     with Acknowledgments using the class's ``\\acknowledgments`` construct.
+
+    ``agujournaltemplate.tex`` names the data-availability heading "Open Research
+    Statement"; the canonical Markdown heading is "Open Research".  The heading
+    text is AGU's, not a claim, so it is normalised here rather than in the
+    hash-frozen Markdown.  The template also places that section immediately
+    before the bibliography, which the current Markdown ordering does not do --
+    see docs/AGU2025_TEMPLATE_MIGRATION.md; reordering narrative sections is an
+    author decision and is deliberately not done by this generator.
     """
-    latex = re.sub(
+    latex, replaced = re.subn(
         r"\\section\{Open Research\}\\label\{[^}]*\}",
-        r"\\section*{Open Research}",
+        r"\\section*{Open Research Statement}",
         latex,
     )
+    if replaced != 1:
+        raise ValueError("converted body lacks exactly one Open Research section")
     latex = re.sub(
         r"\\section\{Supporting Information\}\\label\{[^}]*\}",
         r"\\section*{Supporting Information}",
@@ -335,87 +500,118 @@ def _render(markdown: str) -> str:
             _make_code_spans_breakable(_convert(body, shift_headings=-1))
         )
     )
-    surviving = body_tex.count(RESULT_SLOT_MARKER)
+    # ``\allowbreak{}`` is a break hint this generator injects, never manuscript
+    # content, so it is normalised away before the slot markers are counted.
+    surviving = len(
+        RESULT_SLOT_LATEX.findall(body_tex.replace(r"\allowbreak{}", ""))
+    )
     if surviving != RESULT_SLOT_MARKER_COUNT:
         raise ValueError(
             f"conversion lost result slot markers: expected "
             f"{RESULT_SLOT_MARKER_COUNT}, found {surviving}"
         )
 
-    keypoints = "\n".join(f"\\item {_latex_escape(item)}" for item in keypoint_items)
-    return rf"""\documentclass[draft]{{agujournal2019}}
+    if len(keypoint_items) != KEYPOINTS_MACRO_ARITY:
+        raise ValueError(
+            f"\\keypoints in agujournal2025.cls takes exactly "
+            f"{KEYPOINTS_MACRO_ARITY} arguments, got {len(keypoint_items)}"
+        )
+    keypoints = "\n".join(
+        f"    {{{_latex_escape(item)}}}" for item in keypoint_items
+    )
+    unicode_declarations = _unicode_declarations()
+    rendered = rf"""\documentclass[draft]{{agujournal2025}}
 \usepackage{{amsmath,amssymb}}
 \usepackage{{booktabs,longtable,array,tabularx}}
 \usepackage{{url,xurl}}
 \usepackage{{hyperref}}
 \providecommand{{\tightlist}}{{\setlength{{\itemsep}}{{0pt}}\setlength{{\parskip}}{{0pt}}}}
 \setlength{{\emergencystretch}}{{3em}}
+% Still required under agujournal2025.cls: removing \sloppy reintroduces four
+% overfull \hbox warnings in the body text.
 \sloppy
-% Pandoc's longtable wrapper asks for a caption type even when the Markdown
-% table has no caption; AGU leaves that type as ``none``.  Define only the
-% otherwise-missing counter so the official class can typeset the table.
-\makeatletter
-\@ifundefined{{c@none}}{{\newcounter{{none}}}}{{}}
-\providecommand{{\thenone}}{{\arabic{{none}}}}
-\providecommand{{\fnum@none}}{{Table~\thenone}}
-\makeatother
-\DeclareUnicodeCharacter{{00B0}}{{\ensuremath{{^\circ}}}}
-\DeclareUnicodeCharacter{{00B1}}{{\ensuremath{{\pm}}}}
-\DeclareUnicodeCharacter{{00B2}}{{\textsuperscript{{2}}}}
-\DeclareUnicodeCharacter{{00B3}}{{\textsuperscript{{3}}}}
-\DeclareUnicodeCharacter{{00B7}}{{\ensuremath{{\cdot}}}}
-\DeclareUnicodeCharacter{{00D7}}{{\ensuremath{{\times}}}}
-\DeclareUnicodeCharacter{{2013}}{{--}}
-\DeclareUnicodeCharacter{{2014}}{{---}}
-\DeclareUnicodeCharacter{{207B}}{{\textsuperscript{{-}}}}
-\DeclareUnicodeCharacter{{2212}}{{\ensuremath{{-}}}}
-\DeclareUnicodeCharacter{{2264}}{{\ensuremath{{\leq}}}}
-\DeclareUnicodeCharacter{{2265}}{{\ensuremath{{\geq}}}}
-
-\journalname{{Water Resources Research}}
+{unicode_declarations}
 
 \begin{{document}}
+
+% agujournal2025.cls requires \journalname after \begin{{document}}; the 2019
+% class took it in the preamble.  In the submission (non-``published'') branch it
+% feeds the "manuscript submitted to ..." running head.
+\journalname{{Water Resources Research}}
 
 \title{{{_latex_escape(title)}}}
 
 % AUTHOR BLOCK TO BE COMPLETED.  Names, affiliations, ORCIDs, the author count,
 % and the corresponding author are deliberately unfilled and are not invented by
 % this generator.  Replace with one \authors entry carrying the final agreed
-% order, one \affiliation per distinct affiliation, and one \correspondingauthor
-% with a verified institutional address.  The signed intake schema is
+% order in the 2025 form --- ``Name\affil{{1}}\thanks{{funding}}, Name\affil{{2}}''
+% --- one \affiliation per distinct affiliation, and a verified institutional
+% address.  The signed intake schema is
 % docs/FAIR_SUBMISSION_READINESS_AND_TEMPLATES.md section 2.
-\authors{{[AUTHOR LIST TO BE COMPLETED]}}
+\authors{{[AUTHOR LIST TO BE COMPLETED]\affil{{1}}}}
 \affiliation{{1}}{{[AFFILIATION 1 TO BE COMPLETED --- department or laboratory, institution, city, postcode, country]}}
 \affiliation{{2}}{{[AFFILIATION 2 TO BE COMPLETED --- add or delete affiliation lines to match the final author list]}}
+
+% \authoraddr is the 2025 corresponding-author interface and replaces the 2019
+% \correspondingauthor{{name}}{{email}} pair.  Both are emitted on purpose: in the
+% ``published'' branch \authoraddr is typeset in the first-page margin and
+% \correspondingauthor does not exist, while in the submission branch used here
+% \authoraddr is defined as a no-op and only \correspondingauthor reaches the
+% page.  Keep the two in agreement when the placeholders are filled.
+\authoraddr{{[CORRESPONDING AUTHOR TO BE COMPLETED --- full name, department,
+institution, street, city, state, postcode, country
+([INSTITUTIONAL E-MAIL TO BE COMPLETED])]}}
 \correspondingauthor{{[CORRESPONDING AUTHOR TO BE COMPLETED]}}{{[INSTITUTIONAL E-MAIL TO BE COMPLETED]}}
 
-\begin{{keypoints}}
+% Present because agujournaltemplate.tex carries them.  The class defines both as
+% no-ops in either branch; AGU sets the running heads itself.
+\authorrunninghead{{}}
+\titlerunninghead{{}}
+
+% Three-argument macro in agujournal2025.cls, not the 2019 ``keypoints''
+% environment.  All three slots are always supplied; ``{{}}'' would mark an
+% unused one, but the canonical Markdown is required to carry exactly three.
+\keypoints%
 {keypoints}
-\end{{keypoints}}
+
+% Required by agujournaltemplate.tex after the front matter.  It is a no-op in
+% the submission branch and typesets the Wiley title page under ``published''.
+\maketitle
 
 \begin{{abstract}}
 {abstract_tex}
-\end{{abstract}}
 
-% agujournal2019.cls predates the Plain Language Summary environment, so the
-% required section is emitted as an unnumbered section immediately after the
-% abstract, which is where AGU places it.
-\section*{{Plain Language Summary}}
+% agujournal2025.cls provides a native Plain Language Summary environment, nested
+% inside the abstract.  This replaces the \section*{{Plain Language Summary}}
+% workaround the 2019 class required.  No abstract body may follow it.
+\begin{{plainlanguagesummary}}
 {plain_language_tex}
+\end{{plainlanguagesummary}}
+\end{{abstract}}
 
 \noindent\textbf{{Keywords:}} {keywords_tex}
 
 {body_tex}
 
-% REFERENCE LIST NOT YET GENERATED.  The canonical Markdown carries author-year
-% citations as linked text, so this TeX contains no \cite command and no
-% \bibliography command; adding an empty bibliography here would fail to compile.
-% Before submission the citation convention must be converted to \cite/\citeA
-% keys against ../references.bib (class default style: apacite).  That conversion
-% is tracked in docs/WRR_SUBMISSION_CHECKLIST.md.
+% BIBLIOGRAPHY.  agujournal2025.cls loads apacite and sets
+% \bibliographystyle{{apacite}} itself, so no \bibliographystyle is emitted here
+% and no separate .bst has to be vendored.
+%
+% TODO(AUTHORS, docs/WRR_SUBMISSION_CHECKLIST.md item 6.4): the canonical
+% Markdown still carries its citations as author-year prose, so this TeX contains
+% no \cite or \citeA key.  \nocite{{*}} is a deliberate, temporary bridge: it
+% emits the full reference list from ../references.bib, which checklist items
+% 6.1 and 6.2 verified to be reconciled one-to-one with the in-text citation
+% list, so every printed entry is in fact cited in the prose.  It is not a
+% substitute for the citation-convention conversion, and it must be deleted in
+% the same change that introduces real \cite/\citeA keys.
+\nocite{{*}}
+\bibliography{{../references}}
 
 \end{{document}}
 """
+    _assert_unicode_is_declared(rendered)
+    return rendered
 
 
 def _write_create_or_replace(path: Path, payload: str) -> None:

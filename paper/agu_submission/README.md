@@ -1,9 +1,32 @@
 # AGU / Water Resources Research typeset package
 
-This directory uses the official `agujournal2019.cls` only as a typesetting
+This directory uses the official `agujournal2025.cls` only as a typesetting
 target. It is not yet a submission-ready package: the evaluation-period result
 slots are unfilled, the author block is deliberately invalid, and
 repository/DOI/funding/licence metadata still require verified author input.
+
+## Class version
+
+`agujournal2025.cls` (AGU, dated 11/12/2024) is the class the build uses.
+`agujournal2019.cls` is **superseded** and is retained only for provenance — it
+is still referenced by `scripts/verify_release.py`
+(`ALLOWED_PAPER_MEMBERS`/`known_minimum_unverified_redistribution_scopes`), so it
+must not be moved or deleted from this path. Nothing in the build reads it.
+
+The 2025 class ships two mutually exclusive layouts in one file. Without the
+`published` option it runs the pre-2025 ("old code") submission branch, which is
+what a manuscript submission wants and what this build uses via
+`\documentclass[draft]`. With `published` it typesets the Wiley as-published
+layout, needs XeLaTeX and `fontspec`, and is not a submission format. Several
+front-matter macros behave differently between the two branches; see
+`docs/AGU2025_TEMPLATE_MIGRATION.md`.
+
+Vendored class assets live in this directory rather than on `TEXINPUTS` because
+the class loads the logos as `./agu-logo-small.pdf` and `./agu-logo-large.pdf` —
+an explicit relative path that `\includegraphics` resolves against the
+compilation directory and that kpathsea's `TEXINPUTS` cannot supply — and because
+`tweaklist-git-moderncv-fixed.sty` is not in TeX Live. All of them are
+third-party bytes: see the rights note at the end of this file.
 
 ## The TeX is generated, never hand-edited
 
@@ -35,42 +58,55 @@ fix this generator, and rebuild.
 
 ## Rebuild and verify
 
+Use the `route-a` interpreter; bare `python` is conda base 3.11 and has neither
+pypandoc nor the repository dependencies.
+
 ```bash
-python build_agu.py
-python build_agu.py --check
-pdflatex -interaction=nonstopmode -halt-on-error ThermoRoute_WRR.tex
-pdflatex -interaction=nonstopmode -halt-on-error ThermoRoute_WRR.tex
+/home/lzq/anaconda3/envs/route-a/bin/python build_agu.py
+/home/lzq/anaconda3/envs/route-a/bin/python build_agu.py --check
+latexmk -pdf -interaction=nonstopmode ThermoRoute_WRR.tex
 ```
 
-## Current build blockers (2026-08-05)
+`latexmk` runs pdflatex/bibtex to convergence (three passes here). The class sets
+`\bibliographystyle{apacite}` itself, so no `.bst` has to be vendored.
 
-The checked-in `ThermoRoute_WRR.tex` still carries the **superseded** manuscript
-structure (old title, old abstract, sections "Problem and scope" through
-"Conclusion"). It cannot be regenerated in the present state for two independent
-reasons, both outside this directory:
+## Current build blockers (2026-08-05, revised)
 
-1. **`pandoc` is not installed** in the working environment, and neither is
-   `pypandoc`. `build_agu.py` requires one of them.
-2. **The PRE-OPEN render guard fails by design.** `assert_preopen_manuscript_render_allowed`
-   requires `paper/ThermoRoute_paper.md`, `paper/highlights.md`, and
-   `paper/cover_letter.md` to match their frozen SHA-256 values in
-   `protocols/route_a_claim_registry_v1.json`. All three were rewritten and no
-   longer match. Re-sealing the registry is a `protocols/` change and must be
-   authorized separately; it will also need to re-seal the regenerated
-   `ThermoRoute_WRR.tex`, whose own frozen hash still matches its stale bytes.
+**`pandoc` is available** — the earlier statement that it was not installed was
+wrong. pypandoc vendors the binary at
+`…/envs/route-a/lib/python3.12/site-packages/pypandoc/files/pandoc`; it is simply
+not on `PATH`, and `_pandoc_path()` already knows to look there. The earlier
+check ran under the conda *base* interpreter, which has no pypandoc.
 
-Until both are resolved, treat `ThermoRoute_WRR.tex` as **stale and not
-submittable**. Its bytes are retained only so the eventual regeneration has a
-diff baseline.
+One blocker remains, and it is outside this directory:
+
+- **The PRE-OPEN render guard fails by design.**
+  `assert_preopen_manuscript_render_allowed` requires
+  `paper/ThermoRoute_paper.md`, `paper/highlights.md`, and
+  `paper/cover_letter.md` to match their frozen SHA-256 values in
+  `protocols/route_a_claim_registry_v1.json`. All three were rewritten by the
+  2026-08-05 restructure and no longer match, so `build_agu.py` refuses **both**
+  writes and `--check` in this worktree. Re-sealing the registry is a
+  `protocols/` change and must be authorized separately; it must also re-seal the
+  regenerated `ThermoRoute_WRR.tex`.
+
+The checked-in `ThermoRoute_WRR.tex` has been regenerated from the current
+Markdown under `agujournal2025.cls` and compiles to a 44-page PDF with zero
+errors and zero overfull boxes. It is *not* seal-valid: its bytes no longer match
+`preopen_document_sha256`, which is the honest state — previously the file was
+seal-valid and content-stale at the same time. It stays **not submittable** until
+the author and opening items below are closed.
 
 ## Reference list
 
-The Markdown cites sources as linked author-year text, so the generated TeX
-contains no `\cite` and no `\bibliography`, and therefore renders **no reference
-list**. `../references.bib` is reconciled one-to-one with the in-text citation
-list, but converting the citation convention to `\cite`/`\citeA` keys against it
-(class default bibliography style: `apacite`) is a required pre-submission step
-and is tracked in `docs/WRR_SUBMISSION_CHECKLIST.md`.
+The generated TeX now emits `\bibliography{../references}` and a reference list
+builds (41 entries, apacite). The Markdown still cites sources as linked
+author-year prose, so the TeX contains no `\cite`/`\citeA` key; the generator
+therefore emits `\nocite{*}` as an explicit, temporary bridge. That is sound only
+because `../references.bib` is reconciled one-to-one with the in-text citation
+list (checklist 6.1/6.2), so every printed entry really is cited in the prose.
+**`\nocite{*}` must be deleted in the same change that introduces real
+`\cite`/`\citeA` keys** — tracked as checklist item 6.4.
 
 ## Figures
 
@@ -91,3 +127,27 @@ omission to be patched here.
    `build_agu.py --check` is not a POST publication check.
 4. Convert in-text citations to the bibliography and reconcile against current
    AGU submission requirements, then compile and visually inspect every page.
+5. Decide whether the Open Research Statement must move to immediately before the
+   references. `agujournaltemplate.tex` places it there; the manuscript currently
+   has Acknowledgments and Supporting Information between the two. The generator
+   deliberately does not reorder narrative sections.
+
+## Third-party bytes in this directory (rights)
+
+`agujournal2025.cls`, `agujournal2019.cls`, `tweaklist-git-moderncv-fixed.sty`,
+`wiley-macros.tex`, `agu-logo-small.pdf`, and `agu-logo-large.pdf` are AGU/Wiley
+and moderncv bytes, not repository code. `docs/RIGHTS_PROVIDER_EVIDENCE_20260801.md`
+records `agujournal2019.cls` as `EXCLUDE_PUBLIC`: the evidence supports submission
+use, not archive redistribution. The five files added for the 2025 migration
+inherit exactly that status and have **no** provider-evidence row of their own
+yet. Their SHA-256 values are listed in `docs/AGU2025_TEMPLATE_MIGRATION.md`.
+
+They are also **not** in `scripts/verify_release.py`'s `ALLOWED_PAPER_MEMBERS`,
+which is an exact allowlist for release archives. Any release archive built today
+that includes them fails with "unregistered manuscript artifact"; any archive that
+excludes them is not a compilable bundle. Resolving that is a `scripts/` +
+rights-review change and is owner-owned.
+
+`wiley-macros.tex` is shipped by AGU with the template but is **not** `\input` by
+`agujournal2025.cls` in either branch. It is stored here for completeness only;
+nothing in this build reads it.
