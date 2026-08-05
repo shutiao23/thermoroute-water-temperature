@@ -163,7 +163,7 @@ and when the evaluation labels are seen exactly once? It also asks whether the
 associated intervals and event probabilities are useful empirical descriptions of
 uncertainty. It does not attempt to infer an energy budget, a hydraulic state, or
 a management utility from the fitted architecture, and it does not claim
-prediction at ungauged locations.
+prediction at sites that have no observational record.
 
 Our contribution is therefore methodological as much as it is architectural. We
 report: (i) a comparison set that includes references most river-temperature
@@ -290,7 +290,8 @@ real limitation for large basins and is listed as such in Section 6.
 
 The primary information set uses provider values dated no later than each
 historical issue date and consumes no horizon-specific future weather forecast.
-This is a date-indexed retrospective hindcast. It is not an operational replay:
+This is a date-indexed retrospective hindcast. It does not replay as-issued
+conditions:
 the as-issued provisional vintage of a gridded product at a historical issue date
 cannot be reconstructed after the fact, so archiving requests, responses,
 timestamps, and checksums freezes the dataset actually evaluated without proving
@@ -533,9 +534,10 @@ The label on this arm must be exact, because the distinction is routinely blurre
 in this literature. Held-out sites still provide their own observed water
 temperature through the issue date, both as the persistence anchor and as the
 sequence history. This is **gauged** transfer to a region whose gauges were not
-used in fitting; it is **not** prediction at an ungauged location, and no
-statement in this paper should be read as the latter. Ungauged prediction would
-require the model to operate with no target-site water-temperature record at all,
+used in fitting; it is **not** prediction at a site that has no observational
+record, and no statement in this paper should be read as the latter. Such
+prediction would require the model to operate with no target-site
+water-temperature record at all,
 which is a different problem and a different evaluation
 ([Weierbach et al., 2022](https://doi.org/10.3390/w14071032);
 [Rahmani et al., 2021b](https://doi.org/10.1002/hyp.14400)). The same caveat
@@ -590,14 +592,14 @@ feedback-arrival proxy. Neither replays real feedback availability, because the
 inputs contain no verified observation-publication timestamp, revision history,
 data vintage, or reporting latency; both report empirical marginal coverage only.
 The equal-weight three-quantile pinball summary is a three-quantile score and is
-not called CRPS; the two are distinct members of the family of proper scoring
+not CRPS; the two are distinct members of the family of proper scoring
 rules ([Gneiting and Raftery, 2007](https://doi.org/10.1198/016214506000001437)).
 
 An event head reports exceedance of each station's 2006–2015 q90 water
 temperature, calibrated by one Platt map per lead fitted on 2018 only, against a
 seasonal event reference fitted on 2006–2018. That threshold is an absolute
 statistical tail diagnostic local to each station. It has no biological,
-ecological, or regulatory meaning and is not comparable across stations. Both the
+ecological, or regulatory interpretation and is not comparable across stations. Both the
 Platt fit and the probability summaries give every retained station equal total
 weight, so stations with more retained days cannot dominate the calibration map.
 
@@ -886,7 +888,7 @@ vs 1.860 at 7 days), with paired median differences of +0.031 [+0.023, +0.040],
 near 0.16. The global LSTM, with its station embedding disabled in this arm,
 gives 0.679, 1.445, and 1.876. Every one of these arms retains issue-time
 water-temperature history at the held-out sites, so none of them speaks to
-ungauged prediction.
+prediction at a site that has no observational record.
 
 ### 4.4 Interval behaviour (exploratory)
 
@@ -1101,7 +1103,7 @@ architectures that encode geographic context across regions and scales
 addresses structure — connectivity, upstream forcing, energy balance, spatial
 context — that a point-scale statistical predictor does not represent. Nor does the learned
 relaxation proposal recover any of that structure: it receives no verified graph
-or topology input and identifies no transport, travel time, residence time, or
+or topology input and resolves no transport, travel time, residence time, or
 regulation.
 
 Where we think the design is most portable is in the three controls that do not
