@@ -38,7 +38,7 @@ All other quantities remain `[pending — 探索期数据，不可写入结论]`
 | `SI05_comparison_family.md` | five-row geometry, estimands and fill schema | `formal_tests[*]` in the verified opening receipt |
 | `SI06_formal_five_rows_RECEIPT.md` | empty five-row result projection | verified opening receipt plus bound inference/QC gates |
 | `SI07_all_model_scores_RECEIPT.md` | empty all-model exact-common-key score projection | receipt-bound predictions and score derivations |
-| `SI08_probability_metrics_RECEIPT.md` | empty probability/reliability projection | verified probability-evaluation receipt |
+| `SI08_probability_metrics_RECEIPT.md` | empty **target-period** probability/reliability projection, plus the development-period non-reporting disposition | verified target-period probability-evaluation receipt from the one-time opening |
 | `SI09_development_controls_RECEIPT.md` | Stage09/09b control geometry and provenance routing | complete development receipts and frozen suite |
 | `SI10_temporal_coverage_RECEIPT.md` | empty availability and temporal sensitivity projection | temporal-coverage receipt and opening evidence |
 | `SI11_spatial_sensitivity_RECEIPT.md` | empty HUC/leave-cluster sensitivity projection | spatial-sensitivity receipt and registry binding |
@@ -76,7 +76,7 @@ not evidence.
 ### Cell-level binder contract
 
 One row-level source pointer is never sufficient for a multi-value row. SI06–SI16
-and FigS1–FigS8 use this generic hidden binder shape:
+and FigS1–FigS9 use this generic hidden binder shape:
 
 ```text
 tables.<si_or_figure_id>.rows[<binder_row_id>].cells.<field>.value_id
@@ -100,3 +100,6 @@ the POST build.
 - Route A remains fixed-cohort descriptive; no SI may turn its
   assumption-conditional sensitivities into superiority, non-inferiority,
   equivalence, national, operational, ungauged, safety, or causal claims.
+- Do not write "quantile crossing" in reference to the withheld development-period
+  probabilistic stage. Zero strict ordering violations were measured; the correct
+  term is "zero-width (degenerate) nominal interval". See SI08 §3.

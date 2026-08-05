@@ -1,7 +1,8 @@
 # ThermoRoute figure-redraw specification
 
 **Document role:** authoritative redraw and evidence-binding specification for
-four main-text figures and eight Supporting Information (SI) figures.  This file
+four main-text figures (Figures 1--4) and nine Supporting Information (SI)
+figures (Figures S1--S9, of which S9 is optional; see §5).  This file
 does not authorize model fitting, target-label access, result filling, opening,
 or submission.
 

@@ -49,15 +49,26 @@ WITHDRAWN_PATTERNS = {
 }
 
 REQUIRED_STATUS_TEXT = (
-    "no current performance result",
-    "no empirical performance conclusion",
+    "has not been executed at the time of writing",
+    "clearly marked slots",
 )
 
-KEYPOINTS = (
-    "A frozen protocol separates development, model freeze, predictor evidence, and one-time outcome opening",
-    "Primary comparisons use identical keys; HUC2 statistics remain assumption-conditional sensitivities",
-    "This pre-opening draft reports methods and limitations; current empirical results are intentionally absent",
-)
+# AGU allows at most three Key Points of at most 140 characters each.  They are
+# authored once, in the canonical Markdown, and mirrored in
+# ``paper/highlights.md``; this generator reads them rather than restating them.
+KEYPOINT_LIMIT = 140
+KEYPOINT_COUNT = 3
+
+# Every evaluation-period result slot carries this literal marker.  The count is
+# fixed by the canonical Markdown and must survive conversion unchanged: a
+# generated TeX that has lost a marker would present an empty cell as if it were
+# a result.
+RESULT_SLOT_MARKER = "[TO BE FILLED AFTER OPENING]"
+RESULT_SLOT_MARKER_COUNT = 15
+
+# The Stage-19 disposition bans this phrase: zero strict ordering violations were
+# observed, and the affected rows are zero-width (degenerate) nominal intervals.
+BANNED_PHRASES = ("quantile crossing",)
 
 
 def _pandoc_path() -> str:
@@ -130,12 +141,50 @@ def _extract(markdown: str, pattern: str, *, label: str) -> str:
     return match.group(1).strip()
 
 
+def _extract_keypoints(markdown: str) -> tuple[str, ...]:
+    """Read the Key Points block from the canonical Markdown and check AGU limits."""
+    block = _extract(
+        markdown,
+        r"^## Key Points\s*\n(.*?)(?=^## Manuscript status)",
+        label="Key Points block",
+    )
+    items: list[str] = []
+    for raw in re.split(r"(?m)^- ", block):
+        candidate = " ".join(raw.split())
+        if candidate:
+            items.append(candidate)
+    if len(items) != KEYPOINT_COUNT:
+        raise ValueError(
+            f"canonical Markdown must contain exactly {KEYPOINT_COUNT} Key Points, "
+            f"found {len(items)}"
+        )
+    for item in items:
+        if len(item) > KEYPOINT_LIMIT:
+            raise ValueError(
+                f"Key Point exceeds the {KEYPOINT_LIMIT}-character AGU limit "
+                f"({len(item)}): {item}"
+            )
+        if not item.endswith("."):
+            raise ValueError(f"Key Point is not a complete sentence: {item}")
+    return tuple(items)
+
+
 def _validate_markdown(markdown: str) -> None:
     if markdown.count("<!-- ROUTE_A_CLAIM ") != 8:
         raise ValueError("canonical Markdown must contain exactly eight scope claims")
     folded = markdown.casefold()
     if not all(text in folded for text in REQUIRED_STATUS_TEXT):
-        raise ValueError("canonical Markdown does not state its pre-opening result status")
+        raise ValueError("canonical Markdown does not state its manuscript status")
+    for phrase in BANNED_PHRASES:
+        if phrase in folded:
+            raise ValueError(f"canonical Markdown contains a banned phrase: {phrase}")
+    slots = markdown.count(RESULT_SLOT_MARKER)
+    if slots != RESULT_SLOT_MARKER_COUNT:
+        raise ValueError(
+            f"canonical Markdown must carry exactly {RESULT_SLOT_MARKER_COUNT} "
+            f"'{RESULT_SLOT_MARKER}' markers, found {slots}"
+        )
+    _extract_keypoints(markdown)
     violations = [
         label for label, pattern in WITHDRAWN_PATTERNS.items()
         if pattern.search(markdown)
@@ -221,13 +270,51 @@ def _fit_longtables(latex: str) -> str:
     return pattern.sub(replace, latex)
 
 
+def _agu_back_matter(latex: str) -> str:
+    """Route AGU's fixed back-matter headings to the class's own constructs.
+
+    AGU numbers the narrative sections itself but expects Open Research,
+    Acknowledgments, and Supporting Information to stand outside that numbering,
+    with Acknowledgments using the class's ``\\acknowledgments`` construct.
+    """
+    latex = re.sub(
+        r"\\section\{Open Research\}\\label\{[^}]*\}",
+        r"\\section*{Open Research}",
+        latex,
+    )
+    latex = re.sub(
+        r"\\section\{Supporting Information\}\\label\{[^}]*\}",
+        r"\\section*{Supporting Information}",
+        latex,
+    )
+    latex, replaced = re.subn(
+        r"\\section\{Acknowledgments\}\\label\{[^}]*\}",
+        r"\\acknowledgments",
+        latex,
+    )
+    if replaced != 1:
+        raise ValueError("converted body lacks exactly one Acknowledgments section")
+    return latex
+
+
 def _render(markdown: str) -> str:
     _validate_markdown(markdown)
     title = _extract(markdown, r"^#\s+(.+?)$", label="title")
+    keypoint_items = _extract_keypoints(markdown)
     abstract = _extract(
         markdown,
-        r"^## Abstract\s*\n(.*?)(?=^## 1\.)",
+        r"^## Abstract\s*\n(.*?)(?=^\*\*Plain Language Summary\.\*\*)",
         label="abstract",
+    )
+    plain_language = _extract(
+        markdown,
+        r"^\*\*Plain Language Summary\.\*\*\s*(.*?)(?=^\*\*Keywords:\*\*)",
+        label="Plain Language Summary",
+    )
+    keywords = _extract(
+        markdown,
+        r"^\*\*Keywords:\*\*\s*(.*?)(?=^---\s*$)",
+        label="keyword list",
     )
     body = _extract(markdown, r"(^## 1\..*)\Z", label="numbered body")
     body = _strip_machine_comments(body)
@@ -241,11 +328,21 @@ def _render(markdown: str) -> str:
     abstract_tex = _make_code_spans_breakable(
         _convert(_strip_machine_comments(abstract))
     )
-    body_tex = _fit_longtables(
-        _make_code_spans_breakable(_convert(body, shift_headings=-1))
+    plain_language_tex = _make_code_spans_breakable(_convert(plain_language))
+    keywords_tex = _make_code_spans_breakable(_convert(keywords))
+    body_tex = _agu_back_matter(
+        _fit_longtables(
+            _make_code_spans_breakable(_convert(body, shift_headings=-1))
+        )
     )
+    surviving = body_tex.count(RESULT_SLOT_MARKER)
+    if surviving != RESULT_SLOT_MARKER_COUNT:
+        raise ValueError(
+            f"conversion lost result slot markers: expected "
+            f"{RESULT_SLOT_MARKER_COUNT}, found {surviving}"
+        )
 
-    keypoints = "\n".join(f"\\item {_latex_escape(item)}" for item in KEYPOINTS)
+    keypoints = "\n".join(f"\\item {_latex_escape(item)}" for item in keypoint_items)
     return rf"""\documentclass[draft]{{agujournal2019}}
 \usepackage{{amsmath,amssymb}}
 \usepackage{{booktabs,longtable,array,tabularx}}
@@ -281,9 +378,16 @@ def _render(markdown: str) -> str:
 
 \title{{{_latex_escape(title)}}}
 
-\authors{{[Verified authors and affiliations required before submission]}}
-\affiliation{{1}}{{[Department / Laboratory, Institution, City, Country]}}
-\correspondingauthor{{[Verified corresponding author]}}{{[verified.email@example.org]}}
+% AUTHOR BLOCK TO BE COMPLETED.  Names, affiliations, ORCIDs, the author count,
+% and the corresponding author are deliberately unfilled and are not invented by
+% this generator.  Replace with one \authors entry carrying the final agreed
+% order, one \affiliation per distinct affiliation, and one \correspondingauthor
+% with a verified institutional address.  The signed intake schema is
+% docs/FAIR_SUBMISSION_READINESS_AND_TEMPLATES.md section 2.
+\authors{{[AUTHOR LIST TO BE COMPLETED]}}
+\affiliation{{1}}{{[AFFILIATION 1 TO BE COMPLETED --- department or laboratory, institution, city, postcode, country]}}
+\affiliation{{2}}{{[AFFILIATION 2 TO BE COMPLETED --- add or delete affiliation lines to match the final author list]}}
+\correspondingauthor{{[CORRESPONDING AUTHOR TO BE COMPLETED]}}{{[INSTITUTIONAL E-MAIL TO BE COMPLETED]}}
 
 \begin{{keypoints}}
 {keypoints}
@@ -293,7 +397,22 @@ def _render(markdown: str) -> str:
 {abstract_tex}
 \end{{abstract}}
 
+% agujournal2019.cls predates the Plain Language Summary environment, so the
+% required section is emitted as an unnumbered section immediately after the
+% abstract, which is where AGU places it.
+\section*{{Plain Language Summary}}
+{plain_language_tex}
+
+\noindent\textbf{{Keywords:}} {keywords_tex}
+
 {body_tex}
+
+% REFERENCE LIST NOT YET GENERATED.  The canonical Markdown carries author-year
+% citations as linked text, so this TeX contains no \cite command and no
+% \bibliography command; adding an empty bibliography here would fail to compile.
+% Before submission the citation convention must be converted to \cite/\citeA
+% keys against ../references.bib (class default style: apacite).  That conversion
+% is tracked in docs/WRR_SUBMISSION_CHECKLIST.md.
 
 \end{{document}}
 """

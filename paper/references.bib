@@ -1,10 +1,24 @@
-% ThermoRoute — bibliography (42 entries)
+% ThermoRoute — bibliography (41 entries)
 % Every entry web-verified against Crossref/DataCite/arXiv/DBLP (see
 % outputs/reports/reference_audit_v2.md). UTF-8; imports cleanly into
 % Zotero/EndNote/biblatex. For classic bibtex+inputenc, accented names
 % (Candès, Künsch, Köpf, Duchesnay É, Polat İ) are UTF-8 and load with
 % \usepackage[utf8]{inputenc}. Article-number journals carry the article id
 % in the `pages`/`eid` field. Labels [F*],[G*],[D*] mirror the manuscript.
+%
+% Reconciled 2026-08-05 against the rewritten paper/ThermoRoute_paper.md: every
+% entry below is cited at least once in the manuscript, and every in-text
+% citation resolves to exactly one entry here. `url` fields were added only where
+% the manuscript already carried that exact link for a DOI-less entry; no DOI,
+% page range, or identifier has been supplied that was not already verified.
+% One entry (decicco2024dataretrieval, the R dataRetrieval package) was removed
+% as uncited: the acquisition path uses the Python client, which is
+% hodson2023dataretrieval. It remains recoverable at commit b0699a8.
+%
+% The manuscript still cites in linked author-year prose, not \cite keys, so no
+% reference list is produced by paper/agu_submission/build_agu.py. Converting the
+% citation convention is a tracked pre-submission step
+% (docs/WRR_SUBMISSION_CHECKLIST.md).
 
 % ===================== Stream temperature: reviews, baselines, learned models
 
@@ -190,7 +204,8 @@
   title     = {Conformalized quantile regression},
   booktitle = {Advances in Neural Information Processing Systems 32 (NeurIPS 2019)},
   year      = {2019},
-  pages     = {3538--3548}
+  pages     = {3538--3548},
+  url       = {https://papers.nips.cc/paper/2019/hash/5103c3584b063c431bd1268e9b5e76fb-Abstract.html}
 }
 
 @book{vovk2005algorithmic,
@@ -218,7 +233,8 @@
   title     = {From softmax to sparsemax: a sparse model of attention and multi-label classification},
   booktitle = {Proceedings of the 33rd International Conference on Machine Learning (ICML)},
   year      = {2016},
-  pages     = {1614--1623}
+  pages     = {1614--1623},
+  url       = {https://proceedings.mlr.press/v48/martins16.html}
 }
 
 @misc{bai2018empirical,
@@ -234,7 +250,8 @@
   author    = {Shazeer, Noam and Mirhoseini, Azalia and Maziarz, Krzysztof and Davis, Andy and Le, Quoc and Hinton, Geoffrey and Dean, Jeff},
   title     = {Outrageously large neural networks: the sparsely-gated mixture-of-experts layer},
   booktitle = {International Conference on Learning Representations (ICLR)},
-  year      = {2017}
+  year      = {2017},
+  url       = {https://arxiv.org/abs/1701.06538}
 }
 
 @inproceedings{ke2017lightgbm,
@@ -242,7 +259,8 @@
   title     = {{LightGBM}: a highly efficient gradient boosting decision tree},
   booktitle = {Advances in Neural Information Processing Systems 30 (NeurIPS 2017)},
   year      = {2017},
-  pages     = {3146--3154}
+  pages     = {3146--3154},
+  url       = {https://proceedings.neurips.cc/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html}
 }
 
 @article{diebold1995comparing,
@@ -343,14 +361,6 @@
 
 % ===================== Software and data sources
 
-@misc{decicco2024dataretrieval,
-  author       = {DeCicco, Laura A. and Hirsch, Robert M. and Lorenz, David and Watkins, William D. and Johnson, Michael},
-  title        = {{dataRetrieval}: {R} packages for discovering and retrieving water data available from federal hydrologic web services, v.2.7.17},
-  howpublished = {U.S. Geological Survey},
-  year         = {2024},
-  doi          = {10.5066/P9X4L3GE}
-}
-
 @misc{hodson2023dataretrieval,
   author       = {Hodson, Timothy O. and Hariharan, Jayaram A.},
   title        = {{dataretrieval} ({Python}): a {Python} package for discovering and retrieving water data available from federal hydrologic web services},
@@ -362,7 +372,7 @@
 @misc{usgs2024nwis,
   author       = {{U.S. Geological Survey}},
   title        = {{USGS} water data for the Nation: {U.S.} Geological Survey National Water Information System ({NWIS}) database},
-  howpublished = {Web services accessed via dataRetrieval; parameter codes 00010, 00060, 00065},
+  howpublished = {Web services accessed via the dataretrieval Python client; parameter codes 00010, 00060, 00065 with statistic code 00003},
   year         = {2024},
   note         = {Accessed 2026; \url{https://waterdata.usgs.gov/nwis}},
   doi          = {10.5066/F7P55KJN}

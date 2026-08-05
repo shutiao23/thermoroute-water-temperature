@@ -1,24 +1,26 @@
 # Strong baselines, controlled leakage, and a pre-specified inference gate for daily river water-temperature hindcasting
 
-[Author One]^a,\*^, [Author Two]^a^, [Author Three]^b^
+**[AUTHOR LIST TO BE COMPLETED]** — one line per author in the final agreed
+order, each carrying the preferred citation name, the affiliation number, and a
+verified ORCID. The number of authors, their names, and their affiliations are
+not asserted here. The signed intake schema that must produce this block is
+`docs/FAIR_SUBMISSION_READINESS_AND_TEMPLATES.md` §2.
 
-^a^ [Department / Laboratory, Institution, City, Postcode, Country]
+^1^ [AFFILIATION 1 TO BE COMPLETED — department or laboratory, institution, city, postcode, country]
 
-^b^ [Department / Laboratory, Institution, City, Postcode, Country]
+^2^ [AFFILIATION 2 TO BE COMPLETED — add or delete affiliation lines to match the final author list]
 
-\* Corresponding author: [replace with verified name, ORCID, affiliation, and e-mail]
+**Corresponding author:** [CORRESPONDING AUTHOR TO BE COMPLETED — verified name,
+ORCID, affiliation number, and institutional e-mail address]
 
 ## Key Points
 
-- A 120-gauge, 657,480 site-day panel is used to benchmark a constrained
-  river-temperature predictor against damped persistence, a tree ensemble, and a
-  global LSTM on identical station/date/horizon keys.
-- Evaluation labels for 2021–2023 are acquired exactly once, after the model
-  suite, the input set, and the analysis code are frozen and independently
-  replayed.
-- A pre-specified inference gate on cohort cluster structure fails on the frozen
-  cohort, so the formal comparisons are reported as fixed-cohort descriptive
-  effects rather than as inferential conclusions.
+- Daily river water temperature at 120 U.S. gauges is scored against damped
+  persistence, a tree ensemble, and an LSTM on identical keys.
+- The 2021–2023 evaluation labels are opened once, after the model suite, the
+  inputs, and the analysis code are frozen and replayed.
+- A pre-specified cluster gate fails on the frozen 15-region cohort, so all five
+  formal comparisons are fixed-cohort descriptive effects.
 
 ## Manuscript status
 
@@ -100,7 +102,7 @@ air-temperature and discharge formulations
 [Piccolroaz et al., 2016](https://doi.org/10.1002/hyp.10913)) to deep sequence
 models, multi-task learners, and physics-guided river-network architectures
 ([Feigl et al., 2021](https://doi.org/10.5194/hess-25-2951-2021);
-[Rahmani et al., 2021](https://doi.org/10.1088/1748-9326/abd501);
+[Rahmani et al., 2021a](https://doi.org/10.1088/1748-9326/abd501);
 [Jia et al., 2021](https://doi.org/10.1137/1.9781611976700.69);
 [Sadler et al., 2022](https://doi.org/10.1029/2021WR030138);
 [Zwart et al., 2023](https://doi.org/10.3389/frwa.2023.1184992)). Recent reviews
@@ -395,7 +397,7 @@ model that receives stable site identity as a categorical feature, and a
 per-station variant that isolates the value of pooling. A **global LSTM** with a
 station embedding represents the deep sequence family that has produced the
 strongest recent results for this variable
-([Rahmani et al., 2021](https://doi.org/10.1088/1748-9326/abd501);
+([Rahmani et al., 2021a](https://doi.org/10.1088/1748-9326/abd501);
 [Zwart et al., 2023](https://doi.org/10.3389/frwa.2023.1184992)).
 
 The learned references are given a genuine chance to win. The global LSTM uses
@@ -407,7 +409,12 @@ probability calibration. It lacks only ThermoRoute's bounded-residual constraint
 and lag router. LightGBM selects among four predeclared candidate settings
 separately by lead on the 2016–2017 validation partition, using station-macro
 RMSE alone; the LSTM selects among three predeclared architectures with seed 0
-before fitting five members. These tuning budgets are documented and are *not*
+before fitting five members. All neural members — ThermoRoute, the global LSTM,
+and the plain-neural controls — are fitted by adaptive stochastic gradient
+descent with decoupled weight decay (Kingma and Ba, 2015; Loshchilov and Hutter,
+2019) under a fixed schedule, and the optimizer, its schedule, and its stopping
+rule are identical across those model classes. These tuning budgets are
+documented and are *not*
 identical across model classes, which is a real asymmetry and is stated as a
 limitation rather than smoothed over. Consequently any statement about LightGBM
 in this paper is scoped to this frozen procedure — four candidates, this feature
@@ -530,11 +537,21 @@ used in fitting; it is **not** prediction at an ungauged location, and no
 statement in this paper should be read as the latter. Ungauged prediction would
 require the model to operate with no target-site water-temperature record at all,
 which is a different problem and a different evaluation
-([Weierbach et al., 2022](https://doi.org/10.3390/w14071032)). The same caveat
+([Weierbach et al., 2022](https://doi.org/10.3390/w14071032);
+[Rahmani et al., 2021b](https://doi.org/10.1002/hyp.14400)). The same caveat
 applies to the 30-site external cohort of Section 2.4, which is site-identifier
 disjoint but still history-dependent.
 
 ### 3.5 Conformal intervals
+
+Predictive uncertainty in hydrological modelling has most often been represented
+through Bayesian or likelihood-based treatments of parameter and input error
+([Beven and Binley, 1992](https://doi.org/10.1002/hyp.3360060305);
+[Kavetski et al., 2006a](https://doi.org/10.1029/2005WR004368),
+[2006b](https://doi.org/10.1029/2005WR004376)). We use a distribution-free
+calibration step instead, because the quantity required here is an empirical
+coverage statement about a fixed set of forecast keys rather than a posterior
+over model parameters.
 
 Interval estimates are produced by split conformalized quantile regression
 ([Romano et al., 2019](https://papers.nips.cc/paper/2019/hash/5103c3584b063c431bd1268e9b5e76fb-Abstract.html);
@@ -565,13 +582,16 @@ no finite-sample guarantee. We make no conditional-coverage claim of any kind:
 nothing here establishes that coverage holds within a season, within a
 temperature regime, within a region, or at a particular station. Two
 pre-specified sensitivities probe that boundary — a block-maximum calibration
-variant that groups consecutive retained calibration rows, and an idealized
+variant that groups consecutive retained calibration rows, following the standard
+practice of resampling blocks rather than rows when the series is dependent
+([Künsch, 1989](https://doi.org/10.1214/aos/1176347265)), and an idealized
 delayed adaptive-conformal variant that uses each forecast's target date as a
 feedback-arrival proxy. Neither replays real feedback availability, because the
 inputs contain no verified observation-publication timestamp, revision history,
 data vintage, or reporting latency; both report empirical marginal coverage only.
 The equal-weight three-quantile pinball summary is a three-quantile score and is
-not called CRPS.
+not called CRPS; the two are distinct members of the family of proper scoring
+rules ([Gneiting and Raftery, 2007](https://doi.org/10.1198/016214506000001437)).
 
 An event head reports exceedance of each station's 2006–2015 q90 water
 temperature, calibrated by one Platt map per lead fitted on 2018 only, against a
@@ -590,7 +610,13 @@ effect is the unweighted median across stations of the paired difference
 with at least 100 valid paired targets. Daily rows therefore do not determine
 between-station weight, and a station with a long record does not dominate the
 estimand. This estimates performance conditional on observable issue and target
-water temperature within the frozen availability-enriched cohort.
+water temperature within the frozen availability-enriched cohort. We report RMSE
+and paired RMSE differences rather than an efficiency-type criterion such as the
+Nash–Sutcliffe efficiency or its decomposition-based successors
+([Nash and Sutcliffe, 1970](<https://doi.org/10.1016/0022-1694(70)90255-6>);
+[Gupta et al., 2009](https://doi.org/10.1016/j.jhydrol.2009.08.003)), because
+those criteria normalise by a station-specific variance, which would make a
+paired between-model difference on identical keys harder to read.
 
 The frozen comparison family contains exactly five rows:
 
@@ -617,7 +643,12 @@ in a sampled region are retained together. Holm adjustment
 ([Holm, 1979](https://www.jstor.org/stable/4615733)) covers exactly these five
 p-values. Exact enumeration removes Monte Carlo error but does not make the
 procedure distribution-free: it still assumes joint sign symmetry of each
-complete cluster effect vector around the tested margin.
+complete cluster effect vector around the tested margin. We do not use the
+standard tests of equal predictive accuracy for forecast series
+([Diebold and Mariano, 1995](https://doi.org/10.1080/07350015.1995.10524599);
+[Harvey et al., 1997](<https://doi.org/10.1016/S0169-2070(96)00719-4>)), because
+their asymptotics are stated for a single loss-differential series and do not
+address dependence across the 120 gauges, which is the dominant dependence here.
 
 This is where the study's central methodological decision was taken, and taken
 before any outcome was visible. An outcome-free amendment to the protocol
@@ -650,7 +681,8 @@ Secondary and exploratory analyses — a qualifier-restricted target sensitivity
 equal-HUC and leave-one-HUC influence summaries, station-balanced probability
 diagnostics, architecture controls, and synthetic missingness, noise, flow, and
 weather perturbations — are labelled as such and cannot promote or replace a
-formal row. Relative economic value is recorded as
+formal row. Relative economic value in the cost–loss sense
+([Richardson, 2000](https://doi.org/10.1002/qj.49712656313)) is recorded as
 `REV_NOT_EVALUATED_NO_PREDECLARED_COST_LOSS_RATIOS`: no cost–loss ratios,
 observed management costs, actions, or stakeholder utility model were frozen, so
 no economic value is computed, and a future cost–loss grid without those observed
@@ -692,7 +724,10 @@ weaker result: it demotes the whole exercise to retrospective exploration and
 forbids the confirmatory reading entirely.
 
 The acquisition itself is deliberately narrow and deliberately irreversible. A
-raw-only child process is restricted to USGS daily-value requests for daily mean
+raw-only child process, using the USGS `dataretrieval` client for the National
+Water Information System
+([Hodson and Hariharan, 2023](https://doi.org/10.5066/P94I5TX3)), is restricted
+to USGS daily-value requests for daily mean
 water temperature, discharge, and gage height. It records exact request and
 response bytes, series identifiers, approval qualifiers, final URLs, retrieval
 timestamps, and content hashes. Parameter and statistic identities are fixed in
@@ -1060,9 +1095,11 @@ replace process-based thermal models, river-network graph models, or
 differentiable hybrid formulations
 ([Jia et al., 2021](https://doi.org/10.1137/1.9781611976700.69);
 [Rahmani et al., 2023](https://doi.org/10.1029/2023WR034420);
-[Zwart et al., 2023](https://doi.org/10.3389/frwa.2023.1184992)), each of which
-addresses structure — connectivity, upstream forcing, energy balance — that a
-point-scale statistical predictor does not represent. Nor does the learned
+[Zwart et al., 2023](https://doi.org/10.3389/frwa.2023.1184992)), nor to replace
+architectures that encode geographic context across regions and scales
+([Luo et al., 2025](https://doi.org/10.1145/3748636.3762716)), each of which
+addresses structure — connectivity, upstream forcing, energy balance, spatial
+context — that a point-scale statistical predictor does not represent. Nor does the learned
 relaxation proposal recover any of that structure: it receives no verified graph
 or topology input and identifies no transport, travel time, residence time, or
 regulation.
@@ -1190,8 +1227,9 @@ split-conformal analysis of Sections 3.5 and 4.4, which is unaffected: the
 conformal offset is non-negative by construction, so the delivered interval for
 every one of those 135 rows is strictly wider than the degenerate nominal one,
 and the deployed contract separately requires positive width. No delivered
-interval is degenerate. Second, event-probability metrics — Brier score,
-reliability, discrimination, and calibration slope and intercept — are absent
+interval is degenerate. Second, the standard event-probability verification
+metrics — Brier score, reliability, discrimination, and calibration slope and
+intercept (Wilks, 2011) — are absent
 from this manuscript, and no claim about probabilistic calibration beyond
 empirical marginal interval coverage should be read into it. Resolving this
 requires a sealed erratum and a new training lineage, which is future work rather
@@ -1260,57 +1298,122 @@ the sampling design rather than a grouping applied afterwards.
 
 ## 8. Open Research
 
-**Data availability.** The derived daily panel (`panel_usgs_120v2.parquet`), the
-stable station registry, the hydrologic-unit metadata snapshot, and the frozen
-panel manifest that binds them are archived at
-[DOI: 10.5281/zenodo.XXXXXXX] under [DATA LICENCE — to be assigned after the
-byte-level rights review described in Section 6.5]. The evaluation-period
-acquisition record — raw request and response bytes, series identifiers, approval
-qualifiers, retrieval timestamps, and content hashes — is archived in the same
-deposit after the acquisition described in Section 3.7.
+**Data availability.** The derived daily panel (`panel_usgs_120v2.parquet`), the stable station registry
+(`station_registry_v1.csv`), the hydrologic-unit metadata snapshot, the
+candidate-rejection ledger, and the frozen panel manifest that binds them are
+deposited as one versioned dataset at `[DATA DOI TO BE MINTED]` under
+`[DATA LICENCE TO BE ASSIGNED]`. The evaluation-period acquisition record — exact
+request and response bytes, series identifiers, approval qualifiers, final URLs,
+retrieval timestamps, and content hashes — is added to that deposit as a new
+version after the acquisition described in Section 3.7.
 
-Primary observations are redistributed from public providers and are also
-available at source: daily-value water temperature and discharge from the U.S.
+Neither the DOI nor the data licence can be assigned before the byte-level rights
+review described in Section 6.5 completes. The derived panel encodes values from
+three providers whose terms differ, and a derived product does not inherit the
+most permissive of its upstream terms. Until every object proposed for the
+deposit carries a recorded, evidence-backed redistribution decision, the
+project's release tooling refuses to build a public archive. The deposit is
+therefore described here as planned and specified, not as existing.
+
+**Primary observational sources.** All observations are obtained from public providers and none is the property of
+the authors. Daily-value water temperature and discharge come from the U.S.
 Geological Survey National Water Information System
-([https://doi.org/10.5066/F7P55KJN](https://doi.org/10.5066/F7P55KJN));
-meteorological fields from Daymet V4 at ORNL DAAC
-([https://doi.org/10.3334/ORNLDAAC/2129](https://doi.org/10.3334/ORNLDAAC/2129));
-and wind speed from gridMET
-([https://doi.org/10.1002/joc.3413](https://doi.org/10.1002/joc.3413)). Original
-provider responses and retrieval timestamps for the 2006–2020 development panel
-were not retained and cannot be reconstructed, so development reproduction begins
-from the committed derived artifact; this limitation does not apply to the
-evaluation-period acquisition, for which exact bytes are archived.
+([U.S. Geological Survey, 2024](https://doi.org/10.5066/F7P55KJN); parameter
+codes 00010, 00060, and 00065 with statistic code 00003). Air temperature,
+precipitation, the relative-humidity proxy, and daylight-period mean incoming
+shortwave radiation come from Daymet V4 R1 at ORNL DAAC
+([Thornton et al., 2022](https://doi.org/10.3334/ORNLDAAC/2129)). Wind speed
+comes from gridMET ([Abatzoglou, 2013](https://doi.org/10.1002/joc.3413)). Each
+retains its provider's own terms, citation requirement, and access route
+independently of this manuscript.
 
-**Software availability.** The analysis software, the frozen protocol and its
-sealed amendments, the model-suite registry, the completion receipts, the
-per-stage manifests, and the fully transitive Python 3.12 dependency lock with
-package hashes are archived at [DOI: 10.5281/zenodo.YYYYYYY], corresponding to
-release [vX.Y.Z] of the source repository at [REPOSITORY URL], under
-[SOFTWARE LICENCE — SPDX identifier]. The deposit includes the environment probe,
-the verification entrypoints, and the deterministic result renderer that
-generates Section 4.6 from the acquisition receipt. Third-party components
-redistributed within the archive are enumerated with their own licence terms in a
-notice file; components whose redistribution terms are unresolved are excluded
-from the public deposit rather than shipped under an assumed licence.
+**Material that cannot currently be redistributed.** For any provider object whose redistribution terms are unresolved at deposit
+time, the deposit carries, in place of the bytes: the product identifier and
+version, the exact request specification (site list, parameter and statistic
+codes, and date range), the retrieval code, and a SHA-256 manifest of the bytes
+as retrieved. A third party can therefore re-acquire identical inputs from the
+provider and verify them against the manifest without relying on redistribution.
+At the time of writing the following classes have no recorded redistribution
+decision and default to exclusion: USGS NWIS response bytes; Daymet V4 subsets
+and any derived field that materially encodes Daymet values; gridMET responses
+and derived fields; and the mixed derived panel and registries built from them.
 
-**Reproduction.** Section 4.1–4.5 are reproducible from the archived panel, the
-archived model bundles, and the pinned environment. Section 4.6 is reproducible
-from the archived acquisition record and the same bundles. Bit-level equality is
-expected for the tree models and agreement to the documented tolerance for the
-neural members; the tolerances, the verification commands, and the expected
-digests are listed in the Supporting Information.
+Two further classes are excluded outright rather than pending. The AGU LaTeX
+class used to typeset this manuscript is a third-party file supplied for
+submission only and is not redistributed in the archive. The three legacy CSV
+files described in Section 2.5 have no recorded source, collection terms, or
+redistribution authorization, and are not redistributed in any form.
 
-**Placeholders.** All bracketed identifiers above — DOIs, repository URL, release
-tag, and licence identifiers — are unassigned at the time of writing and must be
-completed, with verified author metadata and contributor roles, before
-submission.
+Original provider responses and retrieval timestamps for the 2006–2020
+development panel were not retained and cannot be reconstructed, so development
+reproduction begins from the committed derived artifact. That limitation does not
+apply to the evaluation-period acquisition, for which exact bytes are archived.
+
+**Software availability.** The analysis software, the frozen protocol and its sealed amendments, the
+probability-metric erratum, the model-suite registry, the completion receipts,
+the per-stage manifests, the environment probe, the verification entrypoints, the
+deterministic result renderer that generates Section 4.6 from the acquisition
+receipt, and the fully transitive Python 3.12 dependency lock with package hashes
+are archived at `[SOFTWARE DOI TO BE MINTED]`, corresponding to release
+`[RELEASE TAG TO BE ASSIGNED]` of the source repository at
+`[REPOSITORY URL TO BE CONFIRMED]`.
+
+The project's own source code is released under the MIT licence (SPDX
+identifier `MIT`). That licence covers the source code only. It does not license
+the observational data, the archived provider responses, the third-party
+typesetting class, or any redistributed dependency binary, each of which retains
+its own terms; third-party components inside the archive are enumerated with
+their terms in a notice file, and any component whose terms are unresolved is
+excluded from the deposit rather than shipped under an assumed licence.
+
+Analyses were run on Python 3.12 with NumPy, pandas, pyarrow, SciPy
+([Virtanen et al., 2020](https://doi.org/10.1038/s41592-019-0686-2)),
+scikit-learn (Pedregosa et al., 2011), LightGBM
+([Ke et al., 2017](https://proceedings.neurips.cc/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html)),
+PyTorch (Paszke et al., 2019), and the USGS `dataretrieval` client
+([Hodson and Hariharan, 2023](https://doi.org/10.5066/P94I5TX3)).
+
+**Reproduction.** Sections 4.1–4.5 are reproducible from the archived panel, the archived model
+bundles, and the pinned environment. Section 4.6 is reproducible from the
+archived acquisition record and the same bundles. Bit-level equality is expected
+for the tree models and agreement to a documented tolerance for the neural
+members; the tolerances, the verification commands, and the expected digests are
+listed in the Supporting Information. Reproduction has not yet been carried out
+by an operator independent of the authors on an independent host, and this
+statement is not a claim that it has.
+
+**Placeholder inventory.** Five bracketed identifiers appear above: `[DATA DOI TO BE MINTED]`,
+`[DATA LICENCE TO BE ASSIGNED]`, `[SOFTWARE DOI TO BE MINTED]`,
+`[RELEASE TAG TO BE ASSIGNED]`, and `[REPOSITORY URL TO BE CONFIRMED]`. None is
+a real identifier, and none may be replaced by a reserved, draft, or example DOI.
+Together with the author block, the corresponding-author details, and the
+Acknowledgments below, they are the complete set of externally supplied fields
+that must be closed before submission; each is tracked, with the external input
+required to close it, in `docs/WRR_SUBMISSION_CHECKLIST.md`.
 
 ## Acknowledgments
 
-[To be completed: funding sources with award numbers, computational resources,
-data provider acknowledgments, and a competing-interests statement. Author
-contributions to be recorded using CRediT taxonomy terms.]
+[FUNDING TO BE COMPLETED — each funder with its award number, or an explicit
+statement that the work received no external funding.]
+
+[COMPUTATIONAL RESOURCES TO BE COMPLETED — the facility or facilities on which
+the model suite was fitted.]
+
+We acknowledge the U.S. Geological Survey for the National Water Information
+System, the ORNL Distributed Active Archive Center for Daymet V4 R1, and the
+Northwest Knowledge Network for gridMET. Acknowledgment of a data provider is not
+an endorsement of this analysis by that provider.
+
+**Competing interests.** [COMPETING INTERESTS TO BE COMPLETED — a declaration is
+required from every author, including the explicit statement that none exists if
+that is the case.]
+
+**Author contributions.** [CREDIT ROLES TO BE COMPLETED — assign each author to
+the applicable CRediT roles: conceptualization, methodology, software,
+validation, formal analysis, investigation, resources, data curation, writing —
+original draft, writing — review and editing, visualization, supervision, project
+administration, funding acquisition. The signed intake form is
+`docs/FAIR_SUBMISSION_READINESS_AND_TEMPLATES.md` §2.]
 
 ## Supporting Information
 
@@ -1326,5 +1429,15 @@ provenance (SI09); the temporal coverage audit (SI10); spatial and leave-cluster
 sensitivities (SI11); outcome quality control and qualifier evidence (SI12); the
 history-dependent external arm (SI13); missingness and failure cases (SI14);
 reproduction hashes, commands, and environment parity fields (SI15); and the
-rights and data dictionary (SI16). Supporting figures S1–S8 accompany the
-corresponding sections.
+rights and data dictionary (SI16).
+
+Nine supporting figures accompany these sections. Figures S1–S3 describe the
+frozen cohort and registry geometry, the temporal roles and issue-time
+information boundary, and the model and calibration dataflow; they contain no
+evaluation-period quantity. Figures S4–S8 expand the evaluation-period results of
+Section 4.6 — point-performance heterogeneity, probability diagnostics, temporal
+opportunity and attrition, spatial and leave-region influence, and outcome
+quality control with the external arm — and are rendered only after the
+acquisition of Section 3.7. Figure S9 is an optional development-period
+conformal-calibration sensitivity, is labelled as such in the figure itself, and
+must not be compared numerically with any evaluation-period figure.
