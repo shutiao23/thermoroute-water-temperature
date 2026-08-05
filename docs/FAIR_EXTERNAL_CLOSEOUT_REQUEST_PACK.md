@@ -194,7 +194,9 @@ one remains `BLOCKED`.
 | State | **`DRAFT_ONLY — DO NOT SEND WITHOUT OWNER AUTHORIZATION`** |
 | Intended recipient | An AGU/Wiley contact able to identify a file-level licence or written permission for the exact named TeX asset |
 | Known local asset | `paper/agu_submission/agujournal2019.cls`, SHA-256 `deca12479ddeeeae31ed5873a7ebd21251858aaa1dea1b403e91a229d92b83d7` |
+| Known local assets (added 2026-08-05 by `6ee35e5`) | `agujournal2025.cls` `a6645a79392906eb31fd63a4d3f28a2322464c0552f93c4a35da9f4a85067fab`; `wiley-macros.tex` `7ea18648b7bd2c632065d4303830a54192626450139d76db39760516a16ef71c`; `tweaklist-git-moderncv-fixed.sty` `85a31337d69412566a227209ec908f3a3242ecf673819ca86564d9dc23bfbef1` (declares LPPL 1.3c — do **not** include it in a request that presumes no grant exists); `agu-logo-small.pdf` `c5c18836bc66fff737254bb0a2d321afc538e90028a364e63c0de564efc5abdf`; `agu-logo-large.pdf` `cf6382d62086d149d5538dc65c2eeac79c9e33bcc2730f70cb36c7feb324b1b5`. All under `paper/agu_submission/`; upstream `AGU-Publications/agujournal2025-latex-template` |
 | Default pending disposition | `EXCLUDE_PUBLIC` for the class and any unreviewed vendored third-party TeX asset |
+| Disposition already applied to the 2025 assets (R10, 2026-08-05) | Scope-sheet action **(iv)** — the archive omits these files and instructs the user to supply them from AGU. Implemented and enforced in `scripts/verify_release.py`; the reproducer path was compile-tested. This request therefore remains **optional** for the 2025 assets: it is needed only if the owner later wants them *inside* an archive. See `R10_AGU2025_RELEASE_ASSETS.md`. It stays **required** for `agujournal2019.cls`, which is still an archive member |
 
 ### Required attachment and hash checklist
 

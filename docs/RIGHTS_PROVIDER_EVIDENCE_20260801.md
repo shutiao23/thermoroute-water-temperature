@@ -115,3 +115,52 @@ Current dispositions are:
 - AGU 2025 class/macros/logos: `EXCLUDE_PUBLIC` unless a file-level licence or
   written permission appears;
 - third-party TeX dependencies: `NOT_PRESENT / REVIEW_IF_VENDORED`.
+
+## 6. Addendum 2026-08-05 — the 2025 assets were vendored (R10)
+
+The 2026-08-01 snapshot above is not rewritten. This addendum records that two of
+its factual premises changed on 2026-08-05, and that the disposition it already
+stated was applied unchanged.
+
+**What changed.** Commit `6ee35e5` migrated the WRR build to `agujournal2025.cls`
+and vendored five third-party files into `paper/agu_submission/`. §5's "The
+current project contains no vendored `.sty` or `.bst` file at the top level of
+`paper/agu_submission/`" and "`tweaklist-git-moderncv-fixed.sty` ... is not
+present in this project" are therefore **superseded as of 2026-08-05**. The
+`REVIEW_IF_VENDORED` trigger fired and the review was performed.
+
+**Per-byte review result.** File headers were re-inspected on 2026-08-05:
+
+| Path | SHA-256 | Licence text in the byte | Decision |
+| --- | --- | --- | --- |
+| `paper/agu_submission/agujournal2025.cls` | `a6645a79392906eb31fd63a4d3f28a2322464c0552f93c4a35da9f4a85067fab` | none (only a commented example CC BY-NC-ND line about a *published article*, which §5 already rejects as a template licence) | `EXCLUDE_PUBLIC` |
+| `paper/agu_submission/wiley-macros.tex` | `7ea18648b7bd2c632065d4303830a54192626450139d76db39760516a16ef71c` | same commented example line | `EXCLUDE_PUBLIC` |
+| `paper/agu_submission/agu-logo-small.pdf` | `c5c18836bc66fff737254bb0a2d321afc538e90028a364e63c0de564efc5abdf` | none; AGU branding | `EXCLUDE_PUBLIC` |
+| `paper/agu_submission/agu-logo-large.pdf` | `cf6382d62086d149d5538dc65c2eeac79c9e33bcc2730f70cb36c7feb324b1b5` | none; AGU branding | `EXCLUDE_PUBLIC` |
+| `paper/agu_submission/tweaklist-git-moderncv-fixed.sty` | `85a31337d69412566a227209ec908f3a3242ecf673819ca86564d9dc23bfbef1` | **LPPL 1.3c**, declared in the file | `EXCLUDE_PUBLIC` **by scope, not by rights** — see below |
+
+The `.sty` is the one file with an affirmative redistribution grant, exactly as
+§5 anticipated. It is nonetheless excluded with the family: it is a
+`published`-branch-only dependency that the draft submission build never loads,
+and it is useless without the unlicensed class. Its LPPL status is recorded here
+so a future reviewer does not have to re-derive it, and so that this exclusion is
+not misread as a claim that LPPL forbids redistribution.
+
+**Upstream source** for all five: `https://github.com/AGU-Publications/agujournal2025-latex-template`.
+The snapshot commit `355052226d872cf6b9211c12b73b2ed2da133a7d` recorded in §1 was
+not independently re-verified against these bytes; the SHA-256 values are the
+authoritative bind.
+
+**Disposition applied.** The §5 line "AGU 2025 class/macros/logos:
+`EXCLUDE_PUBLIC` unless a file-level licence or written permission appears" was
+applied as written. No licence and no written permission appeared, so the assets
+are excluded from every release archive, enforced by
+`scripts/verify_release.py` (`EXCLUDED_THIRD_PARTY_CLASS_ASSETS`) rather than by
+convention. The archived `paper/agu_submission/README.md` carries the upstream
+source and these SHA-256 values so the build stays reproducible from AGU's own
+copy. Full record: `docs/R10_AGU2025_RELEASE_ASSETS.md`.
+
+This addendum authorizes nothing. It records an exclusion, which is the
+conservative branch, and it does not close the `agujournal2019.cls` archive
+membership, the repository/history exposure of these bytes, or the absent
+`THIRD_PARTY_NOTICES` register.

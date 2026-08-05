@@ -137,17 +137,54 @@ omission to be patched here.
 `agujournal2025.cls`, `agujournal2019.cls`, `tweaklist-git-moderncv-fixed.sty`,
 `wiley-macros.tex`, `agu-logo-small.pdf`, and `agu-logo-large.pdf` are AGU/Wiley
 and moderncv bytes, not repository code. `docs/RIGHTS_PROVIDER_EVIDENCE_20260801.md`
-records `agujournal2019.cls` as `EXCLUDE_PUBLIC`: the evidence supports submission
-use, not archive redistribution. The five files added for the 2025 migration
-inherit exactly that status and have **no** provider-evidence row of their own
-yet. Their SHA-256 values are listed in `docs/AGU2025_TEMPLATE_MIGRATION.md`.
+§5 records `agujournal2019.cls` as `EXCLUDE_PUBLIC` — the evidence supports
+submission use, not archive redistribution — and, in the same list, "AGU 2025
+class/macros/logos: `EXCLUDE_PUBLIC` unless a file-level licence or written
+permission appears". `docs/FAIR_RIGHTS_ACCEPTANCE_MATRIX.md` §3 keeps that
+default for the whole family. No such licence or permission exists.
 
-They are also **not** in `scripts/verify_release.py`'s `ALLOWED_PAPER_MEMBERS`,
-which is an exact allowlist for release archives. Any release archive built today
-that includes them fails with "unregistered manuscript artifact"; any archive that
-excludes them is not a compilable bundle. Resolving that is a `scripts/` +
-rights-review change and is owner-owned.
+**Consequence: the five 2025 assets are never release-archive members.**
+`scripts/verify_release.py` rejects them by name (`EXCLUDED_THIRD_PARTY_CLASS_ASSETS`)
+with the rights basis in the error message, so re-adding them to
+`ALLOWED_PAPER_MEMBERS` is refused rather than silently accepted. Full record:
+`docs/R10_AGU2025_RELEASE_ASSETS.md`.
 
 `wiley-macros.tex` is shipped by AGU with the template but is **not** `\input` by
 `agujournal2025.cls` in either branch. It is stored here for completeness only;
 nothing in this build reads it.
+
+## Obtaining the AGU class assets (required to compile this package)
+
+`ThermoRoute_WRR.tex` is `\documentclass[draft]{agujournal2025}`. **A release
+archive does not ship that class** (see the rights section above), so if you are
+reading this from an extracted archive the files below are absent and you must
+fetch them. In a repository checkout they are already vendored in this directory
+for the author's own build; use the hashes below to confirm they are unmodified.
+
+Obtain them from AGU's official template repository, which is the same source
+this project used:
+
+    https://github.com/AGU-Publications/agujournal2025-latex-template
+
+Copy these files into this directory — beside `ThermoRoute_WRR.tex`, not onto
+`TEXINPUTS`, because the class loads `./agu-logo-small.pdf` and
+`./agu-logo-large.pdf` by an explicit relative path that kpathsea cannot
+resolve, and because `tweaklist-git-moderncv-fixed.sty` is not in TeX Live:
+
+| File | SHA-256 | Needed for the `draft` build |
+|---|---|---|
+| `agujournal2025.cls` | `a6645a79392906eb31fd63a4d3f28a2322464c0552f93c4a35da9f4a85067fab` | yes |
+| `tweaklist-git-moderncv-fixed.sty` | `85a31337d69412566a227209ec908f3a3242ecf673819ca86564d9dc23bfbef1` | no (`published` only) |
+| `wiley-macros.tex` | `7ea18648b7bd2c632065d4303830a54192626450139d76db39760516a16ef71c` | no (unused entirely) |
+| `agu-logo-small.pdf` | `c5c18836bc66fff737254bb0a2d321afc538e90028a364e63c0de564efc5abdf` | no (`published` only) |
+| `agu-logo-large.pdf` | `cf6382d62086d149d5538dc65c2eeac79c9e33bcc2730f70cb36c7feb324b1b5` | no (`published` only) |
+
+Verify you fetched identical bytes before building:
+
+    sha256sum agujournal2025.cls tweaklist-git-moderncv-fixed.sty \
+      wiley-macros.tex agu-logo-small.pdf agu-logo-large.pdf
+
+Only `agujournal2025.cls` is required for the submission (`draft`) build; the
+other four are listed so the whole upstream set can be checked. If AGU has since
+revised the template, a differing hash means you have different bytes, not that
+the check is wrong — record the new hash rather than ignoring the mismatch.

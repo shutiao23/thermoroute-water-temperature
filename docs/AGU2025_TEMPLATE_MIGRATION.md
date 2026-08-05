@@ -170,17 +170,61 @@ in both `ALLOWED_PAPER_MEMBERS`/`REQUIRED_PAPER_MEMBERS` (line 954) and
 break a release check in a directory this task may not edit. It is marked
 superseded in `paper/agu_submission/README.md` instead.
 
-### 4.1 Rights and release consequence (owner-owned)
+### 4.1 Rights and release consequence — RESOLVED 2026-08-05 (R10)
 
-`docs/RIGHTS_PROVIDER_EVIDENCE_20260801.md` classifies `agujournal2019.cls` as
-`EXCLUDE_PUBLIC` — evidence supports submission use, not archive
-redistribution — and `docs/RIGHTS_INVENTORY_DRAFT.md` records that no
-`THIRD_PARTY_NOTICES` exists. **The five newly vendored files inherit that
-status and have no provider-evidence row of their own.** They are also absent
-from `ALLOWED_PAPER_MEMBERS`, which is an exact allowlist: a release archive
-containing them fails with "unregistered manuscript artifact", and one excluding
-them is not a compilable bundle. Closing this needs a `scripts/` edit plus a
-rights review, both outside this task.
+`docs/RIGHTS_PROVIDER_EVIDENCE_20260801.md` §5 classifies `agujournal2019.cls`
+as `EXCLUDE_PUBLIC` — evidence supports submission use, not archive
+redistribution — and, in the same list, "AGU 2025 class/macros/logos:
+`EXCLUDE_PUBLIC` unless a file-level licence or written permission appears".
+`docs/FAIR_RIGHTS_ACCEPTANCE_MATRIX.md` §3 carries the same standing default for
+the whole AGU 2019/2025 class family. No such licence or permission exists, so
+**all five vendored files are `EXCLUDE_PUBLIC`.**
+
+The dilemma this section previously recorded — an archive containing them fails
+the exact allowlist, one excluding them will not compile — is resolved by
+excluding them and making the archive self-describing instead:
+
+- `scripts/verify_release.py` now rejects these five paths (and the removed
+  upstream tree's prefix) **by name**, with the rights basis in the error, via
+  `EXCLUDED_THIRD_PARTY_CLASS_ASSETS`.
+- `paper/agu_submission/README.md` carries the upstream source and the SHA-256
+  of each file, and the verifier **requires** those instructions whenever the
+  archived `.tex` loads `agujournal2025`.
+
+Full record: [`R10_AGU2025_RELEASE_ASSETS.md`](R10_AGU2025_RELEASE_ASSETS.md).
+
+### 4.2 The pristine upstream tree was removed
+
+`paper/agujournal2025-latex-template-main/` was a committed "Download ZIP"
+snapshot of the upstream template (hence the `-main` suffix; file mtimes
+2026-03-27). It was removed on 2026-08-05: five of its seven files are
+byte-identical to the vendored copies the build actually consumes, and the tree
+added a second, unreferenced copy of the same unlicensed third-party bytes.
+Nothing in the repository referenced the directory; prose references to
+`agujournaltemplate.tex` are references to the upstream file, recorded below.
+
+Upstream source: `https://github.com/AGU-Publications/agujournal2025-latex-template`
+(the repository AGU links from its author pages; snapshot commit
+`355052226d872cf6b9211c12b73b2ed2da133a7d` is the one recorded in
+`docs/RIGHTS_PROVIDER_EVIDENCE_20260801.md` — the SHA-256 values below, not that
+commit id, are the authoritative bind, since the correspondence between the
+downloaded ZIP and that commit was not independently re-verified here).
+
+Removed-tree manifest (SHA-256), so the deletion is reversible from upstream:
+
+| File | SHA-256 | Same bytes as vendored copy |
+|---|---|---|
+| `agujournal2025.cls` | `a6645a79392906eb31fd63a4d3f28a2322464c0552f93c4a35da9f4a85067fab` | yes |
+| `wiley-macros.tex` | `7ea18648b7bd2c632065d4303830a54192626450139d76db39760516a16ef71c` | yes |
+| `tweaklist-git-moderncv-fixed.sty` | `85a31337d69412566a227209ec908f3a3242ecf673819ca86564d9dc23bfbef1` | yes |
+| `agu-logo-small.pdf` | `c5c18836bc66fff737254bb0a2d321afc538e90028a364e63c0de564efc5abdf` | yes |
+| `agu-logo-large.pdf` | `cf6382d62086d149d5538dc65c2eeac79c9e33bcc2730f70cb36c7feb324b1b5` | yes |
+| `agujournaltemplate.tex` | `ad077031c061593ef712fc7fb62427ccf31218239e1afdb1ce379cc863f6ec5c` | not vendored |
+| `agujournal2025 illustration 1 (1).png` | `e117c680d082f70eb102913d78c0abf3e7e487754b5509c69bb8cfb79c872cae` | not vendored |
+
+Removing the tree from the working tree does not remove it from Git history;
+that is the pre-existing history-exposure question tracked by
+`docs/RIGHTS_BYTE_HISTORY_AUDIT_20260801.md`, not something this change closes.
 
 ---
 

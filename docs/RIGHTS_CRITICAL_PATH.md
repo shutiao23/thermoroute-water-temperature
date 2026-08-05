@@ -36,6 +36,13 @@ paper/agu_submission/agujournal2019.cls (+ template / trackchanges)
   → 闭合条件（尚未满足）：可引用 third-party notice **或**从任何 public code/data archive 排除
 ```
 
+*2026-08-05（R10）：`6ee35e5` 又 vendored 了五个 2025 class 资产。它们已按第二种闭合
+条件处理——`EXCLUDE_PUBLIC` 正式排除决定，并由 `scripts/verify_release.py` 的
+`EXCLUDED_THIRD_PARTY_CLASS_ASSETS` 按名强制，archive 内的
+`paper/agu_submission/README.md` 改为给出上游来源与逐文件 SHA-256。**本路径并未因此
+闭合**：`agujournal2019.cls` 仍在 archive member 名单内，五个新资产仍留在 public tip 与
+history 中，third-party notice 仍不存在。见 `R10_AGU2025_RELEASE_ASSETS.md`。*
+
 | 断言 | 状态 |
 | --- | --- |
 | class 文件在 public tip 存在 | 事实（见清单 §1.1） |
@@ -155,7 +162,7 @@ gh repo view → visibility PUBLIC, isPrivate=false
 
 1. 对每个 public remote tip + 敏感 history 对象的 **已执行并归档** 的 SHA-256 inventory（草案命令 ≠ 已跑完的放行证据）。  
 2. 按数据类填写的来源 / ToS / attribution / 是否允许再打包表（**空白即未授权**）。  
-3. AGU class：可引用条款写入 notice **或** 正式排除决定（**两者皆缺**）。  
+3. AGU class：可引用条款写入 notice **或** 正式排除决定。*2026-08-05（R10）部分闭合*：五个 2025 class 资产已有**正式排除决定**并在 `scripts/verify_release.py` 按名强制排除（见 `R10_AGU2025_RELEASE_ASSETS.md`）；`agujournal2019.cls` **仍**是 archive member，notice **仍**不存在，本条对它未闭合。  
 4. 历史 `.zenodo.json` 主张的作废记录进入任何未来 deposit 检查清单（不得复用旧主张）。  
 5. Owner + 合格审查人对 remote 访问策略 / history remediation 的评估结论（本文件不代替）。  
 6. 明确：**逐字节审查尚未完成**——在完成前，禁止「开源仓库 = 可公开分发数据包」。

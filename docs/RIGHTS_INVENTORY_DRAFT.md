@@ -35,6 +35,8 @@
 | **outputs 清单** | `outputs/manifest.json` | 1 | legacy 产物索引 |
 | **论文渲染物** | `paper/*.pdf`, `paper/*.docx`, `paper/agu_submission/ThermoRoute_WRR.pdf` | 多文件 / paper/ 合计 ~3.9 MB | README：active archive 应排除 withdrawn outputs / generated figures / rendered PDF·DOCX |
 | **第三方 AGU class** | `paper/agu_submission/agujournal2019.cls`（及 template / trackchanges） | 在 main 与 feature 分支 tip 均存在 | MIT **不**覆盖其再分发条款 |
+| **第三方 AGU 2025 class 资产**（2026-08-05 新增） | `paper/agu_submission/` 下 `agujournal2025.cls`、`wiley-macros.tex`、`tweaklist-git-moderncv-fixed.sty`、`agu-logo-small.pdf`、`agu-logo-large.pdf` | 由 `6ee35e5` 引入；在 `feat/route-a-completion` tip 存在 | 逐字节复核完成：**`EXCLUDE_PUBLIC`**（`RIGHTS_PROVIDER_EVIDENCE_20260801.md` §5 + §6 addendum）。已**排除出 release archive** 并由 `scripts/verify_release.py` 按名强制；仓库/history 暴露仍未闭合。见 `R10_AGU2025_RELEASE_ASSETS.md` |
+| **上游 template 整包副本** | `paper/agujournal2025-latex-template-main/`（7 文件，含 PNG） | 2026-08-05 **已从工作树删除**；history 仍可达 | 与 vendored 副本 5 文件逐字节相同；provenance 与 SHA-256 清单见 `AGU2025_TEMPLATE_MIGRATION.md` §4.2 |
 
 ### 1.2 其他公开 tip（非 main）额外暴露
 
@@ -197,7 +199,8 @@ git -C "$REPO" ls-remote origin > "$OUT/${DATE}_ls_remote.txt"
 
 1. **`data/b1.csv`, `data/p3.csv`, `data/s2.csv`（legacy 三站）** — 来源与再分发授权未文档化。  
 2. **任意打包了未审查数据类别的 release / Zenodo / mirror 包** — 含历史 `.zenodo.json` 所声称的「open/MIT data」主张。  
-3. **`paper/agu_submission/agujournal2019.cls` 及未授权的 AGU/第三方 TeX 附属文件** — 缺 third-party notice 或正式排除决定前，不得进入 public code/data archive。  
+3. **`paper/agu_submission/agujournal2019.cls` 及未授权的 AGU/第三方 TeX 附属文件** — 缺 third-party notice 或正式排除决定前，不得进入 public code/data archive。
+   *2026-08-05 更新（R10）：五个 2025 class 资产已取得**正式排除决定**（本条两种闭合条件中的第二种），并在 `scripts/verify_release.py` 中按名强制排除；`agujournal2019.cls` 仍是 archive member（带 `known_minimum_unverified_redistribution_scopes` 声明），本条对它**仍未闭合**。third-party notice 仍不存在。*  
 4. **已渲染的 PDF/DOCX 与 withdrawn legacy figures/tables/reports** — README 将之排除在 active member namespace 之外；公开再分发前须单独 license/privacy 审查。  
 5. **Git-history bundle 中的已删对象**（`_archive_wip/**`、旧 `.zenodo.json`、旧 outputs blob）— 仅作 provenance，不是可再分发内容。  
 6. **`data_usgs/**` raw_snapshots / predictor bridge 原始 API 字节** — provider ToS 未逐类核验前不得再分发。  
