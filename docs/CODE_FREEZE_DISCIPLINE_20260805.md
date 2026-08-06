@@ -80,6 +80,40 @@ running:
 
 Verified by inspection of `DEFAULT_SOURCE_PATTERNS`: none of these match any pattern.
 
+### 3.0 Never use git to restore a file in a tree with uncommitted work
+
+`git checkout -- <path>`, `git restore <path>`, `git stash`, `git reset` and
+`git clean` all discard uncommitted content. In a worktree where work is in
+progress — especially one several agents are writing to — they destroy it
+silently and without a prompt.
+
+This happened twice on 2026-08-05/06:
+
+| Operation | Effect |
+|---|---|
+| `git stash push --keep-index`, run to get a lint baseline | reverted **43 files** of uncommitted work across the shared worktree |
+| `git checkout -- tests/test_repro.py`, run to undo a two-line probe | discarded the two-tier-hash test updates, **112 lines** |
+
+Both were recovered — the first from the stash, the second from the dropped
+stash's dangling commit — but recovery was luck, not design. Nothing had been
+staged, so the object database held these blobs only incidentally.
+
+**Rule:** to make a temporary edit, copy the file aside first and copy it back:
+
+```bash
+cp path/to/file /tmp/file.bak      # not: git checkout -- path/to/file
+# ... make the temporary edit, measure, ...
+cp /tmp/file.bak path/to/file
+```
+
+Verify a restore by content, not by absence of complaint. When the change was
+made to observe a hash, the hash returning to its prior value *is* the proof:
+
+```
+model_source_hash : fb03cbdd…  matches pre-edit baseline : True
+harness_hash      : a8a4ebd5…  matches pre-edit baseline : True
+```
+
 ### 3.1 One exception that is about processes, not hashes
 
 **Do not edit a shell script that is currently executing**, even an unhashed one
