@@ -90,12 +90,44 @@ One blocker remains, and it is outside this directory:
   `protocols/` change and must be authorized separately; it must also re-seal the
   regenerated `ThermoRoute_WRR.tex`.
 
-The checked-in `ThermoRoute_WRR.tex` has been regenerated from the current
-Markdown under `agujournal2025.cls` and compiles to a 44-page PDF with zero
-errors and zero overfull boxes. It is *not* seal-valid: its bytes no longer match
-`preopen_document_sha256`, which is the honest state — previously the file was
-seal-valid and content-stale at the same time. It stays **not submittable** until
-the author and opening items below are closed.
+  That guard has two arms: a **phase** arm (refuse once an opening
+  authorization or a confirmatory namespace exists) and a **freeze** arm (the
+  three SHA-256 values). Only the freeze arm is stale. The 2026-08-06
+  regeneration re-asserted the phase arm explicitly — neither
+  `data_usgs/confirmatory_opening_authorization_v1.json` nor
+  `outputs/confirmatory/` exists — and then called `build_agu._render()`
+  directly, so every content check ran unchanged: eight claim blocks, the
+  manuscript-status text, fifteen result-slot markers and their survival through
+  conversion, three Key Points under 140 characters each, the banned phrase, the
+  withdrawn-claim patterns, the legacy-semantics scanner, and the
+  undeclared-Unicode check. **No check was loosened, and `--check` still refuses
+  in this worktree** until the registry is re-sealed.
+
+The checked-in `ThermoRoute_WRR.tex` was regenerated on 2026-08-06 from the
+benchmark-restructured Markdown and compiles under `agujournal2025.cls` to a
+**43-page** PDF with **zero errors, zero overfull boxes, zero missing
+characters, and zero undefined references or citations**. Remaining warnings are
+937 underfull `\hbox` and 36 underfull `\vbox` (the cost of `\sloppy`, and fewer
+than the 979/41 of the previous build) plus six `LaTeX Font Warning`s: two
+10.5 pt size substitutions, `OMS/cmtt` and `OML/cmtt` undefined shapes
+substituted from the standard math fonts, and the two summary lines. The
+`OML/cmtt` warning is new and comes from the Greek `\ensuremath{}` mappings now
+required inside code spans; it is a substitution, not a missing glyph.
+
+It is *not* seal-valid: its bytes no longer match `preopen_document_sha256`,
+which is the honest state — previously the file was seal-valid and content-stale
+at the same time. It stays **not submittable** until the author and opening items
+below are closed.
+
+### Unicode mappings
+
+The restructure added equations (1)–(10) to the body, so `UNICODE_DECLARATIONS`
+in `build_agu.py` now maps the Greek letters and the mathematical operators they
+use. Two combining marks are deliberately **not** mapped: `\DeclareUnicodeCharacter`
+receives a combining mark after its base letter while LaTeX accent commands are
+prefixes, so no honest mapping exists. The Markdown was reworded instead — `q̃`
+became `q` and `q̂_τ` became `Q_τ`, each defined where it is introduced. Do not
+add a mapping that silently drops or misplaces an accent.
 
 ## Reference list
 

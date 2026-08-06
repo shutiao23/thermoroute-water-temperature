@@ -109,4 +109,24 @@ clears every affected key for the models in the confirmatory registry; the only
 survivors are single-member per-station cases, and that variant is not a primary
 model. The target period is different data. The same read-only check must be run
 against the target-period predictions before the one-time opening is executed.
-This is recorded as a provenance qualifier on Figures 3 and S5.
+This is recorded as a provenance qualifier on Figure 4 and Figure S5.
+
+## 4. Which figures project this file, after the 2026-08-06 reassignment
+
+The benchmark restructure moved the probability content out of a dedicated main
+figure. This section exists so that SI08 and the figure manifest cannot drift
+apart.
+
+| Consumer | What it takes from §1–§2 | Evidence period |
+|---|---|---|
+| Manuscript Table 4.4 | the full target-period metric family by model and lead, plus the station-balanced reliability bins | target |
+| **Figure 4(c)** | marginal coverage against mean interval width only — the aggregate plane, with coverage never shown without the width that buys it | target |
+| **Figure S5** | the model-by-horizon coverage/width grid, the event score against the frozen seasonal reference, every registered reliability bin, and the calibration/discrimination diagnostics | target |
+| Figure S9 | **nothing from this file.** S9 carries the Stage-22 development-period conformal sensitivity and may not be compared numerically with Figure 4(c) or S5 | development 2019–2020 |
+
+Three fields in Table 4.4 are not produced by the opening and render as explicit
+status tokens rather than as numbers or blanks: the interval score, the
+block-maximum calibration sensitivity, and the delayed adaptive-conformal
+sensitivity. The development-period analogues of the latter two exist and are in
+Figure S9; they are a different cohort and are never substituted for the
+target-period tokens.

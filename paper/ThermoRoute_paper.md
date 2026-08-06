@@ -25,10 +25,10 @@ ORCID, affiliation number, and institutional e-mail address]
 ## Manuscript status
 
 The one-time 2021–2023 evaluation has not been executed at the time of writing.
-Section 4 reports the development-period evidence that exists and marks the
-evaluation-period tables as slots; every slot names the artifact that will fill
-it. The author block, the archive DOIs, and the data-licence fields are
-placeholders.
+Section 4 reports the development-period evidence that exists and leaves the
+evaluation-period tables as clearly marked slots; every slot names the artifact
+that will fill it. The author block, the archive DOIs, and the data-licence
+fields are placeholders.
 
 ## Abstract
 
@@ -233,7 +233,8 @@ is a real limitation for large basins (Section 6.2).
 
 The primary information set uses provider values dated no later than each
 historical issue date and consumes no horizon-specific future weather forecast.
-This is a date-indexed retrospective hindcast, not an operational replay: the
+This is a date-indexed retrospective hindcast, and not a re-execution of what a
+forecaster could have run on the day (Section 6.1): the
 as-issued provisional vintage of a gridded product cannot be reconstructed after
 the fact, so archiving requests, responses, timestamps, and checksums freezes the
 dataset actually evaluated without proving that identical values were available
@@ -277,13 +278,13 @@ This object, fitted identically, is also the damped-persistence reference.
 **Learned relaxation proposal.** A station-, flow-, and season-conditioned
 relaxation rate replaces the fixed decay in a separate proposal path:
 
-> **(2)**  `κ_{i,t} = σ(b + b_i + β_q q̃_{i,t} + β_s s_t)`, clipped to [10⁻³, 0.999]
+> **(2)**  `κ_{i,t} = σ(b + b_i + β_q q_{i,t} + β_s s_t)`, clipped to [10⁻³, 0.999]
 >
 > **(3)**  `P_{i,t+h} = c_{i,t+h} + e_{i,t} + (1 − κ_{i,t})^h · (a_{i,t} − e_{i,t})`
 
 with `a_{i,t} = y_{i,t} − c_{i,t}` the current anomaly, `e_{i,t}` a learned
 equilibrium anomaly formed from the standardized forcings and a station term,
-`q̃` the standardized log-discharge, and `s_t` a two-component season encoding.
+`q` the standardized log-discharge, and `s_t` a two-component season encoding.
 The bias `b` is initialised at −2.94, so the proposal begins near damped
 persistence. The fitted relaxation rate is a statistical quantity only: it is not
 a heat-transfer coefficient, and no physical interpretation of its value is
@@ -330,9 +331,10 @@ development, `δ = 1.0 °C` is a development-selected algebraic point bound and 
 not a selection from an untouched holdout.
 
 **Loss.** With `y` the observed target, `A` the anchor, quantile levels
-τ ∈ {0.05, 0.50, 0.95}, and `ρ_τ` the pinball loss,
+τ ∈ {0.05, 0.50, 0.95}, `Q_τ` the corresponding quantile head, and `ρ_τ` the
+pinball loss,
 
-> **(8)**  `L = MSE(y, ŷ) + Σ_τ ρ_τ(y, q̂_τ) + λ_e · BCE(exceedance) + λ_c · C + λ_r · ‖ŷ − A‖₁`
+> **(8)**  `L = MSE(y, ŷ) + Σ_τ ρ_τ(y, Q_τ) + λ_e · BCE(exceedance) + λ_c · C + λ_r · ‖ŷ − A‖₁`
 
 with `λ_e = 0.3`, `λ_r = 10⁻²`, `λ_c = 1.0`, and a temperature loss scale of 1.0.
 The point and pinball terms carry unit weight. The term `C` penalises quantile
@@ -768,6 +770,8 @@ audited rows, with a maximum absolute correction of 1.0000 °C against the
 configured 1 °C limit and the derived station-by-lead RMSE inequality holding in
 all 360 cells — a property of the construction rather than a fitted outcome.
 
+<!-- FIGURE_ANCHOR id=S4 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s4 -->
+
 ### 4.3 An information-matched plain convolutional network reproduces the architecture
 
 If a tree is more accurate, is any of the architecture's structure doing work?
@@ -798,8 +802,6 @@ the development-controls run and are compared only with each other and with the
 matched full-architecture arm from the same run (0.6452, 1.3047, 1.6682 °C).
 They are not the five-seed ensemble means of Sections 4.1–4.2 and must not be
 differenced against them.
-
-<!-- FIGURE_ANCHOR id=S4 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s4 -->
 
 ### 4.4 Whole-region holdout removes a third of the transfer skill a random split reports
 
@@ -840,7 +842,7 @@ its station embedding disabled in this arm, gives 0.679, 1.445, and 1.876 °C.
 Since the spatial partition moves the answer this much, the next question is
 whether the remaining skill is spatially and seasonally uniform.
 
-<!-- FIGURE_ANCHOR id=F3 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-3 -->
+<!-- FIGURE_ANCHOR id=F3 state=POST_DEVELOPMENT role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-3 -->
 
 ### 4.5 Skill is regionally uniform, and interval coverage is bought with width
 
@@ -912,6 +914,11 @@ sign-flip raw p-value, Holm-adjusted p-value, and the bound gate verdict.
 **Table 4.2 — all-model scores on the evaluation common keys.**
 `[TO BE FILLED AFTER OPENING]` — station-median RMSE for every primary model at
 every lead on the exact common key registry, with the reportable station count.
+The frozen model registry for this cohort is the six primary models together
+with the seven one-factor architecture controls of Section 3.2, so the control
+rows are rendered here on the same keys and the same denominators; they remain
+exploratory deletion and intervention sensitivities and cannot promote or
+replace a formal row.
 
 **Table 4.3 — temporal coverage and calendar balance.**
 `[TO BE FILLED AFTER OPENING]` — for each of the five rows, all eight predeclared
@@ -948,6 +955,7 @@ evidence in this paper remains the development-period evidence of Section 4.4.
 <!-- FIGURE_ANCHOR id=S5 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s5 -->
 <!-- FIGURE_ANCHOR id=S6 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s6 -->
 <!-- FIGURE_ANCHOR id=S8 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s8 -->
+<!-- FIGURE_ANCHOR id=S10 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s10 -->
 
 ---
 
@@ -1386,10 +1394,16 @@ history-dependent external arm (SI13); missingness and failure cases (SI14);
 reproduction hashes, commands, and environment parity fields (SI15); and the
 rights and data dictionary (SI16).
 
-Nine supporting figures accompany these sections: Figures S1–S3 describe the
+Ten supporting figures accompany these sections: Figures S1–S3 describe the
 frozen cohort geometry, the temporal roles and issue-time information boundary,
 and the model and calibration dataflow, and contain no evaluation-period
-quantity; Figures S4–S8 expand Section 4.6 and are rendered only after the
-acquisition of Section 3.7; and Figure S9 is an optional development-period
+quantity; Figures S4–S8 and S10 expand Section 4.6 and are rendered only after
+the acquisition of Section 3.7; and Figure S9 is an optional development-period
 conformal-calibration sensitivity, labelled as such in the figure itself, which
 must not be compared numerically with any evaluation-period figure.
+
+Each figure carries evidence from exactly one period. Figures 1 and S1–S3 are
+pre-opening structural material, Figures 2 and 4 and Figures S4–S8 and S10 are
+evaluation-period, and Figure 3 and Figure S9 are development-period and say so
+inside the figure. No value from one period is compared numerically with a value
+from another.

@@ -2,6 +2,19 @@
 
 **Date:** 2026-08-05
 **Status:** DECIDED — skeletons revised, spec updated, no figure rendered.
+**§5 partially superseded 2026-08-06.** The benchmark restructure
+(`docs/PAPER_BENCHMARK_RESTRUCTURE.md`) reassigned the four main figures and
+added Figure S10, so the nine-figure manifest in §5 and the numbering used in §3,
+§4 and §7 no longer match the submission. The authoritative manifest is now
+`paper/FIGURE_REDRAW_SPEC.md` §4–§5, with the panel-by-panel delta in its §6.4
+and in `docs/PAPER_FIGURE_SI_RECONCILIATION.md`. Everything else in this
+document stands unchanged and is still the authority for it: the corrected
+Stage-19 facts (§1), the skeleton audit (§2), the determination that the trusted
+scorer supplies target-period interval evidence (§3), the pre-opening degeneracy
+guard (§4a), the exact POST artifact paths, the render-ordering rationale (§6),
+and the AGU size targets (§8.1). Where this document says "Figure 3", read
+"Figure 4(c) and Figure S5"; where it says "Figure 4", read "Figure S10, Figure
+S6(a), Figure 4(b) and Figure S8(b)".
 **Supersedes:** the interim Stage-22 rebinding drafted earlier the same day; see §3.
 **Scope:** the POST-gated figures (Figures 2–4, S4–S9) managed by
 `paper/agu_submission/figures/render_post_main_figures_skeleton.py` and

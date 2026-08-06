@@ -1,16 +1,30 @@
 # ThermoRoute figure-redraw specification
 
 **Document role:** authoritative redraw and evidence-binding specification for
-four main-text figures (Figures 1--4) and nine Supporting Information (SI)
-figures (Figures S1--S9, of which S9 is optional; see §5).  This file
+four main-text figures (Figures 1--4) and ten Supporting Information (SI)
+figures (Figures S1--S10, of which S9 is optional; see §5).  This file
 does not authorize model fitting, target-label access, result filling, opening,
 or submission.
 
-**Current phase:** PRE / no verified opening POST receipt.  Figure 1 and
-Figures S1--S3 are materialized as PRE artifacts under the source bindings and
-visual QA below.  Figures 2--4 and Figures S4--S8 are schema templates only.
-They must not be rendered as submission SVG/PDF/PNG files, even with blank axes
-or placeholder values, before their POST gates pass.
+**Benchmark restructure (2026-08-06).** The manuscript was restructured from an
+architecture paper into an evaluation-benchmark paper
+(`docs/PAPER_BENCHMARK_RESTRUCTURE.md`).  That restructure required four main
+figures whose jobs did not match Figures 1--4 as previously specified.  The
+reassignment is applied in §4 and §5 and recorded, panel by panel, in §6.4 and
+in `docs/PAPER_FIGURE_SI_RECONCILIATION.md`.  Two proposals in the restructure
+brief -- a development-period reference-ladder panel inside target-period
+Figure 2, and a development-period conformal panel inside target-period
+Figure 4 -- are **refused** here, because one figure never mixes two evidence
+periods (§1).  Their content is routed to Figure 3 and Figure S9 respectively.
+
+**Current phase:** PRE / no verified opening POST receipt.  Figures S1--S3 are
+materialized as PRE artifacts under the source bindings and visual QA below.
+**Figure 1's materialized bytes are stale against this revision** -- panel (b)
+changed from the bounded-correction schematic to the station map -- so its
+artifact must be re-rendered by the PRE renderer before submission and must not
+be shipped as it stands.  Figures 2--4 and Figures S4--S10 are schema templates
+only.  They must not be rendered as submission SVG/PDF/PNG files, even with
+blank axes or placeholder values, before their POST gates pass.
 
 **Canonical prose source:** `paper/ThermoRoute_paper.md`
 **Current PRE TeX target:** `paper/agu_submission/ThermoRoute_WRR.tex`
@@ -24,21 +38,22 @@ completion receipt alone is never publication authority.
 
 The states in this table are exhaustive.
 
-| Figure | Canonical responsibility | Current state | Current artifact allowance |
-|---|---|---|---|
-| Figure 1 | quantitative mismatch, bounded-correction insight, and evidence boundary | `PRE_MATERIALIZED_REDRAW` | **PRE artifact only; no POST coordinates and no forest placeholder** |
-| Figure 2 | point-performance evidence | `POST_TEMPLATE_ONLY` | **No** |
-| Figure 3 | interval and event-probability evidence | `POST_TEMPLATE_ONLY` | **No** |
-| Figure 4 | mechanism sensitivities and applicability boundaries | `POST_TEMPLATE_ONLY` | **No** |
-| Figure S1 | cohort selection and registry geometry | `PRE_MATERIALIZED` | **PRE artifact only** |
-| Figure S2 | chronology and issue-time/product information boundary | `PRE_MATERIALIZED` | **PRE artifact only** |
-| Figure S3 | full model and calibration mechanism | `PRE_MATERIALIZED_DESIGN`; final version remains suite-gated | **PRE design artifact only** |
-| Figure S4 | point-performance heterogeneity | `POST_TEMPLATE_ONLY` | **No** |
-| Figure S5 | expanded probabilistic diagnostics | `POST_TEMPLATE_ONLY` | **No** |
-| Figure S6 | temporal opportunity, missingness, and attrition | `POST_TEMPLATE_ONLY` | **No** |
-| Figure S7 | spatial influence and cluster sensitivity | `POST_TEMPLATE_ONLY` | **No** |
-| Figure S8 | outcome QC, external-history arm, and failure disposition | `POST_TEMPLATE_ONLY` | **No** |
-| Figure S9 | development-period conformal calibration sensitivity (optional) | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **No** |
+| Figure | Canonical responsibility | Evidence period | Current state | Current artifact allowance |
+|---|---|---|---|---|
+| Figure 1 | station map, cohort geometry against the claim gate, and the persistence challenge | PRE structural | `PRE_MATERIALIZED_REDRAW_STALE` | **PRE artifact only, and the committed bytes predate this revision: re-render required** |
+| Figure 2 | how baseline choice changes reported skill | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure 3 | how the spatial partition changes the transfer conclusion | **development 2019--2020** | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **No** |
+| Figure 4 | regional and seasonal heterogeneity, and what interval coverage costs | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S1 | cohort selection and registry geometry | PRE structural | `PRE_MATERIALIZED` | **PRE artifact only** |
+| Figure S2 | chronology and issue-time/product information boundary | PRE structural | `PRE_MATERIALIZED` | **PRE artifact only** |
+| Figure S3 | full model, bounded correction, and calibration mechanism | PRE structural | `PRE_MATERIALIZED_DESIGN`; final version remains suite-gated | **PRE design artifact only** |
+| Figure S4 | point-performance heterogeneity | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S5 | expanded probabilistic diagnostics, event score, and reliability | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S6 | temporal opportunity, missingness, and attrition | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S7 | spatial influence and cluster sensitivity | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S8 | outcome QC, external-history arm, and failure disposition | target | `POST_TEMPLATE_ONLY` | **No** |
+| Figure S9 | development-period conformal calibration sensitivity (optional) | **development 2019--2020** | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **No** |
+| Figure S10 | registered architecture interventions and the bounded-deviation audit | target | `POST_TEMPLATE_ONLY` | **No** |
 
 For any state containing `TEMPLATE_ONLY`, “template” means this written panel,
 caption, and binder contract only.  It does **not** mean a rendered empty figure.
@@ -49,7 +64,7 @@ while recording the rebinding in its state token.
 
 **Stage-19 disposition (2026-08-05, final).** The Stage-19 **development**
 script will not be produced for this submission, and Stage-10 cascades from it.
-Figures 3 and S5 are **not** affected: their target-period metrics are computed
+Figure 4(c) and Figure S5 are **not** affected: their target-period metrics are computed
 independently by the trusted scorer inside the one-time opening
 (`src/thermoroute/opening.py:8932-8948`), which emits the full probabilistic
 family per cohort × model × horizon plus station-balanced reliability bins.  Both
@@ -66,12 +81,30 @@ The Stage-22 adaptive-conformal evidence is **development-period**
 (2019-01-01 to 2020-12-24) and is governed by §2.1 layer 2.  It is confined to
 Figure S9, which declares its evidence period and renders a mandatory in-panel
 scope band.  It may never be read as a target-period result, and no value in it
-may be compared numerically with Figure 3 or S5; the confirmatory target period
+may be compared numerically with Figure 4(c) or S5; the confirmatory target period
 starts 2021-01-01.
 
 **One figure never mixes two evidence periods.**  A figure binds either
 target-period or development-period evidence, declares which, and — when
-development — renders an in-panel scope band.  The POST skeletons enforce this.
+development — renders an in-panel scope band.  The POST skeletons enforce this
+at two levels: `FigureSpec.evidence_period` declares the figure's period, and
+`PanelSpec.evidence_period` — when a panel declares one at all — must equal it.
+`validate_manifest()` raises `ManifestError` otherwise, so a mixed-period figure
+cannot be expressed in the manifest, let alone rendered.
+
+That rule is what refuses two proposals in the benchmark-restructure brief:
+
+| Refused proposal | Why | Where the content went |
+|---|---|---|
+| Figure 2 panel (a), "the reference ladder", specified as *development-period with a scope band* inside an otherwise target-period figure | mixes 2019--2020 with 2021--2023 in one figure; a reader comparing two rungs would be comparing two cohorts | Figure 2(a) is rebuilt as the **target-period** ladder over the five reference models the trusted scorer emits; the development-period ladder (+0.251 against persistence versus +0.038 against damped persistence at 7 d) is Figure 3(a) row 1 |
+| Figure 4 panel (d), "what calibration costs", specified as *development-period with a scope band* inside an otherwise target-period figure | same hazard, and the Stage-22 evidence already has a home | Figure S9 panels (a)--(b), which carry exactly those numbers with a mandatory scope band |
+
+The complementary rule is that a **development-period figure is still a POST
+figure**: Figure 3 and Figure S9 both require the verified opening receipt
+before they render.  The receipt is not what supplies their numbers; it is the
+gate that proves the submission is past the one-shot boundary and that no
+development display is being published as a substitute for a target-period
+result that was never produced.
 
 ---
 
@@ -263,42 +296,51 @@ directional adjective before the bound POST value exists.
 
 ## 4. Main-text figure specifications
 
-## Figure 1 — Why constrained predictions require constrained claims
+## Figure 1 — The cohort, and what its geometry can carry
 
-**State:** `PRE_MATERIALIZED_REDRAW`
-**Research question:** What structural mismatch motivates ThermoRoute, and what
-single design principle resolves it without overstating the evidence?
-**Narrative role:** quantified mismatch -> bounded mechanism -> evidence boundary.
+**State:** `PRE_MATERIALIZED_REDRAW_STALE`
+**Evidence period:** PRE structural — the frozen registry and the 2006--2015
+training partition only.  No post-2020 outcome, no development score.
+**Research question:** what panel is this, where are its gauges, and what
+inferential weight can its spatial geometry support?
+**Narrative role:** cohort -> geometry against the claim gate -> the motivation
+quantity the whole benchmark is measured against.
+
+**Reassignment note (2026-08-06).** Panel (b) was the bounded-correction
+schematic.  Under the benchmark restructure the architecture is the object under
+test rather than the contribution, so a thesis-level mechanism panel no longer
+belongs in the opening figure; the station map, which the restructure needs and
+which previously existed only inside Figure S1, takes its place.  The
+bounded-correction schematic moves to Figure S3 (§5), where the full
+model/bound/calibration dataflow already lives.  **The committed Figure 1 bytes
+were rendered against the previous panel set and are therefore stale.**
 
 ### Panel structure and plot types
 
-**(a) Persistence challenge.** Plot one station-level point per retained site for
-each horizon $h\in\{1,3,7\}$, where the point is a frozen training-period
-descriptive statistic such as the median observed
-$\lvert T_{t+h}-T_t\rvert$.  Use three aligned dot/box summaries.  The calculation is
-restricted to 2006--2015, exact calendar-day pairs, finite observed WTEMP at both
-ends, no target imputation, and equal station representation.  It is a motivation
-diagnostic, not a model score or confirmation result.
+**(a) Station map.** Plot the 120 retained sites on a CONUS base, coloured by
+HUC2 region and sized by retained observed-`WTEMP` day count, with redundant
+non-colour encoding so the panel survives a grayscale check.  Inset: a
+zero-based histogram of nearest-neighbour distance between retained stations,
+annotating the 10 km mark (19 stations) and the 289 km mean
+nearest-training-gauge distance of the whole-region holdout on the same axis, so
+the reader sees the two spatial scales the benchmark contrasts.  Any basemap or
+HUC boundary source carries its own citation, version, licence, and source
+binding; without such a source the panel renders a coordinate scatter and binds
+`NO_BASEMAP`.  *Sources:* `data_usgs/station_registry_v1.csv`; the frozen
+environmental audit for proximity; the Stage-13c region-transfer table for the
+289 km value, bound as a **structural geometry** quantity and never as a score.
 
-**(b) Bounded correction.** Show the damped anchor $A_{t+h}$, unrestricted
-learned displacement $z_{t+h}=P_{t+h}-A_{t+h}+r_{\theta,t+h}$, and
-
-\[
-\widehat y_{t+h}=A_{t+h}+\delta\tanh(z_{t+h}/\delta),
-\qquad \delta=1.0\ ^\circ\mathrm C.
-\]
-
-Use an anchor line and a shaded $A\pm\delta$ envelope.  The warning
-“Deviation from anchor; not an error or safety bound” is part of the panel, not a
-footnote hidden in the caption.
-
-**(c) Dependence-aware evidence and claim boundary.** Plot the 15
-registry-derived HUC2 station counts and show the dimensional collapse from
+**(b) Cluster geometry against the gate.** Plot the 15 registry-derived HUC2
+station counts as zero-based bars (2 … 26) and show the dimensional collapse from
 657,480 site-days to 120 sites and 15 pre-attrition HUC2 groups.  Beside the
-bars, render the three frozen gate checks without a shared false numeric axis:
-15 versus at least 30 groups, $9.54/15=0.636$ versus at least 0.75 effective
-fraction, and 21.7% versus less than 25% largest-group share.  Continue with a
-short left-to-right evidence spine:
+bars, render the three frozen gate checks as three separate small gauges, never
+on a shared false numeric axis: 15 versus at least 30 groups,
+$9.54/15=0.636$ versus at least 0.75 effective fraction, and 21.7% versus less
+than 25% largest-group share.  A fourth strip shows the HUC2/HUC4/HUC6/HUC8
+ladder (15 / 64 / 75 / 95 clusters at effective fractions
+0.636 / 0.507 / 0.485 / 0.758) with HUC8 marked *passes the arithmetic; adjacent
+units on one river are not independent*.  Continue with a short left-to-right
+evidence spine:
 
 ```text
 date-indexed allowed history
@@ -312,78 +354,124 @@ date-indexed allowed history
 The target outcome and horizon-specific future weather are shown outside the
 predictor input boundary.  The panel says that the frozen date-index contract
 excludes those inputs; it does not claim archived as-issued availability or proof
-of local-day alignment.
+of local-day alignment.  *Sources:*
+`docs/OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md` §1 for the ladder; the frozen
+registry; the claim registry and inference-gate identities.
+
+**(c) The persistence challenge.** Plot one station-level point per retained site
+for each horizon $h\in\{1,3,7\}$, where the point is a frozen training-period
+descriptive statistic such as the median observed
+$\lvert T_{t+h}-T_t\rvert$.  Use three aligned dot/box summaries.  The calculation
+is restricted to 2006--2015, exact calendar-day pairs, finite observed WTEMP at
+both ends, no target imputation, and equal station representation.  It is the
+motivation quantity, not a model score and not a confirmation result.
 
 ### Caption takeaway
 
-> Strong short-horizon persistence and the collapse from daily rows to a small,
-> unbalanced set of spatial groups create two coupled risks: unconstrained learned
-> corrections can depart from a strong reference, and row-level evaluation can
-> overstate evidential certainty. ThermoRoute bounds the point correction around
-> damped persistence and separately bounds the eligible claim through exact-key,
-> station-balanced, HUC-aware, fail-closed evaluation. The algebraic envelope is
-> not a truth-error, ecological, regulatory, or deployment-safety guarantee.
+> The evaluated cohort is 120 availability-selected gauges whose spatial grouping
+> collapses to 15 unbalanced HUC2 units with an effective count under ten, and
+> whose day-to-day water temperature is strongly persistent at every lead
+> reported here. Those two facts set the benchmark's terms: a reference model
+> that does not already exploit persistence and seasonality concedes most of the
+> error budget before fitting, and a partition of this geometry cannot carry
+> region-clustered inference. Neither statement is a model result.
 
 ### Data fields and value IDs
 
 | Panel | Required fields/values | Required source role |
 |---|---|---|
-| (a) | `site_no`, `date_t`, `date_th`, `horizon_days`, `wtemp_t`, `wtemp_th`, `observed_pair`, `site_statistic`, `n_pairs` | frozen 2006--2015 panel and registry; training-only descriptive derivation |
-| (b) | anchor identity, `delta_scale`, equation/config identity, source hash | implementation/configuration binding |
-| (c) | panel rows, site count, pre-attrition HUC2 count, HUC2 counts, effective cluster count/fraction, largest-group share, allowed-variable/date roles, aggregation roles, inference/QC gate identities, fixed scope status | frozen panel/registry/environmental audit plus protocol, claim registry, and information-boundary contract |
+| (a) | `site_no`, latitude/longitude, `huc2`, retained observed-`WTEMP` day count, nearest-neighbour distance, 10 km count, 289 km whole-region mean, basemap/source-rights status | frozen registry, environmental audit, and region-transfer fold geometry as a **structural** quantity |
+| (b) | panel rows, site count, pre-attrition HUC2 count, HUC2 counts, effective cluster count/fraction, largest-group share, the HUC2/4/6/8 ladder, allowed-variable/date roles, aggregation roles, inference/QC gate identities, fixed scope status | frozen panel/registry/environmental audit plus protocol, claim registry, and information-boundary contract |
+| (c) | `site_no`, `date_t`, `date_th`, `horizon_days`, `wtemp_t`, `wtemp_th`, `observed_pair`, `site_statistic`, `n_pairs` | frozen 2006--2015 panel and registry; training-only descriptive derivation |
 
-Every station marker in panel (a) binds its site identity, horizon, statistic, and
-pair count.  Every displayed summary line has a separate value ID; it is not
-recomputed by the plotting layer.
+Every station marker in panels (a) and (c) binds its site identity, horizon,
+statistic, and pair count.  Every displayed summary line has a separate value ID;
+it is not recomputed by the plotting layer.
 
 ### Gate
 
-- **PRE:** permitted after source-hash validation, declared panel-(a) derivation,
-  no access to post-2020 outcomes, and visual QA.
-- **POST:** Figure 1 remains the same design/motivation role; it is not refilled
-  with confirmation effects.  POST may update only bound provenance/status text,
-  not replace panel (a) with target performance.
+- **PRE:** permitted after source-hash validation, declared panel-(c)
+  derivation, no access to post-2020 outcomes, and visual QA.  The current
+  committed artifact does **not** satisfy this gate for the panel set above and
+  must be re-rendered.
+- **POST:** Figure 1 keeps the same cohort/geometry role; it is not refilled with
+  confirmation effects.  POST may update only bound provenance/status text, not
+  replace a panel with target performance.
 
 ### Prohibited semantics
 
 “No leakage” without qualification; “15 reportable HUC2 groups”; independent
-river-network components; national representation; safe prediction; bounded
-error; causal thermal transport; superiority; a target-period forest; any
-`PENDING` result cell.
+river-network components; national representation or a national coverage claim;
+upstream/downstream arrows; interpolated skill surface on the map; safe
+prediction; bounded error; causal thermal transport; superiority; a target-period
+forest; any `PENDING` result cell.
 
 ### Acceptance
 
-- A reader can state the mismatch, insight, and evidence boundary from the figure
-  and caption alone.
-- All panel-(a) values are training-only and station-balanced.
-- The panel-(c) gate quantities are not visually compared on a false common scale.
-- The bound warning remains legible at final placed size.
+- A reader can state where the gauges are, how coarse and unbalanced their
+  grouping is, and how strongly persistent the target is, from the figure and
+  caption alone.
+- All panel-(c) values are training-only and station-balanced.
+- The panel-(b) gate quantities are not visually compared on a false common
+  scale, and the HUC8 row is never presentable as a route to eligibility.
 - No target-period score, interval, p-value, or verdict is present.
+- The 289 km annotation in panel (a) is bound as fold geometry, never as skill.
 
 ---
 
-## Figure 2 — Point performance on frozen common keys
+## Figure 2 — Baseline choice, not architecture, sets the reported gain
 
 **State:** `POST_TEMPLATE_ONLY`
-**Research question:** On the fixed observable cohort, how does ThermoRoute's point
-performance compare with all six primary models and with the five registered
-references?
-**Narrative role:** primary end-to-end evidence.
+**Evidence period:** target, 2021-01-01 through 2023-12-31.  Every rung, point,
+and interval in this figure is scored by the trusted scorer inside the one-time
+opening.
+**Research question:** how much of a reported gain survives a strong reference,
+and how does ThermoRoute's point performance compare with all six primary models
+and with the five registered comparison rows?
+**Narrative role:** primary end-to-end evidence, and the first of the
+benchmark's three design levers.
+**First citation:** close of the Results subsection on the reference model.
 
 ### Panel structure and plot types
 
-**(a)--(c) All-model station distributions by horizon.** One small multiple for
-each of 1, 3, and 7 days.  Plot station-level RMSE points or ECDFs for persistence,
-damped persistence, climatology, LightGBM, global LSTM, and ThermoRoute on one
-declared all-model exact-common-key set.  Show retained station counts.
+**(a) The reference ladder.** For each lead, score the *same* ThermoRoute
+predictions against every reference the trusted scorer emits — persistence,
+damped persistence, seasonal climatology, global LightGBM, and the global LSTM —
+and plot the five resulting skill values on one dimensionless axis, connected, so
+the spread between the weakest and the strongest reference is the panel's
+subject.  Label the persistence and damped-persistence rungs by name.  One panel
+per lead, or one panel with lead as a marker shape.  The axis is labelled
+*dimensionless; positive favours the candidate* (equation 10 of the manuscript),
+and no ΔRMSE quantity appears on it.
+*Artifact:* `trusted/temporal_predictions_v1.parquet` and
+`trusted/availability_registry_v1.csv` on the declared all-model
+exact-common-key set, reduced with the scorer's own station-RMSE recipe.
 
-**(d) Registered five-row forest.** Plot the unweighted median station-level
+The information-matched plain causal TCN is **not** a rung here.  It is a
+development-only control (Stage-09b), it is absent from the protocol's model
+registry, and putting it on a target-period axis would be exactly the
+development-cache substitution this figure's gate forbids.  Its comparison is a
+development-period quantity and belongs to Figure S10's SI09 companion table.
+
+**(b)--(d) All-model station distributions by horizon.** One small multiple for
+each of 1, 3, and 7 days.  Plot station-level RMSE points or ECDFs for
+persistence, damped persistence, climatology, LightGBM, global LSTM, and
+ThermoRoute on one declared all-model exact-common-key set.  Show retained
+station counts.
+
+**(e) Registered five-row forest.** Plot the unweighted median station-level
 ThermoRoute-minus-reference RMSE and whole-HUC2 bootstrap interval for all five
 registered rows.  Draw the 0.00 degrees C line for damped-persistence rows and
 the +0.05 degrees C ceiling for LightGBM rows.  Put status, station count, and
 cluster count beside each row.  Raw p, Holm p, win rate, and bound checks belong
 in main Table T2 and share its value IDs; do not encode them as significance
 stars.
+
+Panels (b)--(e) carry ΔRMSE or RMSE in degrees C and are labelled *negative
+favours the candidate*; panel (a) carries a dimensionless skill score labelled
+*positive favours the candidate*.  The two are never plotted on one axis and
+never share a colourbar, because a positive value means opposite things in the
+two conventions.
 
 ### Caption takeaway
 
@@ -400,121 +488,237 @@ fixed ending is:
 
 | Display | Required values |
 |---|---|
+| ladder mark | reference model ID, horizon, skill value, its two component station-median RMSEs, common-key digest, station count, sign convention |
 | all-model mark | model ID, horizon, site ID, common-key digest, paired-key count, station RMSE, reportability status |
 | forest mark | test ID, candidate/reference IDs, horizon, margin, status, effect, CI low/high, station count, cluster count, gate verdict |
 | T2 companion | win rate, raw p, Holm p, margin checks and their exact shared value IDs |
 
 Source pointers resolve to trusted POST predictions, `formal_tests[*]`, the
 opening receipt, and gate artifacts.  Selective omission of a model, site, horizon,
-or formal row rejects the figure.
+reference rung, or formal row rejects the figure.
 
 ### Gate
 
 - **PRE:** schema text only.  Do not generate an SVG/PDF/PNG or placeholder
   forest.
 - **POST:** complete opening/evidence/render receipts; exact key registry; all
-  five formal rows exactly once; all six primary models; bound NA handling;
-  permanently descriptive gate text.
+  five formal rows exactly once; all six primary models; every reference rung the
+  scorer emits; bound NA handling; permanently descriptive gate text.
 
 ### Prohibited semantics
 
 Significance coloring or stars; “wins,” “beats,” “non-inferior,” “equivalent,” or
 “parity”; a national claim; row-wise pooled uncertainty presented as station
-uncertainty; hidden non-estimable rows; development-cache substitution; a y-axis
-or x-axis chosen after inspecting favourable values.
+uncertainty; hidden non-estimable rows; development-cache substitution; a
+development-period rung on the target-period ladder; a skill value and a ΔRMSE
+value on one axis; a y-axis or x-axis chosen after inspecting favourable values.
 
 ### Acceptance
 
 - Negative effect direction and margin interpretation are explicit.
+- The ladder's dimensionless axis and the forest's degrees-C axis are separately
+  labelled with their opposite sign conventions.
 - All-model and formal-pair denominators are separately labelled.
 - Figure 2 and T2 share value IDs and rounding.
 - Counts and NA rows remain visible.
+- Every rung of panel (a) is target-period; none is development-period.
 - Caption contains a receipt-rendered reading, mechanism-neutral explanation, and
   permanent scope boundary.
 
 ---
 
-## Figure 3 — Marginal intervals and event-probability behavior
+## Figure 3 — The spatial partition changes the transfer conclusion
 
-**State:** `POST_TEMPLATE_ONLY`
-**Restored:** 2026-08-05, superseding the same-day interim rebinding onto
-Stage-22.  See `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` §3.
-**Research question:** How sharp and empirically calibrated are the frozen
-uncertainty outputs, and what probability discrimination/calibration trade-offs
-remain?
-**Narrative role:** benefit-plus-cost evidence for probabilistic outputs.
-**Evidence period:** target, 2021-01-01 through 2023-12-31.
+**State:** `POST_TEMPLATE_ONLY_DEVELOPMENT`
+**Promoted:** 2026-08-06.  This slot previously held the marginal-interval and
+event-probability figure; the benchmark restructure needs a main figure for the
+random-held-site versus whole-region contrast, and that content had no main-text
+slot.  The interval and event-probability panels move to Figure 4(c) and to
+Figure S5 (§6.4).
+**Evidence period:** **development, 2019-01-01 through 2020-12-24** — not a
+target-period result.  A mandatory in-panel scope band
+(`fig03.scope.development_period_not_confirmation`) is rendered.
+**Research question:** how much of a reported spatial transfer survives
+whole-region holdout rather than a random held-site split?
+**Narrative role:** the benchmark's second design lever, and the one with the
+largest single effect on a reported number.
+**First citation:** close of the Results subsection on whole-region holdout.
 
-### Stage-19 does not affect this figure
+### Why this figure is development-period, and why it is still POST-gated
 
-The withheld `scripts/19_probabilistic.py` is a **development** tool.  The
-target-period probabilistic family is computed independently by the trusted
-scorer inside the one-time opening.  `src/thermoroute/opening.py:8932-8948`
-emits, per cohort × model × horizon:
+The one-time opening produces **no** held-region artifact.  The confirmatory
+protocol registers a temporal cohort and a site-identifier-disjoint external
+cohort; a leave-one-HUC2-region-out arm is not among them, and
+`docs/R13_POSTOPEN_TABLE_RENDERER.md` §6 records that Table 4.6's held-region
+fragment renders as `NOT_EMITTED_BY_THE_ONE_TIME_OPENING`.  The whole-region
+holdout evidence in this paper is therefore the Stage-13c development-period
+evidence, permanently, and the figure says so inside the panel rather than in a
+caption a reader may skip.
 
-`coverage_90`, `mean_interval_width_c`, `pinball_q05_c`, `pinball_q50_c`,
-`pinball_q95_c`, `equal_weight_three_quantile_pinball_mean_c`, `brier_score`,
-`frozen_reference_brier_score`, `brier_skill_frozen_seasonal`, `log_loss`,
-`auroc`, `auprc`, `ece_10_equal_width`, `calibration_intercept`,
-`calibration_slope`, `event_rate`
-
-plus station-balanced reliability bins whose weights must sum to one
-(`opening.py:8920-8926`), against a frozen seasonal event reference validated by
-`validate_frozen_seasonal_event_reference`.  That is a superset of what this
-figure requires, at exactly the granularity it requires.  The original design is
-therefore retained in full and no panel is dropped.
-
-The development-period Stage-22 conformal evidence is **not** used here.  It is
-confined to Figure S9.
+It is nonetheless gated on the verified opening receipt, exactly like every other
+POST figure.  A development-period main figure is legitimate only when the
+submission is past the one-shot boundary and the reader can see what the opening
+did and did not produce; publishing it earlier would let a development display
+stand in for a target-period result that was never attempted.
 
 ### Panel structure and plot types
 
-**(a) Coverage--width plane.** Plot station-balanced empirical 90% marginal
-coverage against mean interval width for every eligible learned model and
-horizon.  Use horizon markers and model colors; draw the 0.90 nominal reference
-without implying a formal coverage test.  Point-only models bind a
-`NOT_AVAILABLE` status and never receive invented heads.
+**(a) The three arms.** Plot median station skill against persistence for the
+temporal, random-held-site warm-start, and held-region gauged-transfer arms at
+each lead, with the against-damped-persistence values on a paired secondary
+panel.  Slope lines between arms make the reduction readable.  Both axes are
+dimensionless and labelled *positive favours the candidate*.  The panel is the
+development-period reference ladder as well as the partition contrast: the
+temporal arm's two rows are the same predictions scored against two references.
+*Artifact:* the Stage-13b/13c transfer-arm report and row table.
 
-**(b) Event score.** Plot Brier skill against the frozen seasonal reference by
-model and horizon.  Show the zero-skill line and the bound reference identity.
-The reference is the frozen seasonal climatology; confirmation-period event
-prevalence is never used as the Brier reference.  Log score and three-quantile
-pinball remain in SI/Table unless a predeclared layout requires them.
+**(b) Fold geometry.** Draw the 15 HUC2 groups packed into four folds of
+[30, 30, 31, 29] stations on the same base as Figure 1(a), one colour and one
+hatch per fold, with held-out stations outlined.  *Artifact:* the Stage-13c
+region-transfer table and report; `data_usgs/station_registry_v1.csv`.
 
-**(c)--(e) Reliability.** One panel per horizon.  Plot observed station-balanced
-event frequency against mean forecast probability with the identity line.  Point
-area represents the bound bin denominator or station-balanced effective weight;
-empty bins are retained as explicit empty-bin annotations.
+**(c) Distance is the association.** Plot per-station held-region skill against
+the distance to that station's nearest training gauge, marking the 289 km mean,
+with the random-held-site arm overplotted in a muted style at its own much
+smaller distances.  The panel asserts association only.  The in-panel note and
+the caption both say so; no fitted line, correlation coefficient, or causal verb
+appears.
+
+**(d) The ranking is unchanged.** Plot held-region station-median RMSE for
+ThermoRoute, global LightGBM, and the global LSTM by lead, with the paired
+station-level ΔRMSE and whole-HUC2 intervals beneath, in degrees C and labelled
+*negative favours the candidate*.  *Artifact:* the Stage-13c region-transfer
+report and the LSTM baseline report.
 
 ### Caption takeaway
 
-> The figure jointly reports empirical marginal coverage and width, evaluates
-> event probabilities against a frozen seasonal reference, and shows the support
-> behind each reliability bin. These are station-balanced descriptive diagnostics;
-> they do not establish conditional coverage, operational calibration, or decision
-> value, and the equal-weight three-quantile pinball summary is not CRPS.
+> Holding out whole hydrologic regions rather than random gauges reduces reported
+> skill on this panel, at a mean nearest-training-gauge distance two orders of
+> magnitude larger than the spacing inside the intact cohort. These are
+> development-period diagnostics on a fixed availability-selected cohort over
+> 2019--2020; the one-time evaluation produces no held-region arm, so no value
+> here has a target-period counterpart and none may be compared numerically with
+> Figure 2, Figure 4, or any SI figure bound to the evaluation period. The
+> distance panel reports association, not a transfer mechanism.
 
 ### Data fields and value IDs
 
-`cohort`, `model`, `horizon`, pre/post-reportability forecast counts, site count,
-minimum targets, station-weight audit, `coverage_90`,
-`mean_interval_width_c`, nominal q05/q50/q95 pinball components,
-`brier_score`, frozen-reference Brier score, Brier skill, log loss, AUROC, AUPRC,
-ECE, calibration intercept/slope, event/non-event counts, event rate, reliability
-bin ID/bounds/denominator/mean probability/observed frequency, undefined reason,
-and probability-pipeline source identities.
+| Panel | Required values |
+|---|---|
+| (a) | arm ID, reference model ID, horizon, median station skill, station count, cluster count, exact-key digest, sign convention |
+| (b) | fold ID, HUC2 unit, station ID, coordinates, held-out flag, fold station counts |
+| (c) | site ID, nearest-training-gauge distance, per-station held-region skill, arm ID, mean-distance reference, association-only status |
+| (d) | model ID, horizon, held-region station-median RMSE, paired ΔRMSE, whole-HUC2 interval endpoints, win rate, station count |
 
-Each reliability x coordinate, y coordinate, and point-size value has a separate
-value ID.  Point-only models bind a `NOT_AVAILABLE` status and do not receive
-invented heads.
+Every arm-level value binds its own exact-key digest and denominator.  The
+temporal, random-held-site, and held-region arms are three different key sets and
+are never pooled into one mark.
 
 ### Gate
 
-- **PRE:** schema text only; no axes or dummy reliability points may be rendered.
-- **POST:** opening receipt; `trusted/probabilistic_evaluation_v2.json`;
+- **PRE:** schema text only.  No axes, no fold map, no placeholder arm.
+- **POST:** verified opening receipt; Stage-13c region-transfer table and report;
+  the transfer-arm report carrying the random-held-site fold results; the
+  confirmatory protocol; the frozen station registry; a bound evidence-period
+  declaration; the in-panel scope band; render receipt.
+
+### Prohibited semantics
+
+Target-period coverage of any statement in this figure; ungauged prediction;
+river-network or hydraulic transfer; independent river-network components;
+national inference; a causal reading of the distance panel; superiority,
+non-inferiority, equivalence, or parity; numerical comparison against Figure 2,
+Figure 4, or any target-period SI figure as if the two were one cohort; a
+held-region arm described as an evaluation-period result.
+
+### Acceptance
+
+- All three arms, all three leads, and both reference models appear or bind an
+  explicit NA.
+- The in-panel scope band is legible at final placed size and names the
+  development span and the 2021-01-01 target start.
+- The fold map reconciles to 120 stations and to fold sizes [30, 30, 31, 29].
+- Skill (dimensionless) and ΔRMSE (degrees C) never share an axis.
+- The distance panel carries its association-only statement inside the panel.
+
+## Figure 4 — Regional and seasonal heterogeneity, and what coverage costs
+
+**State:** `POST_TEMPLATE_ONLY`
+**Reassigned:** 2026-08-06.  This slot previously held the mechanism and
+applicability-boundary figure.  Its architecture-intervention panel moves to
+Figure S10, its attrition waterfall to Figure S6, and its external-arm panel to
+Figure S8; its temporal-sensitivity panel stays here as panel (b), joined by the
+regional heterogeneity of Figure S7's aggregate and the coverage--width plane of
+the former Figure 3(a).  See §6.4.
+**Evidence period:** target, 2021-01-01 through 2023-12-31.
+**Research question:** is the remaining skill uniform across regions and
+seasons, and what does a calibrated interval cost?
+**Narrative role:** the benchmark's third lever — heterogeneity — plus the price
+of the uncertainty statement.
+**First citation:** close of the Results subsection on regional uniformity and
+interval width.
+
+### Panel structure and plot types
+
+**(a) Regional heterogeneity.** Plot per-HUC2 median skill against persistence
+and against damped persistence at each lead, ordered by region, with the pooled
+median and the region-weighted mean drawn as named reference lines and station
+count per region encoded by marker size.  The panel's subject is the compression
+between the two reference columns, not the ranking of regions.  *Artifact:*
+`trusted/spatial_sensitivity_v1.json` `comparisons[].per_huc[]`.  Note that
+`per_huc[].huc2` is a cluster label of the form `HUC2:01` or
+`UNMAPPED:<site_no>`, not a bare two-digit code; `UNMAPPED` units render as
+themselves and are never folded into a neighbour.
+
+**(b) Seasonal and annual heterogeneity.** Plot all eight frozen descriptive
+candidates per formal row: equal weighting of the 12 year-by-season cells, three
+leave-one-year values, and four leave-one-season values.  Mark the deterministic
+most-adverse value; retain the formal effect as a distinct reference and never
+replace it.  *Artifact:* `trusted/temporal_coverage_audit_v1.json`.
+
+**(c) Coverage--width plane.** Plot station-balanced empirical 90% marginal
+coverage against mean interval width for every eligible learned model and
+horizon.  Use horizon markers and model colours; draw the 0.90 nominal reference
+without implying a formal coverage test.  Point-only models bind a
+`NOT_AVAILABLE` status and never receive invented heads.  Coverage is never shown
+without the width that buys it.  *Artifact:*
+`trusted/probabilistic_evaluation_v2.json` `coverage_90`,
+`mean_interval_width_c`.
+
+There is no development-period panel in this figure.  The Stage-22
+split-CQR / block-maximum / delayed-ACI contrast that the restructure brief
+proposed as panel (d) is 2019--2020 evidence and is carried by Figure S9.
+
+### Caption takeaway
+
+> Skill on this cohort is close to uniform across hydrologic regions once the
+> reference model already exploits seasonality, and it is close to uniform across
+> years and seasons under all eight predeclared coverage candidates. The interval
+> panel reports achieved marginal coverage together with the width that buys it.
+> These are station-balanced descriptive diagnostics on a fixed observable
+> cohort: they do not establish conditional coverage, year or season stability,
+> missing-at-random outcomes, or independence between hydrologic units, and a
+> favourable coverage candidate never replaces a formal row.
+
+### Data fields and value IDs
+
+| Panel | Required values |
+|---|---|
+| (a) | comparison ID, HUC2 cluster label, per-HUC effect/skill, station count, pooled median, region-weighted mean, interval/status, registry binding |
+| (b) | test ID, sensitivity ID/order, candidate definition, effect, support, formal-effect reference, deterministic-worst flag |
+| (c) | cohort, model, horizon, `coverage_90`, `mean_interval_width_c`, station-weight audit, pre/post-reportability forecast counts, site count, minimum targets, `NOT_AVAILABLE` reason, probability-pipeline source identity |
+
+### Gate
+
+- **PRE:** schema text only.  No axes, no dummy coverage point, no placeholder
+  candidate.
+- **POST:** verified opening receipt; `trusted/spatial_sensitivity_v1.json`;
+  `trusted/temporal_coverage_audit_v1.json`;
+  `trusted/probabilistic_evaluation_v2.json`;
   `trusted/temporal_predictions_v1.parquet`;
   `trusted/availability_registry_v1.csv`; erratum binding; confirmatory protocol;
-  SI08; render receipt.
+  SI08, SI10, SI11; render receipt.  If any panel lacks authority, Figure 4 is
+  not generated, and a development panel is never substituted.
 
 ### Pre-opening guard (blocking risk, not a figure risk)
 
@@ -525,101 +729,26 @@ Measured on the development panel: member averaging clears every affected
 LightGBM key (5 members); the only 12 survivors are single-member
 `LightGBM-perstation` keys, and that model appears in neither `PRIMARY_MODELS`
 nor the confirmatory protocol.  **Re-run this check on the target-period
-predictions before executing the one-time opening.**
+predictions before executing the one-time opening.**  The qualifier travels with
+panel (c) and with Figure S5.
 
 ### Prohibited semantics
 
 Conditional coverage; distribution-free target-period guarantee; CRPS; operational
-forecast reliability; economic value; merged or silently removed empty bins;
-unreported single-class/fit-failure NA; coverage without width; using confirmation
-event prevalence as the Brier reference; "quantile crossing" as the Stage-19
+forecast reliability; economic value; coverage without width; “all calendar
+days”; stability across years or seasons; missing-at-random; HUC2 as an
+independent river-network component; national inference; favourable sensitivity
+used to replace or rescue a formal row; "quantile crossing" as the Stage-19
 cause; development-period conformal numbers presented as target-period results.
 
 ### Acceptance
 
-- Coverage and sharpness are read together.
-- The quantile/CQR/Platt source for every metric is correct.
-- Every bin exposes support and weighting.
-- Undefined metrics remain visible with their reason.
-- Identity, nominal, and zero-skill references are visually distinct and named.
+- All HUC2 units, all eight temporal candidates, and every eligible model ×
+  horizon coverage cell appear or bind an explicit NA.
+- Coverage and sharpness are read together in one panel.
+- The pooled median and the region-weighted mean are separately named.
+- The formal effect is visually distinct from every sensitivity candidate.
 - No value in this figure is development-period.
-
-## Figure 4 — Mechanism sensitivities and applicability boundaries
-
-**State:** `POST_TEMPLATE_ONLY`
-**Research question:** Which registered interventions change the prediction, and
-over what observable temporal and external-site scope do the reported effects
-remain descriptive?
-**Narrative role:** mechanism evidence -> sensitivity -> boundary.
-
-### Panel structure and plot types
-
-**(a) Architecture interventions.** Use a horizon-by-control dot matrix for all
-seven registered one-factor controls: prior-only, no dynamic prior, fixed
-relaxation, no router, no mixture, no TCN, and unbounded residual.  Plot paired
-station-level RMSE difference from full ThermoRoute and show seed/member
-completeness.  The bounded/unbounded pair also reports the algebraic-deviation
-violation audit.  Do not select controls after seeing their values.
-
-**(b) Availability/attrition.** Use a horizon-specific waterfall that keeps
-calendar opportunities, observed issue WTEMP, observed target WTEMP, exact paired
-keys, retained stations, and reportable clusters as distinct stages.
-
-**(c) Temporal sensitivity.** Plot all eight frozen descriptive candidates:
-equal weighting of the 12 year-by-season cells, three leave-one-year values, and
-four leave-one-season values.  Mark the deterministic unfavourable value; retain
-the formal effect as a distinct reference and never replace it.
-
-**(d) External history-dependent arm.** Show the six primary models by horizon on
-the exact external-arm key set.  The panel title includes “site-ID disjoint,
-history-dependent; not ungauged.”  It may show paired effects or station-RMSE
-distributions, but not a river-network transfer map.
-
-### Caption takeaway
-
-> The registered controls diagnose sensitivity to individual architecture
-> interventions, while the attrition, temporal, and external panels delimit the
-> observable cohort on which performance is described. The controls are
-> exploratory and noncausal; favourable temporal sensitivity cannot replace the
-> formal effect, and the external arm uses target-site water-temperature history
-> through each issue date.
-
-### Data fields and value IDs
-
-| Panel | Required values |
-|---|---|
-| (a) | control/model ID, exact intervention, seed/member registry, key digest, site/horizon effect, bound-violation count/rate, suite/receipt lineage |
-| (b) | horizon, stage ID, eligible-before, retained-after, exclusion reason, site/cluster counts, denominator role |
-| (c) | test ID, sensitivity ID/order, candidate definition, effect, support, formal-effect reference, deterministic-worst flag |
-| (d) | external cohort binding, site-disjoint audit, history requirement, model/horizon, exact keys, site count, score/effect, status |
-
-Stage-09b PlainMLP/PlainCausalTCN and feature-ladder results remain explicitly
-development-only.  They may be tabulated in SI09 under their own evidence role;
-they may not be substituted for panel (a)'s POST target sensitivities.
-
-### Gate
-
-- **PRE:** schema text only.  No rendered panel may contain Stage-09 or Stage-09b
-  development numbers.
-- **POST:** all seven target control rows under the final model/seed contract,
-  verified temporal-coverage and external receipts, exact denominator bindings,
-  and render receipt.  If any panel lacks authority, Figure 4 is not generated;
-  a development panel is not substituted.
-
-### Prohibited semantics
-
-Component necessity; causal attribution; capacity-matched claim unless the exact
-comparison proves it; post hoc control selection; “all calendar days”; stability
-across years/seasons; ungauged prediction; hydrologic independence; network
-transfer; rescue of a failed or unfavourable formal row.
-
-### Acceptance
-
-- All seven interventions and all eight temporal candidates are present.
-- Every waterfall stage has a named denominator and exclusion reason.
-- The external scope warning is visible inside the panel and caption.
-- Development-only and POST values are never mixed.
-- A boundary result is discussed even when point performance is favourable.
 
 ---
 
@@ -702,7 +831,19 @@ and which invariants apply?
 **Panels/plot types:** `(a)` seven-variable/missing-mask input tensor and derived
 context; `(b)` learned relaxation proposal plus sparse variable/lag router,
 strictly left-looking TCN, and mixture; `(c)` separate MSE point, q05/q50/q95,
-and event heads plus the anchor-bound identity; `(d)` member averaging, 2018 CQR,
+and event heads plus the anchor-bound identity, **including the bounded-correction
+schematic relocated from Figure 1(b) on 2026-08-06**: the damped anchor
+$A_{t+h}$, the unrestricted learned displacement
+$z_{t+h}=P_{t+h}-A_{t+h}+r_{\theta,t+h}$, and
+
+\[
+\widehat y_{t+h}=A_{t+h}+\delta\tanh(z_{t+h}/\delta),
+\qquad \delta=1.0\ ^\circ\mathrm C,
+\]
+
+drawn as an anchor line with a shaded $A\pm\delta$ envelope, carrying the
+in-panel warning “Deviation from anchor; not an error or safety bound” as part of
+the panel rather than as a caption footnote; `(d)` member averaging, 2018 CQR,
 2018 Platt, and deployment-output dataflow.
 
 **Caption takeaway:** ThermoRoute uses a learned proposal and temporal allocation
@@ -728,7 +869,9 @@ conflation; fitted coefficient or performance value before receipt authority.
 
 **Acceptance:** 32-day buffer, lag-14 router, and seven-step TCN receptive field
 are visibly distinct; q05/q50/q95 and point heads are not conflated; CQR and Platt
-operate on the correct artifacts/period; the non-safety statement is legible.
+operate on the correct artifacts/period; the non-safety statement is legible; the
+relocated $A\pm\delta$ envelope carries its in-panel warning and is not presented
+as an error bar.
 
 ---
 
@@ -763,13 +906,19 @@ legible at final size.
 
 ---
 
-## Figure S5 — Expanded probabilistic diagnostics
+## Figure S5 — Event score, reliability, and expanded probabilistic diagnostics
 
 **State:** `POST_TEMPLATE_ONLY`
 **Restored:** 2026-08-05, superseding the same-day interim rebinding onto
 Stage-22.  See `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` §3.
-**Question:** Do the aggregate probabilistic summaries in Figure 3 conceal model,
-horizon, station, or bin-level failure?
+**Extended:** 2026-08-06.  The benchmark restructure keeps only the
+coverage--width plane in the main text, as Figure 4(c).  The event-score panel
+and the three per-horizon reliability panels of the former Figure 3 are
+**relocated here** and are now this figure's primary content rather than an
+expansion of a main-text panel that no longer exists.  Nothing is dropped.
+**Question:** Do the aggregate coverage and width summaries in Figure 4(c)
+conceal model, horizon, station, or bin-level failure, and how do the event
+probabilities behave against a frozen seasonal reference?
 **Evidence period:** target, 2021-01-01 through 2023-12-31.
 
 **Stage-19 does not affect this figure.** The SI08 metric family is produced at
@@ -780,18 +929,26 @@ full and no panel is dropped.  The development-period Stage-22 conformal evidenc
 is confined to Figure S9 and is never mixed into this figure.
 
 **Panels/plot types:** `(a)` full model-by-horizon coverage/width dot matrix,
-every cell bound or explicit NA; `(b)` pinball, interval, Brier, and log-score
-matrix with an explicit scoring-stage legend distinguishing nominal pre-CQR
-heads, the deployed CQR interval, and the post-Platt probability; `(c)`
-reliability panels with every registered bin and count, empty bins explicit, and
-station-balanced bin weights reconciling to one; `(d)` calibration
-slope/intercept and AUROC/AUPRC/ECE discrimination diagnostics with bound NA
-reasons for single-class or fit-failure cases.  This figure expands Figure 3 and
-does not repeat its aggregate plane.
+every cell bound or explicit NA; `(b)` **event score** — Brier skill against the
+frozen seasonal reference by model and horizon, with the zero-skill line and the
+bound reference identity drawn, the reference being the frozen seasonal
+climatology and never confirmation-period event prevalence — shown together with
+the pinball, interval, and log-score matrix under an explicit scoring-stage
+legend distinguishing nominal pre-CQR heads, the deployed CQR interval, and the
+post-Platt probability; `(c)` **reliability, one sub-panel per horizon**:
+observed station-balanced event frequency against mean forecast probability with
+the identity line, point area representing the bound bin denominator or
+station-balanced effective weight, every registered bin and count present, empty
+bins retained as explicit annotations, and station-balanced bin weights
+reconciling to one; `(d)` calibration slope/intercept and AUROC/AUPRC/ECE
+discrimination diagnostics with bound NA reasons for single-class or fit-failure
+cases.  This figure expands Figure 4(c) and does not repeat its aggregate plane.
 
 **Caption takeaway:** Probability diagnostics are reported with their scoring
-stage, station-balanced weighting, support, and non-estimability state; no single
-coverage number is treated as a conditional or distribution-free guarantee.
+stage, station-balanced weighting, support, and non-estimability state; event
+probabilities are scored against a frozen seasonal reference whose fit interval
+and observation count are bound; and no single coverage number is treated as a
+conditional or distribution-free guarantee.
 
 **Fields/value IDs:** all SI08 metric fields, probability source stage, model and
 horizon counts, every bin boundary/statistic/denominator/station-balanced weight,
@@ -811,7 +968,8 @@ Brier reference; "quantile crossing" as the Stage-19 cause; development-period
 conformal numbers presented as target-period results.
 
 **Acceptance:** all registered metrics appear or bind explicit NA; reliability
-support reconciles to parent counts; the scoring-stage legend prevents pre-/post-
+support reconciles to parent counts; identity, nominal, and zero-skill references
+are visually distinct and named; the scoring-stage legend prevents pre-/post-
 calibration conflation; no value in this figure is development-period.
 
 ---
@@ -820,12 +978,19 @@ calibration conflation; no value in this figure is development-period.
 ## Figure S6 — Temporal opportunity, missingness, and attrition
 
 **State:** `POST_TEMPLATE_ONLY`
+**Extended:** 2026-08-06.  The attrition waterfall of the former Figure 4(b) is
+**relocated here**; this figure already carried the same denominator-preserving
+construction, so the relocation is an absorption rather than an addition, and
+panel `(a)` now carries the reportable-cluster stage the main-text panel had.
 **Question:** Which calendar opportunities become observable and reportable
 forecast keys, and how do frozen time sensitivities change the descriptive
 effect?
-**Panels/plot types:** denominator-preserving Sankey/waterfall; horizon-by-year
-and season opportunity heatmap; complete eight-candidate sensitivity dot plot;
-retained-row block/feedback sensitivity with the exact block semantics.
+**Panels/plot types:** `(a)` denominator-preserving Sankey/waterfall keeping
+calendar opportunities, eligible issues, observed issue WTEMP, observed target
+WTEMP, exact paired keys, retained stations, **and reportable clusters** as
+distinct named stages; `(b)` horizon-by-year and season opportunity heatmap;
+`(c)` complete eight-candidate sensitivity dot plot; `(d)` retained-row
+block/feedback sensitivity with the exact block semantics.
 
 **Caption takeaway:** Route A evaluates observable issue/target keys rather than
 all calendar days. Temporal sensitivities diagnose this fixed observable cohort
@@ -855,6 +1020,11 @@ visually distinguished.
 **State:** `POST_TEMPLATE_ONLY`
 **Question:** How sensitive are fixed-cohort effects to HUC2 composition and
 single-cluster omission?
+**Relationship to the main text (2026-08-06):** this figure expands Figure 4(a).
+Figure 4(a) carries the per-HUC2 medians against both references and the two
+aggregate reference lines; S7 carries every unit, every leave-one-HUC2 omission,
+the cluster-share diagnostics, and the permanent gate box.  The two must agree in
+value and rounding on the per-HUC2 effects they share.
 **Panels/plot types:** per-HUC2 effect/count dot plot; leave-one-HUC2 effect plot;
 cluster-share/effective-count diagnostics; permanent claim-gate status box.
 
@@ -884,14 +1054,19 @@ is visible without relying on caption-only text.
 ## Figure S8 — Outcome QC, external-history scope, and failure disposition
 
 **State:** `POST_TEMPLATE_ONLY`
+**Extended:** 2026-08-06.  The external history-dependent arm of the former
+Figure 4(d) is **relocated here** into panel `(b)`, which already owned the
+external cohort's scope statement; the panel now also carries the arm's results.
 **Question:** What target evidence survived frozen QC, what exactly is external
 about the external arm, and which failures remain in the record?
 **Panels/plot types:** `(a)` raw-response -> normalized-series -> exact-A retained
 QC waterfall with qualifier/conflict categories; `(b)` development/external
-site-ID disjointness and history-dependence diagram plus external results; `(c)`
-failure/attrition matrix by declared reason and disposition.  If these panels are
-not legible as one figure, keep their exact tables in SI12--SI14 rather than
-compressing them into decorative graphics.
+site-ID disjointness and history-dependence diagram **plus the six primary models
+by horizon on the exact external-arm key set**, with the in-panel title clause
+“site-ID disjoint, history-dependent; not ungauged” and no river-network transfer
+map; `(c)` failure/attrition matrix by declared reason and disposition.  If these
+panels are not legible as one figure, keep their exact tables in SI12--SI14
+rather than compressing them into decorative graphics.
 
 **Caption takeaway:** Target values remain traceable to immutable raw evidence,
 and exclusions/conflicts/failures stay visible. The external cohort is disjoint
@@ -924,6 +1099,13 @@ external history warning is in-panel; adverse and non-estimable rows remain.
 
 **State:** `POST_TEMPLATE_ONLY_DEVELOPMENT`
 **Added:** 2026-08-05.  See `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` §4.
+**Confirmed as the sole home of this evidence:** 2026-08-06.  The benchmark
+restructure proposed a “what calibration costs” panel inside target-period
+Figure 4.  That panel's content — split-CQR against the block-maximum and delayed
+adaptive-conformal variants, with the widths and the non-finite interval scores
+they buy — is exactly panels `(a)` and `(b)` below, and it is 2019--2020
+evidence.  It stays here, where the evidence-period declaration and the scope
+band already exist.
 **Question:** Over the development period, how sensitive is interval validity to
 the choice of conformal calibration method, and what does adaptivity cost?
 **Evidence period:** **development, 2019-01-01 through 2020-12-24** — not a
@@ -953,7 +1135,7 @@ publication timestamp, source revision, or reporting-latency record exists.
 is reported for five frozen conformal calibration systems together with the width
 and interval score that buy it. These are station-balanced descriptive
 development diagnostics on a fixed cohort. They are not target-period results,
-they cannot be compared numerically with Figures 3 or S5, and no adaptive variant
+they cannot be compared numerically with Figure 4(c) or S5, and no adaptive variant
 is cost-free.
 
 **Fields/value IDs:** `conformal.*` (method ID/definition, slice, lead, key and
@@ -971,12 +1153,81 @@ conditional coverage; distribution-free finite-sample guarantee; adaptive
 conformal presented as cost-free; silently dropped or clipped non-finite widths;
 "seven calendar-day blocks" (the block method uses 7 **retained rows**); real
 feedback latency or publication-vintage replay; station-balanced and row-count
-rates merged into one mark; numerical comparison against Figure 3 or S5 as if the
+rates merged into one mark; numerical comparison against Figure 4(c) or S5 as if the
 two were the same cohort.
 
 **Acceptance:** every method × slice cell appears or binds explicit NA;
 non-finite widths appear with their counts; the two weighting denominators are
 separately labelled; the evidence-period scope band is legible inside the figure.
+
+---
+
+## Figure S10 — Registered architecture interventions and the bounded-deviation audit
+
+**State:** `POST_TEMPLATE_ONLY`
+**Added:** 2026-08-06.  This figure receives the architecture-intervention panel
+demoted from the former Figure 4(a) when the benchmark restructure made the
+architecture the object under test rather than the contribution.  It is a
+demotion in prominence only: the evidence, its period, and its gate are unchanged.
+**Question:** Which registered one-factor interventions change the prediction on
+the evaluation keys, and does the algebraic deviation bound hold where it is
+claimed to?
+**Evidence period:** target, 2021-01-01 through 2023-12-31.
+
+The seven controls are not an afterthought of the model registry; they are part
+of it.  The confirmatory protocol's `mandatory_exploratory_architecture_controls`
+list is resolved into the temporal cohort's required model set alongside the six
+primary models, so the trusted scorer emits a row for every control on the same
+exact common keys, and Table 4.2 of the manuscript transcribes them.  This figure
+is the graphical reading of those rows.
+
+**Panels/plot types:** `(a)` horizon-by-control dot matrix over all seven
+registered one-factor controls — prior-only, no dynamic prior, fixed relaxation,
+no router, no mixture, no TCN, and unbounded residual — plotting the paired
+station-level RMSE difference from full ThermoRoute in degrees C, labelled
+*negative favours the candidate*, with seed and member completeness shown per
+cell and no control selected after its value was seen; `(b)` the
+bounded/unbounded algebraic-deviation audit: pointwise violation count and rate
+and the maximum absolute correction against the configured limit, over every
+station-by-lead cell, with the in-panel statement that the bound is relative to
+the named anchor and is not a truth-error, ecological, regulatory, or
+deployment-safety bound.
+
+**Caption takeaway:** The registered controls are single-factor deletions and
+interventions on a fixed observable cohort, scored on the same exact keys as the
+primary models. They diagnose sensitivity; they do not establish component
+necessity, capacity-matched attribution, or a causal mechanism, and the deviation
+audit verifies an algebraic construction rather than a fitted outcome.
+
+**Fields/value IDs:** control/model ID, exact intervention dictionary,
+seed/member registry, exact-key digest, site and horizon effect, paired target
+count, bound-violation count and rate, maximum absolute correction, configured
+delta, suite and receipt lineage, reportability/NA reason.
+
+**Gate:** verified opening receipt; all seven target control rows under the final
+model/seed contract; `trusted/temporal_predictions_v1.parquet`;
+`trusted/availability_registry_v1.csv`; Stage-09 and Stage-16 receipts; the
+confirmatory protocol; SI09; render receipt.  PRE rendering is prohibited.  If
+any control row lacks authority, the figure is not generated and a development
+control is never substituted for it.
+
+**Development-only companion.** The Stage-09b information-matched controls — the
+plain causal TCN and the plain multilayer perceptron, with their parameter and
+optimiser-step budgets — are development-period evidence and may **not** appear
+in this figure.  They are tabulated in SI09 under their own evidence role, and
+the Stage-09b receipt is a non-blocking provenance qualifier here, never a source
+of a coordinate.
+
+**Forbidden:** component necessity; causal attribution; capacity-matched claim
+unless the exact comparison proves it; post hoc control selection; a
+development-period control row on a target-period axis; the deviation bound
+described as an error, safety, ecological, or regulatory bound; rescue of a
+failed or unfavourable formal row; significance stars.
+
+**Acceptance:** all seven interventions and all three leads appear or bind an
+explicit NA with its reason; seed and member completeness is visible per cell;
+the audit reports its denominator (station-by-lead cells) alongside its rate; the
+non-safety statement is legible in-panel; no Stage-09b value appears.
 
 ---
 
@@ -995,13 +1246,15 @@ The following changes are mandatory in the redraw:
 
 - **Remove old Figure 1d entirely.** No pending five-row forest appears in Figure
   1.  The receipt-derived forest becomes Figure 2d after the POST gate.
-- Reuse the old non-result information-boundary idea in the **new** Figure 1c at
-  thesis level and in Figure S2 at full detail; the old Figure 1d forest itself is
-  not reused.
-- Move the bounded equation to Figure 1b at thesis level and to Figure S3 in full
-  detail.
-- Move expanded cohort/registry geometry to Figure S1; Figure 1c retains only
-  the HUC2 counts and gate checks needed for the thesis.
+- Reuse the old non-result information-boundary idea in Figure 1's
+  cluster-geometry panel at thesis level and in Figure S2 at full detail; the old
+  Figure 1d forest itself is not reused.
+- ~~Move the bounded equation to Figure 1b at thesis level and to Figure S3 in
+  full detail.~~ **Superseded 2026-08-06:** the bounded equation is no longer in
+  Figure 1 at all.  It lives only in Figure S3(c).  See §6.4.
+- Move expanded cohort/registry geometry to Figure S1; Figure 1's
+  cluster-geometry panel retains only the HUC2 counts, the gate checks, and the
+  HUC2/4/6/8 ladder needed for the thesis.
 - Replace `15 reportable HUC2 groups` with `15 pre-attrition HUC2 groups` and,
   where relevant, `at most 15 reportable groups`.
 - Replace the absolute phrase `No leakage across the issue-time boundary` with
@@ -1040,31 +1293,86 @@ upstream/downstream relationship, regulation status, or travel time.
 - Hash, rights, or data-dictionary pie/radar diagrams.  SI15 and SI16 remain
   precise tables and machine-readable inventories.
 
+### 6.4 Benchmark-restructure reassignment (2026-08-06)
+
+No panel is deleted.  Every panel of the previous four main figures either stays
+in the main text with a new number or moves to a named SI figure, and the two
+new main panels are built from evidence that already existed.  The full record,
+including what was refused and why, is
+`docs/PAPER_FIGURE_SI_RECONCILIATION.md`.
+
+| Was | Content | Is now | Evidence period |
+|---|---|---|---|
+| Figure 1(a) | persistence challenge | Figure 1(c) | PRE structural |
+| Figure 1(b) | bounded-correction schematic | **Figure S3(c)** | PRE structural |
+| Figure 1(c) | cluster geometry against the gate | Figure 1(b), extended with the HUC2/4/6/8 ladder | PRE structural |
+| — | station map and nearest-neighbour scale | **Figure 1(a)** — new; the full registry geometry stays in Figure S1 | PRE structural |
+| — | reference ladder | **Figure 2(a)** — new, built at target period from the trusted scorer's own reference models | target |
+| Figure 2(a)--(c) | all-model station distributions | Figure 2(b)--(d) | target |
+| Figure 2(d) | registered five-row forest | Figure 2(e) | target |
+| Figure 3(a) | coverage--width plane | **Figure 4(c)** | target |
+| Figure 3(b) | event score | **Figure S5(b)** | target |
+| Figure 3(c)--(e) | reliability by horizon | **Figure S5(c)** | target |
+| — | three transfer arms, fold geometry, distance association, held-region ranking | **Figure 3(a)--(d)** — promoted to a main figure; development-period, scope-banded | development 2019--2020 |
+| Figure 4(a) | seven registered architecture interventions | **Figure S10(a)--(b)** | target |
+| Figure 4(b) | attrition waterfall | **Figure S6(a)** | target |
+| Figure 4(c) | eight temporal-coverage candidates | **Figure 4(b)** | target |
+| Figure 4(d) | external history-dependent arm | **Figure S8(b)** | target |
+| — | per-HUC2 regional heterogeneity, aggregated | **Figure 4(a)**; every unit and every leave-one omission stays in Figure S7 | target |
+
+Two consequences must not be lost:
+
+1. **Figure 1's committed PRE bytes are stale.**  Panel (b) changed content, so
+   `fig01_preopening_concept.{svg,pdf,png,json,csv}` no longer match this
+   specification and must be re-rendered by the PRE renderer.  The PRE
+   supporting-figure manifest also binds this file's SHA-256 as a source; both
+   PRE manifests record a spec digest that this revision changes.
+2. **Figure 3 is the only main figure the one-time opening cannot fill.**  The
+   opening emits no held-region artifact, so Figure 3 is permanently
+   development-period.  A future decision to run a target-period regional
+   holdout would be a protocol amendment, not a figure change.
+
 ---
 
 ## 7. Manuscript placement and cross-reference contract
 
 The current Markdown and PRE TeX contain no figure cross-reference or embedded
 figure.  A complete paper projection must add references only through the
-appropriate PRE/POST renderer:
+appropriate PRE/POST renderer.
 
-| Figure | Required first citation |
-|---|---|
-| Figure 1 | after the narrow research question and before detailed related work/design |
-| Figure 2 | POST Results question on point performance |
-| Figure 3 | POST Results question on probabilistic behavior |
-| Figure 4 | POST Results/Discussion question on mechanism and boundary |
-| Figure S1 | Data/cohort description |
-| Figure S2 | Target-period inputs and issue-time boundary |
-| Figure S3 | Model-design overview before component prose |
-| Figures S4--S8 | the matching POST Results, sensitivity, QC, or limitation paragraph |
-| Figure S9 | the Limitations paragraph on interval calibration, cited only as development-period sensitivity |
+The manuscript marks each first-citation position with an **inert placement
+anchor**, not a reference:
+
+```
+<!-- FIGURE_ANCHOR id=<F1|F2|F3|F4|S1..S10> state=<PRE|POST|POST_DEVELOPMENT> role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-<n> -->
+```
+
+An anchor carries no number, no caption, and no image path, so it cannot
+substitute for a render; the renderer resolves each one into a numbered reference
+at the anchored position.  There are **fourteen** anchors, and their ids are the
+fourteen figures of this specification:
+
+| Figure | Anchor `state` | Required first citation |
+|---|---|---|
+| Figure 1 | `PRE` | close of the Introduction, after the four research questions |
+| Figure 2 | `POST` | close of the Results subsection on the reference model |
+| Figure 3 | `POST_DEVELOPMENT` | close of the Results subsection on whole-region holdout |
+| Figure 4 | `POST` | close of the Results subsection on regional uniformity and interval width |
+| Figure S1 | `PRE` | Data/cohort description |
+| Figure S2 | `PRE` | Target-period inputs and issue-time boundary |
+| Figure S3 | `PRE` | Model-design overview before component prose |
+| Figure S4 | `POST` | close of the Results subsection on model ranking, which it expands |
+| Figures S5, S6, S8, S10 | `POST` | the evaluation-period results section, beside the table each expands |
+| Figure S7 | `POST` | close of the Results subsection on regional heterogeneity, beside Figure 4 |
+| Figure S9 | `POST_DEVELOPMENT` | the Limitations paragraph on interval calibration, cited only as a development-period sensitivity |
 
 The PRE-only `paper/agu_submission/build_agu.py` is not a POST figure renderer.
-No manual `\includegraphics`, caption, or result transcription is authorized by
-this document.  The future POST builder must verify that every cited figure
-exists, every generated figure is cited, numbering is unique, and caption/body
-claims resolve to the same value IDs.
+It strips every HTML comment before conversion, so the anchors never reach the
+TeX and never become a hand-inserted reference.  No manual `\includegraphics`,
+caption, or result transcription is authorized by this document.  The future POST
+builder must verify that every cited figure exists, every generated figure is
+cited, the anchor id set equals the manifest's figure-id set exactly, numbering
+is unique, and caption/body claims resolve to the same value IDs.
 
 ---
 
@@ -1072,8 +1380,10 @@ claims resolve to the same value IDs.
 
 ### Evidence
 
-- [ ] Current materialization is limited to Figure 1 and Figures S1--S3.
-- [ ] Figures 2--4 and S4--S8 have no rendered submission artifact before POST.
+- [ ] Current materialization is limited to Figures S1--S3; Figure 1's committed
+      bytes predate the 2026-08-06 panel reassignment and are re-rendered before
+      submission.
+- [ ] Figures 2--4 and S4--S10 have no rendered submission artifact before POST.
 - [ ] Every empirical mark and caption number resolves to one value ID.
 - [ ] Every value ID binds value, unit, evidence role, source, derivation, and rounding.
 - [ ] PRE training diagnostics contain no post-2020 outcome and no development score substitution.
@@ -1082,19 +1392,28 @@ claims resolve to the same value IDs.
 
 ### Argument
 
-- [ ] Figure 1 alone communicates mismatch -> insight -> evidence boundary.
-- [ ] Figure 2 supplies end-to-end point evidence without confirmatory wording.
-- [ ] Figure 3 reports probability benefit together with width/support/cost.
+- [ ] Figure 1 alone communicates where the cohort is, how coarse its grouping
+      is, and how persistent the target is.
+- [ ] Figure 2 supplies end-to-end point evidence and the reference ladder
+      without confirmatory wording.
+- [ ] Figure 3 states inside the panel that it is development-period and that the
+      opening produces no held-region arm.
+- [ ] Figure 4 reports coverage together with the width that buys it, and reports
+      regional and seasonal heterogeneity against both references.
 - [ ] No figure or caption attributes the Stage-19 withdrawal to "quantile
       crossing"; the measured cause is a zero-width nominal interval and strict
       crossings were 0.
-- [ ] Every figure declares one evidence period, and any development-period
-      figure renders an in-panel scope band.
+- [ ] Every figure declares one evidence period, no panel declares a different
+      one from its figure, and any development-period figure renders an in-panel
+      scope band.
 - [ ] No development-period value is compared numerically with a target-period
-      value.
-- [ ] Figure 4 tests the mechanism and exposes temporal/external limits.
+      value, and no development row appears on a target-period axis.
+- [ ] Figure S10 carries the registered interventions with their deviation audit,
+      and Stage-09b values appear only in SI09.
 - [ ] SI figures expand rather than duplicate main figures.
 - [ ] Every claimed mechanism has a registered sensitivity or is described only as design.
+- [ ] The manuscript's fourteen `FIGURE_ANCHOR` ids equal the fourteen figure ids
+      of this specification, with matching `state` tokens.
 
 ### Semantics
 

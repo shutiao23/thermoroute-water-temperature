@@ -113,6 +113,17 @@ BANNED_PHRASES = ("quantile crossing",)
 # failing pdflatex dozens of pages into the run.  Do not delete entries that are
 # currently unused; they are cheap and they keep prose edits from breaking the
 # build.
+#
+# The 2026-08-06 benchmark restructure added equations (1)-(10) to the
+# manuscript body, which brought in the Greek and mathematical codepoints below.
+# Adding a mapping is the remedy this table is designed for; the alternative the
+# error message offers -- rewording the Markdown -- was used only where no
+# faithful mapping exists.  Two combining marks, U+0302 and U+0303, are
+# deliberately absent: a ``\DeclareUnicodeCharacter`` mapping receives a
+# combining mark *after* its base letter, and LaTeX accent commands are
+# prefixes, so no honest mapping exists.  The manuscript was reworded instead
+# (``q̃`` became ``q`` and ``q̂_τ`` became ``Q_τ``, both defined in place).  Do
+# not add a mapping that silently drops or misplaces an accent.
 UNICODE_DECLARATIONS: dict[int, str] = {
     0x00A7: r"\S{}",
     0x00B0: r"\ensuremath{^\circ}",
@@ -123,14 +134,35 @@ UNICODE_DECLARATIONS: dict[int, str] = {
     0x00D7: r"\ensuremath{\times}",
     0x00FC: r"\"u",
     0x0177: r"\^y",
+    0x0394: r"\ensuremath{\Delta}",
+    0x03A3: r"\ensuremath{\Sigma}",
+    0x03B2: r"\ensuremath{\beta}",
     0x03B3: r"\ensuremath{\gamma}",
+    0x03B4: r"\ensuremath{\delta}",
+    0x03BA: r"\ensuremath{\kappa}",
+    0x03BB: r"\ensuremath{\lambda}",
+    0x03C0: r"\ensuremath{\pi}",
+    0x03C1: r"\ensuremath{\rho}",
+    0x03C3: r"\ensuremath{\sigma}",
+    0x03C4: r"\ensuremath{\tau}",
+    0x03C6: r"\ensuremath{\varphi}",
     0x2013: "--",
     0x2014: "---",
+    0x2016: r"\ensuremath{\|}",
+    0x2026: r"\ldots{}",
+    0x2074: r"\textsuperscript{4}",
+    0x2081: r"\ensuremath{_1}",
+    0x2113: r"\ensuremath{\ell}",
     0x2192: r"\ensuremath{\rightarrow}",
     0x207B: r"\textsuperscript{-}",
+    0x2208: r"\ensuremath{\in}",
     0x2212: r"\ensuremath{-}",
+    0x221A: r"\ensuremath{\surd}",
+    0x2248: r"\ensuremath{\approx}",
     0x2264: r"\ensuremath{\leq}",
     0x2265: r"\ensuremath{\geq}",
+    0x27E8: r"\ensuremath{\langle}",
+    0x27E9: r"\ensuremath{\rangle}",
 }
 
 

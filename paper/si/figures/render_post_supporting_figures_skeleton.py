@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""POST skeleton for Supporting Figures S4--S9.
+"""POST skeleton for Supporting Figures S4--S10.
 
 Encodes the panel, value-ID, dependency, render-profile, and prohibited-semantics
-contracts of ``paper/FIGURE_REDRAW_SPEC.md`` (Figure S4--S9 sections) in the
+contracts of ``paper/FIGURE_REDRAW_SPEC.md`` (Figure S4--S10 sections) in the
 fail-closed style of ``render_fig01_preopening_concept.py`` and the main-figure
 skeleton ``paper/agu_submission/figures/render_post_main_figures_skeleton.py``.
 Before the POST gate this module renders nothing -- no SVG/PDF/PNG, no empty
@@ -37,8 +37,40 @@ period by the trusted scorer inside the one-time opening
 (``src/thermoroute/opening.py:8932-8948``), per cohort x model x horizon with
 station-balanced reliability bins.  S5 therefore keeps its original expanded
 design, bound to
-``outputs/confirmatory/route_a_*/trusted/probabilistic_evaluation_v2.json``, and
-expands Figure 3 rather than duplicating it.
+``outputs/confirmatory/route_a_*/trusted/probabilistic_evaluation_v2.json``.
+
+Benchmark restructure (2026-08-06)
+----------------------------------
+``docs/PAPER_BENCHMARK_RESTRUCTURE.md`` reassigned the four main figures; see
+``paper/FIGURE_REDRAW_SPEC.md`` section 6.4 and the main-figure skeleton.  The SI
+consequences, all applied here:
+
+* **figS5** receives the event-score panel and the three per-horizon reliability
+  panels of the former main Figure 3, whose main-text slot became the
+  spatial-partition figure.  Only the coverage-width plane stays in the main
+  text, as fig04 panel (c), so S5 now expands **fig04**, not fig03.
+* **figS6** receives the attrition waterfall of the former fig04 panel (b).  It
+  already carried the same denominator-preserving construction, so panel (a)
+  simply gains the reportable-cluster stage.
+* **figS7** expands fig04 panel (a) rather than standing alone: fig04 carries the
+  aggregate per-HUC2 medians, S7 carries every unit and every leave-one omission.
+* **figS8** receives the external history-dependent arm of the former fig04
+  panel (d) into panel (b), which already owned that cohort's scope statement.
+* **figS9** is confirmed as the only home of the Stage-22 conformal contrast; the
+  restructure's proposed development-period panel inside target-period fig04 is
+  refused, because one figure never mixes two evidence periods.
+* **figS10** is new and receives the seven registered architecture interventions
+  demoted from the former fig04 panel (a).  It is target-period: the protocol's
+  ``mandatory_exploratory_architecture_controls`` are resolved into the temporal
+  cohort's required model set beside the six primary models, so the trusted
+  scorer emits a row for every control on the same exact common keys.  The
+  Stage-09b information-matched controls are development-period and stay a
+  non-blocking qualifier plus an SI09 table; they never fill a panel.
+
+``PanelSpec.evidence_period`` plus ``validate_manifest`` make the one-period rule
+machine-enforced at panel granularity, and ``NAMESPACE_EVIDENCE_PERIOD`` extends
+it to ``shares_value_ids_with``: a target-period figure can no longer declare that
+it shares value IDs with a development-period namespace.
 
 Figure S9 (new)
 ---------------
@@ -98,6 +130,8 @@ POST_OUTCOME_QC_GATE = f"{_TRUSTED}/outcome_qc_gate_v1.json"
 POST_OUTCOME_QUALITY_AUDIT = f"{_TRUSTED}/outcome_quality_audit_v1.json"
 POST_TEMPORAL_COVERAGE_AUDIT = f"{_TRUSTED}/temporal_coverage_audit_v1.json"
 STAGE09_RECEIPT = "outputs/models/route_a_stage09_completion.json"
+STAGE09B_RECEIPT = "outputs/models/route_a_stage09b_completion.json"
+STAGE16_RECEIPT = "outputs/models/route_a_stage16_completion.json"
 STAGE25_RECEIPT = "outputs/models/route_a_stage25_completion.json"
 
 # Stage-22 adaptive conformal (scripts/22_adaptive_conformal.py).
@@ -110,6 +144,7 @@ STAGE13C_REPORT = "outputs/reports/region_transfer.md"
 SI06_RECEIPT = "paper/si/SI06_formal_five_rows_RECEIPT.md"
 SI07_RECEIPT = "paper/si/SI07_all_model_scores_RECEIPT.md"
 SI08_RECEIPT = "paper/si/SI08_probability_metrics_RECEIPT.md"
+SI09_RECEIPT = "paper/si/SI09_development_controls_RECEIPT.md"
 SI10_RECEIPT = "paper/si/SI10_temporal_coverage_RECEIPT.md"
 SI11_RECEIPT = "paper/si/SI11_spatial_sensitivity_RECEIPT.md"
 SI12_RECEIPT = "paper/si/SI12_qc_qualifiers_RECEIPT.md"
@@ -216,6 +251,9 @@ class PanelSpec:
     contract: str
     stage19_role: str = Stage19Role.NONE
     substitution_note: str = ""
+    # Empty means "inherit the figure's period".  Declaring a different one is
+    # refused by validate_manifest: one figure never mixes two evidence periods.
+    evidence_period: str = ""
 
 
 @dataclass(frozen=True)
@@ -269,15 +307,45 @@ class FigureSpec:
     dropped_panels: tuple[DroppedPanel, ...] = ()
     provenance_qualifiers: tuple[str, ...] = ()
     scope_band_value_id: str = ""
+    # Reported by --status for any development-period figure.  The defaults
+    # reproduce the Stage-22 wording figS9 has always emitted.
+    evidence_span: tuple[str, str] = STAGE22_OBSERVED_SPAN
+    evidence_span_label: str = "Stage-22 span"
 
 
-KNOWN_VALUE_ID_NAMESPACES = frozenset({
-    "fig01", "fig02", "fig03", "fig04",
-    "figS1", "figS2", "figS3", "figS4", "figS5", "figS6", "figS7", "figS8",
-    "figS9",
-    "table_t2", "si06", "si07", "si08", "si10", "si11", "si12", "si13", "si14",
-    "stage22_conformal",
-})
+# Every namespace a figure may share value IDs with, and the evidence period
+# those values carry.  A shared value ID means the same number, unit and
+# rounding in two places, which two evidence periods can never satisfy, so
+# validate_manifest refuses a cross-period share.  PRE-structural namespaces are
+# period-neutral by construction (spec section 2.1 layer 1).
+NAMESPACE_EVIDENCE_PERIOD: dict[str, str] = {
+    "fig01": EvidencePeriod.STRUCTURAL,
+    "fig02": EvidencePeriod.TARGET,
+    "fig03": EvidencePeriod.DEVELOPMENT,
+    "fig04": EvidencePeriod.TARGET,
+    "figS1": EvidencePeriod.STRUCTURAL,
+    "figS2": EvidencePeriod.STRUCTURAL,
+    "figS3": EvidencePeriod.STRUCTURAL,
+    "figS4": EvidencePeriod.TARGET,
+    "figS5": EvidencePeriod.TARGET,
+    "figS6": EvidencePeriod.TARGET,
+    "figS7": EvidencePeriod.TARGET,
+    "figS8": EvidencePeriod.TARGET,
+    "figS9": EvidencePeriod.DEVELOPMENT,
+    "figS10": EvidencePeriod.TARGET,
+    "table_t2": EvidencePeriod.TARGET,
+    "si06": EvidencePeriod.TARGET,
+    "si07": EvidencePeriod.TARGET,
+    "si08": EvidencePeriod.TARGET,
+    "si09": EvidencePeriod.DEVELOPMENT,
+    "si10": EvidencePeriod.TARGET,
+    "si11": EvidencePeriod.TARGET,
+    "si12": EvidencePeriod.TARGET,
+    "si13": EvidencePeriod.TARGET,
+    "si14": EvidencePeriod.TARGET,
+    "stage22_conformal": EvidencePeriod.DEVELOPMENT,
+}
+KNOWN_VALUE_ID_NAMESPACES = frozenset(NAMESPACE_EVIDENCE_PERIOD)
 
 
 FIGURES: tuple[FigureSpec, ...] = (
@@ -327,7 +395,8 @@ FIGURES: tuple[FigureSpec, ...] = (
     ),
     # ------------------------------------------------------------------
     # Figure S5 -- RESTORED to target period 2026-08-05 (supersedes the
-    # development-period rebinding drafted earlier the same day).
+    # development-period rebinding drafted earlier the same day), then
+    # EXTENDED 2026-08-06 by the benchmark restructure.
     #
     # Determination: the SI08 metric family IS available at target period.  It
     # is produced by the trusted scorer inside the one-time opening
@@ -336,17 +405,13 @@ FIGURES: tuple[FigureSpec, ...] = (
     # station-balanced reliability bins.  The original expanded design is
     # therefore restored and bound to trusted/probabilistic_evaluation_v2.json.
     #
-    # This figure expands Figure 3 (spec section 8: "SI figures expand rather
-    # than duplicate main figures"): Figure 3 carries the aggregate plane, the
-    # event score, and three reliability panels; S5 carries the full
-    # model-by-horizon grid, every registered bin, and the calibration /
-    # discrimination diagnostics behind them.
-    #
-    # The Stage-22 development-period conformal sensitivity built for the
-    # interim plan is NOT folded in here -- mixing a 2019-2020 development
-    # source with 2021-2023 target results inside one figure would recreate
-    # exactly the authority-layer hazard the interim plan existed to avoid.
-    # It lives as figS9 with its own scope band.
+    # 2026-08-06: the restructure keeps only the coverage-width plane in the
+    # main text, as fig04 panel (c).  The event-score panel and the three
+    # per-horizon reliability panels of the former main Figure 3 move HERE and
+    # are now this figure's primary content.  Nothing is dropped, and this
+    # figure now expands fig04 rather than fig03 -- fig03 is the
+    # development-period spatial-partition figure and shares no value ID with
+    # anything here.
     # ------------------------------------------------------------------
     FigureSpec(
         figure_id="figS5",
@@ -357,12 +422,21 @@ FIGURES: tuple[FigureSpec, ...] = (
         panels=(
             PanelSpec("a", "model-by-horizon coverage/width dot matrix",
                       "full grid; every cell bound or explicit NA"),
-            PanelSpec("b", "score matrix",
-                      "pinball, interval, Brier, and log score with an explicit "
+            PanelSpec("b", "event score and score matrix",
+                      "Brier skill vs the frozen seasonal reference by model x "
+                      "horizon, with the zero-skill line and the bound reference "
+                      "identity drawn and confirmation-period event prevalence "
+                      "never used as the reference (relocated from the former "
+                      "main Figure 3 panel (b)); shown with the pinball, "
+                      "interval, Brier, and log score matrix under an explicit "
                       "scoring-stage legend (nominal pre-CQR heads vs deployed CQR "
                       "interval vs post-Platt probability); the equal-weight "
                       "three-quantile pinball summary is never labelled CRPS"),
-            PanelSpec("c", "reliability panels",
+            PanelSpec("c", "reliability panels, one per horizon",
+                      "observed station-balanced event frequency vs mean forecast "
+                      "probability with the identity line and point area = bound "
+                      "bin denominator / station-balanced effective weight "
+                      "(relocated from the former main Figure 3 panels (c)-(e)); "
                       "every registered bin and count; empty bins explicit; "
                       "station-balanced bin weights reconcile to one"),
             PanelSpec("d", "calibration and discrimination diagnostics",
@@ -406,13 +480,18 @@ FIGURES: tuple[FigureSpec, ...] = (
             "quantile crossing as the Stage-19 cause",
             "development-period conformal numbers shown as target-period results",
         ),
-        shares_value_ids_with=("fig03", "si08"),
+        shares_value_ids_with=("fig04", "si08"),
         provenance_qualifiers=(
             "The Stage-19 development-period probabilistic script is withheld for "
             "this submission (zero-width nominal intervals; 0 strict quantile "
             "crossings in 26,993,675 member-level rows). This figure does NOT "
             "depend on it: the target-period metrics come from the trusted scorer "
             "inside the one-time opening (src/thermoroute/opening.py:8932-8948).",
+            "Event-score and reliability panels relocated here on 2026-08-06 from "
+            "the former main Figure 3, whose main-text slot became the "
+            "development-period spatial-partition figure. Only the coverage-width "
+            "plane remains in the main text, as Figure 4 panel (c); this figure "
+            "expands that panel and duplicates none of it.",
         ),
         scope_band_value_id="figS5.scope.fixed_cohort_descriptive",
     ),
@@ -424,7 +503,13 @@ FIGURES: tuple[FigureSpec, ...] = (
         render_profile=RenderProfile(width_mm=FULL_WIDTH_MM, max_height_mm=182.0),
         panels=(
             PanelSpec("a", "denominator-preserving Sankey/waterfall",
-                      "calendar opportunity -> eligible issue -> observed issue WTEMP -> observed target WTEMP -> exact paired keys -> retained stations; named denominators"),
+                      "calendar opportunity -> eligible issue -> observed issue "
+                      "WTEMP -> observed target WTEMP -> exact paired keys -> "
+                      "retained stations -> reportable clusters; every stage a "
+                      "distinct named denominator with its exclusion reason. "
+                      "Absorbs the former main Figure 4 panel (b), which used the "
+                      "same construction; the reportable-cluster stage is what it "
+                      "added"),
             PanelSpec("b", "horizon-by-year/season opportunity heatmap",
                       "observable keys only; no all-calendar framing"),
             PanelSpec("c", "eight-candidate sensitivity dot plot",
@@ -437,6 +522,7 @@ FIGURES: tuple[FigureSpec, ...] = (
             "stage.observed_issue_wtemp", "stage.observed_target_wtemp",
             "stage.exact_paired_key", "stage.retained_station",
             "stage.completeness", "stage.missingness_reason",
+            "stage.reportable_cluster", "stage.exclusion_reason",
             "sensitivity.year_season_block_id", "sensitivity.effect_score",
             "sensitivity.support", "sensitivity.formal_effect_reference",
             "sensitivity.feedback_date_proxy_role",
@@ -498,6 +584,11 @@ FIGURES: tuple[FigureSpec, ...] = (
             "superiority/non-inferiority", "leave-one stability as robustness proof",
             "post-outcome alternative clustering",
         ),
+        # Expands fig04 panel (a): fig04 carries the aggregate per-HUC2 medians
+        # and the two reference lines, S7 carries every unit and every
+        # leave-one-HUC2 omission.  Shared per-HUC effects must agree in value,
+        # unit and rounding.
+        shares_value_ids_with=("fig04", "si11"),
         scope_band_value_id="figS7.scope.coarse_group_not_network",
     ),
     FigureSpec(
@@ -510,7 +601,12 @@ FIGURES: tuple[FigureSpec, ...] = (
             PanelSpec("a", "QC waterfall",
                       "raw response -> normalized series -> exact-A retained with qualifier/conflict categories; every count reconciles"),
             PanelSpec("b", "external-arm scope diagram and results",
-                      "site-ID disjointness and history dependence; in-panel warning; not ungauged"),
+                      "site-ID disjointness and history dependence, with the "
+                      "in-panel clause 'site-ID disjoint, history-dependent; not "
+                      "ungauged'; carries the six primary models x horizon on the "
+                      "exact external-arm key set, absorbed from the former main "
+                      "Figure 4 panel (d); paired effects or station-RMSE "
+                      "distributions, never a river-network transfer map"),
             PanelSpec("c", "failure/attrition matrix",
                       "declared reason by disposition; adverse and non-estimable rows remain; exact SI12-SI14 tables preferred if illegible as one figure"),
         ),
@@ -520,7 +616,8 @@ FIGURES: tuple[FigureSpec, ...] = (
             "qc.excluded_count", "qc.conflict_count", "qc.exact_a_binding",
             "external.site_registry", "external.disjointness",
             "external.history_fields", "external.exact_keys",
-            "external.scores_effects_status",
+            "external.scores_effects_status", "external.model_horizon",
+            "external.site_count",
             "failure.reason", "failure.before_after_counts",
             "failure.disposition", "failure.source_pointers",
         ),
@@ -565,6 +662,13 @@ FIGURES: tuple[FigureSpec, ...] = (
     # This figure is optional.  If page budget is tight it can be dropped
     # without weakening any registered claim -- nothing in the confirmatory
     # five-test family depends on it.
+    #
+    # 2026-08-06: confirmed as the SOLE home of this evidence.  The benchmark
+    # restructure proposed a "what calibration costs" panel inside target-period
+    # fig04, carrying the split-CQR / block-maximum / delayed-ACI contrast.  That
+    # is exactly panels (a) and (b) below, it is 2019-2020 evidence, and the
+    # proposal is refused: one figure never mixes two evidence periods.  fig04
+    # records the refusal as a DroppedPanel pointing here.
     # ------------------------------------------------------------------
     FigureSpec(
         figure_id="figS9",
@@ -635,7 +739,7 @@ FIGURES: tuple[FigureSpec, ...] = (
             "seven-calendar-day blocks (the block method uses 7 retained rows)",
             "real feedback latency or publication-vintage replay",
             "station-balanced and row-count rates merged into one mark",
-            "comparison against the target-period intervals in Figure 3 or S5 as "
+            "comparison against the target-period intervals in Figure 4(c) or S5 as "
             "if the two were the same cohort",
         ),
         shares_value_ids_with=("stage22_conformal",),
@@ -644,9 +748,111 @@ FIGURES: tuple[FigureSpec, ...] = (
             "(2019-01-01..2020-12-24) over 249,072 exact keys, 120 sites, 15 HUC2 "
             "groups, leads {1,3,7}. The confirmatory target period starts "
             "2021-01-01; no panel in this figure is a target-period result and no "
-            "value here may be compared numerically with Figure 3 or S5.",
+            "value here may be compared numerically with Figure 4(c) or S5.",
         ),
         scope_band_value_id="figS9.scope.development_period_not_confirmation",
+    ),
+    # ------------------------------------------------------------------
+    # Figure S10 -- NEW 2026-08-06.
+    #
+    # Receives the architecture-intervention panel demoted from the former main
+    # Figure 4(a) when the benchmark restructure made the architecture the
+    # object under test rather than the contribution.  Demotion in prominence
+    # only: the evidence, its period, and its gate are unchanged.
+    #
+    # It is TARGET-period, and that is not a judgement call.  The confirmatory
+    # protocol's mandatory_exploratory_architecture_controls list is resolved
+    # into the temporal cohort's required model set beside the six primary
+    # models (opening._required_models), so the trusted scorer emits a row for
+    # every control on the same exact common keys and Table 4.2 of the
+    # manuscript transcribes them.  This figure is the graphical reading of
+    # those rows.
+    #
+    # The Stage-09b information-matched controls (plain causal TCN, plain MLP)
+    # are DEVELOPMENT-period.  They are a non-blocking qualifier here and a
+    # table in SI09; they never fill a panel, and this figure declares no shared
+    # value ID with the si09 namespace, which validate_manifest would refuse as
+    # a cross-period share.
+    # ------------------------------------------------------------------
+    FigureSpec(
+        figure_id="figS10",
+        stem="figS10_architecture_interventions",
+        spec_anchor="FIGURE_REDRAW_SPEC.md#figure-s10",
+        evidence_period=EvidencePeriod.TARGET,
+        render_profile=RenderProfile(width_mm=FULL_WIDTH_MM, max_height_mm=156.0),
+        panels=(
+            PanelSpec("a", "horizon-by-control dot matrix",
+                      "all seven registered one-factor controls (prior-only, no "
+                      "dynamic prior, fixed relaxation, no router, no mixture, no "
+                      "TCN, unbounded residual); paired station-level RMSE "
+                      "difference from full ThermoRoute in degrees C labelled "
+                      "'negative favours the candidate'; seed and member "
+                      "completeness per cell; no control selected after its value "
+                      "was seen; no significance stars",
+                      evidence_period=EvidencePeriod.TARGET),
+            PanelSpec("b", "bounded-deviation audit",
+                      "pointwise violation count and rate and the maximum "
+                      "absolute correction against the configured delta over "
+                      "every station-by-lead cell, with the denominator named and "
+                      "the in-panel statement that the bound is relative to the "
+                      "named anchor and is not a truth-error, ecological, "
+                      "regulatory, or deployment-safety bound",
+                      evidence_period=EvidencePeriod.TARGET),
+        ),
+        required_value_ids=(
+            "control.model_id", "control.exact_intervention",
+            "control.seed_member_registry", "control.key_digest",
+            "control.horizon", "control.site_horizon_effect",
+            "control.paired_target_count", "control.reportability_na_reason",
+            "control.suite_receipt_lineage",
+            "audit.bound_violation_count", "audit.bound_violation_rate",
+            "audit.max_absolute_correction_c", "audit.configured_delta_c",
+            "audit.station_by_lead_cell_count", "audit.denominator_role",
+            "audit.non_safety_statement",
+        ),
+        dependencies=(
+            Dependency("opening_receipt", "glob", OPENING_RECEIPT_GLOB),
+            Dependency("stage09_receipt", "file", STAGE09_RECEIPT),
+            Dependency("stage16_receipt", "file", STAGE16_RECEIPT),
+            Dependency("si09_development_controls", "file", SI09_RECEIPT,
+                       root="repo",
+                       note="development-only companion table"),
+            Dependency("confirmatory_protocol", "file", CONFIRMATORY_PROTOCOL,
+                       root="repo"),
+            Dependency("post_temporal_predictions", "glob",
+                       POST_TEMPORAL_PREDICTIONS,
+                       note="the seven target control rows on the exact common "
+                            "keys"),
+            Dependency("post_availability_registry", "glob",
+                       POST_AVAILABILITY_REGISTRY,
+                       note="exact-key / reportability denominators"),
+            # Development-only by construction; it may never fill a panel.
+            Dependency("stage09b_receipt", "file", STAGE09B_RECEIPT,
+                       severity=Severity.QUALIFIER,
+                       note="Stage-09b information-matched controls are "
+                            "development-period; SI09 tabulation only, never a "
+                            "coordinate in this figure"),
+        ),
+        prohibited_semantics=(
+            "component necessity", "causal attribution",
+            "capacity-matched claim unless the exact comparison proves it",
+            "post hoc control selection",
+            "a development-period control row on a target-period axis",
+            "the deviation bound described as an error, safety, ecological, or "
+            "regulatory bound",
+            "rescue of a failed or unfavourable formal row",
+            "significance coloring or stars",
+        ),
+        shares_value_ids_with=("table_t2",),
+        provenance_qualifiers=(
+            "Panel content demoted from the former main Figure 4(a) by the "
+            "2026-08-06 benchmark restructure. The seven controls are part of the "
+            "frozen temporal-cohort model registry, not an addition to it, so "
+            "they are scored by the trusted scorer on the same exact common keys "
+            "as the six primary models and are transcribed into manuscript Table "
+            "4.2.",
+        ),
+        scope_band_value_id="figS10.scope.exploratory_not_component_necessity",
     ),
 )
 
@@ -679,6 +885,15 @@ def validate_manifest(figures: tuple[FigureSpec, ...] = FIGURES) -> None:
                     f"{peer!r}")
             if peer == figure.figure_id:
                 raise ManifestError(f"{figure.figure_id}: shares with itself")
+            peer_period = NAMESPACE_EVIDENCE_PERIOD[peer]
+            if (
+                peer_period != figure.evidence_period
+                and peer_period != EvidencePeriod.STRUCTURAL
+            ):
+                raise ManifestError(
+                    f"{figure.figure_id} ({figure.evidence_period}) shares value "
+                    f"IDs with {peer!r} ({peer_period}); one figure never mixes "
+                    "two evidence periods, and neither does one value ID")
 
         if figure.evidence_period == EvidencePeriod.DEVELOPMENT:
             if not figure.scope_band_value_id:
@@ -695,6 +910,12 @@ def validate_manifest(figures: tuple[FigureSpec, ...] = FIGURES) -> None:
                 raise ManifestError(
                     f"{figure.figure_id}.{panel.panel_id}: substituted panel "
                     "needs a substitution_note")
+            if panel.evidence_period and panel.evidence_period != figure.evidence_period:
+                raise ManifestError(
+                    f"{figure.figure_id}.{panel.panel_id}: panel declares "
+                    f"{panel.evidence_period} inside a "
+                    f"{figure.evidence_period} figure; one figure never mixes "
+                    "two evidence periods")
 
 
 def spec_state(figure_id: str, roots: Roots) -> str:
@@ -763,8 +984,8 @@ def gate_report(figure: FigureSpec, roots: Roots) -> list[GateRow]:
     if figure.evidence_period == EvidencePeriod.DEVELOPMENT:
         rows.append(GateRow(
             "evidence_period", True,
-            f"{figure.evidence_period} (Stage-22 span "
-            f"{STAGE22_OBSERVED_SPAN[0]}..{STAGE22_OBSERVED_SPAN[1]}; confirmatory "
+            f"{figure.evidence_period} ({figure.evidence_span_label} "
+            f"{figure.evidence_span[0]}..{figure.evidence_span[1]}; confirmatory "
             f"target starts {PRIMARY_TARGET_START}); in-panel scope band "
             f"{figure.scope_band_value_id} is mandatory",
             Severity.QUALIFIER))
@@ -914,7 +1135,7 @@ def print_status(roots: Roots) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="POST skeleton for Figures S4-S8")
+    parser = argparse.ArgumentParser(description="POST skeleton for Figures S4-S10")
     parser.add_argument("--status", action="store_true",
                         help="read-only gate report; renders nothing")
     parser.add_argument("--figure", choices=[f.figure_id for f in FIGURES],
