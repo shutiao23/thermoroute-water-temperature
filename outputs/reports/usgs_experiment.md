@@ -6,9 +6,9 @@ Air2stream-style a4/a8 (unofficial, non-primary): NOT_RUN; headline entry is NOT
 
 | horizon | persist | damped | Air2stream-style a4/a8 (unofficial, non-primary) | LightGBM | ThermoRoute | skill vs persist | skill vs damped | win-rate vs damped |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 0.803 | 0.774 | NOT_RUN / NA | 0.578 | 0.629 | +0.204 | +0.172 | 0.87 |
-| 3 | 1.576 | 1.406 | NOT_RUN / NA | 1.280 | 1.287 | +0.189 | +0.077 | 0.91 |
-| 7 | 2.217 | 1.738 | NOT_RUN / NA | 1.649 | 1.659 | +0.249 | +0.038 | 0.94 |
+| 1 | 0.803 | 0.774 | NOT_RUN / NA | 0.578 | 0.631 | +0.203 | +0.168 | 0.86 |
+| 3 | 1.576 | 1.406 | NOT_RUN / NA | 1.280 | 1.291 | +0.187 | +0.076 | 0.90 |
+| 7 | 2.217 | 1.738 | NOT_RUN / NA | 1.649 | 1.657 | +0.251 | +0.038 | 0.93 |
 
 ## Random held-station warm-start diagnostic (90→30)
 
@@ -16,9 +16,9 @@ Held stations contribute historical observations to the global panel preprocessi
 
 | horizon | warm-start RMSE | persistence RMSE | warm-start skill |
 |---|---|---|---|
-| 1 | 0.660 | 0.784 | +0.158 |
+| 1 | 0.661 | 0.784 | +0.158 |
 | 3 | 1.274 | 1.525 | +0.165 |
-| 7 | 1.548 | 2.025 | +0.236 |
+| 7 | 1.547 | 2.025 | +0.236 |
 
 ## Module ablations (five-seed deletion/intervention sensitivity; ensemble-mean median per-station RMSE, delta_scale=1.0)
 
@@ -26,11 +26,11 @@ Audit: every mandatory control contains seeds 0--4 and uses the same five seeds 
 
 | variant | h1 | h3 | h7 |
 |---|---|---|---|
-| ThermoRoute | 0.629 | 1.287 | 1.659 |
+| ThermoRoute | 0.631 | 1.291 | 1.657 |
 | DampedPriorOnly | 0.774 | 1.406 | 1.738 |
-| TR-noDynamicPrior | 0.629 | 1.287 | 1.669 |
-| TR-fixedKappa | 0.627 | 1.290 | 1.656 |
+| TR-noDynamicPrior | 0.628 | 1.287 | 1.670 |
+| TR-fixedKappa | 0.627 | 1.291 | 1.658 |
 | TR-noRouter | 0.634 | 1.298 | 1.670 |
 | TR-noMoE | 0.634 | 1.290 | 1.658 |
-| TR-noTCN | 0.679 | 1.340 | 1.674 |
-| TR-unbounded | 0.630 | 1.283 | 1.651 |
+| TR-noTCN | 0.679 | 1.338 | 1.675 |
+| TR-unbounded | 0.630 | 1.284 | 1.651 |
