@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# TODO(conventional reframe -- later re-render stage): this renderer still uses the
+# pre-registration apparatus vocabulary of the prior sealed-confirmatory design.
+# When it is reworked to render result figures from the 2021-2023 conventional
+# holdout numbers (outputs/conventional/holdout_metrics_2021_2023.csv), reframe the
+# following to match paper/FIGURE_REDRAW_SPEC.md (conventional comparative holdout):
+#   one-time opening / the opening / sealed opening  -> 2021-2023 holdout scoring
+#   trusted scorer (inside the one-time opening)     -> conventional holdout scorer (src/thermoroute/conventional_score.py)
+#   verified/opening receipt, outputs/confirmatory/.../opening_receipt_v1.json -> holdout scoring receipt (outputs/conventional/...)
+#   opening.py:NNNN-NNNN references                  -> the conventional holdout scorer
+#   confirmatory protocol                            -> evaluation protocol; confirmatory ... period -> holdout period
+#   claim registry                                   -> comparison registry
+#   claim gate / inference gate / DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED / PRE_FROZEN_INFERENCE_GATE / gate verdicts -> descriptive-only scope
+#   one-shot boundary                                -> holdout boundary
+#   POST/PRE figure-state tokens (POST_TEMPLATE_ONLY, POST gate, POST skeletons) -> holdout-period / structural labels
+#   Stage-19 "withheld script" framing               -> the conventional holdout scorer computes the target-period probabilistic family
+# No result numbers are filled in this pass; <<...>> / pending cells wait on the metrics CSV.
 """Render the three-panel ThermoRoute opening figure (restructured 2026-08-06).
 
 Panel assignment under the benchmark restructure:

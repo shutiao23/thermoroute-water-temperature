@@ -7,12 +7,12 @@ converted from the current Markdown, and known withdrawn claims are rejected
 before any TeX is written.  ``--check`` is read-only and fails when the checked-in
 TeX is not exactly what this source would generate.
 
-The manuscript is a conventional comparative holdout study; the held-out
-2021--2023 metric cells are ``<<...>>`` placeholders filled from
-``outputs/conventional/holdout_metrics_2021_2023.csv``.  The pre-registration
-apparatus (information gate, sealed opening, claim registry) has been removed
-from the prose, so this builder no longer imports the pre-opening render guard
-or the legacy-site-semantics lints from ``scripts/``.
+The manuscript is a conventional comparative 2021--2023 holdout study; the
+held-out metric cells are ``<<...>>`` placeholders filled from
+``outputs/conventional/holdout_metrics_2021_2023.csv``.  This builder only
+converts the canonical Markdown to AGU LaTeX; it contains no empirical result
+sentence and no figure or result renderer.  A future submission view that fills
+the placeholders from the metrics CSV will use a separate renderer.
 """
 
 from __future__ import annotations
@@ -658,11 +658,11 @@ def main() -> None:
         help="verify checked-in TeX bytes without modifying the repository",
     )
     args = parser.parse_args()
-    # The pre-opening render guard has been removed: the manuscript is now a
-    # conventional comparative holdout study and is edited normally.  A future
-    # submission view that fills the ``<<...>>`` placeholders from
+    # The manuscript is a conventional comparative 2021--2023 holdout study and
+    # is edited normally.  This builder only converts the canonical Markdown; a
+    # future submission view that fills the ``<<...>>`` placeholders from
     # ``outputs/conventional/holdout_metrics_2021_2023.csv`` will use a separate
-    # renderer; this builder only converts the canonical Markdown.
+    # renderer.
     rendered = _render(MARKDOWN.read_text(encoding="utf-8"))
     if args.check:
         if not OUTPUT.is_file() or OUTPUT.read_text(encoding="utf-8") != rendered:

@@ -1,21 +1,21 @@
 # ThermoRoute figure-redraw specification
 
-> **NOTE (2026-08-06, conventional-paper reframe).** The manuscript has been
-> rewritten from a pre-registered confirmatory design to a conventional
-> comparative holdout study. Caption labels that read "geometry against the
-> claim gate" / "Cluster geometry against the gate" are softened to "cohort
-> geometry" (Figure 1 panel (b)). The remaining `claim gate` / `inference gate`
-> / `claim registry` wording inside this spec is legacy detail owned by the
-> figure track; figure **re-rendering is a separate task** and is not done here.
-> Held-out 2021--2023 figure cells (Figures 2, 4, S4--S8, S10) are
-> `<<...>>` placeholders filled from
-> `outputs/conventional/holdout_metrics_2021_2023.csv`.
+> **NOTE (2026-08-06, conventional-paper reframe).** The manuscript is a
+> conventional comparative 2021--2023 holdout study: frozen Route-A models are
+> scored on a plain holdout period. This spec's prose has been reframed to
+> conventional vocabulary (conventional holdout scorer; 2021--2023 holdout
+> scoring; holdout scoring receipt). The figure-state tokens (`PRE`/`POST`,
+> `POST_TEMPLATE_ONLY`, and the per-figure render `Gate:` sections) are
+> figure-track process labels retained from the prior design; they will be
+> reconciled when the result figures are re-rendered with 2021--2023 numbers
+> from `outputs/conventional/holdout_metrics_2021_2023.csv` (separate later
+> stage). Held-out 2021--2023 figure cells (Figures 2, 4, S4--S8, S10) are
+> `<<...>>` placeholders filled from that CSV.
 
 **Document role:** authoritative redraw and evidence-binding specification for
 four main-text figures (Figures 1--4) and ten Supporting Information (SI)
 figures (Figures S1--S10, of which S9 is optional; see §5).  This file
-does not authorize model fitting, target-label access, result filling, opening,
-or submission.
+does not authorize model fitting, target-label access, result filling, or submission.
 
 **Benchmark restructure (2026-08-06).** The manuscript was restructured from an
 architecture paper into an evaluation-benchmark paper
@@ -28,14 +28,15 @@ Figure 2, and a development-period conformal panel inside target-period
 Figure 4 -- are **refused** here, because one figure never mixes two evidence
 periods (§1).  Their content is routed to Figure 3 and Figure S9 respectively.
 
-**Current phase:** PRE / no verified opening POST receipt.  Figures S1--S3 are
-materialized as PRE artifacts under the source bindings and visual QA below.
+**Current phase:** structural figures materialized; holdout-period figures
+await 2021--2023 numbers.  Figures S1--S3 are materialized as PRE artifacts under
+the source bindings and visual QA below.
 **Figure 1's materialized bytes are stale against this revision** -- panel (b)
 changed from the bounded-correction schematic to the station map -- so its
 artifact must be re-rendered by the PRE renderer before submission and must not
 be shipped as it stands.  Figures 2--4 and Figures S4--S10 are schema templates
 only.  They must not be rendered as submission SVG/PDF/PNG files, even with
-blank axes or placeholder values, before their POST gates pass.
+blank axes or placeholder values, before their holdout numbers are bound.
 
 **Canonical prose source:** `paper/ThermoRoute_paper.md`
 **Current PRE TeX target:** `paper/agu_submission/ThermoRoute_WRR.tex`
@@ -69,16 +70,15 @@ The states in this table are exhaustive.
 For any state containing `TEMPLATE_ONLY`, “template” means this written panel,
 caption, and binder contract only.  It does **not** mean a rendered empty figure.
 A blank forest, a `PENDING` box, a dummy coordinate, or a zero substituted for a
-missing value is a prohibited result rendering.  The POST skeletons refuse on the
+missing value is a prohibited result rendering.  The holdout-period skeletons refuse on the
 substring `TEMPLATE_ONLY`, so a rebound figure keeps its fail-closed behaviour
 while recording the rebinding in its state token.
 
 **Stage-19 disposition (2026-08-05, final).** The Stage-19 **development**
 script will not be produced for this submission, and Stage-10 cascades from it.
 Figure 4(c) and Figure S5 are **not** affected: their target-period metrics are computed
-independently by the trusted scorer inside the one-time opening
-(`src/thermoroute/opening.py:8932-8948`), which emits the full probabilistic
-family per cohort × model × horizon plus station-balanced reliability bins.  Both
+independently by the conventional holdout scorer, which emits the full
+probabilistic family per cohort × model × horizon plus station-balanced reliability bins.  Both
 figures keep their original designs and no panel is dropped.
 
 Stage-19 is downgraded from a hard blocker to a **recorded provenance
@@ -92,12 +92,12 @@ The Stage-22 adaptive-conformal evidence is **development-period**
 (2019-01-01 to 2020-12-24) and is governed by §2.1 layer 2.  It is confined to
 Figure S9, which declares its evidence period and renders a mandatory in-panel
 scope band.  It may never be read as a target-period result, and no value in it
-may be compared numerically with Figure 4(c) or S5; the confirmatory target period
+may be compared numerically with Figure 4(c) or S5; the holdout period
 starts 2021-01-01.
 
 **One figure never mixes two evidence periods.**  A figure binds either
 target-period or development-period evidence, declares which, and — when
-development — renders an in-panel scope band.  The POST skeletons enforce this
+development — renders an in-panel scope band.  The holdout-period skeletons enforce this
 at two levels: `FigureSpec.evidence_period` declares the figure's period, and
 `PanelSpec.evidence_period` — when a panel declares one at all — must equal it.
 `validate_manifest()` raises `ManifestError` otherwise, so a mixed-period figure
@@ -107,15 +107,15 @@ That rule is what refuses two proposals in the benchmark-restructure brief:
 
 | Refused proposal | Why | Where the content went |
 |---|---|---|
-| Figure 2 panel (a), "the reference ladder", specified as *development-period with a scope band* inside an otherwise target-period figure | mixes 2019--2020 with 2021--2023 in one figure; a reader comparing two rungs would be comparing two cohorts | Figure 2(a) is rebuilt as the **target-period** ladder over the five reference models the trusted scorer emits; the development-period ladder (+0.251 against persistence versus +0.038 against damped persistence at 7 d) is Figure 3(a) row 1 |
+| Figure 2 panel (a), "the reference ladder", specified as *development-period with a scope band* inside an otherwise target-period figure | mixes 2019--2020 with 2021--2023 in one figure; a reader comparing two rungs would be comparing two cohorts | Figure 2(a) is rebuilt as the **target-period** ladder over the five reference models the conventional holdout scorer emits; the development-period ladder (+0.251 against persistence versus +0.038 against damped persistence at 7 d) is Figure 3(a) row 1 |
 | Figure 4 panel (d), "what calibration costs", specified as *development-period with a scope band* inside an otherwise target-period figure | same hazard, and the Stage-22 evidence already has a home | Figure S9 panels (a)--(b), which carry exactly those numbers with a mandatory scope band |
 
-The complementary rule is that a **development-period figure is still a POST
-figure**: Figure 3 and Figure S9 both require the verified opening receipt
-before they render.  The receipt is not what supplies their numbers; it is the
-gate that proves the submission is past the one-shot boundary and that no
-development display is being published as a substitute for a target-period
-result that was never produced.
+The complementary rule is that a **development-period figure is still a
+holdout-period figure**: Figure 3 and Figure S9 both require the holdout scoring
+receipt before they render.  The receipt is not what supplies their numbers; it
+is the record that the 2021--2023 holdout scoring has run, so no development
+display is published as a substitute for a holdout-period result that was never
+produced.
 
 ---
 
@@ -131,10 +131,10 @@ result that was never produced.
    support clearly labelled development/exploratory diagnostics.  They cannot
    fill a target-period point, interval, probability, external-cohort, formal
    comparison, or verdict coordinate.
-3. **POST authority.** A result coordinate requires all of the following:
-   verified opening receipt, frozen model suite, bound prediction/evaluation
-   source, claim registry, inference and outcome-QC gates, POST evidence manifest,
-   and cell/mark-level binder mapping.  Missing or failed evidence is displayed as
+3. **Holdout-period authority.** A result coordinate requires all of the
+   following: holdout scoring receipt, frozen model suite, bound
+   prediction/evaluation source, comparison registry, outcome-QC checks,
+   holdout evidence manifest, and cell/mark-level binder mapping.  Missing or failed evidence is displayed as
    a bound `NA`/failure state when the registered display requires it; it is never
    silently dropped.
 4. **Render authority.** A scientific value is still not a submission artifact
@@ -204,9 +204,9 @@ the render.  Figure 2's formal rows and main Table T2 must use the same value ID
   counts and station-balanced rates are labelled as different quantities.
 - Three-quantile pinball uses the nominal member-averaged pre-CQR heads; coverage
   and width use the deployed CQR interval; event metrics use the post-Platt
-  probability.  All three clauses hold at target period: the trusted scorer
-  inside the one-time opening computes them, so the withheld Stage-19
-  development script does not affect them.
+probability.  All three clauses hold at target period: the conventional holdout
+scorer computes them, so the withheld Stage-19 development script does not
+affect them.
 - A coverage or width number is always reported next to the interval score that
   buys it.  An adaptive conformal variant is never described as cost-free, and a
   non-finite width is bound as an explicit NA with its row count, never clipped,
@@ -236,13 +236,13 @@ main and SI figure.
 | `ALLOWED_TEAL_LIGHT` | `#DCEFEA` | allowed-region fill |
 | `WARNING_VERMILION` | `#D55E00` | limitation or prohibited input; never “bad model” |
 | `WARNING_LIGHT` | `#F9E3D6` | limitation box fill |
-| `GATE_RED` | `#B2182B` | failed/blocked claim gate only; never effect direction |
+| `GATE_RED` | `#B2182B` | failed/blocked descriptive-scope state only; never effect direction |
 | `NEUTRAL_INK` | `#202020` | text and axes |
 | `NEUTRAL_GRID` | `#D0D0D0` | grid/rules |
 | `NA_FILL` | `#F2F2F2` | explicit bound NA/not-estimable status |
 
 No result is encoded by red/green alone.  Series also use stable marker shapes,
-line styles, or hatching.  Warning red is reserved for scope/gate state and must
+line styles, or hatching.  Warning red is reserved for scope state and must
 not imply that a numerically positive or negative effect is statistically
 decisive.
 
@@ -288,7 +288,7 @@ Every caption contains, in this order:
 5. the claim boundary needed to prevent over-interpretation.
 
 Captions do not merely say “performance comparison.”  They also do not contain a
-directional adjective before the bound POST value exists.
+directional adjective before the bound holdout-period value exists.
 
 ### 3.4 Export and page QA
 
@@ -320,13 +320,13 @@ quantity the whole benchmark is measured against.
 **Reassignment note (2026-08-06).** Panel (b) was the bounded-correction
 schematic.  Under the benchmark restructure the architecture is the object under
 test rather than the contribution, so a thesis-level mechanism panel no longer
-belongs in the opening figure; the station map, which the restructure needs and
+belongs in Figure 1; the station map, which the restructure needs and
 which previously existed only inside Figure S1, takes its place.  The
 bounded-correction schematic moves to Figure S3 (§5), where the full
 model/bound/calibration dataflow already lives.  **Re-rendered to the
 restructured panel set on 2026-08-06; the committed Figure 1 bytes now match
-this specification (panel (a) station map, panel (b) cluster geometry/gate with
-the HUC2/4/6/8 ladder, panel (c) persistence challenge; the bounded-correction
+this specification (panel (a) station map, panel (b) cluster geometry/balance
+checks with the HUC2/4/6/8 ladder, panel (c) persistence challenge; the bounded-correction
 schematic is relocated to Figure S3(c)).**
 
 ### Panel structure and plot types
@@ -347,7 +347,7 @@ environmental audit for proximity; the Stage-13c region-transfer table for the
 **(b) Cohort geometry.** Plot the 15 registry-derived HUC2
 station counts as zero-based bars (2 … 26) and show the dimensional collapse from
 657,480 site-days to 120 sites and 15 pre-attrition HUC2 groups.  Beside the
-bars, render the three frozen gate checks as three separate small gauges, never
+bars, render the three frozen balance checks as three separate small gauges, never
 on a shared false numeric axis: 15 versus at least 30 groups,
 $9.54/15=0.636$ versus at least 0.75 effective fraction, and 21.7% versus less
 than 25% largest-group share.  A fourth strip shows the HUC2/HUC4/HUC6/HUC8
@@ -361,7 +361,7 @@ date-indexed allowed history
   -> exact model-pair keys
   -> station-level RMSE
   -> whole-HUC2 sensitivity
-  -> claim/QC gate
+  -> QC/scope check
   -> fixed-cohort descriptive statement
 ```
 
@@ -370,7 +370,7 @@ predictor input boundary.  The panel says that the frozen date-index contract
 excludes those inputs; it does not claim archived as-issued availability or proof
 of local-day alignment.  *Sources:*
 `docs/OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md` §1 for the ladder; the frozen
-registry; the claim registry and inference-gate identities.
+registry; the comparison registry and descriptive-scope identities.
 
 **(c) The persistence challenge.** Plot one station-level point per retained site
 for each horizon $h\in\{1,3,7\}$, where the point is a frozen training-period
@@ -378,7 +378,7 @@ descriptive statistic such as the median observed
 $\lvert T_{t+h}-T_t\rvert$.  Use three aligned dot/box summaries.  The calculation
 is restricted to 2006--2015, exact calendar-day pairs, finite observed WTEMP at
 both ends, no target imputation, and equal station representation.  It is the
-motivation quantity, not a model score and not a confirmation result.
+motivation quantity, not a model score and not a holdout-period result.
 
 ### Caption takeaway
 
@@ -395,7 +395,7 @@ motivation quantity, not a model score and not a confirmation result.
 | Panel | Required fields/values | Required source role |
 |---|---|---|
 | (a) | `site_no`, latitude/longitude, `huc2`, retained observed-`WTEMP` day count, nearest-neighbour distance, 10 km count, 289 km whole-region mean, basemap/source-rights status | frozen registry, environmental audit, and region-transfer fold geometry as a **structural** quantity |
-| (b) | panel rows, site count, pre-attrition HUC2 count, HUC2 counts, effective cluster count/fraction, largest-group share, the HUC2/4/6/8 ladder, allowed-variable/date roles, aggregation roles, inference/QC gate identities, fixed scope status | frozen panel/registry/environmental audit plus protocol, claim registry, and information-boundary contract |
+| (b) | panel rows, site count, pre-attrition HUC2 count, HUC2 counts, effective cluster count/fraction, largest-group share, the HUC2/4/6/8 ladder, allowed-variable/date roles, aggregation roles, scope/QC identities, fixed scope status | frozen panel/registry/environmental audit plus protocol, comparison registry, and information-boundary contract |
 | (c) | `site_no`, `date_t`, `date_th`, `horizon_days`, `wtemp_t`, `wtemp_th`, `observed_pair`, `site_statistic`, `n_pairs` | frozen 2006--2015 panel and registry; training-only descriptive derivation |
 
 Every station marker in panels (a) and (c) binds its site identity, horizon,
@@ -409,7 +409,7 @@ it is not recomputed by the plotting layer.
   committed artifact does **not** satisfy this gate for the panel set above and
   must be re-rendered.
 - **POST:** Figure 1 keeps the same cohort/geometry role; it is not refilled with
-  confirmation effects.  POST may update only bound provenance/status text, not
+  holdout-period result effects.  POST may update only bound provenance/status text, not
   replace a panel with target performance.
 
 ### Prohibited semantics
@@ -426,8 +426,9 @@ forest; any `PENDING` result cell.
   grouping is, and how strongly persistent the target is, from the figure and
   caption alone.
 - All panel-(c) values are training-only and station-balanced.
-- The panel-(b) gate quantities are not visually compared on a false common
-  scale, and the HUC8 row is never presentable as a route to eligibility.
+- The panel-(b) balance-check quantities are not visually compared on a false
+  common scale, and the HUC8 row is never presentable as a route to
+  independent-cluster status.
 - No target-period score, interval, p-value, or verdict is present.
 - The 289 km annotation in panel (a) is bound as fold geometry, never as skill.
 
@@ -437,8 +438,7 @@ forest; any `PENDING` result cell.
 
 **State:** `POST_TEMPLATE_ONLY`
 **Evidence period:** target, 2021-01-01 through 2023-12-31.  Every rung, point,
-and interval in this figure is scored by the trusted scorer inside the one-time
-opening.
+and interval in this figure is scored by the conventional holdout scorer.
 **Research question:** how much of a reported gain survives a strong reference,
 and how does ThermoRoute's point performance compare with all six primary models
 and with the five registered comparison rows?
@@ -449,7 +449,7 @@ benchmark's three design levers.
 ### Panel structure and plot types
 
 **(a) The reference ladder.** For each lead, score the *same* ThermoRoute
-predictions against every reference the trusted scorer emits — persistence,
+predictions against every reference the conventional holdout scorer emits — persistence,
 damped persistence, seasonal climatology, global LightGBM, and the global LSTM —
 and plot the five resulting skill values on one dimensionless axis, connected, so
 the spread between the weakest and the strongest reference is the panel's
@@ -464,7 +464,7 @@ exact-common-key set, reduced with the scorer's own station-RMSE recipe.
 The information-matched plain causal TCN is **not** a rung here.  It is a
 development-only control (Stage-09b), it is absent from the protocol's model
 registry, and putting it on a target-period axis would be exactly the
-development-cache substitution this figure's gate forbids.  Its comparison is a
+development-cache substitution this figure's render authorization forbids.  Its comparison is a
 development-period quantity and belongs to Figure S10's SI09 companion table.
 
 **(b)--(d) All-model station distributions by horizon.** One small multiple for
@@ -494,7 +494,7 @@ fixed ending is:
 
 > All five comparisons describe the frozen observable cohort. HUC2 intervals,
 > exact sign-flip p-values, and Holm values are assumption-conditional
-> sensitivities under `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`; they do not
+> sensitivities under a descriptive-only scope; they do not
 > establish superiority, non-inferiority, equivalence, parity, or a U.S.-river
 > superpopulation result.
 
@@ -504,20 +504,20 @@ fixed ending is:
 |---|---|
 | ladder mark | reference model ID, horizon, skill value, its two component station-median RMSEs, common-key digest, station count, sign convention |
 | all-model mark | model ID, horizon, site ID, common-key digest, paired-key count, station RMSE, reportability status |
-| forest mark | test ID, candidate/reference IDs, horizon, margin, status, effect, CI low/high, station count, cluster count, gate verdict |
+| forest mark | test ID, candidate/reference IDs, horizon, margin, status, effect, CI low/high, station count, cluster count, scope verdict |
 | T2 companion | win rate, raw p, Holm p, margin checks and their exact shared value IDs |
 
-Source pointers resolve to trusted POST predictions, `formal_tests[*]`, the
-opening receipt, and gate artifacts.  Selective omission of a model, site, horizon,
+Source pointers resolve to holdout-period predictions, `formal_tests[*]`, the
+holdout scoring receipt, and scope artifacts.  Selective omission of a model, site, horizon,
 reference rung, or formal row rejects the figure.
 
 ### Gate
 
 - **PRE:** schema text only.  Do not generate an SVG/PDF/PNG or placeholder
   forest.
-- **POST:** complete opening/evidence/render receipts; exact key registry; all
+- **POST:** complete holdout/evidence/render receipts; exact key registry; all
   five formal rows exactly once; all six primary models; every reference rung the
-  scorer emits; bound NA handling; permanently descriptive gate text.
+  scorer emits; bound NA handling; permanently descriptive scope text.
 
 ### Prohibited semantics
 
@@ -558,10 +558,10 @@ whole-region holdout rather than a random held-site split?
 largest single effect on a reported number.
 **First citation:** close of the Results subsection on whole-region holdout.
 
-### Why this figure is development-period, and why it is still POST-gated
+### Why this figure is development-period, and why it is still holdout-receipt-gated
 
-The one-time opening produces **no** held-region artifact.  The confirmatory
-protocol registers a temporal cohort and a site-identifier-disjoint external
+The 2021--2023 holdout scoring produces **no** held-region artifact.  The
+evaluation protocol registers a temporal cohort and a site-identifier-disjoint external
 cohort; a leave-one-HUC2-region-out arm is not among them, and
 `docs/R13_POSTOPEN_TABLE_RENDERER.md` §6 records that Table 4.6's held-region
 fragment renders as `NOT_EMITTED_BY_THE_ONE_TIME_OPENING`.  The whole-region
@@ -569,11 +569,11 @@ holdout evidence in this paper is therefore the Stage-13c development-period
 evidence, permanently, and the figure says so inside the panel rather than in a
 caption a reader may skip.
 
-It is nonetheless gated on the verified opening receipt, exactly like every other
-POST figure.  A development-period main figure is legitimate only when the
-submission is past the one-shot boundary and the reader can see what the opening
-did and did not produce; publishing it earlier would let a development display
-stand in for a target-period result that was never attempted.
+It is nonetheless gated on the holdout scoring receipt, exactly like every other
+holdout-period figure.  A development-period main figure is legitimate only when
+the 2021--2023 holdout scoring has run and the reader can see what it did and did
+not produce; publishing it earlier would let a development display stand in for
+a holdout-period result that was never attempted.
 
 ### Panel structure and plot types
 
@@ -610,8 +610,8 @@ report and the LSTM baseline report.
 > skill on this panel, at a mean nearest-training-gauge distance two orders of
 > magnitude larger than the spacing inside the intact cohort. These are
 > development-period diagnostics on a fixed availability-selected cohort over
-> 2019--2020; the one-time evaluation produces no held-region arm, so no value
-> here has a target-period counterpart and none may be compared numerically with
+> 2019--2020; the 2021--2023 holdout scoring produces no held-region arm, so no
+> value here has a target-period counterpart and none may be compared numerically with
 > Figure 2, Figure 4, or any SI figure bound to the evaluation period. The
 > distance panel reports association, not a transfer mechanism.
 
@@ -631,9 +631,9 @@ are never pooled into one mark.
 ### Gate
 
 - **PRE:** schema text only.  No axes, no fold map, no placeholder arm.
-- **POST:** verified opening receipt; Stage-13c region-transfer table and report;
+- **POST:** holdout scoring receipt; Stage-13c region-transfer table and report;
   the transfer-arm report carrying the random-held-site fold results; the
-  confirmatory protocol; the frozen station registry; a bound evidence-period
+  evaluation protocol; the frozen station registry; a bound evidence-period
   declaration; the in-panel scope band; render receipt.
 
 ### Prohibited semantics
@@ -726,25 +726,24 @@ proposed as panel (d) is 2019--2020 evidence and is carried by Figure S9.
 
 - **PRE:** schema text only.  No axes, no dummy coverage point, no placeholder
   candidate.
-- **POST:** verified opening receipt; `trusted/spatial_sensitivity_v1.json`;
+- **POST:** holdout scoring receipt; `trusted/spatial_sensitivity_v1.json`;
   `trusted/temporal_coverage_audit_v1.json`;
   `trusted/probabilistic_evaluation_v2.json`;
   `trusted/temporal_predictions_v1.parquet`;
-  `trusted/availability_registry_v1.csv`; erratum binding; confirmatory protocol;
+  `trusted/availability_registry_v1.csv`; erratum binding; evaluation protocol;
   SI08, SI10, SI11; render receipt.  If any panel lacks authority, Figure 4 is
   not generated, and a development panel is never substituted.
 
-### Pre-opening guard (blocking risk, not a figure risk)
+### Pre-holdout quantile guard (blocking risk, not a figure risk)
 
-`opening.py:7093-7094` applies a **strict** `q05 < q95` to the member-averaged
-nominal heads and raises `OpeningContractError` — aborting the entire one-time
-opening — on violation.  This is the Stage-19 degeneracy trap one layer up.
-Measured on the development panel: member averaging clears every affected
-LightGBM key (5 members); the only 12 survivors are single-member
-`LightGBM-perstation` keys, and that model appears in neither `PRIMARY_MODELS`
-nor the confirmatory protocol.  **Re-run this check on the target-period
-predictions before executing the one-time opening.**  The qualifier travels with
-panel (c) and with Figure S5.
+The conventional holdout scorer applies a **strict** `q05 < q95` to the
+member-averaged nominal heads and aborts on violation.  This is the Stage-19
+degeneracy trap one layer up.  Measured on the development panel: member
+averaging clears every affected LightGBM key (5 members); the only 12 survivors
+are single-member `LightGBM-perstation` keys, and that model appears in neither
+`PRIMARY_MODELS` nor the evaluation protocol.  **Re-run this check on the
+holdout-period predictions before executing the 2021--2023 holdout scoring.**
+The qualifier travels with panel (c) and with Figure S5.
 
 ### Prohibited semantics
 
@@ -809,8 +808,8 @@ does not imply representativeness.
 **Question:** Which information is available at each stage, and what can the
 predictor-product bridge establish?
 **Panels/plot types:** `(a)` 2006--2015 train, 2016--2017 validation, 2018
-calibration, 2019--2020 inspected exploratory development, and later one-time
-target chronology; `(b)` issue-time allowed/forbidden timeline at horizons 1, 3,
+calibration, 2019--2020 inspected exploratory development, and later 2021--2023
+holdout chronology; `(b)` issue-time allowed/forbidden timeline at horizons 1, 3,
 and 7 days; `(c)` variable-by-provider/source-date matrix; `(d)` two-column bridge
 capability/limitation matrix.
 
@@ -908,8 +907,8 @@ evidence.
 for both models; paired difference; paired target count; reportability/NA reason;
 sorting registry; shared scale limits.
 
-**Gate:** verified POST predictions, exact keys, opening receipt, and QC/gate
-bindings.  PRE rendering is prohibited.
+**Gate:** verified holdout-period predictions, exact keys, holdout scoring
+receipt, and QC/scope bindings.  PRE rendering is prohibited.
 
 **Forbidden:** selective sites; per-panel adaptive color scales; national map
 interpolation; hydrologic connectivity; causal spatial explanation; omitted NA.
@@ -936,9 +935,8 @@ probabilities behave against a frozen seasonal reference?
 **Evidence period:** target, 2021-01-01 through 2023-12-31.
 
 **Stage-19 does not affect this figure.** The SI08 metric family is produced at
-target period by the trusted scorer inside the one-time opening
-(`src/thermoroute/opening.py:8932-8948`), per cohort × model × horizon, with
-station-balanced reliability bins.  The original expanded design is retained in
+target period by the conventional holdout scorer, per cohort × model × horizon,
+with station-balanced reliability bins.  The original expanded design is retained in
 full and no panel is dropped.  The development-period Stage-22 conformal evidence
 is confined to Figure S9 and is never mixed into this figure.
 
@@ -946,7 +944,7 @@ is confined to Figure S9 and is never mixed into this figure.
 every cell bound or explicit NA; `(b)` **event score** — Brier skill against the
 frozen seasonal reference by model and horizon, with the zero-skill line and the
 bound reference identity drawn, the reference being the frozen seasonal
-climatology and never confirmation-period event prevalence — shown together with
+climatology and never holdout-period event prevalence — shown together with
 the pinball, interval, and log-score matrix under an explicit scoring-stage
 legend distinguishing nominal pre-CQR heads, the deployed CQR interval, and the
 post-Platt probability; `(c)` **reliability, one sub-panel per horizon**:
@@ -969,15 +967,15 @@ horizon counts, every bin boundary/statistic/denominator/station-balanced weight
 undefined reasons, reference identity, event-reference binding, threshold scope,
 and calibration-fit status.
 
-**Gate:** opening receipt; `trusted/probabilistic_evaluation_v2.json`;
+**Gate:** holdout scoring receipt; `trusted/probabilistic_evaluation_v2.json`;
 `trusted/temporal_predictions_v1.parquet`;
 `trusted/external_predictions_v1.parquet`;
-`trusted/availability_registry_v1.csv`; erratum binding; SI08; confirmatory
+`trusted/availability_registry_v1.csv`; erratum binding; SI08; evaluation
 protocol.  PRE rendering is prohibited.
 
 **Forbidden:** three-quantile score labelled CRPS; silent metric substitution;
 empty-bin merging; conditional-coverage language; model rows with invented heads;
-distribution-free target-period guarantee; confirmation event prevalence as the
+distribution-free target-period guarantee; holdout-period event prevalence as the
 Brier reference; "quantile crossing" as the Stage-19 cause; development-period
 conformal numbers presented as target-period results.
 
@@ -1017,7 +1015,7 @@ missingness reason, year/season/block ID, effect/score, support, formal-effect
 reference, and feedback-date proxy role.
 
 **Gate:** SI10/SI14 and temporal-coverage receipts physically replayed and bound
-to opening evidence.  PRE target counts or placeholder marks are prohibited.
+to holdout evidence.  PRE target counts or placeholder marks are prohibited.
 
 **Forbidden:** seven retained rows called seven calendar days; all-calendar
 performance; real publication-latency replay; favourable sensitivity used to
@@ -1037,10 +1035,11 @@ single-cluster omission?
 **Relationship to the main text (2026-08-06):** this figure expands Figure 4(a).
 Figure 4(a) carries the per-HUC2 medians against both references and the two
 aggregate reference lines; S7 carries every unit, every leave-one-HUC2 omission,
-the cluster-share diagnostics, and the permanent gate box.  The two must agree in
+the cluster-share diagnostics, and the permanent scope box.  The two must agree in
 value and rounding on the per-HUC2 effects they share.
 **Panels/plot types:** per-HUC2 effect/count dot plot; leave-one-HUC2 effect plot;
-cluster-share/effective-count diagnostics; permanent claim-gate status box.
+cluster-share/effective-count diagnostics; permanent descriptive-scope status
+box.
 
 **Caption takeaway:** Spatial sensitivities expose influence from the unbalanced,
 coarse HUC2 grouping. Numerical stability under leave-one-HUC2 omission does not
@@ -1049,19 +1048,19 @@ description.
 
 **Fields/value IDs:** cluster definition/version; HUC2/omitted unit; station and
 cluster counts; largest share; effective count/fraction; per-HUC and leave-one
-effect; interval/status; gate inputs/verdict; registry/UQ source binding.
+effect; interval/status; scope inputs/verdict; registry/UQ source binding.
 
-**Gate:** verified SI11 spatial-sensitivity receipt, registry binding, opening
-receipt, and fixed gate status.  PRE may supply geometry to S1 but must not render
-S7 result axes.
+**Gate:** verified SI11 spatial-sensitivity receipt, registry binding, holdout
+scoring receipt, and fixed scope status.  PRE may supply geometry to S1 but must
+not render S7 result axes.
 
 **Forbidden:** HUC2 as independent network component; national inference;
 superiority/non-inferiority; stable leave-one-HUC as proof of robustness;
 post-outcome alternative clustering.
 
 **Acceptance:** all HUC2 groups and omissions appear or bind NA; counts reconcile
-with reportability; gate thresholds and actual inputs are distinct; scope warning
-is visible without relying on caption-only text.
+with reportability; scope thresholds and actual inputs are distinct; scope
+warning is visible without relying on caption-only text.
 
 ---
 
@@ -1094,8 +1093,8 @@ exact-A binding; external site registry/disjointness/history fields; exact keys,
 scores/effects/status; failure reason, before/after counts, disposition, and
 source pointers.
 
-**Gate:** SI12/SI13/SI14 receipts, immutable raw bytes, QC gate, external suite,
-opening receipt, and failure-case bindings.  PRE rendering is prohibited because
+**Gate:** SI12/SI13/SI14 receipts, immutable raw bytes, QC check, external
+suite, holdout scoring receipt, and failure-case bindings.  PRE rendering is prohibited because
 the external cohort and target QC/result evidence are not complete.
 
 **Forbidden:** site replacement; post hoc threshold tuning; suppressed conflicts
@@ -1130,7 +1129,7 @@ This figure carries the Stage-22 adaptive-conformal evidence
 groups, leads {1, 3, 7}).  It is a **separate** figure rather than a panel of S5
 because S5 is target-period and this is development-period, and one figure never
 mixes two evidence periods.  It is **optional**: dropping it weakens no
-registered claim, because nothing in the confirmatory five-test family depends on
+registered claim, because nothing in the five-test comparison family depends on
 it.
 
 **Panels/plot types:** `(a)` method-by-slice coverage matrix over the five frozen
@@ -1158,11 +1157,11 @@ non-finite width count and reason, ACI feedback count, feedback proxy role, bloc
 semantics note); `weighting.*`; `huc2.*`; `provenance.*` (evidence period, target
 start, source digest).
 
-**Gate:** opening receipt; Stage-22 row table and report; confirmatory protocol;
+**Gate:** holdout scoring receipt; Stage-22 row table and report; evaluation protocol;
 bound evidence-period declaration; in-panel scope band
 (`figS9.scope.development_period_not_confirmation`).  PRE rendering is prohibited.
 
-**Forbidden:** target-period coverage or any confirmatory interval claim;
+**Forbidden:** target-period coverage or any holdout-period interval claim;
 conditional coverage; distribution-free finite-sample guarantee; adaptive
 conformal presented as cost-free; silently dropped or clipped non-finite widths;
 "seven calendar-day blocks" (the block method uses 7 **retained rows**); real
@@ -1182,16 +1181,17 @@ separately labelled; the evidence-period scope band is legible inside the figure
 **Added:** 2026-08-06.  This figure receives the architecture-intervention panel
 demoted from the former Figure 4(a) when the benchmark restructure made the
 architecture the object under test rather than the contribution.  It is a
-demotion in prominence only: the evidence, its period, and its gate are unchanged.
+demotion in prominence only: the evidence, its period, and its render-authorization
+requirements are unchanged.
 **Question:** Which registered one-factor interventions change the prediction on
 the evaluation keys, and does the algebraic deviation bound hold where it is
 claimed to?
 **Evidence period:** target, 2021-01-01 through 2023-12-31.
 
 The seven controls are not an afterthought of the model registry; they are part
-of it.  The confirmatory protocol's `mandatory_exploratory_architecture_controls`
+of it.  The evaluation protocol's `mandatory_exploratory_architecture_controls`
 list is resolved into the temporal cohort's required model set alongside the six
-primary models, so the trusted scorer emits a row for every control on the same
+primary models, so the conventional holdout scorer emits a row for every control on the same
 exact common keys, and Table 4.2 of the manuscript transcribes them.  This figure
 is the graphical reading of those rows.
 
@@ -1218,10 +1218,10 @@ seed/member registry, exact-key digest, site and horizon effect, paired target
 count, bound-violation count and rate, maximum absolute correction, configured
 delta, suite and receipt lineage, reportability/NA reason.
 
-**Gate:** verified opening receipt; all seven target control rows under the final
+**Gate:** holdout scoring receipt; all seven target control rows under the final
 model/seed contract; `trusted/temporal_predictions_v1.parquet`;
 `trusted/availability_registry_v1.csv`; Stage-09 and Stage-16 receipts; the
-confirmatory protocol; SI09; render receipt.  PRE rendering is prohibited.  If
+evaluation protocol; SI09; render receipt.  PRE rendering is prohibited.  If
 any control row lacks authority, the figure is not generated and a development
 control is never substituted for it.
 
@@ -1247,19 +1247,20 @@ non-safety statement is legible in-panel; no Stage-09b value appears.
 
 ## 6. Explicit retirements and removals
 
-### 6.1 Current pre-opening SVG
+### 6.1 Current pre-holdout SVG
 
 The former four-panel bytes at
 `paper/agu_submission/figures/fig01_preopening_concept.svg` are retired as a
 submission Figure 1.  The path may be replaced only by the deterministic
 three-panel renderer specified here; the former hand-authored dashboard is not
-patched, renamed, or promoted.  Its information rule, model equation, cluster
-gate, and nonexistent result did not form one argument.
+patched, renamed, or promoted.  Its information rule, model equation,
+cluster-balance checks, and nonexistent result did not form one argument.
 
 The following changes are mandatory in the redraw:
 
 - **Remove old Figure 1d entirely.** No pending five-row forest appears in Figure
-  1.  The receipt-derived forest becomes Figure 2d after the POST gate.
+  1.  The receipt-derived forest becomes Figure 2d after the holdout numbers are
+  bound.
 - Reuse the old non-result information-boundary idea in Figure 1's
   cluster-geometry panel at thesis level and in Figure S2 at full detail; the old
   Figure 1d forest itself is not reused.
@@ -1267,8 +1268,8 @@ The following changes are mandatory in the redraw:
   full detail.~~ **Superseded 2026-08-06:** the bounded equation is no longer in
   Figure 1 at all.  It lives only in Figure S3(c).  See §6.4.
 - Move expanded cohort/registry geometry to Figure S1; Figure 1's
-  cluster-geometry panel retains only the HUC2 counts, the gate checks, and the
-  HUC2/4/6/8 ladder needed for the thesis.
+cluster-geometry panel retains only the HUC2 counts, the balance checks, and the
+HUC2/4/6/8 ladder needed for the thesis.
 - Replace `15 reportable HUC2 groups` with `15 pre-attrition HUC2 groups` and,
   where relevant, `at most 15 reportable groups`.
 - Replace the absolute phrase `No leakage across the issue-time boundary` with
@@ -1321,7 +1322,7 @@ including what was refused and why, is
 | Figure 1(b) | bounded-correction schematic | **Figure S3(c)** | PRE structural |
 | Figure 1(c) | cohort geometry | Figure 1(b), extended with the HUC2/4/6/8 ladder | PRE structural |
 | — | station map and nearest-neighbour scale | **Figure 1(a)** — new; the full registry geometry stays in Figure S1 | PRE structural |
-| — | reference ladder | **Figure 2(a)** — new, built at target period from the trusted scorer's own reference models | target |
+| — | reference ladder | **Figure 2(a)** — new, built at target period from the conventional holdout scorer's own reference models | target |
 | Figure 2(a)--(c) | all-model station distributions | Figure 2(b)--(d) | target |
 | Figure 2(d) | registered five-row forest | Figure 2(e) | target |
 | Figure 3(a) | coverage--width plane | **Figure 4(c)** | target |
@@ -1342,10 +1343,10 @@ Two consequences must not be lost:
    re-rendered by the PRE renderer to the restructured panel set (station map /
    geometry+ladder / persistence; schematic relocated to Figure S3), and the
    PRE supporting-figure manifest now binds the re-rendered file's SHA-256.
-2. **Figure 3 is the only main figure the one-time opening cannot fill.**  The
-   opening emits no held-region artifact, so Figure 3 is permanently
-   development-period.  A future decision to run a target-period regional
-   holdout would be a protocol amendment, not a figure change.
+2. **Figure 3 is the only main figure the 2021--2023 holdout scoring cannot
+   fill.**  The holdout scoring emits no held-region artifact, so Figure 3 is
+   permanently development-period.  A future decision to run a target-period
+   regional holdout would be a protocol amendment, not a figure change.
 
 ---
 
@@ -1353,7 +1354,7 @@ Two consequences must not be lost:
 
 The current Markdown and PRE TeX contain no figure cross-reference or embedded
 figure.  A complete paper projection must add references only through the
-appropriate PRE/POST renderer.
+appropriate structural or holdout-period renderer.
 
 The manuscript marks each first-citation position with an **inert placement
 anchor**, not a reference:
@@ -1381,13 +1382,14 @@ fourteen figures of this specification:
 | Figure S7 | `POST` | close of the Results subsection on regional heterogeneity, beside Figure 4 |
 | Figure S9 | `POST_DEVELOPMENT` | the Limitations paragraph on interval calibration, cited only as a development-period sensitivity |
 
-The PRE-only `paper/agu_submission/build_agu.py` is not a POST figure renderer.
-It strips every HTML comment before conversion, so the anchors never reach the
-TeX and never become a hand-inserted reference.  No manual `\includegraphics`,
-caption, or result transcription is authorized by this document.  The future POST
-builder must verify that every cited figure exists, every generated figure is
-cited, the anchor id set equals the manifest's figure-id set exactly, numbering
-is unique, and caption/body claims resolve to the same value IDs.
+The structural-only `paper/agu_submission/build_agu.py` is not a holdout-period
+figure renderer.  It strips every HTML comment before conversion, so the anchors
+never reach the TeX and never become a hand-inserted reference.  No manual
+`\includegraphics`, caption, or result transcription is authorized by this
+document.  The future holdout-period builder must verify that every cited figure
+exists, every generated figure is cited, the anchor id set equals the manifest's
+figure-id set exactly, numbering is unique, and caption/body claims resolve to
+the same value IDs.
 
 ---
 
@@ -1397,7 +1399,8 @@ is unique, and caption/body claims resolve to the same value IDs.
 
 - [x] Current materialization is limited to Figures S1--S3 and Figure 1; Figure 1
       was re-rendered to the 2026-08-06 restructured panel set before submission.
-- [ ] Figures 2--4 and S4--S10 have no rendered submission artifact before POST.
+- [ ] Figures 2--4 and S4--S10 have no rendered submission artifact before
+      holdout-period rendering.
 - [ ] Every empirical mark and caption number resolves to one value ID.
 - [ ] Every value ID binds value, unit, evidence role, source, derivation, and rounding.
 - [ ] PRE training diagnostics contain no post-2020 outcome and no development score substitution.
@@ -1409,9 +1412,9 @@ is unique, and caption/body claims resolve to the same value IDs.
 - [ ] Figure 1 alone communicates where the cohort is, how coarse its grouping
       is, and how persistent the target is.
 - [ ] Figure 2 supplies end-to-end point evidence and the reference ladder
-      without confirmatory wording.
+      without inferential wording.
 - [ ] Figure 3 states inside the panel that it is development-period and that the
-      opening produces no held-region arm.
+      holdout scoring produces no held-region arm.
 - [ ] Figure 4 reports coverage together with the width that buys it, and reports
       regional and seasonal heterogeneity against both references.
 - [ ] No figure or caption attributes the Stage-19 withdrawal to "quantile

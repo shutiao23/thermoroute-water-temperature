@@ -7,12 +7,12 @@ intervals and post-Platt event probabilities. It does not call three-quantile
 pinball CRPS and does not claim conditional coverage.
 
 **Scope correction (2026-08-05).** Every projection in §1 and §2 below is a
-**target-period** quantity produced by the trusted scorer inside the one-time
-opening. The **development-period** probabilistic stage is not produced for this
-submission, so this file will never carry a development-period coverage, pinball,
-reliability or Brier value. The reason, the measured facts, and the decision are
-in §3. This corrects the earlier reading of this file, which did not distinguish
-the two producers.
+**target-period** quantity produced by the conventional holdout scorer. The
+**development-period** probabilistic stage is not produced for this submission,
+so this file will never carry a development-period coverage, pinball, reliability
+or Brier value. The reason, the measured facts, and the decision are in §3. This
+corrects the earlier reading of this file, which did not distinguish the two
+producers.
 
 ## 1. Metric projection (target period)
 
@@ -38,10 +38,10 @@ contract.
 
 ## 3. Development-period probabilistic stage: disposition
 
-The pre-registered development-period probabilistic stage is **deliberately not
-produced** for this submission, and the dependent development-period analysis
-stage inherits that condition. This is reported in the manuscript at §6.3 and
-recorded in `docs/STAGE19_DEGENERATE_INTERVAL_DISPOSITION_20260805.md`.
+The development-period probabilistic stage is **deliberately not produced** for
+this submission, and the dependent development-period analysis stage inherits
+that condition. This is reported in the manuscript at §6.3 and recorded in
+`docs/STAGE19_DEGENERATE_INTERVAL_DISPOSITION_20260805.md`.
 
 ### 3.1 Measured facts
 
@@ -77,12 +77,12 @@ nominal interval**. The rejected rows are correctly ordered but degenerate.
 ### 3.3 Why the contract was not amended
 
 The frozen contract tests `q05 >= q95` inclusive and treats it as fatal, and the
-protocol forbids evaluation-time repair. The one-line relaxation would edit a
-hashed source path, changing `source_tree_hash` and invalidating all four frozen
-training receipts, on which the chronology gate depends. The contract was frozen
-before any access to the evaluation labels. It was left alone, and the
-development-period probabilistic metric suite is reported as not reported. The
-change is deferred to the single post-opening remediation lineage.
+frozen contract forbids evaluation-time repair. The one-line relaxation would
+edit a hashed source path, changing `source_tree_hash` and invalidating all four
+frozen training receipts. The contract was frozen before the holdout labels were
+accessed. It was left alone, and the development-period probabilistic metric
+suite is reported as not reported. The change is deferred to a future training
+lineage.
 
 ### 3.4 No delivered interval is degenerate
 
@@ -103,13 +103,13 @@ training lineage.
 
 ### 3.6 A draft guard that must be run
 
-The test-window evaluation applies a **strict** `q05 < q95` to the member-averaged
-nominal heads and aborts on violation. On the development panel, member averaging
-clears every affected key for the models in the primary registry; the only
-survivors are single-member per-station cases, and that variant is not a primary
-model. The target period is different data. The same read-only check must be run
-against the target-period predictions before the test-window evaluation is executed.
-This is recorded as a provenance qualifier on Figure 4 and Figure S5.
+The 2021--2023 holdout scoring applies a **strict** `q05 < q95` to the
+member-averaged nominal heads and aborts on violation. On the development panel,
+member averaging clears every affected key for the models in the primary registry;
+the only survivors are single-member per-station cases, and that variant is not a
+primary model. The holdout period is different data. The same read-only check
+must be run against the holdout-period predictions before the holdout scoring is
+executed. This is recorded as a provenance qualifier on Figure 4 and Figure S5.
 
 ## 4. Which figures project this file, after the 2026-08-06 reassignment
 
@@ -124,8 +124,8 @@ apart.
 | **Figure S5** | the model-by-horizon coverage/width grid, the event score against the frozen seasonal reference, every registered reliability bin, and the calibration/discrimination diagnostics | target |
 | Figure S9 | **nothing from this file.** S9 carries the Stage-22 development-period conformal sensitivity and may not be compared numerically with Figure 4(c) or S5 | development 2019–2020 |
 
-Three fields in Table 4.4 are not produced by the opening and render as explicit
-status tokens rather than as numbers or blanks: the interval score, the
+Three fields in Table 4.4 are not produced by the holdout scorer and render as
+explicit status tokens rather than as numbers or blanks: the interval score, the
 block-maximum calibration sensitivity, and the delayed adaptive-conformal
 sensitivity. The development-period analogues of the latter two exist and are in
 Figure S9; they are a different cohort and are never substituted for the
