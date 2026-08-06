@@ -38,7 +38,7 @@ Sources: `station_registry_v1.csv`, `panel_usgs_120v2.parquet`,
 workflow? **(a)** The frozen temporal roles are 2006–2015 training, 2016–2017
 validation, 2018 calibration, 2019–2020 inspected exploratory development, and a
 one-time 2021–2023 target-period evaluation. The 2019–2020 partition informed
-cohort, model, and narrative development and is not independently confirmatory.
+cohort, model, and narrative development and is not independently primary.
 **(b)** At historical issue date *t*, predictor inputs may use observed
 target-site water-temperature history and dated FLOW, Daymet, and gridMET values
 only through *t*, together with frozen climatology and damped-anchor inputs.

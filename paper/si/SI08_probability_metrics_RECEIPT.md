@@ -1,6 +1,6 @@
 # SI08 — probability metrics and reliability bins
 
-**Status:** DRAFT / PRE-OPENING / NOT RECEIPT.
+**Status:** DRAFT.
 
 This is an empty projection for nominal member-averaged quantiles, deployed CQR
 intervals and post-Platt event probabilities. It does not call three-quantile
@@ -18,7 +18,7 @@ the two producers.
 
 | Model | Horizon | n | marginal coverage | width (°C) | interval score | pinball | Brier score | Brier skill | log score | discrimination | ECE | calibration slope | calibration intercept | binder row ID |
 |---|---:|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| *(receipt model)* | *(1/3/7)* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
+| *(receipt model)* | *(1/3/7)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 ## 2. Reliability bins (target period)
 
@@ -28,7 +28,7 @@ or merged bins remain explicit; they are never silently removed.
 
 | Model | Horizon | bin ID/bounds | denominator | mean forecast probability | observed frequency | calibration residual | binder row ID |
 |---|---:|---|---|---|---|---|---|
-| *(receipt model)* | *(1/3/7)* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
+| *(receipt model)* | *(1/3/7)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 Any metric not defined by the frozen probability contract must be explicitly
 `NOT_REGISTERED`, not silently omitted or substituted. Brier skill requires a
@@ -98,17 +98,17 @@ Development-period interval coverage from the nominal heads, development-period
 three-quantile pinball mean, development-period reliability, and
 development-period Brier score are absent. No claim about probabilistic
 calibration beyond empirical marginal interval coverage may be read into the
-manuscript or into this file. Resolving this requires a sealed erratum and a new
+manuscript or into this file. Resolving this requires a fixed erratum and a new
 training lineage.
 
-### 3.6 A pre-opening guard that must be run
+### 3.6 A draft guard that must be run
 
-The one-time opening applies a **strict** `q05 < q95` to the member-averaged
+The test-window evaluation applies a **strict** `q05 < q95` to the member-averaged
 nominal heads and aborts on violation. On the development panel, member averaging
-clears every affected key for the models in the confirmatory registry; the only
+clears every affected key for the models in the primary registry; the only
 survivors are single-member per-station cases, and that variant is not a primary
 model. The target period is different data. The same read-only check must be run
-against the target-period predictions before the one-time opening is executed.
+against the target-period predictions before the test-window evaluation is executed.
 This is recorded as a provenance qualifier on Figure 4 and Figure S5.
 
 ## 4. Which figures project this file, after the 2026-08-06 reassignment

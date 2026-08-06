@@ -1,5 +1,16 @@
 # ThermoRoute figure-redraw specification
 
+> **NOTE (2026-08-06, conventional-paper reframe).** The manuscript has been
+> rewritten from a pre-registered confirmatory design to a conventional
+> comparative holdout study. Caption labels that read "geometry against the
+> claim gate" / "Cluster geometry against the gate" are softened to "cohort
+> geometry" (Figure 1 panel (b)). The remaining `claim gate` / `inference gate`
+> / `claim registry` wording inside this spec is legacy detail owned by the
+> figure track; figure **re-rendering is a separate task** and is not done here.
+> Held-out 2021--2023 figure cells (Figures 2, 4, S4--S8, S10) are
+> `<<...>>` placeholders filled from
+> `outputs/conventional/holdout_metrics_2021_2023.csv`.
+
 **Document role:** authoritative redraw and evidence-binding specification for
 four main-text figures (Figures 1--4) and ten Supporting Information (SI)
 figures (Figures S1--S10, of which S9 is optional; see §5).  This file
@@ -40,7 +51,7 @@ The states in this table are exhaustive.
 
 | Figure | Canonical responsibility | Evidence period | Current state | Current artifact allowance |
 |---|---|---|---|---|
-| Figure 1 | station map, cohort geometry against the claim gate, and the persistence challenge | PRE structural | `PRE_MATERIALIZED` | **PRE artifact only** |
+| Figure 1 | station map, cohort geometry, and the persistence challenge | PRE structural | `PRE_MATERIALIZED` | **PRE artifact only** |
 | Figure 2 | how baseline choice changes reported skill | target | `POST_TEMPLATE_ONLY` | **No** |
 | Figure 3 | how the spatial partition changes the transfer conclusion | **development 2019--2020** | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **No** |
 | Figure 4 | regional and seasonal heterogeneity, and what interval coverage costs | target | `POST_TEMPLATE_ONLY` | **No** |
@@ -303,7 +314,7 @@ directional adjective before the bound POST value exists.
 training partition only.  No post-2020 outcome, no development score.
 **Research question:** what panel is this, where are its gauges, and what
 inferential weight can its spatial geometry support?
-**Narrative role:** cohort -> geometry against the claim gate -> the motivation
+**Narrative role:** cohort -> cohort geometry -> the motivation
 quantity the whole benchmark is measured against.
 
 **Reassignment note (2026-08-06).** Panel (b) was the bounded-correction
@@ -333,7 +344,7 @@ binding; without such a source the panel renders a coordinate scatter and binds
 environmental audit for proximity; the Stage-13c region-transfer table for the
 289 km value, bound as a **structural geometry** quantity and never as a score.
 
-**(b) Cluster geometry against the gate.** Plot the 15 registry-derived HUC2
+**(b) Cohort geometry.** Plot the 15 registry-derived HUC2
 station counts as zero-based bars (2 … 26) and show the dimensional collapse from
 657,480 site-days to 120 sites and 15 pre-attrition HUC2 groups.  Beside the
 bars, render the three frozen gate checks as three separate small gauges, never
@@ -1308,7 +1319,7 @@ including what was refused and why, is
 |---|---|---|---|
 | Figure 1(a) | persistence challenge | Figure 1(c) | PRE structural |
 | Figure 1(b) | bounded-correction schematic | **Figure S3(c)** | PRE structural |
-| Figure 1(c) | cluster geometry against the gate | Figure 1(b), extended with the HUC2/4/6/8 ladder | PRE structural |
+| Figure 1(c) | cohort geometry | Figure 1(b), extended with the HUC2/4/6/8 ladder | PRE structural |
 | — | station map and nearest-neighbour scale | **Figure 1(a)** — new; the full registry geometry stays in Figure S1 | PRE structural |
 | — | reference ladder | **Figure 2(a)** — new, built at target period from the trusted scorer's own reference models | target |
 | Figure 2(a)--(c) | all-model station distributions | Figure 2(b)--(d) | target |
@@ -1329,7 +1340,7 @@ Two consequences must not be lost:
    Panel (b) changed content, so `fig01_preopening_concept.{svg,pdf,png,json,csv}`
    previously no longer matched this specification.  They have since been
    re-rendered by the PRE renderer to the restructured panel set (station map /
-   geometry+gate+ladder / persistence; schematic relocated to Figure S3), and the
+   geometry+ladder / persistence; schematic relocated to Figure S3), and the
    PRE supporting-figure manifest now binds the re-rendered file's SHA-256.
 2. **Figure 3 is the only main figure the one-time opening cannot fill.**  The
    opening emits no held-region artifact, so Figure 3 is permanently

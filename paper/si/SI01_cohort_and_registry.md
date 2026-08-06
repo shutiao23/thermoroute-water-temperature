@@ -1,9 +1,9 @@
 # SI01 — frozen cohort and registry projection
 
-**Status:** DRAFT / PRE-OPENING / NOT RECEIPT.
+**Status:** DRAFT.
 
 No registry bytes or outcomes are reproduced in this document. Any redraw value
-or target-period count is `[pending — 探索期数据，不可写入结论]` until it is bound
+or target-period count is `[pending computation]` until it is bound
 to a verified receipt.
 
 ## Frozen PRE geometry
@@ -15,15 +15,15 @@ to a verified receipt.
 | site-days | 657,480 | `paper/ThermoRoute_paper.md` §2.1; panel geometry |
 | states | 34 | `paper/ThermoRoute_paper.md` §2.1; cohort descriptor |
 | HUC2 groups | 15 | `paper/ThermoRoute_paper.md` §2.1; outcome-free cluster geometry |
-| HUC2 station range before reportability attrition | 2–26 | `paper/ThermoRoute_paper.md` §4.2; gate input only |
-| largest HUC2 share before attrition | 21.7% | `paper/ThermoRoute_paper.md` §4.2; gate input only |
-| inverse-Herfindahl effective cluster count | 9.54 | `paper/ThermoRoute_paper.md` §4.2; gate diagnostic only |
-| minimum reportable-cluster gate | 30 | `paper/ThermoRoute_paper.md` §§1, 4.2; claim-eligibility requirement |
+| HUC2 station range before reportability attrition | 2–26 | `paper/ThermoRoute_paper.md` §4.2; cluster-geometry input only |
+| largest HUC2 share before attrition | 21.7% | `paper/ThermoRoute_paper.md` §4.2; cluster-geometry input only |
+| inverse-Herfindahl effective cluster count | 9.54 | `paper/ThermoRoute_paper.md` §4.2; cluster-geometry diagnostic only |
+| minimum reportable-cluster gate | 30 | `paper/ThermoRoute_paper.md` §§1, 4.2; comparison-eligibility requirement |
 
 The frozen cohort has at most 15 HUC2 groups, so it necessarily fails the
 minimum-30-cluster component before target outcomes are viewed. This is a PRE
-scope fact: Route-A effects are fixed-cohort descriptive, while bootstrap
-intervals and sign-flip p-values remain assumption-conditional sensitivities.
+scope fact: study effects are descriptive (fixed cohort), while bootstrap
+intervals and sign-flip p-values remain approximate sensitivities.
 
 ## Source bindings and projection schema
 
@@ -43,7 +43,7 @@ registry-to-SI projection must instead declare this minimum projection schema:
 | `registry_ref` | registry path and SHA-256 | manifest `source_bindings` entry |
 | `panel_ref` | panel path and SHA-256 | manifest `source_bindings` entry |
 | `site_id` | stable site identity used in the row | registry contract and cohort binding |
-| `huc2` | reportable cluster label | registry contract and gate binding |
+| `huc2` | reportable cluster label | registry contract and cluster-geometry binding |
 | `state` | state label used in a descriptive map/table | registry contract |
 | `cohort_role` | temporal/external eligibility role | model-suite and receipt binding |
 | `count_role` | pre-attrition, reportable, or retained-after-filter count | derivation and source pointer |
@@ -63,7 +63,7 @@ literal column names in any unread data file.
 
 | HUC2 | pre-attrition station count | reportable station count | binder row ID |
 |---|---|---|---|
-| `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
+| `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 Each projected HUC2 label and count follows the README cell-level binder shape;
 the pre-attrition and reportable counts have distinct `value_id` objects even

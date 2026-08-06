@@ -5,7 +5,7 @@ three-panel proposition figure:
 
 1. observed training-period thermal mismatch;
 2. the anchor-bounded correction mechanism; and
-3. registry geometry, the inference gate, and the resulting claim boundary.
+3. registry geometry, the cluster-structure caveat, and the resulting claim boundary.
 
 Run from the repository root:
 

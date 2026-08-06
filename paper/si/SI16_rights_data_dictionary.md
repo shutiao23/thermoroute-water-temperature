@@ -1,6 +1,6 @@
 # SI16 — rights matrix and data dictionary
 
-**Status:** DRAFT / PRE-OPENING / NOT RIGHTS APPROVAL.
+**Status:** DRAFT / DRAFT / NOT RIGHTS APPROVAL.
 
 This file is a projection schema, not a redistribution decision, DOI record or
 FAIR completion claim.
@@ -9,7 +9,7 @@ FAIR completion claim.
 
 | Byte class/object | SHA-256 | provider/rightsholder | evidence locator | distribution scope | licence/terms | reviewer decision | binder row ID |
 |---|---|---|---|---|---|---|---|
-| *(content-deduplicated object)* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
+| *(content-deduplicated object)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 Unknown, conflicting or unreviewed rights remain PUBLIC-excluded. Repository
 visibility, provider openness and a software licence are not substitutes for an
@@ -35,7 +35,7 @@ relying on redistribution at all.
 
 | # | Class | Note |
 |---|---|---|
-| 1 | USGS NWIS response bytes | the raw request/response record of the one-time acquisition |
+| 1 | USGS NWIS response bytes | the raw request/response record of the test-window acquisition |
 | 2 | Daymet V4 subsets, and any derived field that materially encodes Daymet values | a derived field does not escape the upstream terms by being derived |
 | 3 | gridMET responses and derived fields | as above |
 | 4 | the mixed derived panel and the registries built from them | a derived product does not inherit the most permissive of its upstream terms |
@@ -91,7 +91,7 @@ analytical LOD/LOQ are not applicable.
 |---|---|---|---|---|---|---|
 | WTEMP | Daily-mean river water temperature | USGS NWIS parameter 00010, statistic 00003 (daily mean) | °C | Daily mean of instantaneous values | Broad plausibility gate −2 to 50 °C; qualifier `{A}` (approved) retained as secondary sensitivity; other qualifiers retained in raw evidence | Primary outcome; not instantaneous, daily maximum, or 7DADM |
 | FLOW | Daily-mean discharge | USGS NWIS parameter 00060, statistic 00003 | cfs (ft³ s⁻¹) | Daily mean | Negative values possible in tidal/backwater settings; retained as finite values in primary analysis, stratified as sensitivity | 2 sites contain 2,059 negative records (min ≈ −121 cfs); semantics unresolved, reported separately |
-| WLEVEL | Daily-mean gage height | USGS NWIS parameter 00065, statistic 00003 | ft | Daily mean | Raw evidence only; not an input to Route-A models | Stored for provenance, not modelled |
+| WLEVEL | Daily-mean gage height | USGS NWIS parameter 00065, statistic 00003 | ft | Daily mean | Raw evidence only; not an input to study models | Stored for provenance, not modelled |
 | TEMP | Daily-mean air temperature proxy | Daymet single-pixel at station coordinates; tmax/tmin | °C | Daily mean of Daymet tmax/tmin | Daymet 365-day calendar; leap years omit Dec 31, retained as explicit missingness | Point meteorology, not catchment forcing |
 | PRCP | Daily precipitation | Daymet `prcp` | mm/day | Daily total | As above | — |
 | RHMEAN | Relative-humidity proxy derived from vapour pressure | Derived: 100 · vp / sᵥₚ(tmean), Tetens saturation | % | Daily mean | Clipped to [0, 100] | Not a directly measured daily-mean RH; name is a proxy label |

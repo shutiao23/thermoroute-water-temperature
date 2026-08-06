@@ -1,12 +1,12 @@
 # SI11 — spatial and leave-cluster sensitivity
 
-**Status:** DRAFT / PRE-OPENING / NOT RECEIPT.
+**Status:** DRAFT.
 
 | Cluster definition | omitted unit | reportable clusters | effective fraction | largest share | effect (°C) | interval/status | binder row ID |
 |---|---|---|---|---|---|---|---|
-| *(HUC/network/distance rule)* | *(declared unit)* | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` | `[pending — 探索期数据，不可写入结论]` |
+| *(HUC/network/distance rule)* | *(declared unit)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
-Route A remains fixed-cohort descriptive even if a leave-one-cluster sensitivity
+the study remains descriptive (fixed cohort) even if a leave-one-cluster sensitivity
 is numerically stable. Route B requires its own prelabel registry, balance gates
 and receipt namespace; this table cannot retrofit those conditions.
 Every displayed count, balance diagnostic, effect and interval endpoint follows
@@ -20,7 +20,7 @@ registry**, computed before any reportability attrition and before any
 evaluation label exists. They are not results, and none of them is a
 sensitivity of an effect.
 
-Recomputed with the inference gate's own `cluster_geometry` function against
+Recomputed with the cluster-structure caveat's own `cluster_geometry` function against
 `data_usgs/station_registry_v1.csv`, the file the gate itself reads. Source:
 `docs/OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md` §1.
 
@@ -52,7 +52,7 @@ must be read together.
    components fail independently of cohort size: both structural assumptions are
    recorded as unmet, and the null-simulation component was never implemented and
    fails closed on every run. A HUC8 partition would clear the cluster gate and
-   return the same verdict, `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`.
+   return the same verdict, `descriptive (fixed cohort, few clusters)`.
 
 The cluster count is therefore the **least** binding of the three reasons this
 study is descriptive, and the threshold itself is a recorded specification

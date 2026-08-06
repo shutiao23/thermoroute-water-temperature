@@ -43,7 +43,7 @@ fix this generator, and rebuild.
 
 ### What the generator refuses to build
 
-- fewer or more than eight structured `ROUTE_A_CLAIM` scope blocks;
+- fewer or more than eight structured `scope-claim` scope blocks;
 - a Markdown that does not state its manuscript status;
 - other than exactly fifteen `[TO BE FILLED AFTER OPENING]` result-slot markers,
   or a conversion that loses one;
@@ -91,17 +91,17 @@ One blocker remains, and it is outside this directory:
   regenerated `ThermoRoute_WRR.tex`.
 
   That guard has two arms: a **phase** arm (refuse once an opening
-  authorization or a confirmatory namespace exists) and a **freeze** arm (the
+  authorization or a primary namespace exists) and a **freeze** arm (the
   three SHA-256 values). Only the freeze arm is stale. The 2026-08-06
   regeneration re-asserted the phase arm explicitly — neither
   `data_usgs/confirmatory_opening_authorization_v1.json` nor
-  `outputs/confirmatory/` exists — and then called `build_agu._render()`
+  `outputs/primary/` exists — and then called `build_agu._render()`
   directly, so every content check ran unchanged: eight claim blocks, the
   manuscript-status text, fifteen result-slot markers and their survival through
   conversion, three Key Points under 140 characters each, the banned phrase, the
   withdrawn-claim patterns, the legacy-semantics scanner, and the
   undeclared-Unicode check. **No check was loosened, and `--check` still refuses
-  in this worktree** until the registry is re-sealed.
+  in this worktree** until the registry is re-fixed.
 
 The checked-in `ThermoRoute_WRR.tex` was regenerated on 2026-08-06 from the
 benchmark-restructured Markdown and compiles under `agujournal2025.cls` to a

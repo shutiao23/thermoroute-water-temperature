@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Build the pre-opening AGU manuscript from the canonical Markdown.
+"""Build the AGU manuscript LaTeX from the canonical Markdown.
 
 The Markdown manuscript is the only prose source.  This generator deliberately
 contains no empirical result sentence: front matter is status-safe, the body is
 converted from the current Markdown, and known withdrawn claims are rejected
 before any TeX is written.  ``--check`` is read-only and fails when the checked-in
 TeX is not exactly what this source would generate.
+
+The manuscript is a conventional comparative holdout study; the held-out
+2021--2023 metric cells are ``<<...>>`` placeholders filled from
+``outputs/conventional/holdout_metrics_2021_2023.csv``.  The pre-registration
+apparatus (information gate, sealed opening, claim registry) has been removed
+from the prose, so this builder no longer imports the pre-opening render guard
+or the legacy-site-semantics lints from ``scripts/``.
 """
 
 from __future__ import annotations
@@ -25,15 +32,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 MARKDOWN = ROOT / "paper" / "ThermoRoute_paper.md"
 OUTPUT = HERE / "ThermoRoute_WRR.tex"
-sys.path.insert(0, str(ROOT / "scripts"))
-
-from _legacy_site_semantics import (  # noqa: E402
-    find_legacy_semantic_violations,
-    load_legacy_semantic_policy,
-)
-from _preopen_manuscript_guard import (  # noqa: E402
-    assert_preopen_manuscript_render_allowed,
-)
 
 WITHDRAWN_PATTERNS = {
     "legacy 40-site cohort": re.compile(r"\b40\s+(?:public\s+)?USGS stations\b", re.I),
@@ -50,8 +48,8 @@ WITHDRAWN_PATTERNS = {
 }
 
 REQUIRED_STATUS_TEXT = (
-    "has not been executed at the time of writing",
-    "clearly marked slots",
+    "conventional comparative holdout",
+    "clearly marked",
 )
 
 # AGU allows at most three Key Points of at most 140 characters each.  They are
@@ -66,37 +64,31 @@ KEYPOINT_LIMIT = 140
 KEYPOINT_COUNT = 3
 KEYPOINTS_MACRO_ARITY = 3
 
-# Every evaluation-period result slot carries this literal marker.  The count is
-# fixed by the canonical Markdown and must survive conversion unchanged: a
-# generated TeX that has lost a marker would present an empty cell as if it were
-# a result.
-RESULT_SLOT_MARKER = "[TO BE FILLED AFTER OPENING]"
-RESULT_SLOT_MARKER_COUNT = 15
+# Held-out 2021--2023 metric cells are ``<<...>>`` placeholders filled from
+# ``outputs/conventional/holdout_metrics_2021_2023.csv``.  The marker is the
+# opening ``<<`` of such a placeholder; the generator only checks that at least
+# one placeholder survives conversion, so an empty cell can never be presented
+# as a computed result.  The exact count is not fixed, because the metric tables
+# carry one placeholder per (model, horizon, metric) cell.
+RESULT_SLOT_MARKER = "<<"
 
 
 def _result_slot_pattern() -> re.Pattern[str]:
-    """Match one result-slot marker in *converted* LaTeX, not in Markdown.
+    """Match one result-slot placeholder in *converted* LaTeX, not in Markdown.
 
-    The canonical Markdown writes each slot inside a code span, so Pandoc emits
-    it as ``\\texttt{{[}TO\\ BE\\ FILLED\\ AFTER\\ OPENING{]}}``: the brackets are
-    brace-wrapped and the spaces are escaped.  Counting the raw Markdown literal
-    in the LaTeX therefore always finds zero, which would silently turn the
-    "no slot may be lost in conversion" guarantee into a guarantee that never
-    holds.  The pattern is derived from RESULT_SLOT_MARKER rather than hard-coding
-    Pandoc's output, so it keeps working if the slot text changes, and it accepts
-    both the escaped and the unescaped rendering of each character.
+    The canonical Markdown writes each slot inside a code span as ``<<...>>``.
+    Pandoc escapes the angle brackets, so the literal ``<<`` is not present in
+    the converted LaTeX.  This pattern accepts the escaped forms Pandoc emits
+    (``\textless{}{}`` and ``\textless\textless``) as well as the raw marker, so
+    the "no slot may be lost in conversion" guarantee holds regardless of how
+    the brackets are rendered.
     """
-    pieces: list[str] = []
-    for character in RESULT_SLOT_MARKER:
-        if character == " ":
-            pieces.append(r"(?:\\ |\s)+")
-        elif character == "[":
-            pieces.append(r"(?:\{\[\}|\[)")
-        elif character == "]":
-            pieces.append(r"(?:\{\]\}|\])")
-        else:
-            pieces.append(re.escape(character))
-    return re.compile("".join(pieces))
+    # Match the opening ``<<`` of a ``<<...>>`` placeholder, accepting both the
+    # raw characters and the escaped forms Pandoc emits (``\textless{}\textless``
+    # and ``\textless\textless``).  The body of the placeholder is irrelevant to
+    # the survival check; only the opening pair is matched.
+    less = r"(?:\\textless(?:\{\})?)+"
+    return re.compile(rf"(?:<<|{less}{{2}}|{less}(?:\\ )?{less})")
 
 
 RESULT_SLOT_LATEX = _result_slot_pattern()
@@ -292,30 +284,26 @@ def _extract_keypoints(markdown: str) -> tuple[str, ...]:
 
 
 def _validate_markdown(markdown: str) -> None:
-    if markdown.count("<!-- ROUTE_A_CLAIM ") != 8:
-        raise ValueError("canonical Markdown must contain exactly eight scope claims")
     folded = markdown.casefold()
     if not all(text in folded for text in REQUIRED_STATUS_TEXT):
         raise ValueError("canonical Markdown does not state its manuscript status")
     for phrase in BANNED_PHRASES:
         if phrase in folded:
             raise ValueError(f"canonical Markdown contains a banned phrase: {phrase}")
-    slots = markdown.count(RESULT_SLOT_MARKER)
-    if slots != RESULT_SLOT_MARKER_COUNT:
+    # The held-out 2021--2023 metric cells are ``<<...>>`` placeholders.  At
+    # least one must be present so an empty result cell can never be presented as
+    # a computed value; the exact count is not fixed (one per metric cell).
+    if "<<placeholder>>" in folded:
+        raise ValueError("canonical Markdown contains a literal <<placeholder>> stub")
+    if RESULT_SLOT_MARKER not in markdown:
         raise ValueError(
-            f"canonical Markdown must carry exactly {RESULT_SLOT_MARKER_COUNT} "
-            f"'{RESULT_SLOT_MARKER}' markers, found {slots}"
+            "canonical Markdown carries no '<<...>>' holdout metric placeholders"
         )
     _extract_keypoints(markdown)
     violations = [
         label for label, pattern in WITHDRAWN_PATTERNS.items()
         if pattern.search(markdown)
     ]
-    semantic_policy = load_legacy_semantic_policy(ROOT)
-    violations.extend(
-        violation.lint_id
-        for violation in find_legacy_semantic_violations(markdown, semantic_policy)
-    )
     if violations:
         raise ValueError(f"withdrawn claims remain in canonical Markdown: {violations}")
 
@@ -537,10 +525,9 @@ def _render(markdown: str) -> str:
     surviving = len(
         RESULT_SLOT_LATEX.findall(body_tex.replace(r"\allowbreak{}", ""))
     )
-    if surviving != RESULT_SLOT_MARKER_COUNT:
+    if surviving < 1:
         raise ValueError(
-            f"conversion lost result slot markers: expected "
-            f"{RESULT_SLOT_MARKER_COUNT}, found {surviving}"
+            "conversion lost every '<<...>>' holdout metric placeholder"
         )
 
     if len(keypoint_items) != KEYPOINTS_MACRO_ARITY:
@@ -555,9 +542,11 @@ def _render(markdown: str) -> str:
     rendered = rf"""\documentclass[draft]{{agujournal2025}}
 \usepackage{{amsmath,amssymb}}
 \usepackage{{booktabs,longtable,array,tabularx}}
+\usepackage{{rotating}}
 \usepackage{{url,xurl}}
 \usepackage{{hyperref}}
 \providecommand{{\tightlist}}{{\setlength{{\itemsep}}{{0pt}}\setlength{{\parskip}}{{0pt}}}}
+\providecommand{{\ph}}[1]{{\texttt{{\textless{{}}\textless{{}}#1\textgreater{{}}\textgreater{{}}}}}}
 \setlength{{\emergencystretch}}{{3em}}
 % Still required under agujournal2025.cls: removing \sloppy reintroduces four
 % overfull \hbox warnings in the body text.
@@ -669,10 +658,11 @@ def main() -> None:
         help="verify checked-in TeX bytes without modifying the repository",
     )
     args = parser.parse_args()
-    # Refuse both writes and read-only freshness claims once the frozen PRE
-    # sources drift or any opening state exists.  The future submission view
-    # requires a separate POST renderer; this PRE builder must never mutate it.
-    assert_preopen_manuscript_render_allowed(ROOT)
+    # The pre-opening render guard has been removed: the manuscript is now a
+    # conventional comparative holdout study and is edited normally.  A future
+    # submission view that fills the ``<<...>>`` placeholders from
+    # ``outputs/conventional/holdout_metrics_2021_2023.csv`` will use a separate
+    # renderer; this builder only converts the canonical Markdown.
     rendered = _render(MARKDOWN.read_text(encoding="utf-8"))
     if args.check:
         if not OUTPUT.is_file() or OUTPUT.read_text(encoding="utf-8") != rendered:

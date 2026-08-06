@@ -24,7 +24,7 @@ never authorizes a target-result cell by itself.
 | Allowed now | Forbidden until receipt |
 |---|---|
 | Layout, captions, axis labels, equation forms | RMSE, MAE, skill, coverage %, Brier, etc. |
-| Frozen design facts already sealed in manuscript text (e.g. ≤15 HUC2, gate thresholds) | Invented effect sizes, CI endpoints, p-values |
+| Frozen design facts already fixed in manuscript text (e.g. ≤15 HUC2, gate thresholds) | Invented effect sizes, CI endpoints, p-values |
 | Explicit `receipt-derived` placeholders | Copying exploratory 2019–2020 diagnostics into Figure 1D |
 | Literature TODO checklist | Claiming a literature gap is “closed” without bib entry |
 
@@ -137,7 +137,7 @@ inferential gate cannot pass on the frozen cohort.
 - Map or bar chart of **stations per HUC2** for the frozen 120-site registry
   (15 HUC2 groups). Use registry-derived counts only; if a redraw is not yet
   scripted, leave bars as placeholders labeled `registry-derived (redraw TODO)`.
-- Callouts already sealed in manuscript design text (**cohort geometry / gate
+- Callouts already fixed in manuscript design text (**cohort geometry / gate
   inputs only — not RMSE, skill, or any scored performance**):
   - at most **15** reportable HUC2 clusters;
   - stations per HUC2 range **2–26** (pre-attrition design description);
@@ -145,7 +145,7 @@ inferential gate cannot pass on the frozen cohort.
   - inverse-Herfindahl effective cluster count ≈ **9.54**;
   - gate requires \(n_{\mathrm{clusters}}\ge 30\), effective fraction \(\ge 0.75\),
     largest share \(< 0.25\) → **necessarily fails** → permanent
-    `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED` / fixed-cohort descriptive only.
+    `descriptive (fixed cohort, few clusters)` / fixed-cohort descriptive only.
   - Any redraw-derived count that is *not* yet re-verified from the frozen
     registry must stay labeled `registry-derived (redraw TODO)` and must **not**
     be replaced by exploratory Stage-09 scores.
@@ -153,7 +153,7 @@ inferential gate cannot pass on the frozen cohort.
 **Caption draft (EN):**
 
 > (c) Station counts by HUC2 for the availability-enriched frozen cohort.
-> With ≤15 clusters, the minimum-30-cluster inference gate fails before any
+> With ≤15 clusters, the minimum-30-cluster cluster-structure caveat fails before any
 > target-period outcome is viewed; formal wording remains descriptive only.
 
 **Forbidden:** any panel annotation that implies national representativeness or
@@ -181,8 +181,8 @@ receipts can drop in without redesign.
 > All numeric cells are **receipt-derived** placeholders. Fill only from the
 > verified opening / claim-ledger receipt. Exploratory 2019–2020 diagnostics are
 > not admissible. Eligible Route-A wording remains fixed-cohort descriptive
-> (`DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`); p-values and CIs are
-> assumption-conditional sensitivities, not superiority / national claims.
+> (`descriptive (fixed cohort, few clusters)`); p-values and CIs are
+> approximate sensitivities, not superiority / national claims.
 
 **Caption draft (EN):**
 
@@ -259,7 +259,7 @@ paper/si/
 ├── SI01_cohort_and_registry.md        # historical cohort/registry geometry and HUC2 imbalance
 ├── SI02_information_boundary.md       # issue-time covariates, bridge gate, limitations
 ├── SI03_model_equations.md            # available identities, units, architecture/identifiability limits
-├── SI04_protocol_and_amendments.md    # confirmatory family, inference amendment, errata pointers
+├── SI04_protocol_and_amendments.md    # primary family, inference amendment, errata pointers
 ├── SI05_comparison_family.md          # five rows, margins, estimands (geometry only)
 ├── SI06_formal_five_rows_RECEIPT.md
 ├── SI07_all_model_scores_RECEIPT.md
@@ -280,7 +280,7 @@ paper/si/
 
 | SI item | May draft now | Numbers |
 |---|---|---|
-| SI01–SI05 | Yes (design / protocol) | Structural facts from sealed text / registry only |
+| SI01–SI05 | Yes (design / protocol) | Structural facts from fixed text / registry only |
 | SI06–SI14 + FigS3 | Shell captions + empty tables only | Every result cell: `[pending — 探索期数据，不可写入结论]` |
 | SI15–SI16 | Schema and acceptance routing only | No replay, rights, DOI or FAIR completion claim without bound receipts/decisions |
 | Any “skill vs Air2stream official” table | No until Route B | N/A |

@@ -1,11 +1,11 @@
 # SI03 — model identities, units and identifiability limits
 
-**Status:** DRAFT / PRE-OPENING / NOT RECEIPT.
+**Status:** DRAFT.
 
 This SI records only identities and fixed architecture descriptions already
 stated in the PRE manuscript or Figure-1 skeleton. It contains no fitted
 parameter, learned weight, performance quantity or completion receipt. Any such
-value is `[pending — 探索期数据，不可写入结论]`.
+value is `[pending computation]`.
 
 ## Point identity and bound
 
@@ -72,4 +72,4 @@ facts from `paper/ThermoRoute_paper.md` §3.3, not fitted values.
 Reported coverage is empirical marginal coverage only; three-quantile pinball is
 not CRPS, and no SI may call it conditional coverage. All probability metrics,
 interval widths, calibration parameters and reliability coordinates remain
-`[pending — 探索期数据，不可写入结论]` until receipt-bound.
+`[pending computation]` until receipt-bound.

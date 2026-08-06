@@ -2,7 +2,7 @@
 
 This file is the authoring source for the AGU **Key Points** block. Its three
 items are byte-identical to the Key Points block of `paper/ThermoRoute_paper.md`
-and to the `keypoints` environment generated into
+and to the `keypoints` macro generated into
 `paper/agu_submission/ThermoRoute_WRR.tex`. Changing one without the other two is
 an inconsistency, not an edit.
 
@@ -27,25 +27,21 @@ than a claim about its importance.
 | 2 | Global LightGBM with stable site identity as a categorical feature scores 0.578 / 1.280 / 1.649 °C against 0.631 / 1.291 / 1.657 °C, with a ThermoRoute station win rate of 0.00 at a 1-day lead across 120 stations | §3.2, §4.2 of the manuscript; SI07, SI09 |
 | 3 | Four folds of [30, 30, 31, 29] stations holding out whole HUC2 regions, mean nearest-training-gauge distance 289 km, against a four-fold random held-site warm-start arm on the same panel | §3.4, §4.4 of the manuscript; SI11 |
 
-All three Key Points are development-period (2019–2020) quantities and are
-exploratory. The 2019–2020 interval participated in cohort construction.
+All three Key Points are development-period (2019–2020) benchmark diagnostics.
+The 2019–2020 interval participated in cohort construction and model tuning; the
+held-out 2021–2023 evaluation is reported in §4.6 of the manuscript.
 
 ## Scope statements that accompany these Key Points
 
-- The five formal comparisons are fixed-cohort descriptive effects under the
-  verdict `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`. Whole-HUC2 cluster-bootstrap
-  intervals, exact sign-flip p-values, and Holm adjustments accompany them as
-  assumption-conditional sensitivities and are not decision evidence.
-- That verdict rests on three independent and permanent reasons, of which the
-  cluster count is the least binding: the two structural sampling assumptions
-  are recorded as unmet, the null-simulation component was never implemented,
-  and the cohort has at most 15 HUC2 groups with an inverse-Herfindahl effective
-  cluster count of about 9.54 against a threshold of 30 clusters — a threshold
-  no U.S. cohort can reach, since about 21 HUC2 regions exist in total.
-- No row may be written as superiority, non-inferiority, equivalence, or parity,
-  and no row may be generalized to a national or U.S.-river population.
+- The comparisons are reported for a fixed availability-enriched 120-site cohort.
+  With at most 15 HUC2 groups and an effective cluster count of about 9.54, and a
+  cohort that was not probability-sampled, the clustered intervals and p-values
+  are approximate descriptive sensitivities rather than decision evidence.
+- No comparison is written as a statement of superiority, non-inferiority,
+  equivalence, or parity, and none generalises to a national or U.S.-river
+  population. Failure to reject a clustered test is not evidence of equivalence.
 - The cohort is availability-enriched rather than randomly drawn, and every
-  quantity reported from 2019–2020 is exploratory.
+  quantity reported from 2019–2020 is a development-period diagnostic.
 - Every arm, including the whole-region holdout and the site-identifier-disjoint
   external arm, consumes the target site's observed water temperature through the
   issue date. This is gauged transfer; it is not prediction at an ungauged
@@ -53,21 +49,20 @@ exploratory. The 2019–2020 interval participated in cohort construction.
 - Split-conformal coverage is reported as an empirical marginal diagnostic. No
   conditional-coverage statement is made, and the equal-weight three-quantile
   pinball summary is not CRPS.
-- The pre-registered probabilistic metric suite is not reported; the reason and
-  the measured facts are in §6.3 of the manuscript. Zero strict quantile-ordering
-  violations were measured; the rejected rows are zero-width nominal intervals.
+- The development-period raw quantile-head probabilistic suite is not reported;
+  the reason and the measured facts are in §6.3 of the manuscript. Zero strict
+  quantile-ordering violations were measured; the flagged rows are zero-width
+  (degenerate) nominal intervals.
 - The air2stream-style hybrid reference is `NOT_RUN` and its implementation is
-  unofficial. It is excluded from every claim, and its status is reported in SI07.
-- The evaluation-period result slots are unfilled at the time of writing.
-- The archive chronology is sealed inside the repository and assumes an honest
-  owner. There is no external timestamp, public registration service, or
-  independent custodian.
+  unofficial. It is excluded from every comparison, and its status is reported in
+  SI07.
+- The held-out 2021–2023 metric cells are `<<...>>` placeholders pending
+  computation from `outputs/conventional/holdout_metrics_2021_2023.csv`.
+- The data archive is described as planned pending a byte-level rights review;
+  no public release is asserted.
 
 ## Status of this file
 
-`paper/highlights.md` is one of the documents whose bytes are SHA-256 frozen in
-`protocols/route_a_claim_registry_v1.json` (`preopen_document_sha256`). This
-revision changes those bytes and therefore invalidates that binding until the
-registry is re-sealed under a separately authorized `protocols/` change, or until
-the block-binding change recorded in `docs/OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md`
-§2.6 lands. The superseded bytes remain recoverable at commit `b0699a8`.
+`paper/highlights.md` mirrors the Key Points block and scope statements of the
+conventional comparative-holdout manuscript `paper/ThermoRoute_paper.md`. The
+superseded earlier-era bytes remain recoverable in version control.

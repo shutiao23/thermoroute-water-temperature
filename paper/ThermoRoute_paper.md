@@ -24,11 +24,14 @@ ORCID, affiliation number, and institutional e-mail address]
 
 ## Manuscript status
 
-The one-time 2021–2023 evaluation has not been executed at the time of writing.
-Section 4 reports the development-period evidence that exists and leaves the
-evaluation-period tables as clearly marked slots; every slot names the artifact
-that will fill it. The author block, the archive DOIs, and the data-licence
-fields are placeholders.
+This is a conventional comparative holdout study. Models are trained and tuned on
+data through 2020 (with 2019–2020 as the development-evaluation window) and
+evaluated on a held-out 2021–2023 test window. Section 4 reports the
+development-period (2019–2020) benchmark diagnostics and the held-out 2021–2023
+evaluation; the 2021–2023 metric cells are clearly marked `<<...>>` placeholders
+pending computation from
+`outputs/conventional/holdout_metrics_2021_2023.csv`. The author block and the
+archive DOIs are placeholders.
 
 ## Abstract
 
@@ -42,35 +45,38 @@ spatial interpolation between neighbouring gauges. Here we score a constrained
 deep predictor against damped persistence, gradient-boosted trees with and
 without site identity, a global LSTM, and an information-matched plain causal
 convolutional network on one common set of 249,072 station/date/horizon keys, at
-120 U.S. gauges in 15 hydrologic regions over 2006–2020, with all preprocessing
-fitted strictly backwards in time and whole regions, not random sites, held out.
-Median station skill (one minus the RMSE ratio) against
-persistence is +0.251 at a seven-day lead but +0.038 against damped persistence:
-of the 0.560 °C reduction in station-median RMSE from persistence to the deep
-model, 0.479 °C is delivered by damping alone. A gradient-boosted tree has the
-lowest station-median RMSE at all three leads, and the information-matched plain
-convolutional network is within 0.023 °C of the full architecture. Three-day
-skill against persistence falls from +0.187 under a random held-site split to
-+0.116 under whole-region holdout, at a mean nearest-training-gauge distance of
-289 km. Reported skill for this variable is therefore largely a statement about
-the reference model and the spatial partition rather than about the architecture.
+120 U.S. gauges in 15 hydrologic regions, with all preprocessing fitted strictly
+backwards in time and whole regions, not random sites, held out. On the
+development window (2019–2020) the same fixed model reports a seven-day median
+station skill of +0.251 against persistence but +0.038 against damped
+persistence: of the 0.560 °C reduction in station-median RMSE from persistence
+to the deep model, 0.479 °C is delivered by damping alone. A gradient-boosted
+tree has the lowest station-median RMSE at all three leads, and the
+information-matched plain convolutional network is within 0.023 °C of the full
+architecture. Three-day skill against persistence falls from +0.187 under a
+random held-site split to +0.116 under whole-region holdout, at a mean
+nearest-training-gauge distance of 289 km. We then evaluate the same model suite
+on a held-out 2021–2023 test window (Section 4.6); those comparative metrics are
+reported as clearly marked placeholders pending computation. Reported skill for
+this variable is therefore largely a statement about the reference model and the
+spatial partition rather than about the architecture.
 
 **Plain Language Summary.** River temperature changes slowly from day to day, so
 a forecast that repeats yesterday's reading is already fairly accurate, and one
 that also nudges it toward the usual value for the time of year is better still.
 That makes it easy to publish a model that looks impressive without being useful.
-We tested a river-temperature model at 120 U.S. gauges over fifteen years and
-deliberately made the test hard: every model was scored on exactly the same days
-and sites, none could see information from after the moment it was asked to
-predict, and we held out entire river regions rather than scattered gauges.
-Measured the usual way, our model looked strong. Measured against a simple
-seasonal adjustment of yesterday's reading, almost all of that advantage
-disappeared, and a standard tree-based method was more accurate at every forecast
-range. How well such a model is reported to perform depends mostly on what it is
-compared against and on how the map is divided, not on how the model is built.
+We tested a river-temperature model at 120 U.S. gauges and deliberately made the
+test hard: every model was scored on exactly the same days and sites, none could
+see information from after the moment it was asked to predict, and we held out
+entire river regions rather than scattered gauges. Measured the usual way, our
+model looked strong. Measured against a simple seasonal adjustment of
+yesterday's reading, almost all of that advantage disappeared, and a standard
+tree-based method was more accurate at every forecast range. How well such a
+model is reported to perform depends mostly on what it is compared against and on
+how the map is divided, not on how the model is built.
 
 **Keywords:** river water temperature; benchmark design; strong baselines;
-spatial holdout; clustered inference; conformal prediction.
+spatial holdout; comparative evaluation; conformal prediction.
 
 ---
 
@@ -136,18 +142,17 @@ choices is detectable from a reported RMSE, and each inflates it.
 
 Here we hold the model and the data fixed and vary the three design choices
 instead, so that their separate contributions to reported skill become
-measurable. We assembled a frozen panel of 657,480 site-days from 120 stable U.S.
+measurable. We assembled a panel of 657,480 site-days from 120 stable U.S.
 Geological Survey site numbers spanning 2006–2020, 34 states, and 15 two-digit
-hydrologic unit (HUC2) regions, and evaluated one common set of
-station/date/horizon keys at 1-, 3-, and 7-day leads. Four questions organise the
+hydrologic unit (HUC2) regions, tuned all models on data through 2020, and
+evaluate them on one common set of station/date/horizon keys at 1-, 3-, and 7-day
+leads, with a held-out 2021–2023 test window. Four questions organise the
 study. How much of a reported gain survives a strong reference? Which model class
 is actually most accurate on identical keys? How much of a reported spatial
 transfer survives whole-region holdout? And how far do those answers vary across
 regions, seasons, and the width of a calibrated interval? The predictor whose
 skill we decompose, ThermoRoute, is described in full in Section 3.1; its
-architecture is the object under test rather than the contribution, and the
-evaluation-period labels covering 2021–2023 are acquired exactly once, after the
-model suite and analysis code are frozen and replayed.
+architecture is the object under test rather than the contribution.
 
 <!-- FIGURE_ANCHOR id=F1 state=PRE role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-1 -->
 
@@ -187,8 +192,8 @@ candidate stations: 950 lacked joint water-temperature and discharge
 availability, 376 failed a full-period coverage threshold, and 19 failed a
 2019–2020 coverage threshold. The retained cohort is therefore
 availability-enriched, and the 2019–2020 interval participated in its
-construction, so that interval is development data in the strict sense and is
-exploratory throughout this manuscript.
+construction, so that interval is development data in the strict sense and is used
+for model tuning and diagnosis rather than as an independent test.
 
 Three properties of the retained cohort bear directly on the analysis. Observed
 water temperature is absent on about 15.8% of panel rows, with a maximum
@@ -212,24 +217,28 @@ same partition.
 | Role | Dates | Rows | Observed `WTEMP` | Permitted use |
 |---|---:|---:|---:|---|
 | Training | 2006–2015 | 438,240 | 341,646 | fit preprocessing and models |
-| Validation | 2016–2017 | 87,720 | 84,074 | choose frozen settings |
+| Validation | 2016–2017 | 87,720 | 84,074 | select model settings |
 | Calibration | 2018 | 43,800 | 42,279 | conformal and Platt fits; final year of the 2006–2018 seasonal event reference |
-| Development evaluation | 2019–2020 | 87,720 | 85,621 | previously inspected; exploratory diagnosis only |
-| One-time evaluation | 2021–2023 | — | sealed | opened once, after all freezes (Section 3.7) |
+| Development evaluation | 2019–2020 | 87,720 | 85,621 | model tuning and diagnosis |
+| Held-out test | 2021–2023 | — | observed | comparative evaluation (Section 4.6) |
 
-On the development-evaluation partition, the intersection of admissible keys
-across all primary models comprises 249,072 station/date/horizon keys, evenly
-distributed as 83,024 keys per lead. Every development comparison in Section 4
-uses exactly this key set. No model-specific complete-case set is permitted, so a
-model cannot gain apparent accuracy by declining to predict on hard keys.
+Models are tuned exclusively on data through 2020; the 2021–2023 window is held
+out and used only for the comparative evaluation of Section 4.6. On the
+development-evaluation partition, the intersection of admissible keys across all
+primary models comprises 249,072 station/date/horizon keys, evenly distributed as
+83,024 keys per lead. Every development comparison in Sections 4.1–4.5 uses
+exactly this key set. No model-specific complete-case set is permitted, so a
+model cannot gain apparent accuracy by declining to predict on hard keys. The
+held-out 2021–2023 evaluation uses the same admissibility rule applied to the
+later window.
 
 ### 2.3 Evaluation-period inputs and the information boundary
 
-The evaluation interval is 2021-01-01 through 2023-12-31 for the same 120-site
-cohort, and historical Daymet and gridMET covariates for that interval are
-retrieved and archived before any outcome is accessed. Meteorology is represented
-at each station coordinate and is not aggregated over upstream catchments, which
-is a real limitation for large basins (Section 6.2).
+The test interval is 2021-01-01 through 2023-12-31 for the same 120-site cohort,
+and historical Daymet and gridMET covariates for that interval are retrieved and
+archived. Meteorology is represented at each station coordinate and is not
+aggregated over upstream catchments, which is a real limitation for large basins
+(Section 6.2).
 
 The primary information set uses provider values dated no later than each
 historical issue date and consumes no horizon-specific future weather forecast.
@@ -240,17 +249,31 @@ the fact, so archiving requests, responses, timestamps, and checksums freezes th
 dataset actually evaluated without proving that identical values were available
 operationally at the time. NWIS dates denote site-local finalized daily values
 while Daymet and gridMET use provider-specific calendar-day definitions; no
-subdaily day-boundary harmonization is claimed. A separate outcome-free bridge,
-described in the Supporting Information, re-fetched 2018–2020 covariates with the
-parser used for the evaluation-period acquisition and records
-`PASS_EXACT_PRODUCT_BRIDGE` on the exact site/date registry.
+subdaily day-boundary harmonization is claimed. A product-compatibility bridge
+re-fetched 2018–2020 covariates with the parser used for the test-window
+acquisition and records `PASS_EXACT_PRODUCT_BRIDGE` on the exact site/date
+registry.
 
-A restricted external cohort is defined after the model suite is committed: a
-fixed 34-state metadata query identifies stream sites advertising daily
-water-temperature capability, without requesting values, coverage dates, or event
-rates, and a deterministic seed selects 30 stations whose site identifiers do not
-occur in the development registry. This is site-identifier disjointness only, and
-those models still consume each target site's observed history (Section 3.4).
+Daily mean water temperature (`00010`, °C), discharge (`00060`, cfs), and
+raw-only gage height (`00065`, ft) for 2021–2023 are retrieved with the USGS
+`dataretrieval` client
+([Hodson and Hariharan, 2023](https://doi.org/10.5066/P94I5TX3)), recording
+exact request and response bytes, qualifiers, timestamps, and content hashes.
+Where two or more finite series exist for a parameter and date, the cell is marked
+missing with an explicit conflict code rather than averaged or selected. The
+primary analysis uses every finite parsed value regardless of approval qualifier,
+so qualifiers can never select or remove a station, model, date, or forecast key;
+a separately labelled sensitivity retains target keys only when the target
+qualifier has the exact token set `{A}`. Test-window daily means are outcomes
+only; they are not read by model-selection, feature-selection, threshold-selection,
+calibration, or station-inclusion code, all of which is fixed on data through
+2020.
+
+A restricted external cohort of 30 stations is defined by a fixed 34-state
+metadata query that identifies stream sites advertising daily water-temperature
+capability, with a deterministic seed selecting stations whose site identifiers do
+not occur in the development registry. This is site-identifier disjointness only,
+and those models still consume each target site's observed history (Section 3.4).
 
 <!-- FIGURE_ANCHOR id=S2 state=PRE role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s2 -->
 
@@ -266,7 +289,7 @@ for all three leads jointly: the horizon set (1, 3, 7 days) is an input dimensio
 and every head emits a lead-indexed vector in a single forward pass, so no lead
 has its own weights.
 
-**Anchor.** A frozen seasonal climatology `c` and a per-station decay `φ_i` give
+**Anchor.** A seasonal climatology `c` and a per-station decay `φ_i` give
 
 > **(1)**  `A_{i,t+h} = c_{i,t+h} + φ_i^h · (y_{i,t} − c_{i,t})`
 
@@ -327,8 +350,8 @@ giving `|ŷ − A| < δ` identically. The bound is relative to the named anchor:
 limits the point output's deviation from damped persistence and bounds neither
 absolute error, nor event-tail error, nor interval width, nor behaviour after a
 distribution shift. Because the 2019–2020 partition was inspected during
-development, `δ = 1.0 °C` is a development-selected algebraic point bound and is
-not a selection from an untouched holdout.
+development, `δ = 1.0 °C` is a development-selected algebraic point bound rather
+than a value chosen on the held-out test window.
 
 **Loss.** With `y` the observed target, `A` the anchor, quantile levels
 τ ∈ {0.05, 0.50, 0.95}, `Q_τ` the corresponding quantile head, and `ρ_τ` the
@@ -339,8 +362,8 @@ pinball loss,
 with `λ_e = 0.3`, `λ_r = 10⁻²`, `λ_c = 1.0`, and a temperature loss scale of 1.0.
 The point and pinball terms carry unit weight. The term `C` penalises quantile
 non-monotonicity and is identically zero under the head parameterisation used
-here, so it contributes no gradient; it is retained because it was declared
-before fitting.
+here, so it contributes no gradient; it is retained for consistency with the
+declared loss.
 
 **Fitting.** All neural members are fitted with AdamW
 (Kingma and Ba, 2015; Loshchilov and Hutter, 2019) at learning rate 2 × 10⁻³,
@@ -390,25 +413,25 @@ field, or the disabled water-level channel.
 The learned references are given a genuine chance to win. The global LSTM uses
 the same development splits, loss, station-balanced sampling, epoch and patience
 limits, history length, site identity, and five-seed budget as ThermoRoute, its
-predeclared validation-only grid may expose the same frozen climatology,
+validation-only tuning grid may expose the same climatology,
 damped-anchor, and season features, and it is eligible for the same calibration;
 it lacks only the bounded-residual constraint and the lag router. LightGBM
-selects among four predeclared settings separately by lead on the 2016–2017
+selects among four candidate settings separately by lead on the 2016–2017
 partition using station-macro RMSE alone; the LSTM selects among three
-predeclared architectures with seed 0 before fitting five members. Tuning budgets
+candidate architectures with seed 0 before fitting five members. Tuning budgets
 are documented but *not* equalized across model classes, which is a real
-asymmetry: any statement about LightGBM here is scoped to this frozen
-four-candidate procedure and this feature schema, not to gradient boosting in
-general. Seven one-factor architecture controls (`DampedPriorOnly`,
+asymmetry: any statement about LightGBM here is scoped to this four-candidate
+procedure and this feature schema, not to gradient boosting in general. Seven
+one-factor architecture controls (`DampedPriorOnly`,
 `TR-noDynamicPrior`, `TR-fixedKappa`, `TR-noRouter`, `TR-noMoE`, `TR-noTCN`,
 `TR-unbounded`) are fitted with the same five seeds and paired within seed on
 identical keys before ensemble averaging; they are deletion and intervention
 sensitivities and do not prove component necessity or identify a mechanism.
 
-An air2stream-style hybrid reference was declared but is recorded as `NOT_RUN`,
+An air2stream-style hybrid reference was planned but is recorded as `NOT_RUN`,
 and the available implementation is an unofficial style reference rather than the
 published code or a validated reproduction of it. It is therefore excluded from
-every claim in this paper; its status, provenance, and what a defensible
+every comparison in this paper; its status, provenance, and what a defensible
 comparison would require are reported in the Supporting Information rather than
 carried as an unfilled column.
 
@@ -440,14 +463,12 @@ used by the relaxation proposal and the regime gate are computed from the same
 training-only imputed panel but do not each carry a separate auxiliary-path mask,
 so the output is not guaranteed invariant to the chosen fill values.
 
-*Replay under isolation.* Before any label acquisition is authorized, a fresh
-isolated interpreter, denied network access, child processes, repository writes,
-and reads from the evaluation namespaces, reloads every trained member and
-reproduces the validation, calibration, and 2019–2020 keys and values from the
-frozen inputs, independently recomputing the thresholds and refitting the
-calibration parameters; a prediction file that is merely self-consistent is
-rejected. The isolation model, the byte bindings, and the publication and crash
-semantics of that replay are specified in the Supporting Information.
+*Reproducibility check.* As a reproducibility check, a fresh interpreter
+reloads every trained member and reproduces the validation, calibration, and
+2019–2020 keys and values from the frozen inputs, independently recomputing the
+thresholds and refitting the calibration parameters; a prediction file that is
+merely self-consistent is rejected. The details of that replay are specified in
+the Supporting Information.
 
 ### 3.4 Two spatial partitions
 
@@ -509,13 +530,13 @@ evaluation scores from a later, disjoint period at the same sites, so
 exchangeability fails by construction: there is temporal drift, and the scores
 are dependent within station and within region. We therefore report achieved
 coverage as an *empirical marginal diagnostic*, make no finite-sample guarantee,
-and make no conditional-coverage claim of any kind. Two pre-specified
-sensitivities probe that boundary: a block-maximum variant that calibrates on the
-maximum score within groups of consecutive retained calibration rows, following
-the standard practice of resampling blocks rather than rows when the series is
-dependent ([Künsch, 1989](https://doi.org/10.1214/aos/1176347265)), and an
-idealized delayed adaptive-conformal variant using each forecast's target date as
-a feedback-arrival proxy. Neither replays real feedback availability, because the
+and make no conditional-coverage claim of any kind. Two sensitivities probe that
+boundary: a block-maximum variant that calibrates on the maximum score within
+groups of consecutive retained calibration rows, following the standard practice
+of resampling blocks rather than rows when the series is dependent
+([Künsch, 1989](https://doi.org/10.1214/aos/1176347265)), and an idealized
+delayed adaptive-conformal variant using each forecast's target date as a
+feedback-arrival proxy. Neither replays real feedback availability, because the
 inputs contain no verified observation-publication timestamp, revision history,
 or reporting latency. The equal-weight three-quantile pinball summary is not
 CRPS; the two are distinct members of the family of proper scoring rules
@@ -525,7 +546,7 @@ temperature, calibrated by one Platt map per lead fitted on 2018 only; that
 threshold is a statistical tail diagnostic local to each station, with no
 biological, ecological, or regulatory interpretation.
 
-### 3.6 Estimand, metrics, comparison set, and why this study is descriptive
+### 3.6 Estimand, metrics, and comparison set
 
 **Two differently signed quantities are reported, and they are never combined.**
 The paired effect is
@@ -546,17 +567,20 @@ The sampling unit is the station. For each lead, unweighted RMSE is computed on
 the common daily keys separately for each reportable station, and the primary
 effect is the unweighted median across stations of equation (9) with ThermoRoute
 as candidate; a station/lead cell is reportable only with at least 100 valid
-paired targets, so daily rows do not determine between-station weight. We report
-RMSE and paired RMSE differences rather than an efficiency-type criterion such as
-the Nash–Sutcliffe efficiency or its decomposition-based successors
+paired targets, so daily rows do not determine between-station weight. On the
+held-out 2021–2023 window we additionally report mean absolute error (MAE) and
+mean error (bias), and skill against both persistence and seasonal climatology,
+per model and lead, both pooled and per station. We report RMSE and paired RMSE
+differences rather than an efficiency-type criterion such as the
+Nash–Sutcliffe efficiency or its decomposition-based successors
 ([Nash and Sutcliffe, 1970](<https://doi.org/10.1016/0022-1694(70)90255-6>);
 [Gupta et al., 2009](https://doi.org/10.1016/j.jhydrol.2009.08.003)), because
 those criteria normalise by a station-specific variance, which would make a
 paired between-model difference on identical keys harder to read.
 
-The frozen comparison set contains exactly five rows:
+The comparison set contains five head-to-head rows:
 
-| # | Comparison | Lead | Predeclared margin |
+| # | Comparison | Lead | Reference margin |
 |---|---|---:|---|
 | 1 | ThermoRoute vs. damped persistence | 1 d | 0.00 °C |
 | 2 | ThermoRoute vs. damped persistence | 3 d | 0.00 °C |
@@ -564,150 +588,55 @@ The frozen comparison set contains exactly five rows:
 | 4 | ThermoRoute vs. LightGBM | 3 d | +0.05 °C numerical ceiling |
 | 5 | ThermoRoute vs. LightGBM | 7 d | +0.05 °C numerical ceiling |
 
-The +0.05 °C ceiling was fixed before outcomes as a strict numerical limit on
-allowable degradation. It is not derived from sensor precision, biological
-response, a water-quality standard, or an elicited stakeholder utility, and it
-carries no ecological or regulatory importance.
+The +0.05 °C ceiling is a stated numerical reference for the LightGBM comparison
+rather than a decision threshold: it is not derived from sensor precision,
+biological response, a water-quality standard, or an elicited stakeholder
+utility, and it carries no ecological or regulatory importance.
 
 Two uncertainty procedures accompany each row, both clustered at HUC2: a
 one-sided p-value from exact enumeration of all 2^K whole-cluster sign vectors,
 applying one common sign to every station effect within a cluster, and a
 10,000-draw whole-HUC2 cluster bootstrap percentile interval for the median
 station effect, with Holm adjustment
-([Holm, 1979](https://www.jstor.org/stable/4615733)) over exactly these five
-p-values. We do not use the standard tests of equal predictive accuracy for
-forecast series
+([Holm, 1979](https://www.jstor.org/stable/4615733)) over these five p-values.
+We do not use the standard tests of equal predictive accuracy for forecast series
 ([Diebold and Mariano, 1995](https://doi.org/10.1080/07350015.1995.10524599);
 [Harvey et al., 1997](<https://doi.org/10.1016/S0169-2070(96)00719-4>)), because
 their asymptotics are stated for a single loss-differential series and do not
 address dependence across the 120 gauges, which is the dominant dependence here.
 
-**Those procedures cannot carry inferential weight in this study, for three
-independent and permanent reasons.** Eligibility is a fixed property of the
-frozen gate rather than a quantity recomputed from the cohort, and the opening
-refuses to run unless the gate has failed closed. The reasons follow in order of
-how binding they are.
-
-*First, the two structural assumptions on which both procedures rest are recorded
-as unmet.* Whole-cluster resampling assumes independent, exchangeable sampling of
-HUC2 regions, and whole-cluster sign flipping assumes joint sign symmetry of each
-complete cluster effect vector around the tested margin. The frozen gate records
-both as permanently unmet, for reasons that are design facts rather than
-measurements: the regions were not probability-sampled, and no randomized sign
-assignment exists anywhere in the design. This is not a threshold a larger or
-differently partitioned cohort would clear. It is a statement about how the
-cohort came into being — an availability filter over gauges in 34 states — and it
-would hold with 30 regions as surely as with 15.
-
-*Second, the null-simulation component was never implemented.* The gate requires
-a simulated-null calibration of the clustered procedures before they may be read
-inferentially. That component does not exist in the analysis code; it returns a
-fixed failure on every run and appends its own blocking reason. It is a declared
-requirement that was not built, disclosed rather than quietly dropped.
-
-*Third, and least binding, the cohort has too few clusters.* The gate requires at
-least 30 reportable clusters, an effective-cluster fraction of at least 0.75, and
-a largest-cluster share below 0.25. Before any reportability attrition the 15
-HUC2 groups contain between 2 and 26 stations, the largest holds 21.7% of
-stations, and the inverse-Herfindahl effective cluster count is 9.54, an effective
-fraction of about 0.636; two of the three components fail. We state plainly what
-this means: **the threshold is unreachable under a HUC2 partition for any U.S.
-cohort whatsoever**, because the Watershed Boundary Dataset defines about 21 HUC2
-regions in total and the gate asks for at least 30. That is a specification
-error, made when the amendment was written and identified before any evaluation
-label was accessed — which is the only reason it can be reported here rather than
-discovered by a reader.
-
-Disclosing the error is a better response than defending the threshold, and a far
-better response than subdividing the map until it passes. Subdividing *would*
-pass: recomputed with the gate's own code on the frozen registry, HUC2 gives 15
-clusters at an effective fraction of 0.636, HUC4 gives 64 at 0.507, HUC6 gives 75
-at 0.485, and HUC8 gives 95 at 0.758, clearing all three thresholds. We did not
-adopt HUC8. Adjacent HUC8 units on the same river are plainly not independent, so
-passing that way would satisfy the arithmetic while defeating its purpose; and it
-would change nothing, because eligibility is fixed by the first two reasons, so a
-HUC8 partition would clear the cluster gate and return the same verdict. Choosing
-the cluster definition after seeing which definition helps is precisely the
-failure mode the gate exists to prevent.
-
-Because the frozen Route-A cohort contains at most 15 HUC2 groups (inverse-Herfindahl effective cluster count ≈ 9.54) and therefore fails the outcome-free inference gate requiring n_clusters ≥ 30, effective_cluster_fraction ≥ 0.75, and largest_cluster_share < 0.25, the formal five confirmatory comparisons are permanently restricted to fixed-cohort descriptive effects under DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED for confirmatory claim eligibility; exploratory and secondary analyses remain reportable as such and are not erased by the gate. Whole-HUC2 bootstrap intervals, exact sign-flip p-values, and Holm adjustments are assumption-conditional sensitivities only and must not be written as confirmatory decision evidence; after opening they must not be rewritten as superiority, non-inferiority, equivalence, parity, or national / U.S.-river generalization.
-
-Every one of the five rows is still rendered exactly once, including adverse,
-conflicting, or non-reportable outcomes, with the effect estimate, the win rate,
-the station and cluster counts, and the interval all shown. Secondary and
-exploratory analyses — a qualifier-restricted target sensitivity, equal-region
-and leave-one-region influence summaries, station-balanced probability
-diagnostics, architecture controls, and synthetic perturbations — are labelled as
-such and cannot promote or replace a formal row. Relative economic value in the
-cost–loss sense ([Richardson, 2000](https://doi.org/10.1002/qj.49712656313)) is
-recorded as `REV_NOT_EVALUATED_NO_PREDECLARED_COST_LOSS_RATIOS`, because no
-cost–loss ratios, management costs, actions, or stakeholder utility model were
-frozen. A predeclared coverage and calendar-balance audit accompanies each formal
-row with eight fixed descriptive candidates — equal weighting of the 12
-year-by-season cells, leave-one-year for each evaluation year, and
-leave-one-season for DJF, MAM, JJA, and SON — of which the most adverse
-candidate-minus-reference effect is taken as the deterministic unfavorable value,
-with ties broken by frozen candidate order. That audit is restricted to keys
-where both issue-date and target-date water temperature are retained finite
-observations; it does not impute unavailable outcomes, test a missing-at-random
-assumption, or estimate all-calendar-day performance, and a favourable
-sensitivity can never rescue an unfavourable primary row.
-
-### 3.7 The one-time 2021–2023 evaluation
-
-The evaluation labels are acquired exactly once, and everything capable of being
-tuned is frozen and independently verified before that acquisition is permitted.
-Those labels may not be read by model-selection, feature-selection,
-threshold-selection, calibration, or station-inclusion code, and enforcement is
-ordered so that the order is itself a gate. The protocol and its seal, the claim
-renderer and validator, the source tree, the dependency locks, and all model
-members are frozen and exactly replayed under the isolation of Section 3.3; the
-model-suite registry is then committed *while* the external candidate registry
-and the evaluation-period predictor artifacts are still absent from the
-repository; and only then may metadata-only candidate discovery and retrospective
-predictor acquisition run. Authorization replays the resulting version-control
-ancestry and content hashes to verify that the model-suite commit genuinely
-precedes them. Any source change after the model freeze invalidates
-authorization, and failure of the chronology gate does not produce a weaker
-result: it demotes the exercise to retrospective exploration.
-
-The acquisition itself is narrow and irreversible. A raw-only child process using
-the USGS `dataretrieval` client
-([Hodson and Hariharan, 2023](https://doi.org/10.5066/P94I5TX3)) is restricted to
-daily mean water temperature (`00010`, °C), discharge (`00060`, cfs), and
-raw-only gage height (`00065`, ft), and records exact request and response bytes,
-qualifiers, timestamps, and content hashes. Where two or more finite series exist
-for a parameter and date, the cell is marked missing with an explicit conflict
-code rather than averaged or selected, and **no site may be replaced after
-outcomes are accessed**. The primary analysis uses every finite parsed value
-regardless of approval qualifier, so qualifiers can never select or remove a
-station, model, date, or forecast key; a separately labelled sensitivity, fixed
-before opening, retains target keys only when the target qualifier has the exact
-token set `{A}`. The acquisition is transactional, with honest-owner crash and
-replay guards rather than protection against a malicious owner or a
-same-privilege adversary; those details are in the Supporting Information.
-
-The analysis protocol was written and frozen before any post-2020 outcome was
-requested or inspected, and fixes the cohort hashes, the temporal roles, the
-model registry, the estimand, the five-row comparison set and its margins, the
-clustered procedures, the multiplicity correction, the probabilistic and event
-contracts, the outcome quality-control policy, and the requirement that every row
-be reported exactly once regardless of direction; two later amendments and a
-probability-metric erratum are themselves outcome-free and separately sealed. We
-state the limit of that evidence plainly: the seals are repository-internal and
-assume an honest owner, with no external timestamp, public registration service,
-or independent custodian.
+These clustered procedures rest on assumptions that the cohort only partially
+meets, and we state the limit plainly rather than over-read the intervals. The
+cohort was assembled by an availability filter, not by probability sampling of
+HUC2 regions, so independent, exchangeable sampling of regions is not
+established; whole-cluster sign flipping additionally assumes joint sign symmetry
+of each cluster effect vector. With only 15 HUC2 groups (an inverse-Herfindahl
+effective cluster count of about 9.54 and a largest group holding 21.7% of
+stations) the clustered intervals and p-values are therefore approximate and
+should be read as descriptive sensitivities, not as decision evidence. We do not
+treat a failure to reject as evidence of equivalence, and no comparison here is
+written as a statement of superiority, non-inferiority, equivalence, or parity,
+or as a generalization to a national or U.S.-river population. Equal-HUC
+aggregation, leave-one-HUC2 influence, and a year-by-season temporal-stability
+audit (equal weighting of the 12 year-by-season cells, leave-one-year, and
+leave-one-season for DJF, MAM, JJA, SON) are reported as sensitivities on the
+held-out window. HUC2 is a coarse administrative grouping and is not an
+independent river-network component.
 
 ---
 
 ## 4. Results
 
-Sections 4.1–4.5 report development-period quantities. **All of them are
-exploratory.** The 2019–2020 partition participated in cohort construction and
-has informed model and narrative development; it is not an independent test, and
-no number in these subsections is decision-eligible. Unless stated otherwise, all
-development values are five-seed ensemble means on the 249,072 common keys, with
-station-median RMSE in °C. Section 4.6 contains the evaluation-period slots.
+Sections 4.1–4.5 report development-period (2019–2020) benchmark diagnostics.
+The 2019–2020 partition participated in cohort construction and informed model
+selection, so these values are development diagnostics rather than an independent
+test; they are reported because they are the basis on which the model suite and
+the comparison set were fixed, and they anticipate the held-out evaluation.
+Unless stated otherwise, all development values are five-seed ensemble means on
+the 249,072 common keys, with station-median RMSE in °C. Section 4.6 reports the
+held-out 2021–2023 comparative evaluation; its metric cells are clearly marked
+placeholders (`<<...>>`) pending computation from
+`outputs/conventional/holdout_metrics_2021_2023.csv`.
 
 ### 4.1 The reference model, not the architecture, sets the reported gain
 
@@ -722,7 +651,7 @@ identical keys, the same fixed model reports a seven-day median station skill of
 | 3 d | 1.576 | 1.406 | 1.280 | 1.323 | 1.291 |
 | 7 d | 2.217 | 1.738 | 1.649 | 1.679 | 1.657 |
 
-*Station-median RMSE, °C.* Read down the seven-day row: station-median RMSE falls
+*Development-period (2019–2020) station-median RMSE, °C.* Read down the seven-day row: station-median RMSE falls
 from 2.217 °C under persistence to 1.738 °C under damped persistence to 1.657 °C
 under ThermoRoute. Of the 0.560 °C total reduction, 0.479 °C is delivered by
 relaxing yesterday's observation toward a fitted seasonal climatology, and
@@ -737,38 +666,38 @@ to remove. A study reporting only the persistence column would describe this
 model as gaining a quarter of the seven-day error budget. A study reporting both
 columns describes the same fitted weights as gaining four percent.
 
-Reported against the strong reference, the paired effects of equation (9) are
-−0.130, −0.104, and −0.062 °C at 1, 3, and 7 days, with ThermoRoute favoured at
-0.86, 0.90, and 0.93 of the 120 stations, and exploratory whole-HUC2
-cluster-bootstrap intervals of [−0.177, −0.081], [−0.126, −0.083], and
+Reported against the strong reference, the development-period paired effects of
+equation (9) are −0.130, −0.104, and −0.062 °C at 1, 3, and 7 days, with
+ThermoRoute favoured at 0.86, 0.90, and 0.93 of the 120 stations, and
+whole-HUC2 cluster-bootstrap intervals of [−0.177, −0.081], [−0.126, −0.083], and
 [−0.071, −0.052] °C. Those intervals carry the 15-cluster structure discussed in
-Section 3.6, and every row of the development mirror is flagged
-`NO_STRONG_INFERENCE` with the warnings `SMALL_CLUSTER_COUNT_LT_30` and
-`LOW_EFFECTIVE_CLUSTER_FRACTION`. If the reference set determines the size of the
-reported gain, the next question is whether it also determines which model wins.
+Section 3.6 and are approximate. The held-out 2021–2023 evaluation
+(Section 4.6) reports the same comparison on the test window. If the reference
+set determines the size of the reported gain, the next question is whether it
+also determines which model wins.
 
 <!-- FIGURE_ANCHOR id=F2 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-2 -->
 
 ### 4.2 The most accurate model on this panel is a gradient-boosted tree
 
-It does. The tree ensemble has the lowest development-period station-median RMSE
-at all three leads: 0.578, 1.280, and 1.649 °C against ThermoRoute's 0.631,
-1.291, and 1.657 °C. The paired station-level differences
+It does. On the development window the tree ensemble has the lowest
+station-median RMSE at all three leads: 0.578, 1.280, and 1.649 °C against
+ThermoRoute's 0.631, 1.291, and 1.657 °C. The paired station-level differences
 (`ThermoRoute − LightGBM`, equation 9) are +0.046 °C at 1 day, +0.008 °C at 3
 days, and −0.005 °C at 7 days, with ThermoRoute win rates of 0.00, 0.40, and 0.60
 across the 120 stations. The one-day win rate is 0.00: not one of the 120
 stations favours the constrained architecture at the shortest lead.
 
-We report this as the primary result it is. On this panel, on identical keys, a
-well-tuned gradient-boosted tree with site identity is more accurate than the
-constrained deep architecture, decisively at 1 day and negligibly at 3 and 7,
-where the exploratory cluster-bootstrap intervals for the paired difference are
-[+0.001, +0.020] and [−0.010, +0.010] °C. The global LSTM is intermediate at
-0.662, 1.323, and 1.679 °C. The architecture's remaining practical argument is
-not accuracy but the algebraic bound of equation (7), which held on 100.00% of
-audited rows, with a maximum absolute correction of 1.0000 °C against the
-configured 1 °C limit and the derived station-by-lead RMSE inequality holding in
-all 360 cells — a property of the construction rather than a fitted outcome.
+We report this directly. On this panel, on identical keys, a well-tuned
+gradient-boosted tree with site identity is more accurate than the constrained
+deep architecture, decisively at 1 day and negligibly at 3 and 7, where the
+cluster-bootstrap intervals for the paired difference are [+0.001, +0.020] and
+[−0.010, +0.010] °C. The global LSTM is intermediate at 0.662, 1.323, and 1.679 °C.
+The architecture's remaining practical argument is not accuracy but the
+algebraic bound of equation (7), which held on 100.00% of audited rows, with a
+maximum absolute correction of 1.0000 °C against the configured 1 °C limit and
+the derived station-by-lead RMSE inequality holding in all 360 cells — a
+property of the construction rather than a fitted outcome.
 
 <!-- FIGURE_ANCHOR id=S4 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s4 -->
 
@@ -814,7 +743,7 @@ honestly? Between a quarter and a third of it does not.
 | Random held-site warm start | 4 folds; held-site history in preprocessing | +0.178 | +0.172 | +0.241 |
 | Held-region gauged transfer | leave-HUC2-region-out | +0.155 | +0.116 | +0.155 |
 
-*Median station skill versus persistence, dimensionless.* Against damped
+*Development-period median station skill versus persistence, dimensionless.* Against damped
 persistence the same three arms give +0.168 / +0.076 / +0.038 (temporal),
 +0.145 / +0.061 / +0.030 (random held-site), and +0.147 / +0.086 / +0.075
 (held-region). The three-day skill against persistence falls from +0.187 to
@@ -865,16 +794,16 @@ marginal coverage of 0.909 against a nominal 0.90, with a mean width of 3.87 °C
 and a mean interval score of 4.93; per lead, coverage is 0.905, 0.910, and 0.912
 at widths of 2.01, 4.22, and 5.38 °C. On the warm-season tail slice defined by
 training-period q90 exceedance (30,531 keys), coverage is 0.918 at a width of
-3.50 °C. The two pre-specified sensitivities show how much of that is a
-convention. Calibrating on the maximum nonconformity score within blocks of seven
-consecutive retained calibration rows raises overall coverage to 0.981 but widens
-the interval to 5.74 °C — coverage bought with width, not with sharpness. The
-idealized delayed adaptive-conformal variants track nominal coverage more closely
-as the step size grows (0.903, 0.900, and 0.892 for γ = 0.005, 0.02, 0.05) but
-produce unbounded widths in several slices, so their interval scores are not
-finite. We report width and interval score beside every coverage figure precisely
-so that adaptive calibration is not presented as free, and none of these figures
-is a conditional-coverage statement.
+3.50 °C. The two sensitivities show how much of that is a convention. Calibrating
+on the maximum nonconformity score within blocks of seven consecutive retained
+calibration rows raises overall coverage to 0.981 but widens the interval to
+5.74 °C — coverage bought with width, not with sharpness. The idealized delayed
+adaptive-conformal variants track nominal coverage more closely as the step size
+grows (0.903, 0.900, and 0.892 for γ = 0.005, 0.02, 0.05) but produce unbounded
+widths in several slices, so their interval scores are not finite. We report
+width and interval score beside every coverage figure precisely so that adaptive
+calibration is not presented as free, and none of these figures is a
+conditional-coverage statement.
 
 Input perturbations locate the model's dependence in the same two channels the
 ablations pointed to. Gaussian sensor noise at 0.25 and 0.5 training standard
@@ -890,72 +819,108 @@ projections, physically coherent scenarios, or deployment-safety tests.
 <!-- FIGURE_ANCHOR id=F4 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-4 -->
 <!-- FIGURE_ANCHOR id=S7 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s7 -->
 
-### 4.6 Evaluation-period results
+### 4.6 Held-out 2021–2023 evaluation
 
-The following slots are rendered deterministically from the verified acquisition
-receipt after the single opening described in Section 3.7. Each is reported
-exactly once, including adverse, conflicting, and non-reportable outcomes, and
-each carries the fixed-cohort descriptive verdict of Section 3.6. Handwritten
-substitution into these slots is rejected by body hashes and evidence bindings.
+The held-out 2021–2023 evaluation applies the model suite and comparison set of
+Section 3, fixed on data through 2020, to the test window 2021-01-01 through
+2023-12-31. Metric cells below are clearly marked placeholders (`<<...>>`)
+pending computation; a parallel computation writes the long-form table
+`outputs/conventional/holdout_metrics_2021_2023.csv` (columns `model`,
+`horizon`, `metric`, `value`, `n`), from which these cells are filled. No value
+here is invented.
 
-**Table 4.1 — the five formal rows.** Fields: model pair, lead, predeclared
-margin, reportable station count, reportable cluster count, median paired station
-RMSE difference, whole-HUC2 cluster-bootstrap 95% interval, win rate, exact
-sign-flip raw p-value, Holm-adjusted p-value, and the bound gate verdict.
+**Table 4.6 — paired comparisons on the held-out window.** Median station ΔRMSE
+(equation 9, °C, negative favours ThermoRoute), the ThermoRoute win rate, and the
+approximate whole-HUC2 cluster-bootstrap 95% interval, for each row of the
+Section 3.6 comparison set. Codes: DP = damped persistence, LG = LightGBM.
 
-| # | Comparison | Lead | Margin | Effect and interval | Sensitivities (p_raw / p_Holm) | Verdict |
+| # | Comparison | Lead | ΔRMSE (°C) | CI low | CI high | Win rate |
 |---|---|---:|---|---|---|---|
-| 1 | ThermoRoute vs. damped persistence | 1 d | 0.00 °C | `[TO BE FILLED AFTER OPENING]` | `[TO BE FILLED AFTER OPENING]` | `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED` |
-| 2 | ThermoRoute vs. damped persistence | 3 d | 0.00 °C | `[TO BE FILLED AFTER OPENING]` | `[TO BE FILLED AFTER OPENING]` | `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED` |
-| 3 | ThermoRoute vs. damped persistence | 7 d | 0.00 °C | `[TO BE FILLED AFTER OPENING]` | `[TO BE FILLED AFTER OPENING]` | `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED` |
-| 4 | ThermoRoute vs. LightGBM | 3 d | +0.05 °C | `[TO BE FILLED AFTER OPENING]` | `[TO BE FILLED AFTER OPENING]` | `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED` |
-| 5 | ThermoRoute vs. LightGBM | 7 d | +0.05 °C | `[TO BE FILLED AFTER OPENING]` | `[TO BE FILLED AFTER OPENING]` | `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED` |
+| 1 | ThermoRoute vs. damped persistence | 1 d | `<<dRMSE_DP_h1>>` | `<<CIlo_DP_h1>>` | `<<CIhi_DP_h1>>` | `<<win_DP_h1>>` |
+| 2 | ThermoRoute vs. damped persistence | 3 d | `<<dRMSE_DP_h3>>` | `<<CIlo_DP_h3>>` | `<<CIhi_DP_h3>>` | `<<win_DP_h3>>` |
+| 3 | ThermoRoute vs. damped persistence | 7 d | `<<dRMSE_DP_h7>>` | `<<CIlo_DP_h7>>` | `<<CIhi_DP_h7>>` | `<<win_DP_h7>>` |
+| 4 | ThermoRoute vs. LightGBM | 3 d | `<<dRMSE_LG_h3>>` | `<<CIlo_LG_h3>>` | `<<CIhi_LG_h3>>` | `<<win_LG_h3>>` |
+| 5 | ThermoRoute vs. LightGBM | 7 d | `<<dRMSE_LG_h7>>` | `<<CIlo_LG_h7>>` | `<<CIhi_LG_h7>>` | `<<win_LG_h7>>` |
 
-**Table 4.2 — all-model scores on the evaluation common keys.**
-`[TO BE FILLED AFTER OPENING]` — station-median RMSE for every primary model at
-every lead on the exact common key registry, with the reportable station count.
-The frozen model registry for this cohort is the six primary models together
-with the seven one-factor architecture controls of Section 3.2, so the control
-rows are rendered here on the same keys and the same denominators; they remain
-exploratory deletion and intervention sensitivities and cannot promote or
-replace a formal row.
+**Tables 4.7–4.8 — held-out 2021–2023 metrics.** Station-median metrics per model
+and lead on the common test keys: RMSE, MAE, and bias in °C; skill against
+persistence and against climatology (equation 10, dimensionless, positive
+favours the candidate); and the reportable station count *n*. Table 4.7 lists the
+six primary models and Table 4.8 the six one-factor ablations of Section 3.2, on
+the same test keys and denominators; the ablations are deletion and intervention
+sensitivities and do not prove component necessity.
 
-**Table 4.3 — temporal coverage and calendar balance.**
-`[TO BE FILLED AFTER OPENING]` — for each of the five rows, all eight predeclared
-descriptive candidates (equal-weighted 12 year-by-season cells; leave-one-year
-for 2021, 2022, 2023; leave-one-season for DJF, MAM, JJA, SON) and the
-deterministic most-adverse value.
+**Table 4.7 — primary models.**
 
-**Table 4.4 — interval and probability behaviour on the evaluation keys.**
-`[TO BE FILLED AFTER OPENING]` — by model and lead: empirical marginal coverage
-at the nominal 90% level, mean interval width, the equal-weight three-quantile
-pinball mean, Brier score and Brier skill against the frozen seasonal reference,
-log loss, AUROC, AUPRC, expected calibration error, calibration slope and
-intercept, and station-balanced reliability bins. This table is filled from the
-evaluation-period probabilistic family computed by the trusted scorer during the
-single opening; it is labelled exploratory, consistent with Section 3.6, and it
-is a different object from the development-period suite of Section 6.3. Three
-fields are not produced by the opening and are rendered as explicit status
-tokens rather than as numbers or blanks: the interval score, the block-maximum
-calibration sensitivity, and the delayed adaptive-conformal sensitivity.
+| Model | h (d) | RMSE (°C) | MAE (°C) | bias (°C) | skill vs. persist | skill vs. clim | n |
+|---|---:|---|---|---|---|---|---|
+| Persistence | 1 | `<<RMSE_Persistence_h1>>` | `<<MAE_Persistence_h1>>` | `<<bias_Persistence_h1>>` | `<<skill_vs_persistence_Persistence_h1>>` | `<<skill_vs_climatology_Persistence_h1>>` | `<<n_Persistence_h1>>` |
+| Persistence | 3 | `<<RMSE_Persistence_h3>>` | `<<MAE_Persistence_h3>>` | `<<bias_Persistence_h3>>` | `<<skill_vs_persistence_Persistence_h3>>` | `<<skill_vs_climatology_Persistence_h3>>` | `<<n_Persistence_h3>>` |
+| Persistence | 7 | `<<RMSE_Persistence_h7>>` | `<<MAE_Persistence_h7>>` | `<<bias_Persistence_h7>>` | `<<skill_vs_persistence_Persistence_h7>>` | `<<skill_vs_climatology_Persistence_h7>>` | `<<n_Persistence_h7>>` |
+| DampedPersistence | 1 | `<<RMSE_DampedPersistence_h1>>` | `<<MAE_DampedPersistence_h1>>` | `<<bias_DampedPersistence_h1>>` | `<<skill_vs_persistence_DampedPersistence_h1>>` | `<<skill_vs_climatology_DampedPersistence_h1>>` | `<<n_DampedPersistence_h1>>` |
+| DampedPersistence | 3 | `<<RMSE_DampedPersistence_h3>>` | `<<MAE_DampedPersistence_h3>>` | `<<bias_DampedPersistence_h3>>` | `<<skill_vs_persistence_DampedPersistence_h3>>` | `<<skill_vs_climatology_DampedPersistence_h3>>` | `<<n_DampedPersistence_h3>>` |
+| DampedPersistence | 7 | `<<RMSE_DampedPersistence_h7>>` | `<<MAE_DampedPersistence_h7>>` | `<<bias_DampedPersistence_h7>>` | `<<skill_vs_persistence_DampedPersistence_h7>>` | `<<skill_vs_climatology_DampedPersistence_h7>>` | `<<n_DampedPersistence_h7>>` |
+| Climatology | 1 | `<<RMSE_Climatology_h1>>` | `<<MAE_Climatology_h1>>` | `<<bias_Climatology_h1>>` | `<<skill_vs_persistence_Climatology_h1>>` | `<<skill_vs_climatology_Climatology_h1>>` | `<<n_Climatology_h1>>` |
+| Climatology | 3 | `<<RMSE_Climatology_h3>>` | `<<MAE_Climatology_h3>>` | `<<bias_Climatology_h3>>` | `<<skill_vs_persistence_Climatology_h3>>` | `<<skill_vs_climatology_Climatology_h3>>` | `<<n_Climatology_h3>>` |
+| Climatology | 7 | `<<RMSE_Climatology_h7>>` | `<<MAE_Climatology_h7>>` | `<<bias_Climatology_h7>>` | `<<skill_vs_persistence_Climatology_h7>>` | `<<skill_vs_climatology_Climatology_h7>>` | `<<n_Climatology_h7>>` |
+| LightGBM | 1 | `<<RMSE_LightGBM_h1>>` | `<<MAE_LightGBM_h1>>` | `<<bias_LightGBM_h1>>` | `<<skill_vs_persistence_LightGBM_h1>>` | `<<skill_vs_climatology_LightGBM_h1>>` | `<<n_LightGBM_h1>>` |
+| LightGBM | 3 | `<<RMSE_LightGBM_h3>>` | `<<MAE_LightGBM_h3>>` | `<<bias_LightGBM_h3>>` | `<<skill_vs_persistence_LightGBM_h3>>` | `<<skill_vs_climatology_LightGBM_h3>>` | `<<n_LightGBM_h3>>` |
+| LightGBM | 7 | `<<RMSE_LightGBM_h7>>` | `<<MAE_LightGBM_h7>>` | `<<bias_LightGBM_h7>>` | `<<skill_vs_persistence_LightGBM_h7>>` | `<<skill_vs_climatology_LightGBM_h7>>` | `<<n_LightGBM_h7>>` |
+| LSTM | 1 | `<<RMSE_LSTM_h1>>` | `<<MAE_LSTM_h1>>` | `<<bias_LSTM_h1>>` | `<<skill_vs_persistence_LSTM_h1>>` | `<<skill_vs_climatology_LSTM_h1>>` | `<<n_LSTM_h1>>` |
+| LSTM | 3 | `<<RMSE_LSTM_h3>>` | `<<MAE_LSTM_h3>>` | `<<bias_LSTM_h3>>` | `<<skill_vs_persistence_LSTM_h3>>` | `<<skill_vs_climatology_LSTM_h3>>` | `<<n_LSTM_h3>>` |
+| LSTM | 7 | `<<RMSE_LSTM_h7>>` | `<<MAE_LSTM_h7>>` | `<<bias_LSTM_h7>>` | `<<skill_vs_persistence_LSTM_h7>>` | `<<skill_vs_climatology_LSTM_h7>>` | `<<n_LSTM_h7>>` |
+| ThermoRoute | 1 | `<<RMSE_ThermoRoute_h1>>` | `<<MAE_ThermoRoute_h1>>` | `<<bias_ThermoRoute_h1>>` | `<<skill_vs_persistence_ThermoRoute_h1>>` | `<<skill_vs_climatology_ThermoRoute_h1>>` | `<<n_ThermoRoute_h1>>` |
+| ThermoRoute | 3 | `<<RMSE_ThermoRoute_h3>>` | `<<MAE_ThermoRoute_h3>>` | `<<bias_ThermoRoute_h3>>` | `<<skill_vs_persistence_ThermoRoute_h3>>` | `<<skill_vs_climatology_ThermoRoute_h3>>` | `<<n_ThermoRoute_h3>>` |
+| ThermoRoute | 7 | `<<RMSE_ThermoRoute_h7>>` | `<<MAE_ThermoRoute_h7>>` | `<<bias_ThermoRoute_h7>>` | `<<skill_vs_persistence_ThermoRoute_h7>>` | `<<skill_vs_climatology_ThermoRoute_h7>>` | `<<n_ThermoRoute_h7>>` |
 
-**Table 4.5 — outcome quality control.**
-`[TO BE FILLED AFTER OPENING]` — immutable counts by cohort, station, variable,
-raw qualifier string, and value presence; multiple-finite-series conflict counts;
-the outcome quality-control gate status; and the qualifier-restricted `{A}`
-sensitivity for each formal row.
+**Table 4.8 — one-factor ablations.**
 
-**Table 4.6 — external arm on the evaluation keys.**
-`[TO BE FILLED AFTER OPENING]` — the 30-site site-identifier-disjoint arm,
-labelled exploratory and history-dependent. The leave-HUC2-region-out arm has no
-evaluation-period counterpart: the opening produces no held-region artifact, so
-that fragment renders as an explicit status token and the whole-region holdout
-evidence in this paper remains the development-period evidence of Section 4.4.
+| Model | h (d) | RMSE (°C) | MAE (°C) | bias (°C) | skill vs. persist | skill vs. clim | n |
+|---|---:|---|---|---|---|---|---|
+| tr-fixedkappa | 1 | `<<RMSE_tr-fixedkappa_h1>>` | `<<MAE_tr-fixedkappa_h1>>` | `<<bias_tr-fixedkappa_h1>>` | `<<skill_vs_persistence_tr-fixedkappa_h1>>` | `<<skill_vs_climatology_tr-fixedkappa_h1>>` | `<<n_tr-fixedkappa_h1>>` |
+| tr-fixedkappa | 3 | `<<RMSE_tr-fixedkappa_h3>>` | `<<MAE_tr-fixedkappa_h3>>` | `<<bias_tr-fixedkappa_h3>>` | `<<skill_vs_persistence_tr-fixedkappa_h3>>` | `<<skill_vs_climatology_tr-fixedkappa_h3>>` | `<<n_tr-fixedkappa_h3>>` |
+| tr-fixedkappa | 7 | `<<RMSE_tr-fixedkappa_h7>>` | `<<MAE_tr-fixedkappa_h7>>` | `<<bias_tr-fixedkappa_h7>>` | `<<skill_vs_persistence_tr-fixedkappa_h7>>` | `<<skill_vs_climatology_tr-fixedkappa_h7>>` | `<<n_tr-fixedkappa_h7>>` |
+| tr-nodynamicprior | 1 | `<<RMSE_tr-nodynamicprior_h1>>` | `<<MAE_tr-nodynamicprior_h1>>` | `<<bias_tr-nodynamicprior_h1>>` | `<<skill_vs_persistence_tr-nodynamicprior_h1>>` | `<<skill_vs_climatology_tr-nodynamicprior_h1>>` | `<<n_tr-nodynamicprior_h1>>` |
+| tr-nodynamicprior | 3 | `<<RMSE_tr-nodynamicprior_h3>>` | `<<MAE_tr-nodynamicprior_h3>>` | `<<bias_tr-nodynamicprior_h3>>` | `<<skill_vs_persistence_tr-nodynamicprior_h3>>` | `<<skill_vs_climatology_tr-nodynamicprior_h3>>` | `<<n_tr-nodynamicprior_h3>>` |
+| tr-nodynamicprior | 7 | `<<RMSE_tr-nodynamicprior_h7>>` | `<<MAE_tr-nodynamicprior_h7>>` | `<<bias_tr-nodynamicprior_h7>>` | `<<skill_vs_persistence_tr-nodynamicprior_h7>>` | `<<skill_vs_climatology_tr-nodynamicprior_h7>>` | `<<n_tr-nodynamicprior_h7>>` |
+| tr-nomoe | 1 | `<<RMSE_tr-nomoe_h1>>` | `<<MAE_tr-nomoe_h1>>` | `<<bias_tr-nomoe_h1>>` | `<<skill_vs_persistence_tr-nomoe_h1>>` | `<<skill_vs_climatology_tr-nomoe_h1>>` | `<<n_tr-nomoe_h1>>` |
+| tr-nomoe | 3 | `<<RMSE_tr-nomoe_h3>>` | `<<MAE_tr-nomoe_h3>>` | `<<bias_tr-nomoe_h3>>` | `<<skill_vs_persistence_tr-nomoe_h3>>` | `<<skill_vs_climatology_tr-nomoe_h3>>` | `<<n_tr-nomoe_h3>>` |
+| tr-nomoe | 7 | `<<RMSE_tr-nomoe_h7>>` | `<<MAE_tr-nomoe_h7>>` | `<<bias_tr-nomoe_h7>>` | `<<skill_vs_persistence_tr-nomoe_h7>>` | `<<skill_vs_climatology_tr-nomoe_h7>>` | `<<n_tr-nomoe_h7>>` |
+| tr-norouter | 1 | `<<RMSE_tr-norouter_h1>>` | `<<MAE_tr-norouter_h1>>` | `<<bias_tr-norouter_h1>>` | `<<skill_vs_persistence_tr-norouter_h1>>` | `<<skill_vs_climatology_tr-norouter_h1>>` | `<<n_tr-norouter_h1>>` |
+| tr-norouter | 3 | `<<RMSE_tr-norouter_h3>>` | `<<MAE_tr-norouter_h3>>` | `<<bias_tr-norouter_h3>>` | `<<skill_vs_persistence_tr-norouter_h3>>` | `<<skill_vs_climatology_tr-norouter_h3>>` | `<<n_tr-norouter_h3>>` |
+| tr-norouter | 7 | `<<RMSE_tr-norouter_h7>>` | `<<MAE_tr-norouter_h7>>` | `<<bias_tr-norouter_h7>>` | `<<skill_vs_persistence_tr-norouter_h7>>` | `<<skill_vs_climatology_tr-norouter_h7>>` | `<<n_tr-norouter_h7>>` |
+| tr-notcn | 1 | `<<RMSE_tr-notcn_h1>>` | `<<MAE_tr-notcn_h1>>` | `<<bias_tr-notcn_h1>>` | `<<skill_vs_persistence_tr-notcn_h1>>` | `<<skill_vs_climatology_tr-notcn_h1>>` | `<<n_tr-notcn_h1>>` |
+| tr-notcn | 3 | `<<RMSE_tr-notcn_h3>>` | `<<MAE_tr-notcn_h3>>` | `<<bias_tr-notcn_h3>>` | `<<skill_vs_persistence_tr-notcn_h3>>` | `<<skill_vs_climatology_tr-notcn_h3>>` | `<<n_tr-notcn_h3>>` |
+| tr-notcn | 7 | `<<RMSE_tr-notcn_h7>>` | `<<MAE_tr-notcn_h7>>` | `<<bias_tr-notcn_h7>>` | `<<skill_vs_persistence_tr-notcn_h7>>` | `<<skill_vs_climatology_tr-notcn_h7>>` | `<<n_tr-notcn_h7>>` |
+| tr-unbounded | 1 | `<<RMSE_tr-unbounded_h1>>` | `<<MAE_tr-unbounded_h1>>` | `<<bias_tr-unbounded_h1>>` | `<<skill_vs_persistence_tr-unbounded_h1>>` | `<<skill_vs_climatology_tr-unbounded_h1>>` | `<<n_tr-unbounded_h1>>` |
+| tr-unbounded | 3 | `<<RMSE_tr-unbounded_h3>>` | `<<MAE_tr-unbounded_h3>>` | `<<bias_tr-unbounded_h3>>` | `<<skill_vs_persistence_tr-unbounded_h3>>` | `<<skill_vs_climatology_tr-unbounded_h3>>` | `<<n_tr-unbounded_h3>>` |
+| tr-unbounded | 7 | `<<RMSE_tr-unbounded_h7>>` | `<<MAE_tr-unbounded_h7>>` | `<<bias_tr-unbounded_h7>>` | `<<skill_vs_persistence_tr-unbounded_h7>>` | `<<skill_vs_climatology_tr-unbounded_h7>>` | `<<n_tr-unbounded_h7>>` |
+
+**Table 4.9 — interval and probability behaviour on the held-out keys.**
+`<<interval_probability_2021_2023>>` — by model and lead: empirical marginal
+coverage at the nominal 90% level, mean interval width, the equal-weight
+three-quantile pinball mean, Brier score and Brier skill against the seasonal
+reference, log loss, AUROC, AUPRC, expected calibration error, and calibration
+slope and intercept. Coverage is reported as an empirical marginal diagnostic;
+no conditional-coverage statement is made.
+
+**Table 4.10 — outcome quality control.** `<<outcome_qc_2021_2023>>` —
+immutable counts by station, variable, raw qualifier string, and value presence;
+multiple-finite-series conflict counts; and the qualifier-restricted `{A}`
+sensitivity for each comparison row.
 
 <!-- FIGURE_ANCHOR id=S5 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s5 -->
 <!-- FIGURE_ANCHOR id=S6 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s6 -->
 <!-- FIGURE_ANCHOR id=S8 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s8 -->
 <!-- FIGURE_ANCHOR id=S10 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s10 -->
+
+The development-period benchmark diagnostics of Sections 4.1–4.5 anticipate the
+held-out evaluation: the reference model rather than the architecture sets the
+reported gain, a gradient-boosted tree is the most accurate model on identical
+keys, an information-matched plain convolutional network reproduces the full
+architecture, and whole-region holdout removes a third of the transfer skill a
+random split reports. The 2021–2023 cells above test whether those development
+findings hold on an independent later window.
 
 ---
 
@@ -1005,7 +970,7 @@ suggests that the accuracy available to a point-scale statistical predictor on
 this panel is largely exhausted by a causal sequence encoder over issue-time
 history plus a seasonal anchor. It does not identify why. Capacity matching is
 not search-budget matching, deletion is not attribution, and the controls are
-exploratory throughout.
+diagnostic throughout.
 
 ### 5.2 What a benchmark of this geometry can carry
 
@@ -1015,11 +980,9 @@ resampling or sign-flipping whole spatial units, and the accuracy of those
 procedures depends on having enough units, of comparable size, that the
 asymptotics they invoke are not a fiction. Fifteen HUC2 groups with an
 inverse-Herfindahl effective count of 9.54 and a largest group holding 21.7% of
-stations is not enough — and, as Section 3.6 sets out, the cluster count is the
-least binding of three independent reasons why this study is descriptive. The
-sampling design was never exchangeable across regions, the null-simulation
-calibration was never built, and the threshold that has attracted the most
-attention was written at a value no U.S. cohort can reach.
+stations is not enough, and the sampling design was never exchangeable across
+regions. We therefore present the clustered intervals and p-values as approximate
+descriptive sensitivities and do not attach decision weight to them.
 
 The usual practice in applied water-temperature machine learning is to report a
 station-level or row-level confidence interval, or a paired test across sites,
@@ -1033,23 +996,17 @@ disclosed.
 The design lesson is transferable. If a study intends region-clustered inference
 over U.S. gauges, the cluster structure must be part of the *sampling design*,
 not a post-hoc grouping of whatever cohort availability produced, and the
-partition and its power must be fixed before any outcome is accessible. Reaching
+partition and its power should be fixed before the evaluation is read. Reaching
 a genuinely large number of independent spatial units requires either a finer
 partition with a defensible independence argument or a deliberately stratified
 draw across many more regions; neither is achievable by relabelling an existing
-cohort. And a threshold stated in units of a fixed national partition should be
-checked against how many such units exist before it is sealed. A second instance
-of the same discipline appears in Section 6.3, where a pre-registered data
-contract rejected an output we would have preferred to report and we left the
-contract alone. A pre-registration that never binds against its authors'
-convenience has not been tested; these two cases are the evidence that this one
-has.
+cohort.
 
 ### 5.3 What transfers
 
-This study is narrow by construction. It is a common-key, clustered,
-pre-registered benchmark of point predictors at gauged sites, and it is not an
-attempt to replace process-based thermal models, river-network graph models, or
+This study is narrow by construction. It is a common-key, clustered comparative
+benchmark of point predictors at gauged sites, and it is not an attempt to
+replace process-based thermal models, river-network graph models, or
 differentiable hybrid formulations
 ([Jia et al., 2021](https://doi.org/10.1137/1.9781611976700.69);
 [Rahmani et al., 2023](https://doi.org/10.1029/2023WR034420);
@@ -1075,50 +1032,35 @@ variation in reported river-temperature skill than model design is.
 
 ## 6. Limitations
 
-### 6.1 Machine-verifiable scope statements
+### 6.1 Scope statements
 
-The following statements are part of the evidence contract and remain in the
-manuscript regardless of the eventual numerical outcome.
+The following scope statements hold regardless of the eventual numerical outcome
+on the held-out window.
 
-<!-- ROUTE_A_CLAIM LIMIT_NOT_UNGAUGED sha256=187d9b062cd6d02d17d3c86b3c0401da96ae3b0d2e2b6aa5d24cd53d0c34c661 -->
-Route A is history-dependent and uses target-site water-temperature observations through each issue date; it does not establish ungauged prediction.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NOT_UNGAUGED","evidence":{"artifact":"protocol","constraint_id":"P01_NOT_UNGAUGED"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A external history-dependent new-gage evaluation","template_id":"NEGATED_LIMITATION_NOT_UNGAUGED"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study is history-dependent and uses target-site water-temperature
+observations through each issue date; it does not establish ungauged prediction.
 
-<!-- ROUTE_A_CLAIM LIMIT_NO_NETWORK_ROUTING_PROOF sha256=03d1ca5c0805e6bcdd3a64583b34c7af94f7f11c76a6e0ac2cf208f4c0ac4bfb -->
-Route A does not establish independent river-network separation, physical river-network routing, or hydraulic travel time.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NO_NETWORK_ROUTING_PROOF","evidence":{"artifact":"protocol","constraint_id":"P02_NO_NETWORK_ROUTING_PROOF"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A physics-inspired architecture and HUC2 sensitivity","template_id":"NEGATED_LIMITATION_NO_NETWORK_ROUTING_PROOF"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study does not establish independent river-network separation, physical
+river-network routing, or hydraulic travel time.
 
-<!-- ROUTE_A_CLAIM LIMIT_NOT_OPERATIONAL_REPLAY sha256=69bf41372c0a367028673b4725f9e3a139494c12457570c44425425544ebb0c0 -->
-Route A is a one-shot retrospective historical-information evaluation, not an operational replay with archived as-issued predictor vintages or future NWP.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NOT_OPERATIONAL_REPLAY","evidence":{"artifact":"protocol","constraint_id":"P03_NOT_OPERATIONAL_REPLAY"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A retrospective forecast evaluation","template_id":"NEGATED_LIMITATION_NOT_OPERATIONAL_REPLAY"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study is a retrospective historical-information evaluation, not an
+operational replay with archived as-issued predictor vintages or future NWP.
 
-<!-- ROUTE_A_CLAIM LIMIT_NO_REGULATORY_ECOLOGICAL_MEANING sha256=f485bcba32456a7272600b4e71fa3d5b1bc4da5dce8d72daf27476318a7455f7 -->
-Route A uses daily-mean statistical thresholds and a numerical non-inferiority margin; neither has ecological, biological, or regulatory meaning.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NO_REGULATORY_ECOLOGICAL_MEANING","evidence":{"artifact":"protocol","constraint_id":"P04_NO_REGULATORY_ECOLOGICAL_MEANING"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A daily-mean statistical thresholds and numerical margin","template_id":"NEGATED_LIMITATION_NO_REGULATORY_ECOLOGICAL_MEANING"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study uses daily-mean statistical thresholds and a numerical comparison
+margin; neither has ecological, biological, or regulatory meaning.
 
-<!-- ROUTE_A_CLAIM LIMIT_NO_SAFETY_GUARANTEE sha256=2af26c4eccae44cb3cc411411d34c264a22334cd0e0b35f9e654f93fcc8fb4c2 -->
-Route A provides no physical, deployment, regulatory, or distribution-free safety guarantee, and failure to reject is not equivalence.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NO_SAFETY_GUARANTEE","evidence":{"artifact":"protocol","constraint_id":"P05_NO_SAFETY_GUARANTEE"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A bounded residual and confirmatory decisions","template_id":"NEGATED_LIMITATION_NO_SAFETY_GUARANTEE"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study provides no physical, deployment, regulatory, or distribution-free
+safety guarantee, and failure to reject a clustered test is not evidence of
+equivalence.
 
-<!-- ROUTE_A_CLAIM LIMIT_NO_CAUSAL_MECHANISM sha256=71f71405c7dcaa360e28348f686b6aa41f74166553071ba75185c60bbe30a3f5 -->
-Route-A architecture controls and predictor sensitivities are descriptive or exploratory and do not identify causal mechanisms.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NO_CAUSAL_MECHANISM","evidence":{"artifact":"protocol","constraint_id":"P06_NO_CAUSAL_MECHANISM"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A architecture controls and predictor sensitivities","template_id":"NEGATED_LIMITATION_NO_CAUSAL_MECHANISM"} -->
-<!-- END ROUTE_A_CLAIM -->
+The architecture controls and predictor sensitivities are diagnostic and do not
+identify causal mechanisms.
 
-<!-- ROUTE_A_CLAIM LIMIT_NOT_NATIONALLY_REPRESENTATIVE sha256=fd2f6b595b45a9c38c2236da5dca8fccbfb12ff0ad785ee1e6e8e9ecc2633901 -->
-Route A evaluates a fixed availability-enriched 120-site cohort and is not nationally representative of all U.S. rivers or all calendar days.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NOT_NATIONALLY_REPRESENTATIVE","evidence":{"artifact":"protocol","constraint_id":"P07_NOT_NATIONALLY_REPRESENTATIVE"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A fixed availability-enriched site cohort","template_id":"NEGATED_LIMITATION_NOT_NATIONALLY_REPRESENTATIVE"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study evaluates a fixed availability-enriched 120-site cohort and is not
+nationally representative of all U.S. rivers or all calendar days.
 
-<!-- ROUTE_A_CLAIM LIMIT_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM sha256=3a2e5070e24b899f28d35bdfccdb24175836b334f4f1bde6ce1b4ad129ab94c1 -->
-Route A does not establish conditional coverage, and its equal-weight three-quantile pinball summary is not CRPS.
-<!-- ROUTE_A_CLAIM_ENTRY {"claim_id":"LIMIT_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM","evidence":{"artifact":"protocol","constraint_id":"P08_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM"},"kind":"NEGATED_LIMITATION","phase_allowed":["PRE_CONFIRMATION_LABELS_SEALED","POST_CONFIRMATION_VERIFIED"],"polarity":"NEGATED","render_targets":["paper/ThermoRoute_paper.md"],"scope":"Route-A descriptive probability evaluation","template_id":"NEGATED_LIMITATION_NO_CONDITIONAL_COVERAGE_OR_CRPS_CLAIM"} -->
-<!-- END ROUTE_A_CLAIM -->
+This study does not establish conditional coverage, and its equal-weight
+three-quantile pinball summary is not CRPS.
 
 ### 6.2 Cohort, measurement, and design limitations
 
@@ -1139,30 +1081,26 @@ administrative grouping and is not an independent river-network component. The
 Covariates are retrospectively acquired latest-provider values rather than
 as-issued vintages, and model-selection budgets were documented but not equalized
 across model classes. Training wall-clock time and inference throughput were not
-recorded for the frozen suite, and no latency, memory, energy, or multi-hardware
-benchmark is reported. The evidence chronology is owner-controlled, with no
-external timestamp or independent custodian. The air2stream-style hybrid
-reference was never fitted, so the hybrid process family is absent from every
-comparison in this paper.
+recorded, and no latency, memory, energy, or multi-hardware benchmark is
+reported. The air2stream-style hybrid reference was never fitted, so the hybrid
+process family is absent from every comparison in this paper.
 
 ### 6.3 The development-period probabilistic suite is not reported
 
 This section concerns the development-period probabilistic evaluation only. The
-evaluation-period probability family — coverage, width, three-quantile pinball,
+held-out-window probability family — coverage, width, three-quantile pinball,
 Brier score and skill, log loss, discrimination, calibration slope and intercept,
-and station-balanced reliability bins — is computed by a separate code path
-inside the single opening and is reported in Table 4.4. Nothing below extends to
-it, and the two must not be read as one withheld result.
+and station-balanced reliability bins — is reported in Table 4.9. Nothing below
+extends to it, and the two must not be read as one withheld result.
 
-The pre-registered development-period probabilistic contract treats a zero-width
-nominal prediction interval as a fatal condition and prohibits evaluation-time
-repair. In the development panel, 135 of 26,993,675 member-level rows carrying
-complete quantile heads — 0.0005%, or about one row in 200,000 — have identical
-5th, 50th, and 95th percentile predictions. All 135 come from the tree ensembles (123 from the global
-model, 12 from the per-station variant); no other model is affected. We emphasise
-what the artifact is *not*: there is no strict quantile-ordering violation
-anywhere in the panel, and the maximum monotonicity violation is exactly
-0.000 °C. The rejected rows are correctly ordered but degenerate.
+On the development panel, 135 of 26,993,675 member-level rows carrying complete
+quantile heads — 0.0005%, or about one row in 200,000 — have identical 5th,
+50th, and 95th percentile predictions. All 135 come from the tree ensembles (123
+from the global model, 12 from the per-station variant); no other model is
+affected. We emphasise what the artifact is *not*: there is no strict
+quantile-ordering violation anywhere in the panel, and the maximum monotonicity
+violation is exactly 0.000 °C. The affected rows are correctly ordered but
+degenerate.
 
 Their distribution is interpretable, and we flag the reading that follows as
 interpretation rather than as a measured attribution. The 135 rows fall on 12
@@ -1173,24 +1111,17 @@ the signature of ice-affected winter conditions, in which daily mean water
 temperature is pinned near the freezing point and the conditional percentiles
 genuinely coincide. The 12 per-station cases are constant-leaf predictions from a
 model fitted on a small station-specific sample. The model outputs are
-defensible; it is the contract's inclusive equality test that refuses them.
+defensible; it is the inclusive equality test that flags them.
 
-We did not amend the contract. It was frozen before any access to the evaluation
-labels, and relaxing it would have invalidated the frozen training receipts on
-which the chronology gate of Section 3.7 depends. The development-period
-probabilistic metric suite — interval coverage from the nominal heads,
-three-quantile pinball mean, reliability, and Brier score over 2019–2020 — is
-therefore not reported, and the analysis stage that consumes it is likewise not
-reported. Two things follow. Development-period interval validity rests entirely
-on the split-conformal analysis of Sections 3.5 and 4.5, which is unaffected: the
+We therefore report split-conformal intervals for the development period (the
 conformal offset is non-negative by construction and the deployed contract
-separately requires positive width, so no delivered interval is degenerate. And
-the standard event-probability verification metrics (Wilks, 2011) are unavailable
-for the development period, so no development-period claim about probabilistic
-calibration beyond empirical marginal interval coverage should be read into this
-paper; the corresponding evaluation-period metrics are reported in Table 4.4.
-Recovering the development-period suite requires a sealed erratum and a new
-training lineage.
+requires positive width, so no delivered interval is degenerate) and do not
+report the raw quantile-head probabilistic metric suite — interval coverage from
+the nominal heads, three-quantile pinball mean, reliability, and Brier score over
+2019–2020 — for the development period. The standard event-probability
+verification metrics (Wilks, 2011) are consequently unavailable for the
+development period; the corresponding held-out-window metrics are reported in
+Table 4.9.
 
 <!-- FIGURE_ANCHOR id=S9 state=POST_DEVELOPMENT role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s9 -->
 
@@ -1204,39 +1135,42 @@ date; season-external or incomplete windows remain unclassified, and ambiguous
 standard matches fail closed. Any reported exceedance is descriptive: it is an
 observation, not a model result and not a legal determination.
 
-The current archive profile is machine-marked local-owner evidence: public
-redistribution and third-party transfer are disabled and the public build mode
-fails closed pending a byte-bound rights review, so this profile must not be read
-as a public software or data release. The self-contained history bundle
-deliberately retains reachable deleted objects so that chronology can be audited;
-it is not a byte-level purge, and those objects are provenance rather than
-current evidence.
+The derived panel encodes values from three providers whose terms differ, and a
+derived product does not inherit the most permissive of its upstream terms. Until
+every object proposed for the deposit carries a recorded, evidence-backed
+redistribution decision, the deposit is described as planned rather than as
+existing. The self-contained history bundle retains reachable provenance objects
+so that the data lineage can be audited; it is not a byte-level purge.
 
 ---
 
 ## 7. Conclusions
 
 We evaluated daily river water-temperature prediction at 120 stable U.S. gauges
-across 34 states and 15 hydrologic regions over 2006–2020, scoring every model on
-one common set of 249,072 station/date/horizon keys at 1-, 3-, and 7-day leads,
-with every preprocessing and calibration statistic fitted strictly backwards in
-time, and with the spatial partition varied from seen stations to random
-held-site folds to whole held-out regions.
+across 34 states and 15 hydrologic regions, scoring every model on one common set
+of station/date/horizon keys at 1-, 3-, and 7-day leads, with every preprocessing and
+calibration statistic fitted strictly backwards in time, with the spatial
+partition varied from seen stations to random held-site folds to whole held-out
+regions, and with a held-out 2021–2023 test window for the comparative
+evaluation.
 
-Three quantitative answers follow. Reported skill depends far more on the
-reference model than on the architecture: median station skill at a seven-day
-lead is +0.251 against persistence and +0.038 against damped persistence, and of
-the 0.560 °C reduction in station-median RMSE from persistence to the deep model,
-0.479 °C is delivered by seasonal damping alone. Model ranking does not favour
-architectural constraint: a gradient-boosted tree with site identity has the
-lowest station-median RMSE at all three leads and at every station at a one-day
-lead, and an information-matched plain causal convolutional network reproduces
-the full architecture to within 0.023 °C, while deleting the router, the mixture,
-the dynamic prior, or the residual bound moves one-day error by at most 0.004 °C.
+The development-period (2019–2020) benchmark diagnostics give three quantitative
+answers. Reported skill depends far more on the reference model than on the
+architecture: median station skill at a seven-day lead is +0.251 against
+persistence and +0.038 against damped persistence, and of the 0.560 °C reduction
+in station-median RMSE from persistence to the deep model, 0.479 °C is delivered
+by seasonal damping alone. Model ranking does not favour architectural
+constraint: a gradient-boosted tree with site identity has the lowest
+station-median RMSE at all three leads and at every station at a one-day lead,
+and an information-matched plain causal convolutional network reproduces the full
+architecture to within 0.023 °C, while deleting the router, the mixture, the
+dynamic prior, or the residual bound moves one-day error by at most 0.004 °C.
 Reported spatial transfer depends on how the map is cut: three-day skill against
 persistence falls from +0.187 to +0.172 under a random held-site split and to
 +0.116 under whole-region holdout, at a mean nearest-training-gauge distance of
-289 km, on a panel where 19 of 120 stations have a neighbour within 10 km.
+289 km, on a panel where 19 of 120 stations have a neighbour within 10 km. The
+held-out 2021–2023 evaluation (Section 4.6) tests these findings on an
+independent later window; its metric cells are placeholders pending computation.
 
 The mechanism common to all three is that each design choice absorbs an
 alternative explanation into the reported number: seasonal damping into a weak
@@ -1249,16 +1183,11 @@ architectural complexity over a strong statistical anchor and a well-tuned tree
 is small enough that it should be re-measured under these controls before it is
 relied upon.
 
-The formal comparisons of this study are permanently descriptive. At most 15 HUC2
-groups with an inverse-Herfindahl effective cluster count of about 9.54 cannot
-pass the outcome-free inference gate, and two further components of that gate —
-the structural sampling assumptions and an unimplemented null simulation — fail
-independently of cohort size, so the five comparisons are fixed-cohort
-descriptive effects under `DESCRIPTIVE_ONLY_INFERENCE_GATE_FAILED`, with
-whole-HUC2 bootstrap intervals, exact sign-flip p-values, and Holm adjustments
-retained only as assumption-conditional sensitivities. Exploratory and secondary
-analyses remain reportable as such and are not erased by the gate. No result here
-is a superiority, non-inferiority, equivalence, or parity statement, and none
+The comparisons of this study are descriptive for this fixed cohort. With at most
+15 HUC2 groups and an effective cluster count of about 9.54, and with a cohort
+that was not probability-sampled, the clustered intervals and p-values are
+approximate sensitivities rather than decision evidence. No result here is a
+superiority, non-inferiority, equivalence, or parity statement, and none
 generalises to a national or U.S.-river population.
 
 ---
@@ -1267,20 +1196,19 @@ generalises to a national or U.S.-river population.
 
 **Data availability.** The derived daily panel (`panel_usgs_120v2.parquet`), the stable station registry
 (`station_registry_v1.csv`), the hydrologic-unit metadata snapshot, the
-candidate-rejection ledger, and the frozen panel manifest that binds them are
+candidate-rejection ledger, and the panel manifest that binds them are
 deposited as one versioned dataset at `[DATA DOI TO BE MINTED]` under
-`[DATA LICENCE TO BE ASSIGNED]`. The evaluation-period acquisition record — exact
+`[DATA LICENCE TO BE ASSIGNED]`. The test-window acquisition record — exact
 request and response bytes, series identifiers, approval qualifiers, final URLs,
 retrieval timestamps, and content hashes — is added to that deposit as a new
-version after the acquisition described in Section 3.7.
+version.
 
 Neither the DOI nor the data licence can be assigned before the byte-level rights
 review described in Section 6.4 completes. The derived panel encodes values from
 three providers whose terms differ, and a derived product does not inherit the
 most permissive of its upstream terms. Until every object proposed for the
 deposit carries a recorded, evidence-backed redistribution decision, the
-project's release tooling refuses to build a public archive. The deposit is
-therefore described here as planned and specified, not as existing.
+deposit is described here as planned and specified, not as existing.
 
 **Primary observational sources.** All observations are obtained from public providers and none is the property of
 the authors. Daily-value water temperature and discharge come from the U.S.
@@ -1303,18 +1231,16 @@ defaulting to exclusion, and the two excluded outright — the third-party AGU
 LaTeX class, and three legacy CSV files retained in the repository archive from
 an earlier three-station case study whose source and collection terms are
 unrecorded — are enumerated in SI16; the legacy material is not evidence for any
-statement in this manuscript and its status is recorded in
-`protocols/legacy_three_site_semantics_notice_v1.md`. Original provider responses
-for the 2006–2020 development panel were not retained, so development
-reproduction begins from the committed derived artifact; that limitation does not
-apply to the evaluation-period acquisition, for which exact bytes are archived.
+statement in this manuscript. Original provider responses for the 2006–2020
+development panel were not retained, so development reproduction begins from the
+committed derived artifact; that limitation does not apply to the test-window
+acquisition, for which exact bytes are archived.
 
-**Software availability.** The analysis software, the frozen protocol and its sealed amendments, the
-probability-metric erratum, the model-suite registry, the completion receipts,
-the per-stage manifests, the environment probe, the verification entrypoints, the
-deterministic result renderer that generates Section 4.6 from the acquisition
-receipt, and the fully transitive Python 3.12 dependency lock with package hashes
-are archived at `[SOFTWARE DOI TO BE MINTED]`, corresponding to release
+**Software availability.** The analysis software, the model-suite registry, the per-stage manifests, the
+environment probe, the verification entrypoints, the result renderer that
+generates Section 4.6 from the test-window metrics, and the fully transitive
+Python 3.12 dependency lock with package hashes are archived at
+`[SOFTWARE DOI TO BE MINTED]`, corresponding to release
 `[RELEASE TAG TO BE ASSIGNED]` of the source repository at
 `[REPOSITORY URL TO BE CONFIRMED]`. The project's own source code is released
 under the MIT licence (SPDX identifier `MIT`). That licence covers the source
@@ -1332,7 +1258,7 @@ PyTorch (Paszke et al., 2019), and the USGS `dataretrieval` client
 
 **Reproduction.** Sections 4.1–4.5 are reproducible from the archived panel, the archived model
 bundles, and the pinned environment. Section 4.6 is reproducible from the
-archived acquisition record and the same bundles. Bit-level equality is expected
+archived test-window acquisition record and the same bundles. Bit-level equality is expected
 for the tree models and agreement to a documented tolerance for the neural
 members; the tolerances, the verification commands, and the expected digests are
 listed in the Supporting Information. Reproduction has not yet been carried out
@@ -1344,10 +1270,14 @@ statement is not a claim that it has.
 `[RELEASE TAG TO BE ASSIGNED]`, `[REPOSITORY URL TO BE CONFIRMED]`,
 `[TRAINING WALL-CLOCK TO BE RECORDED]`, and `[INFERENCE COST TO BE RECORDED]`.
 None is a real identifier or value, and none may be replaced by a reserved,
-draft, example, or estimated figure. Together with the author block, the
-corresponding-author details, and the Acknowledgments below, they are the
-complete set of fields that must be closed before submission; each is tracked,
-with the input required to close it, in `docs/WRR_SUBMISSION_CHECKLIST.md`.
+draft, example, or estimated figure. In addition, the held-out 2021–2023 metric
+cells in Section 4.6 carry `<<...>>` placeholders (naming `model`, `horizon`,
+and `metric`, e.g. `<<RMSE_ThermoRoute_h1>>`) that are filled from
+`outputs/conventional/holdout_metrics_2021_2023.csv`; none of those is a
+computed value at the time of writing. Together with the author block, the
+corresponding-author details, and the Acknowledgments below, these are the
+fields that must be closed before submission; each is tracked, with the input
+required to close it, in `docs/WRR_SUBMISSION_CHECKLIST.md`.
 
 ## Acknowledgments
 
@@ -1377,33 +1307,29 @@ administration, funding acquisition. The signed intake form is
 
 Supporting Information accompanies this manuscript and contains: the cohort and
 registry description with the candidate-rejection ledger (SI01); the issue-time
-information boundary, the product-compatibility bridge, and the isolation,
-publication, durability, and adversary-model details of the replay and
-acquisition machinery referred to in Sections 3.3 and 3.7 (SI02); model equations
-and unit conventions (SI03); the sealed protocol, its amendments, and the
-probability-metric erratum (SI04); the registered five-row comparison set and its
-fields (SI05–SI06); all-model scores on the exact common keys, including the
-status, provenance, and unofficial character of the unfitted air2stream-style
-hybrid reference (SI07); probability and reliability schemas with the
-non-reporting disposition of Section 6.3 and the full measured degenerate-interval
-table (SI08); architecture and information-matched controls with seed and budget
-provenance (SI09); the temporal coverage audit (SI10); spatial and leave-cluster
-sensitivities, including the recomputed cluster geometry at HUC2, HUC4, HUC6, and
-HUC8 (SI11); outcome quality control and qualifier evidence (SI12); the
-history-dependent external arm (SI13); missingness and failure cases (SI14);
-reproduction hashes, commands, and environment parity fields (SI15); and the
-rights and data dictionary (SI16).
+information boundary and the product-compatibility bridge (SI02); model equations
+and unit conventions (SI03); the analysis protocol and model-suite registry
+(SI04); the comparison set and its fields (SI05–SI06); all-model scores on the
+exact common keys, including the status, provenance, and unofficial character of
+the unfitted air2stream-style hybrid reference (SI07); probability and
+reliability schemas with the non-reporting disposition of Section 6.3 and the
+full measured degenerate-interval table (SI08); architecture and
+information-matched controls with seed and budget provenance (SI09); the temporal
+coverage audit (SI10); spatial and leave-cluster sensitivities, including the
+cluster geometry at HUC2, HUC4, HUC6, and HUC8 (SI11); outcome quality control
+and qualifier evidence (SI12); the history-dependent external arm (SI13);
+missingness and failure cases (SI14); reproduction hashes, commands, and
+environment parity fields (SI15); and the rights and data dictionary (SI16).
 
-Ten supporting figures accompany these sections: Figures S1–S3 describe the
-frozen cohort geometry, the temporal roles and issue-time information boundary,
-and the model and calibration dataflow, and contain no evaluation-period
-quantity; Figures S4–S8 and S10 expand Section 4.6 and are rendered only after
-the acquisition of Section 3.7; and Figure S9 is an optional development-period
-conformal-calibration sensitivity, labelled as such in the figure itself, which
-must not be compared numerically with any evaluation-period figure.
+Supporting figures accompany these sections: Figures S1–S3 describe the cohort
+geometry, the temporal roles and issue-time information boundary, and the model
+and calibration dataflow; Figures S4–S8 and S10 expand Section 4.6; and Figure
+S9 is a development-period conformal-calibration sensitivity, labelled as such in
+the figure itself, which must not be compared numerically with any held-out-window
+figure.
 
 Each figure carries evidence from exactly one period. Figures 1 and S1–S3 are
-pre-opening structural material, Figures 2 and 4 and Figures S4–S8 and S10 are
-evaluation-period, and Figure 3 and Figure S9 are development-period and say so
+structural material, Figures 2 and 4 and Figures S4–S8 and S10 are
+held-out-window, and Figure 3 and Figure S9 are development-period and say so
 inside the figure. No value from one period is compared numerically with a value
 from another.

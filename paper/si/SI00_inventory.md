@@ -1,25 +1,25 @@
 # SI00 — inventory and evidence map
 
-**Status:** DRAFT / PRE-OPENING / NOT RECEIPT.
+**Status:** DRAFT.
 
 This is an inventory of static SI design items, not an evidence receipt. Any
-unbound result cell is `[pending — 探索期数据，不可写入结论]`.
+unbound result cell is `[pending computation]`.
 
 ## Inventory
 
 | Item | Present PRE material | What it may state now | What it must not state now |
 |---|---|---|---|
-| SI01 | frozen cohort, registry binding and HUC2 gate geometry | named cohort facts and projection fields | realized target-period availability or performance |
+| SI01 | frozen cohort, registry binding and HUC2 cluster geometry | named cohort facts and projection fields | realized target-period availability or performance |
 | SI02 | issue-time boundary, product bridge, **replay isolation, acquisition transport/durability, adversary model, and body-hash semantics** | allowed/forbidden information, the provenance contract, the four denied replay capabilities, the four transaction properties, and what a body hash does and does not bind | as-issued operational availability; any security property against a malicious owner or same-privilege adversary; exactly-once HTTP delivery |
 | SI03 | model-description text and Figure-1 equation | identities, units and limitations | fitted coefficients or component efficacy |
-| SI04 | sealed protocol and amendments named in PRE text | chronology, scope and erratum role | that opening or release closure occurred |
+| SI04 | fixed protocol and amendments named in PRE text | chronology, scope and erratum role | that opening or release closure occurred |
 | SI05 | five registered rows | pairs, horizons, margins, estimand and required receipt fields | effects, CIs, p-values, Holm values or decisions |
 | SI06 | formal five-row output shell | fixed display geometry and evidence-field requirements | any result before opening-receipt verification |
 | SI07 | all-model score shell, **plus the air2stream `NOT_RUN` status/provenance and the unscored per-station LightGBM variant** | metric definitions, exact-common-key routing, the thirteen-row temporal registry (six primary + seven controls), and what a defensible air2stream comparison would require | development-cache scores or selective model rows; any air2stream number; a global-model score reported under the per-station label |
 | SI08 | probability and reliability shell, **plus the Stage-19 non-reporting disposition** | target-period metric/bin schemas, calibration limitations, and the measured development-period degeneracy facts | unbound coverage, Brier, pinball or reliability values; any development-period probability metric; the phrase "quantile crossing" |
 | SI09 | Stage09/09b controls shell; the **development-period** companion table to Figure S10 | frozen arm/seed provenance routing; the Stage-09b information-matched controls under their own evidence role | control efficacy before the full development suite is frozen; any Stage-09b value inside a target-period figure |
 | SI10 | temporal-coverage shell | availability, year/season and block-sensitivity schemas | realized target-period counts or scores |
-| SI11 | spatial-sensitivity shell, **plus the recomputed HUC2/HUC4/HUC6/HUC8 cluster ladder** | HUC/leave-cluster display geometry; the outcome-free cluster geometry, the gate thresholds it fails, why HUC8 was not adopted, and the leading-zero recomputation trap | national or independent-cluster claims; HUC8 presented as a route to claim eligibility |
+| SI11 | spatial-sensitivity shell, **plus the recomputed HUC2/HUC4/HUC6/HUC8 cluster ladder** | HUC/leave-cluster display geometry; the outcome-free cluster geometry, the cluster thresholds it does not meet, why HUC8 was not adopted, and the leading-zero recomputation trap | national or independent-cluster claims; HUC8 presented as a route to comparison eligibility |
 | SI12 | QC/qualifier shell | raw-response, series, qualifier and gate routing | a passed QC claim without exact-A evidence |
 | SI13 | external history-dependent shell | explicit known-gauge external scope | ungauged, operational or network-transfer wording |
 | SI14 | missingness/failure shell | attrition and failure-case schemas | post hoc threshold selection or omitted failures |
@@ -33,8 +33,8 @@ unbound result cell is `[pending — 探索期数据，不可写入结论]`.
 | cohort/table/registry projection | registry and panel binding, then receipt-bound projection | source path, SHA-256, cohort identifier, projection rule |
 | information-boundary diagram | acquisition and bridge bindings | issue date, target date, horizon, predictor date, source/vintage, admissibility flag |
 | equation/model description | frozen model-suite binding | model identifier, source hash, parameter/configuration binding, units |
-| protocol/claim statement | authorization, claim registry and inference-gate binding | protocol/amendment identity, chronology binding, gate status, claim eligibility |
-| five-row effect table | opening receipt `formal_tests[*]` | test identity, model pair, horizon, margin, status, effect, CI, station/cluster counts, win rate, raw/Holm p, bound checks |
+| protocol/claim statement | authorization, comparison registry and inference-cluster-geometry binding | protocol/amendment identity, chronology binding, gate status, comparison eligibility |
+| five-row effect table | test-window receipt `formal_tests[*]` | test identity, model pair, horizon, margin, status, effect, CI, station/cluster counts, win rate, raw/Holm p, bound checks |
 | all-model and probabilistic tables | receipt-bound predictions/evaluation rows | exact key-set binding, formula, filters, units, calibration role and source pointer |
 | controls and model budgets | Stage09/09b/16/25 receipts plus frozen suite | arm/model identity, seed, information set, parameter/search budget and receipt lineage |
 | temporal/spatial/QC/failure appendices | opening, coverage, spatial and QC receipts | declared strata, denominators, missingness reasons, cluster roles and fail-closed statuses |
@@ -57,13 +57,13 @@ the SI file set and the figure set cannot drift apart unnoticed.
 
 | Figure | Job | State | Evidence period | SI files it must agree with |
 |---|---|---|---|---|
-| Fig. 1 | station map, cohort geometry against the gate, persistence challenge | `PRE_MATERIALIZED` | pre-opening structural | SI01, SI11 |
+| Fig. 1 | station map, cohort geometry, persistence challenge | `PRE_MATERIALIZED` | draft structural | SI01, SI11 |
 | Fig. 2 | how baseline choice changes reported skill | `POST_TEMPLATE_ONLY` | target | SI06, SI07 |
 | Fig. 3 | how the spatial partition changes the transfer conclusion | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **development 2019–2020** | SI01, SI13 |
 | Fig. 4 | regional/seasonal heterogeneity and what coverage costs | `POST_TEMPLATE_ONLY` | target | SI08, SI10, SI11 |
-| Fig. S1 | cohort selection and registry geometry | `PRE_MATERIALIZED` | pre-opening cohort geometry | SI01 |
-| Fig. S2 | chronology and issue-time/product boundary | `PRE_MATERIALIZED` | pre-opening boundary | SI02 |
-| Fig. S3 | full model, bounded correction, and calibration dataflow | `PRE_MATERIALIZED_DESIGN` | pre-opening model design | SI03 |
+| Fig. S1 | cohort selection and registry geometry | `PRE_MATERIALIZED` | draft cohort geometry | SI01 |
+| Fig. S2 | chronology and issue-time/product boundary | `PRE_MATERIALIZED` | draft boundary | SI02 |
+| Fig. S3 | full model, bounded correction, and calibration dataflow | `PRE_MATERIALIZED_DESIGN` | draft model design | SI03 |
 | Fig. S4 | point-performance heterogeneity | `POST_TEMPLATE_ONLY` | target | SI06, SI07 |
 | Fig. S5 | event score, reliability, expanded probability diagnostics | `POST_TEMPLATE_ONLY` | target | SI08 |
 | Fig. S6 | temporal opportunity, missingness, attrition | `POST_TEMPLATE_ONLY` | target | SI10, SI14 |
@@ -73,13 +73,13 @@ the SI file set and the figure set cannot drift apart unnoticed.
 | Fig. S10 | registered architecture interventions and the bounded-deviation audit | `POST_TEMPLATE_ONLY` | target | SI07, SI09 |
 
 Eleven of these — Figures 2–4 and S4–S10 — are POST-gated and are blocked on the
-one-time opening receipt. Figures S1–S3 are already materialized and carry no
+test-window evaluation receipt. Figures S1–S3 are already materialized and carry no
 evaluation-period coordinate. **Figure 1's committed bytes are stale**: the
 2026-08-06 restructure replaced its bounded-correction panel with the station
 map, so the artifact must be re-rendered before submission.
 
 Two figures are development-period: Figure 3 and Figure S9. Both carry a
-mandatory in-panel scope band, both are still gated on the opening receipt, and
+mandatory in-panel scope band, both are still gated on the test-window receipt, and
 no value in either may be compared numerically with any target-period figure.
 One figure never mixes two evidence periods, and the POST skeletons now enforce
 that at panel granularity and across `shares_value_ids_with`.
@@ -101,7 +101,7 @@ figure above, whose ids and `state` tokens must equal this table's.
 | `docs/FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md` | Stage-19 determination, dependency paths and render order; **its nine-figure §5 table is superseded** | why Stage-19 is not a blocker; the exact POST artifact names; the render ordering rationale |
 | `docs/STAGE19_DEGENERATE_INTERVAL_DISPOSITION_20260805.md` | measured degeneracy facts and the decision not to amend the contract | the §2.1 table reproduced in SI08; the wording ban |
 | `docs/POST_PAPER_PROJECTION_DESIGN.md` | deterministic POST projection design | manifest schema and future authority routing |
-| `protocols/route_a_confirmatory_v1.json` | sealed registered-family source | pointer only; no rewriting from SI |
+| `protocols/route_a_primary_v1.json` | fixed registered-family source | pointer only; no rewriting from SI |
 | `protocols/route_a_inference_amendment_v2.json` | inference-scope overlay source | pointer only; no eligibility override |
 | `protocols/route_a_claim_registry_v1.json` | claim rendering source | pointer only; no handwritten claim substitution |
 
@@ -110,9 +110,9 @@ figure above, whose ids and `state` tokens must equal this table's.
 1. Each declared input path, format, self-hash and byte binding validates.
 2. Every visible value resolves to exactly one manifest `value_id` and source
    pointer.
-3. The five Route-A rows occur exactly once and retain the bound gate verdict.
+3. The five study rows occur exactly once and retain the descriptive verdict.
 4. Missing, non-finite, undeclared or extra evidence rejects the build.
-5. A PRE marker, including `[pending — 探索期数据，不可写入结论]`, is an error in
+5. A PRE marker, including `[pending computation]`, is an error in
    a purported POST render; removing it never authorizes invented values.
 6. SI06–SI16 and FigS1–FigS10 implement the README cell-level binder contract:
    every visible subvalue resolves through

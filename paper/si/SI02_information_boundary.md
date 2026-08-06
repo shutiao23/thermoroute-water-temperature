@@ -1,28 +1,25 @@
 # SI02 — issue-time information boundary, replay isolation, and acquisition durability
 
-**Status:** DRAFT / PRE-OPENING / NOT RECEIPT.
+**Status:** DRAFT.
 
 This document specifies a date-indexed retrospective hindcast boundary, the
 isolation model of the pre-acquisition replay, and the transport, publication,
-and durability semantics of the one-time acquisition. It is not an operational
+and durability semantics of the test-window acquisition. It is not an operational
 replay, an ungauged design, a causal transport model, a security proof, or a
 receipt. Any realized availability, score or audit value is
-`[pending — 探索期数据，不可写入结论]`.
+`[pending computation]`.
 
-**What this file is the destination for.** The 2026-08-06 benchmark restructure
-compressed four passages of the main text into one or two sentences each and
-routed their detail here. Manuscript §3.3 now says only that the replay runs in
-"a fresh isolated interpreter, denied network access, child processes,
-repository writes, and reads from the evaluation namespaces", and that "the
-isolation model, the byte bindings, and the publication and crash semantics of
-that replay are specified in the Supporting Information". Manuscript §3.7 now
-says only that the acquisition "is transactional, with honest-owner crash and
-replay guards rather than protection against a malicious owner or a
-same-privilege adversary; those details are in the Supporting Information".
-Manuscript §4.6 says only that "handwritten substitution into these slots is
-rejected by body hashes and evidence bindings". Sections 3, 4, 5, and 6 below
-are those details. They add no claim the main text does not make, and they
-subtract none of its limits.
+**What this file is the destination for.** The main text compresses the
+information-boundary, replay, and acquisition detail into one or two sentences
+each and routes the rest here. Manuscript §3.3 says only that, as a
+reproducibility check, a fresh interpreter reloads every trained member and
+reproduces the validation, calibration, and 2019--2020 keys and values from the
+frozen inputs, and that "the details of that replay are specified in the
+Supporting Information". Manuscript §2.3 says only that the test-window daily
+means are outcomes only and are not read by model-selection, feature-selection,
+threshold-selection, calibration, or station-inclusion code. Sections 3, 4, 5,
+and 6 below are the engineering detail behind those sentences. They add no claim
+the main text does not make, and they subtract none of its limits.
 
 ## 1. Allowed and forbidden information
 
@@ -38,7 +35,7 @@ subtract none of its limits.
 
 The PRE manuscript records a committed `PASS_EXACT_PRODUCT_BRIDGE` parser/product
 compatibility gate for 2018–2020. This SI reports that statement as a frozen
-engineering-gate description only; it is neither an opening receipt nor proof of
+engineering-gate description only; it is neither an test-window receipt nor proof of
 as-issued provider availability, matching, operational latency, or local-day
 alignment.
 
@@ -135,42 +132,26 @@ security property, and this file does not imply one:
 
 The same boundary is recorded in
 `protocols/route_a_native_artifact_publication_notice_v1.md`, which states the
-evidence boundary in the same terms, and in manuscript §3.7, which says that
-"the seals are repository-internal and assume an honest owner, with no external
-timestamp, public registration service, or independent custodian".
+evidence boundary in the same terms, and in manuscript §6.4, which describes the
+data archive as planned pending a rights review and notes that the self-contained
+history bundle retains reachable provenance objects rather than being a
+byte-level purge.
 
-## 6. Body hashes, and exactly what they bind
+## 6. Evidence bindings, and exactly what they bind
 
-Manuscript §4.6 states that handwritten substitution into the evaluation-period
-slots is rejected by body hashes and evidence bindings. Two distinct mechanisms
-carry that, and neither is a freeze of the surrounding prose.
+The held-out 2021--2023 metric cells of manuscript §4.6 are filled from the
+long-form table `outputs/conventional/holdout_metrics_2021_2023.csv` rather than
+typed by hand. The scope statements in manuscript §6.1 are plain prose limits,
+not machine-delimited claim blocks; they are edited normally.
 
-**Claim-block body hashes.** Each machine-verifiable scope statement in
-manuscript §6.1 is delimited exactly as
+**Evidence bindings.** Every result slot is filled from an artifact bound by an
+exact `{path, sha256}` pair; the renderer re-hashes each file against its binding
+before parsing it, and records the artifact path, the artifact digest, and the
+field pointer for every rendered cell. A number typed into a slot by hand has no
+such lineage and is rejected on that basis, not on the basis of its value.
 
-```
-<!-- ROUTE_A_CLAIM {claim_id} sha256={sha256(body)} -->
-{body}
-<!-- END ROUTE_A_CLAIM -->
-```
-
-The digest covers the block **body**, not the file. The validator re-renders each
-body from the claim registry and compares it byte for byte, requires each
-declared `claim_id` to occur exactly once in its declared document, and refuses
-to scan a document at all if any delimiter is malformed — so a partial
-extraction can never hash to a valid value. What this binds is that specific
-protocol-bound sentences appear verbatim, exactly once, in the right document,
-and that forbidden wording appears nowhere. What it does **not** bind is the
-prose around them, which is edited normally.
-
-**Evidence bindings.** Every evaluation-period slot is filled from an artifact
-the opening receipt binds by an exact `{path, sha256}` pair; the renderer
-re-hashes each file against its binding before parsing it, and records the
-artifact path, the artifact digest, and the field pointer for every rendered
-cell. A number typed into a slot by hand has no such lineage and is rejected on
-that basis, not on the basis of its value.
-
-Neither mechanism is a security control. Both share the boundary of §5.
+This is a lineage check, not a security control, and it shares the boundary of
+§5.
 
 ## 7. Required rendering language
 
@@ -188,5 +169,5 @@ protection against a malicious owner or a same-privilege adversary. Describing
 them without that clause is a misstatement of the design.
 
 If a future audit needs an unavailable field, it must show
-`[pending — 探索期数据，不可写入结论]` or fail closed; it must not substitute a
+`[pending computation]` or fail closed; it must not substitute a
 development cache or reconstructed timestamp.
