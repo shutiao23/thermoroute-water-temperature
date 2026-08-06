@@ -115,7 +115,7 @@ Fourteen figures: four main, ten supporting.
 
 | Fig | Stem | Panels | State | Period | Anchor |
 |---|---|---:|---|---|---|
-| 1 | `fig01_preopening_concept` | 3 | `PRE_MATERIALIZED_REDRAW_STALE` | PRE structural | F1, §1 close |
+| 1 | `fig01_preopening_concept` | 3 | `PRE_MATERIALIZED` | PRE structural | F1, §1 close |
 | 2 | `fig02_reference_ladder_point_performance` | 5 | `POST_TEMPLATE_ONLY` | target | F2, §4.1 close |
 | 3 | `fig03_spatial_partition_transfer` | 4 | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **development** | F3, §4.4 close |
 | 4 | `fig04_heterogeneity_and_interval_cost` | 3 | `POST_TEMPLATE_ONLY` | target | F4, §4.5 close |
@@ -324,7 +324,7 @@ build.
 
 | # | Item | Owner | Note |
 |---|---|---|---|
-| 1 | **Figure 1's committed bytes are stale.** Panel (b) changed from the bounded-correction schematic to the station map, so `fig01_preopening_concept.{svg,pdf,png,json,csv}` no longer match the spec, and both PRE manifests bind a spec SHA-256 that this revision changes | figure track | the PRE renderer must be re-run; this task did not render figures. State token set to `PRE_MATERIALIZED_REDRAW_STALE` so the mismatch cannot be missed |
+| 1 | **Figure 1 re-rendered to the restructured spec (2026-08-06).** Panel (b) changed from the bounded-correction schematic to the station map (panel (a)), cluster geometry/gate moved to panel (b) with the HUC2/4/6/8 ladder, and the persistence challenge moved to panel (c); the bounded-correction schematic relocated to Figure S3(c). `fig01_preopening_concept.{svg,pdf,png,json,csv}` now match the spec, and the PRE supporting-figure manifest re-binds the re-rendered binder SHA-256 and the revised spec SHA-256. State token set to `PRE_MATERIALIZED` | figure track | the PRE renderer was re-run for Figure 1 and Figure S3; cross-figure value check passes (36 shared IDs) |
 | 2 | **All eleven POST figures are blocked on the one-time opening**, as designed | opening owner | `--status` exit 2 for every one |
 | 3 | **Pre-opening degeneracy guard has not been run against the target period** | opening owner | `opening.py:7093-7094` can abort the one-shot opening on a single zero-width member-averaged interval. Development-panel measurement is clean for every model in the confirmatory registry; the target period is untested. Carried as a provenance qualifier on Figure 4 and Figure S5 |
 | 4 | **`preopen_document_sha256` is stale for all three manuscript sources and for the regenerated `.tex`** | protocol/lineage owner | a `protocols/` edit in the gating tier; the escape is R6, already queued in the remediation lineage. Until then `build_agu.py --check` refuses in this worktree |

@@ -40,7 +40,7 @@ The states in this table are exhaustive.
 
 | Figure | Canonical responsibility | Evidence period | Current state | Current artifact allowance |
 |---|---|---|---|---|
-| Figure 1 | station map, cohort geometry against the claim gate, and the persistence challenge | PRE structural | `PRE_MATERIALIZED_REDRAW_STALE` | **PRE artifact only, and the committed bytes predate this revision: re-render required** |
+| Figure 1 | station map, cohort geometry against the claim gate, and the persistence challenge | PRE structural | `PRE_MATERIALIZED` | **PRE artifact only** |
 | Figure 2 | how baseline choice changes reported skill | target | `POST_TEMPLATE_ONLY` | **No** |
 | Figure 3 | how the spatial partition changes the transfer conclusion | **development 2019--2020** | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **No** |
 | Figure 4 | regional and seasonal heterogeneity, and what interval coverage costs | target | `POST_TEMPLATE_ONLY` | **No** |
@@ -298,7 +298,7 @@ directional adjective before the bound POST value exists.
 
 ## Figure 1 — The cohort, and what its geometry can carry
 
-**State:** `PRE_MATERIALIZED_REDRAW_STALE`
+**State:** `PRE_MATERIALIZED`
 **Evidence period:** PRE structural — the frozen registry and the 2006--2015
 training partition only.  No post-2020 outcome, no development score.
 **Research question:** what panel is this, where are its gauges, and what
@@ -312,8 +312,11 @@ test rather than the contribution, so a thesis-level mechanism panel no longer
 belongs in the opening figure; the station map, which the restructure needs and
 which previously existed only inside Figure S1, takes its place.  The
 bounded-correction schematic moves to Figure S3 (§5), where the full
-model/bound/calibration dataflow already lives.  **The committed Figure 1 bytes
-were rendered against the previous panel set and are therefore stale.**
+model/bound/calibration dataflow already lives.  **Re-rendered to the
+restructured panel set on 2026-08-06; the committed Figure 1 bytes now match
+this specification (panel (a) station map, panel (b) cluster geometry/gate with
+the HUC2/4/6/8 ladder, panel (c) persistence challenge; the bounded-correction
+schematic is relocated to Figure S3(c)).**
 
 ### Panel structure and plot types
 
@@ -1322,11 +1325,12 @@ including what was refused and why, is
 
 Two consequences must not be lost:
 
-1. **Figure 1's committed PRE bytes are stale.**  Panel (b) changed content, so
-   `fig01_preopening_concept.{svg,pdf,png,json,csv}` no longer match this
-   specification and must be re-rendered by the PRE renderer.  The PRE
-   supporting-figure manifest also binds this file's SHA-256 as a source; both
-   PRE manifests record a spec digest that this revision changes.
+1. **Figure 1's committed PRE bytes were stale until the 2026-08-06 re-render.**
+   Panel (b) changed content, so `fig01_preopening_concept.{svg,pdf,png,json,csv}`
+   previously no longer matched this specification.  They have since been
+   re-rendered by the PRE renderer to the restructured panel set (station map /
+   geometry+gate+ladder / persistence; schematic relocated to Figure S3), and the
+   PRE supporting-figure manifest now binds the re-rendered file's SHA-256.
 2. **Figure 3 is the only main figure the one-time opening cannot fill.**  The
    opening emits no held-region artifact, so Figure 3 is permanently
    development-period.  A future decision to run a target-period regional
@@ -1380,9 +1384,8 @@ is unique, and caption/body claims resolve to the same value IDs.
 
 ### Evidence
 
-- [ ] Current materialization is limited to Figures S1--S3; Figure 1's committed
-      bytes predate the 2026-08-06 panel reassignment and are re-rendered before
-      submission.
+- [x] Current materialization is limited to Figures S1--S3 and Figure 1; Figure 1
+      was re-rendered to the 2026-08-06 restructured panel set before submission.
 - [ ] Figures 2--4 and S4--S10 have no rendered submission artifact before POST.
 - [ ] Every empirical mark and caption number resolves to one value ID.
 - [ ] Every value ID binds value, unit, evidence role, source, derivation, and rounding.

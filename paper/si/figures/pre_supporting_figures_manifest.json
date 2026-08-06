@@ -145,7 +145,7 @@
   "cross_figure_canonical_check": {
     "all_shared_values_match": true,
     "binder_path": "paper/agu_submission/figures/fig01_preopening_concept.json",
-    "binder_sha256": "d1cf7769fc91a4ac1243e6589c7a2ba2174e574c13fbf0f8aa2eb18d59d02e21",
+    "binder_sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2",
     "compared_fields": [
       "value",
       "unit"
@@ -3622,13 +3622,13 @@
           "format": "Markdown",
           "path": "paper/FIGURE_REDRAW_SPEC.md",
           "semantic_role": "authoritative PRE figure and binder contract",
-          "sha256": "a88636557876d0ea70765b7d1884038a87f9dcd4e4a08e42a348c45d133bdb32"
+          "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
         },
         {
           "format": "JSON",
           "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
           "semantic_role": "cross-figure canonical value/unit consistency authority",
-          "sha256": "d1cf7769fc91a4ac1243e6589c7a2ba2174e574c13fbf0f8aa2eb18d59d02e21"
+          "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
         }
       ],
       "status": "MATERIALIZED_PRE_STRUCTURAL_ONLY",
@@ -4268,13 +4268,13 @@
           "format": "Markdown",
           "path": "paper/FIGURE_REDRAW_SPEC.md",
           "semantic_role": "authoritative PRE figure and binder contract",
-          "sha256": "a88636557876d0ea70765b7d1884038a87f9dcd4e4a08e42a348c45d133bdb32"
+          "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
         },
         {
           "format": "JSON",
           "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
           "semantic_role": "cross-figure canonical value/unit consistency authority",
-          "sha256": "d1cf7769fc91a4ac1243e6589c7a2ba2174e574c13fbf0f8aa2eb18d59d02e21"
+          "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
         }
       ],
       "status": "MATERIALIZED_PRE_DESIGN_ONLY",
@@ -4285,22 +4285,22 @@
     "FigS3": {
       "artifacts": {
         "PDF": {
-          "byte_count": 34801,
+          "byte_count": 36166,
           "font_embedding": "TrueType (Matplotlib pdf.fonttype=42)",
           "path": "paper/si/figures/figS3_model_architecture.pdf",
-          "sha256": "b7c16e29bbc8bd35f113c7578e9a58d3828e11029bee00bd4ffe4cd0c4e376c5",
+          "sha256": "a89088caaf9534ef4e894a392023b4655f548f40d49e2f40b9bb38891d50a8cc",
           "vector": true
         },
         "PNG": {
-          "byte_count": 312390,
+          "byte_count": 318579,
           "dpi": 300,
           "path": "paper/si/figures/figS3_model_architecture.png",
-          "sha256": "933d4798a614d930154b2d6099bfbb3083ecd59c96bce2b2064bfcc8640bf5fc"
+          "sha256": "9b25944fd151775f8d3ff952b411a87680a5bbb47cb92c5b92dbd41f1d530472"
         },
         "SVG": {
-          "byte_count": 26862,
+          "byte_count": 33102,
           "path": "paper/si/figures/figS3_model_architecture.svg",
-          "sha256": "9d4f0ee4bacd325d3d602bce0123e2edee7a38c220c1a0b51dcaa70a2e309eca",
+          "sha256": "0baea7dad04ecf3201155378b6cfd087255e0fbf9fff04f9f512a9ca03764786",
           "vector": true
         }
       },
@@ -4352,7 +4352,11 @@
         "figs3.output.final_probability",
         "figs3.anchor.truth_error_bound",
         "figs3.anchor.safety_bound",
-        "figs3.router.physical_routing"
+        "figs3.router.physical_routing",
+        "figs3.bounded_correction.proposal_equation",
+        "figs3.bounded_correction.correction_equation",
+        "figs3.bounded_correction.deviation_bound",
+        "figs3.bounded_correction.warning_status"
       ],
       "description": "four-column PRE model, bound, heads, and calibration dataflow",
       "figure_id": "FigS3",
@@ -4377,6 +4381,7 @@
         "figs3.event_head",
         "figs3.quantile_heads",
         "figs3.anchor_bound",
+        "figs3.bounded_correction_schematic",
         "figs3.cqr",
         "figs3.platt"
       ],
@@ -4628,6 +4633,30 @@
               },
               "mark_id": "figs3.anchor_bound",
               "panel_id": "c"
+            },
+            {
+              "cells": {
+                "anchor": {
+                  "value_id": "figs3.anchor.identity"
+                },
+                "correction_equation": {
+                  "value_id": "figs3.bounded_correction.correction_equation"
+                },
+                "delta": {
+                  "value_id": "figs3.anchor.delta_celsius"
+                },
+                "deviation_bound": {
+                  "value_id": "figs3.bounded_correction.deviation_bound"
+                },
+                "proposal_equation": {
+                  "value_id": "figs3.bounded_correction.proposal_equation"
+                },
+                "warning": {
+                  "value_id": "figs3.bounded_correction.warning_status"
+                }
+              },
+              "mark_id": "figs3.bounded_correction_schematic",
+              "panel_id": "c"
             }
           ]
         },
@@ -4734,13 +4763,13 @@
           "format": "Markdown",
           "path": "paper/FIGURE_REDRAW_SPEC.md",
           "semantic_role": "authoritative PRE figure and binder contract",
-          "sha256": "a88636557876d0ea70765b7d1884038a87f9dcd4e4a08e42a348c45d133bdb32"
+          "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
         },
         {
           "format": "JSON",
           "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
           "semantic_role": "cross-figure canonical value/unit consistency authority",
-          "sha256": "d1cf7769fc91a4ac1243e6589c7a2ba2174e574c13fbf0f8aa2eb18d59d02e21"
+          "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
         }
       ],
       "status": "MATERIALIZED_PRE_DESIGN_ONLY_SUITE_GATED_FINAL",
@@ -4764,7 +4793,7 @@
     "command": "python paper/si/figures/render_pre_supporting_figures.py",
     "matplotlib_version": "3.8.0",
     "path": "paper/si/figures/render_pre_supporting_figures.py",
-    "sha256": "d45b9ae613f84c4e314e7229feb5118dbbf8a83d8279b01e76e36dd5f4ba7006",
+    "sha256": "2dedbf714274b2e53b1e4e747d3764c41dbb30663c6f01dc29205ac41431bb02",
     "svg_hashsalt": "thermoroute-pre-figures-v1"
   },
   "semantic_palette": {
@@ -5020,7 +5049,7 @@
       "format": "JSON",
       "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
       "semantic_role": "cross-figure canonical value/unit consistency authority",
-      "sha256": "d1cf7769fc91a4ac1243e6589c7a2ba2174e574c13fbf0f8aa2eb18d59d02e21"
+      "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
     },
     "marker_projection": {
       "format": "CSV",
@@ -5056,7 +5085,7 @@
       "format": "Markdown",
       "path": "paper/FIGURE_REDRAW_SPEC.md",
       "semantic_role": "authoritative PRE figure and binder contract",
-      "sha256": "a88636557876d0ea70765b7d1884038a87f9dcd4e4a08e42a348c45d133bdb32"
+      "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
     },
     "registry": {
       "format": "CSV",
@@ -10444,6 +10473,38 @@
       "source_pointer": "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/Forbidden",
       "unit": "status",
       "value": "NOT_ESTABLISHED"
+    },
+    "figs3.bounded_correction.correction_equation": {
+      "derivation": "damped anchor plus delta-bounded tanh displacement (relocated from Figure 1b)",
+      "evidence_role": "PRE_IMPLEMENTATION",
+      "rounding": "string_exact",
+      "source_pointer": "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+      "unit": "equation identity",
+      "value": "y_hat = A + delta * tanh(z / delta)"
+    },
+    "figs3.bounded_correction.deviation_bound": {
+      "derivation": "abs(tanh(u))<1 for finite u and positive finite delta",
+      "evidence_role": "PRE_IMPLEMENTATION",
+      "rounding": "string_exact",
+      "source_pointer": "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+      "unit": "algebraic bound identity",
+      "value": "abs(y_hat - A) < delta"
+    },
+    "figs3.bounded_correction.proposal_equation": {
+      "derivation": "unrestricted learned displacement relative to the frozen anchor (relocated from Figure 1b)",
+      "evidence_role": "PRE_IMPLEMENTATION",
+      "rounding": "string_exact",
+      "source_pointer": "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+      "unit": "equation identity",
+      "value": "z = P - A + r_theta"
+    },
+    "figs3.bounded_correction.warning_status": {
+      "derivation": "in-panel warning carried by the relocated A+/-delta envelope",
+      "evidence_role": "PRE_SCOPE",
+      "rounding": "string_exact",
+      "source_pointer": "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+      "unit": "scope status",
+      "value": "DEVIATION_FROM_ANCHOR_NOT_ERROR_OR_SAFETY_BOUND"
     },
     "figs3.calibration.cqr_aggregation": {
       "derivation": "compact projection of member-wise averaging",

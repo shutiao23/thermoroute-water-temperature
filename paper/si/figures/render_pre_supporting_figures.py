@@ -26,6 +26,7 @@ from xml.etree import ElementTree
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 
@@ -1438,31 +1439,49 @@ def render_fig_s3(architecture: dict[str, object]) -> Path:
     arrow_axes(ax, (0.48, 0.37), (0.56, 0.26),
                color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
 
-    # Wide, plain-text point identity avoids cramped mathtext and makes the
-    # anchor/proposal/residual merge explicit.
-    formula_bounds = (0.54, 0.77, 0.44, 0.17)
+    # Anchor-bound point identity, with the bounded-correction tanh schematic
+    # relocated here from Figure 1(b) on 2026-08-06: the damped anchor line A,
+    # the shaded A+/-delta envelope, and the in-panel non-safety warning.
+    formula_bounds = (0.48, 0.76, 0.50, 0.195)
     box(ax, formula_bounds[:2], formula_bounds[2], formula_bounds[3],
         facecolor="white", edgecolor=OI["blue"],
         linewidth=1.0)
-    guarded_text(ax, formula_bounds, "S3 anchor-bound formula", 0.76, 0.91,
-                 "ANCHOR-BOUND POINT", ha="center", va="center", fontsize=7.8,
-                 fontweight="bold", color=OI["blue"])
-    guarded_text(ax, formula_bounds, "S3 anchor-bound formula", 0.76, 0.88,
-                 "ŷ = A + δ tanh(z / δ)", ha="center", va="center", fontsize=7.5)
-    guarded_text(ax, formula_bounds, "S3 anchor-bound formula", 0.76, 0.85,
-                 f"z = P − A + r  •  δ = {architecture['delta_scale']:.1f} °C",
+    tanh_ax = ax.inset_axes([0.495, 0.855, 0.155, 0.100])
+    tz = np.linspace(-3.0, 3.0, 301)
+    tanh_ax.axhspan(-1, 1, facecolor=SEMANTIC_TOKENS["TR_BLUE_LIGHT"], alpha=0.55,
+                    hatch="//", edgecolor=SEMANTIC_TOKENS["TR_BLUE"])
+    tanh_ax.axhline(1, color=SEMANTIC_TOKENS["TR_BLUE"], linestyle=(0, (4, 2)), linewidth=0.9)
+    tanh_ax.axhline(-1, color=SEMANTIC_TOKENS["TR_BLUE"], linestyle=(0, (4, 2)), linewidth=0.9)
+    tanh_ax.axhline(0, color=OI["mid"], linewidth=0.65)
+    tanh_ax.plot(tz, np.tanh(tz), color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=2.0)
+    tanh_ax.scatter([0], [0], s=14, marker="D", facecolor="white",
+                    edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=0.6, zorder=4)
+    tanh_ax.set_xlim(-3, 3)
+    tanh_ax.set_ylim(-1.24, 1.24)
+    tanh_ax.set_xticks([-2, 0, 2])
+    tanh_ax.set_yticks([-1, 0, 1], ["A\u2212\u03b4", "A", "A+\u03b4"])
+    tanh_ax.text(0.97, 0.04, "z/\u03b4", transform=tanh_ax.transAxes, fontsize=7.5,
+                 color=OI["mid"], ha="right", va="bottom")
+    tanh_ax.spines[["top", "right"]].set_visible(False)
+    tanh_ax.tick_params(length=2.0, width=0.6, color=OI["mid"], labelsize=7.5)
+    right_bounds = (0.665, 0.855, 0.315, 0.100)
+    guarded_text(ax, right_bounds, "S3 anchor-bound formula", 0.8225, 0.921,
+                 "\u0177 = A + \u03b4 tanh(z/\u03b4)", ha="center", va="center", fontsize=7.5)
+    guarded_text(ax, right_bounds, "S3 anchor-bound formula", 0.8225, 0.887,
+                 f"z = P \u2212 A + r  \u2022  \u03b4 = {architecture['delta_scale']:.1f} \u00b0C",
                  ha="center", va="center", fontsize=7.5)
-    guarded_text(ax, formula_bounds, "S3 non-safety bound", 0.76, 0.81,
-                 "anchor deviation ≠ truth error\n≠ safety bound",
+    warning_bounds = (0.495, 0.76, 0.485, 0.090)
+    guarded_text(ax, warning_bounds, "S3 non-safety bound", 0.7375, 0.805,
+                 "Deviation from anchor;\nnot an error or safety bound",
                  ha="center", va="center", fontsize=7.5, fontweight="bold",
-                 color=OI["vermillion"], linespacing=0.95)
-    arrow_axes(ax, (0.655, 0.76), (0.655, 0.77), color=OI["blue"], linewidth=1.0)
+                 color=OI["vermillion"], linespacing=1.0)
+    arrow_axes(ax, (0.655, 0.76), (0.655, 0.78), color=OI["blue"], linewidth=1.0)
 
     # Anchor and learned proposal lanes merge into the point identity. Curved
     # connectors sit behind modules so no line crosses text.
     for start, color, rad in [((0.21, 0.20), OI["orange"], -0.25),
                               ((0.48, 0.20), SEMANTIC_TOKENS["ALLOWED_TEAL"], -0.15)]:
-        ax.add_patch(FancyArrowPatch(start, (0.58, 0.77), transform=ax.transAxes,
+        ax.add_patch(FancyArrowPatch(start, (0.58, 0.80), transform=ax.transAxes,
                                      arrowstyle="-|>", mutation_scale=8,
                                      connectionstyle=f"arc3,rad={rad}", linewidth=1.0,
                                      color=color, clip_on=False, zorder=0.5))
@@ -1512,7 +1531,7 @@ def render_fig_s3(architecture: dict[str, object]) -> Path:
     path = HERE / "figS3_model_architecture.svg"
     save_figure(
         fig, path, "Fig. S3 ThermoRoute PRE model and calibration architecture",
-        "A four-column schematic shows the strictly checked seven-variable input contract, WLEVEL exclusion, construction-buffer/router/TCN distinctions, learned proposal and mixture, separate point/quantile/event heads, anchor-only numerical bound, and final CQR interval and Platt probability outputs.",
+        "A four-column schematic shows the strictly checked seven-variable input contract, WLEVEL exclusion, construction-buffer/router/TCN distinctions, learned proposal and mixture, separate point/quantile/event heads, the anchor-bound bounded-correction tanh schematic (relocated from Figure 1b) with its A+/-delta envelope and non-safety warning, and the final CQR interval and Platt probability outputs.",
     )
     return path
 
@@ -2114,6 +2133,26 @@ def write_manifest(
         ("figs3.scope_status", "MATERIALIZED_PRE_DESIGN_ONLY_SUITE_GATED_FINAL", "status",
          "PRE_SCOPE", "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/State",
          "current redraw state", "string_exact"),
+        ("figs3.bounded_correction.proposal_equation", "z = P - A + r_theta",
+         "equation identity", "PRE_IMPLEMENTATION",
+         "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+         "unrestricted learned displacement relative to the frozen anchor (relocated from Figure 1b)",
+         "string_exact"),
+        ("figs3.bounded_correction.correction_equation", "y_hat = A + delta * tanh(z / delta)",
+         "equation identity", "PRE_IMPLEMENTATION",
+         "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+         "damped anchor plus delta-bounded tanh displacement (relocated from Figure 1b)",
+         "string_exact"),
+        ("figs3.bounded_correction.deviation_bound", "abs(y_hat - A) < delta",
+         "algebraic bound identity", "PRE_IMPLEMENTATION",
+         "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+         "abs(tanh(u))<1 for finite u and positive finite delta",
+         "string_exact"),
+        ("figs3.bounded_correction.warning_status",
+         "DEVIATION_FROM_ANCHOR_NOT_ERROR_OR_SAFETY_BOUND", "scope status", "PRE_SCOPE",
+         "paper/FIGURE_REDRAW_SPEC.md#Figure-S3/panel-c",
+         "in-panel warning carried by the relocated A+/-delta envelope",
+         "string_exact"),
     ]
     for args in architecture_values:
         value(*args)
@@ -2159,6 +2198,13 @@ def write_manifest(
              q50="figs3.quantile.q50", q95="figs3.quantile.q95"),
         mark("figs3.anchor_bound", "c", delta="figs3.anchor.delta_celsius",
              truth_error="figs3.anchor.truth_error_bound", safety="figs3.anchor.safety_bound"),
+        mark("figs3.bounded_correction_schematic", "c",
+             anchor="figs3.anchor.identity",
+             proposal_equation="figs3.bounded_correction.proposal_equation",
+             correction_equation="figs3.bounded_correction.correction_equation",
+             delta="figs3.anchor.delta_celsius",
+             deviation_bound="figs3.bounded_correction.deviation_bound",
+             warning="figs3.bounded_correction.warning_status"),
         mark("figs3.cqr", "d", fit_period="figs3.calibration.cqr_fit_period",
              aggregation="figs3.calibration.cqr_aggregation",
              contract="figs3.calibration.cqr_contract",
@@ -2264,6 +2310,10 @@ def write_manifest(
                 "figs3.output.final_interval", "figs3.output.final_probability",
                 "figs3.anchor.truth_error_bound",
                 "figs3.anchor.safety_bound", "figs3.router.physical_routing",
+                "figs3.bounded_correction.proposal_equation",
+                "figs3.bounded_correction.correction_equation",
+                "figs3.bounded_correction.deviation_bound",
+                "figs3.bounded_correction.warning_status",
             ],
             "scope_status_value_id": "figs3.scope_status",
         },

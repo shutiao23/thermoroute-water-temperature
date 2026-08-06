@@ -57,7 +57,7 @@ the SI file set and the figure set cannot drift apart unnoticed.
 
 | Figure | Job | State | Evidence period | SI files it must agree with |
 |---|---|---|---|---|
-| Fig. 1 | station map, cohort geometry against the gate, persistence challenge | `PRE_MATERIALIZED_REDRAW_STALE` | pre-opening structural | SI01, SI11 |
+| Fig. 1 | station map, cohort geometry against the gate, persistence challenge | `PRE_MATERIALIZED` | pre-opening structural | SI01, SI11 |
 | Fig. 2 | how baseline choice changes reported skill | `POST_TEMPLATE_ONLY` | target | SI06, SI07 |
 | Fig. 3 | how the spatial partition changes the transfer conclusion | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **development 2019–2020** | SI01, SI13 |
 | Fig. 4 | regional/seasonal heterogeneity and what coverage costs | `POST_TEMPLATE_ONLY` | target | SI08, SI10, SI11 |
