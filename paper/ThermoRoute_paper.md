@@ -102,7 +102,7 @@ air-temperature and discharge formulations
 [Piccolroaz et al., 2016](https://doi.org/10.1002/hyp.10913)) to deep sequence
 models, multi-task learners, and physics-guided river-network architectures
 ([Feigl et al., 2021](https://doi.org/10.5194/hess-25-2951-2021);
-[Rahmani et al., 2021a](https://doi.org/10.1088/1748-9326/abd501);
+[Rahmani, Lawson, et al., 2021](https://doi.org/10.1088/1748-9326/abd501);
 [Jia et al., 2021](https://doi.org/10.1137/1.9781611976700.69);
 [Sadler et al., 2022](https://doi.org/10.1029/2021WR030138);
 [Zwart et al., 2023](https://doi.org/10.3389/frwa.2023.1184992)). Recent reviews
@@ -398,7 +398,7 @@ model that receives stable site identity as a categorical feature, and a
 per-station variant that isolates the value of pooling. A **global LSTM** with a
 station embedding represents the deep sequence family that has produced the
 strongest recent results for this variable
-([Rahmani et al., 2021a](https://doi.org/10.1088/1748-9326/abd501);
+([Rahmani, Lawson, et al., 2021](https://doi.org/10.1088/1748-9326/abd501);
 [Zwart et al., 2023](https://doi.org/10.3389/frwa.2023.1184992)).
 
 The learned references are given a genuine chance to win. The global LSTM uses
@@ -540,7 +540,7 @@ prediction would require the model to operate with no target-site
 water-temperature record at all,
 which is a different problem and a different evaluation
 ([Weierbach et al., 2022](https://doi.org/10.3390/w14071032);
-[Rahmani et al., 2021b](https://doi.org/10.1002/hyp.14400)). The same caveat
+[Rahmani, Shen, et al., 2021](https://doi.org/10.1002/hyp.14400)). The same caveat
 applies to the 30-site external cohort of Section 2.4, which is site-identifier
 disjoint but still history-dependent.
 
