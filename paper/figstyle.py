@@ -192,10 +192,15 @@ def figsize(width_mm: float = FULL_MM, height_mm: float | None = None,
     return width_mm * MM, height * MM
 
 
-def panel_label(ax, text: str, *, dx: float = -0.02, dy: float = 1.04) -> None:
-    """Place a bold panel label in axes coordinates, outside the data area."""
-    ax.text(dx, dy, text, transform=ax.transAxes, fontsize=9.0,
-            fontweight="bold", va="bottom", ha="left")
+def panel_label(ax, text: str, *, pad: float = 3.0) -> None:
+    """Place a bold panel label above the axes, on the left.
+
+    A left-aligned title rather than free text at ``transAxes`` y > 1: floating
+    text is invisible to constrained layout, so nothing reserves room for it and
+    a label on a lower panel lands on the tick labels of the panel above it.  A
+    title is measured, and the layout opens a gap for it.
+    """
+    ax.set_title(text, loc="left", fontsize=9.0, fontweight="bold", pad=pad)
 
 
 def colorbar(fig, mappable, ax, *, label: str = "", **kwargs):
@@ -212,6 +217,55 @@ def colorbar(fig, mappable, ax, *, label: str = "", **kwargs):
     if label:
         cb.set_label(label, fontsize=7.5)
     return cb
+
+
+def spread_labels(ax, items, *, x_data, x_text, min_gap_pt: float = 9.0,
+                  fontsize: float = 7.5, leader: bool = True):
+    """Label line ends at ``x_text``, pushed apart so none of them collide.
+
+    ``items`` is a sequence of ``(y_data, text, colour)``.  Series that finish
+    within a few hundredths of each other — LightGBM and the LSTM at seven days,
+    or four models inside 0.1 °C on the RMSE ladder — would otherwise print on
+    top of one another.
+
+    Placement is **deferred to :func:`save`**.  Separating the labels requires
+    reading the axes transform, and under ``constrained_layout`` that transform
+    is not final until every axes exists: computing positions here, while later
+    panels of the same figure are still to be added, yields coordinates that the
+    next layout pass invalidates.  The request is therefore recorded and applied
+    once the layout has settled.
+    """
+    ax.figure._figstyle_pending = getattr(ax.figure, "_figstyle_pending", [])
+    ax.figure._figstyle_pending.append(
+        (ax, list(items), x_data, x_text, min_gap_pt, fontsize, leader))
+
+
+def _place_spread_labels(ax, items, x_data, x_text, min_gap_pt, fontsize, leader):
+    fig = ax.figure
+    # transData works in display *pixels*, not points.  Converting the gap is
+    # not cosmetic: at the default 120 dpi a 9-pixel gap is 5.4 pt, which is
+    # narrower than the 7.5 pt line it is meant to separate, so the labels stay
+    # on top of each other and the separation silently does nothing.
+    gap = min_gap_pt * fig.dpi / 72.0
+    order = sorted(range(len(items)), key=lambda i: items[i][0])
+    ys = [ax.transData.transform((x_data, items[i][0]))[1] for i in order]
+
+    for k in range(1, len(ys)):                      # push up from the bottom
+        ys[k] = max(ys[k], ys[k - 1] + gap)
+    top = ax.transAxes.transform((0, 1.0))[1]
+    if ys and ys[-1] > top:                          # then back down if it spilled
+        ys[-1] = top
+        for k in range(len(ys) - 2, -1, -1):
+            ys[k] = min(ys[k], ys[k + 1] - gap)
+
+    for k, i in enumerate(order):
+        y_data, text, colour = items[i]
+        y_lab = ax.transData.inverted().transform((0, ys[k]))[1]
+        ax.text(x_text, y_lab, text, fontsize=fontsize, color=colour,
+                va="center", ha="left", clip_on=False)
+        if leader and abs(ys[k] - ax.transData.transform((x_data, y_data))[1]) > 1.0:
+            ax.plot([x_data, x_text], [y_data, y_lab], color=colour,
+                    lw=0.4, alpha=0.55, clip_on=False, zorder=1)
 
 
 def check_overlaps(fig, *, tolerance: float = 1.0) -> list[tuple[str, str]]:
@@ -252,16 +306,74 @@ def check_overlaps(fig, *, tolerance: float = 1.0) -> list[tuple[str, str]]:
     return hits
 
 
+def check_out_of_bounds(fig, *, margin: float = 0.5) -> list[str]:
+    """Return visible text that runs off the canvas.
+
+    :func:`check_overlaps` compares text against text, so it cannot see a label
+    that is clipped by the figure edge instead of by a neighbour — a long
+    left-aligned panel title on a narrow panel prints as
+    "(b) Error-budget decompositio" and passes every collision test.
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    w, h = fig.canvas.get_width_height()
+
+    # Only text that is actually drawn.  A Locator routinely produces ticks
+    # outside the view limits; their labels exist as artists, are never
+    # rendered, and would otherwise be reported as running off the canvas.
+    items = []
+    for ax in fig.axes:
+        for axis, lim in ((ax.xaxis, ax.get_xlim()), (ax.yaxis, ax.get_ylim())):
+            lo, hi = sorted(lim)
+            for loc, lab in zip(axis.get_ticklocs(), axis.get_ticklabels()):
+                if lo <= loc <= hi:
+                    items.append(lab)
+        items.extend(ax.texts)
+        for holder in (ax.title, ax.xaxis.label, ax.yaxis.label):
+            items.append(holder)
+    items.extend(fig.texts)
+
+    bad: list[str] = []
+    for t in items:
+        if not t.get_visible() or not t.get_text().strip():
+            continue
+        try:
+            b = t.get_window_extent(renderer=renderer)
+        except Exception:
+            continue
+        if (b.x0 < -margin or b.y0 < -margin
+                or b.x1 > w + margin or b.y1 > h + margin):
+            bad.append(t.get_text()[:48])
+    return bad
+
+
 def save(fig, stem: str, out_dir, *, formats=("pdf", "png", "svg"),
          strict: bool = True) -> list:
     """Save a figure in every requested format, refusing on text collisions."""
     from pathlib import Path
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Settle the layout, then place any deferred end labels against the final
+    # transforms.  The layout engine is left alone: the labels are unclipped
+    # free text, which constrained layout does not measure, so adding them does
+    # not move the axes -- whereas switching the engine off here would drop the
+    # axes back to their raw subplotspec rectangles and undo the layout.
+    pending = getattr(fig, "_figstyle_pending", [])
+    if pending:
+        fig.canvas.draw()
+        for req in pending:
+            _place_spread_labels(*req)
+        fig._figstyle_pending = []
+
     hits = check_overlaps(fig)
     if hits and strict:
         detail = "; ".join(f"{a!r} x {b!r}" for a, b in hits[:6])
         raise ValueError(f"{stem}: {len(hits)} overlapping text pairs -> {detail}")
+    off = check_out_of_bounds(fig)
+    if off and strict:
+        raise ValueError(f"{stem}: {len(off)} text artists run off the canvas -> "
+                         + "; ".join(repr(t) for t in off[:6]))
     written = []
     for ext in formats:
         path = out_dir / f"{stem}.{ext}"
