@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="240.944882pt" height="175.748031pt" viewBox="0 0 240.944882 175.748031" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="396pt" height="130.431496pt" viewBox="0 0 396 130.431496" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-08-07T01:05:55.824004</dc:date>
+    <dc:date>2026-08-07T10:05:03.814326</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -21,42 +21,33 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 175.748031 
-L 240.944882 175.748031 
-L 240.944882 0 
+   <path d="M 0 130.431496 
+L 396 130.431496 
+L 396 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
-  <g id="axes_1">
-   <g id="patch_2">
-    <path d="M 33.852756 153.709228 
-L 213.115748 153.709228 
-L 213.115748 23.796283 
-L 33.852756 23.796283 
+  <g id="patch_2">
+   <path d="M 45.992126 120.510236 
+L 350.007874 120.510236 
+L 350.007874 9.92126 
+L 45.992126 9.92126 
 z
-" clip-path="url(#pa8ec7b2ef4)" style="fill: #f2f2f2; stroke: #d55e00; stroke-width: 1.6; stroke-linejoin: miter"/>
-   </g>
-   <g id="text_1">
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(12.191158 31.125637)">fig04 — Regional/seasonal heterogeneity and interval cost</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(123.484252 41.079678)"/>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(24.746002 51.033718)">NOT REPORTED for the 2021–2023 held-out window</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(123.484252 60.987759)"/>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(15.254908 70.9418)">Panels require a per-HUC2 regional breakdown, the eight</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(104.899877 80.89584)">temporal-</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(12.265971 90.849881)">coverage candidates, and the 90% coverage-width plane. </text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(104.946189 100.803922)">None was</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(12.792627 110.757962)">computed for 2021-2023: the conventional holdout CSV is</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(103.191658 120.712003)">pooled (no</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(8.006408 130.666043)">HUC2 dimension) and the probability pipeline was not re-run</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(110.947814 140.620084)">(paper</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(34.911596 150.574125)">Table 4.9: not reported).  No value is invented.</text>
-   </g>
+" style="fill: #f2f2f2; stroke: #d55e00; stroke-linejoin: miter"/>
+  </g>
+  <g id="text_1">
+   <text style="fill: #202020; font: 700 8.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="198" y="33.126165" transform="rotate(-0 198 33.126165)">Figure 4 — Regional and seasonal heterogeneity, and interval cost</text>
+  </g>
+  <g id="text_2">
+   <text style="fill: #d55e00; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="198" y="45.697067" transform="rotate(-0 198 45.697067)">NOT REPORTED for the 2021–2023 held-out window</text>
+  </g>
+  <g id="text_3">
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(70.250977 62.259393)">Panels require a per-HUC2 regional breakdown, the eight temporal-coverage</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(77.529492 72.129511)">candidates, and the 90% coverage–width plane. None was computed for</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(67.318359 82.099823)">2021–2023: the conventional holdout CSV is pooled (no HUC2 dimension) and</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(76.705664 91.936542)">the probability pipeline was not re-run (paper Table 4.9: not reported). No</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(169.029492 101.773261)">value is invented.</text>
   </g>
  </g>
- <defs>
-  <clipPath id="pa8ec7b2ef4">
-   <rect x="30.11811" y="21.089764" width="186.732283" height="135.325984"/>
-  </clipPath>
- </defs>
 </svg>

@@ -19,9 +19,10 @@ import csv
 import hashlib
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
-from typing import Sequence
+from typing import NamedTuple, Sequence
 from xml.etree import ElementTree
 
 import matplotlib as mpl
@@ -35,18 +36,29 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DATA = REPO / "data_usgs"
 
-MM = 1 / 25.4
-FULL_WIDTH = 140 * MM
+# One appearance for the whole submission: paper/figstyle.py owns the typeface
+# chain, sizes, palette, widths and the constrained-layout defaults.  Importing
+# it before any figure exists is deliberate -- rcParams set afterwards would not
+# reach artists already created.
+if str(REPO / "paper") not in sys.path:
+    sys.path.insert(0, str(REPO / "paper"))
+import figstyle  # noqa: E402  (must follow the sys.path bootstrap)
 
-# Okabe--Ito palette. Neutral greys are used only for structure and caveats.
+# Figure sizes come from figstyle.figsize(width_mm, height_mm); no local
+# millimetre conversion is needed any more.
+PNG_DPI = 600
+
+# Okabe--Ito palette, taken from figstyle so one module owns the hexes.
+# Neutral ink/grey come from the redraw spec's semantic tokens and are used only
+# for structure and caveats.
 OI = {
-    "orange": "#E69F00",
-    "sky": "#56B4E9",
-    "green": "#009E73",
-    "yellow": "#F0E442",
-    "blue": "#0072B2",
-    "vermillion": "#D55E00",
-    "purple": "#CC79A7",
+    "orange": figstyle.WONG["orange"],
+    "sky": figstyle.WONG["sky"],
+    "green": figstyle.WONG["green"],
+    "yellow": figstyle.WONG["yellow"],
+    "blue": figstyle.WONG["blue"],
+    "vermillion": figstyle.WONG["vermillion"],
+    "purple": figstyle.WONG["purple"],
     "ink": "#202020",
     "mid": "#666666",
 }
@@ -87,27 +99,16 @@ ROUTE_A_VARIABLES = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 BRIDGE_FIELDS = ("TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
 HUC_MARKERS = ("o", "s", "^", "D", "v", "<", ">", "p")
 
+# The shared style first, then only the two things it deliberately leaves to the
+# caller: the SVG hash salt that makes repeated renders byte-stable, and the
+# white background these SI figures are specified on.  Nothing here changes an
+# appearance decision that figstyle owns.  The renderer previously declared
+# ``font.family: DejaVu Sans`` outright, which is exactly the silent fallback
+# figstyle exists to prevent; the font is now Nimbus Sans (Helvetica metrics).
+figstyle.use()
 mpl.rcParams.update(
     {
-        "font.family": "DejaVu Sans",
-        "font.size": 8.0,
-        "text.color": SEMANTIC_TOKENS["NEUTRAL_INK"],
-        "axes.titlesize": 9.0,
-        "axes.labelsize": 8.0,
-        "axes.edgecolor": SEMANTIC_TOKENS["NEUTRAL_INK"],
-        "axes.labelcolor": SEMANTIC_TOKENS["NEUTRAL_INK"],
-        "xtick.labelsize": 7.5,
-        "ytick.labelsize": 7.5,
-        "xtick.color": SEMANTIC_TOKENS["NEUTRAL_INK"],
-        "ytick.color": SEMANTIC_TOKENS["NEUTRAL_INK"],
-        "legend.fontsize": 7.5,
-        "figure.titlesize": 10.5,
-        "svg.fonttype": "none",
         "svg.hashsalt": "thermoroute-pre-figures-v1",
-        "pdf.fonttype": 42,
-        "ps.fonttype": 42,
-        "axes.linewidth": 0.75,
-        "lines.linewidth": 1.2,
         "savefig.facecolor": "white",
         "figure.facecolor": "white",
     }
@@ -788,52 +789,141 @@ def verify_architecture_sources() -> dict[str, object]:
     return facts
 
 
+class Rect(NamedTuple):
+    """An axes-fraction rectangle.  Every module in these figures is one."""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+    @property
+    def width(self) -> float:
+        return self.x1 - self.x0
+
+    @property
+    def height(self) -> float:
+        return self.y1 - self.y0
+
+    @property
+    def cx(self) -> float:
+        return 0.5 * (self.x0 + self.x1)
+
+    @property
+    def cy(self) -> float:
+        return 0.5 * (self.y0 + self.y1)
+
+    @property
+    def bounds(self) -> tuple[float, float, float, float]:
+        """(x, y, width, height), the form :func:`guarded_text` registers."""
+        return (self.x0, self.y0, self.width, self.height)
+
+    def inset(self, dx: float, dy: float | None = None) -> "Rect":
+        dy = dx if dy is None else dy
+        return Rect(self.x0 + dx, self.y0 + dy, self.x1 - dx, self.y1 - dy)
+
+    def contains_point(self, x: float, y: float, *, slack: float = 0.0) -> bool:
+        return (self.x0 - slack <= x <= self.x1 + slack
+                and self.y0 - slack <= y <= self.y1 + slack)
+
+
+def split_rows(rect: Rect, count: int, *, top_pad: float = 0.0,
+               bottom_pad: float = 0.0) -> list[float]:
+    """Centres of ``count`` equal rows inside ``rect``, top row first.
+
+    Every stack of lines in these figures is derived from this rather than from
+    a hand-tuned ``y = 0.66 - i * 0.15``.  When a panel changes height the rows
+    follow, so a stack cannot walk out of its module or into its neighbour.
+    """
+
+    if count <= 0:
+        return []
+    top = rect.y1 - top_pad
+    bottom = rect.y0 + bottom_pad
+    step = (top - bottom) / count
+    return [top - step * (index + 0.5) for index in range(count)]
+
+
+def split_columns(x0: float, x1: float, count: int, *, gutter: float) -> list[Rect]:
+    """``count`` equal columns spanning ``[x0, x1]`` separated by ``gutter``."""
+
+    width = (x1 - x0 - gutter * (count - 1)) / count
+    return [Rect(x0 + index * (width + gutter), 0.0,
+                 x0 + index * (width + gutter) + width, 1.0)
+            for index in range(count)]
+
+
 def clean_axis(ax: mpl.axes.Axes) -> None:
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     for spine in ax.spines.values():
         spine.set_visible(False)
 
 
 def panel_heading(ax: mpl.axes.Axes, letter: str, title: str) -> None:
-    ax.text(0.0, 1.02, f"({letter})", transform=ax.transAxes, ha="left", va="bottom",
-            fontsize=9, fontweight="bold", color=OI["ink"])
-    ax.text(0.14, 1.02, title, transform=ax.transAxes, ha="left", va="bottom",
-            fontsize=9, fontweight="bold", color=OI["ink"])
+    """Bold ``(x)`` from the shared style, then the panel title beside it.
+
+    The label goes through :func:`figstyle.panel_label` so every figure in the
+    submission places it identically; the title is a real Axes title, so
+    constrained layout reserves its height instead of the caller guessing.
+    """
+
+    figstyle.panel_label(ax, f"({letter})")
+    ax.set_title(title, loc="left", x=0.085, pad=4.0)
 
 
 def box(
     ax: mpl.axes.Axes,
-    xy: tuple[float, float],
-    width: float,
-    height: float,
+    rect: Rect,
     *,
     facecolor: str = "white",
     edgecolor: str = OI["ink"],
     radius: float = 0.004,
     linewidth: float = 1.0,
     hatch: str | None = None,
+    flag: bool = False,
+    zorder: float = 1.0,
 ) -> FancyBboxPatch:
+    """Draw a module rectangle.
+
+    ``flag`` replaces a whole-box hatch with a narrow hatched strip inside the
+    left edge.  The redundancy that makes the category readable without colour
+    is kept, but the label no longer sits on top of hatch lines -- the single
+    worst legibility fault in the previous draft.
+    """
+
     patch = FancyBboxPatch(
-        xy,
-        width,
-        height,
-        boxstyle=f"round,pad=0.007,rounding_size={radius}",
+        (rect.x0, rect.y0),
+        rect.width,
+        rect.height,
+        boxstyle=f"round,pad=0.0,rounding_size={radius}",
         transform=ax.transAxes,
         facecolor=facecolor,
         edgecolor=edgecolor,
         linewidth=linewidth,
-        hatch=hatch,
+        hatch=None if flag else hatch,
         clip_on=False,
-        zorder=1,
+        zorder=zorder,
     )
     ax.add_patch(patch)
+    if flag and hatch:
+        strip = min(0.030, rect.width * 0.16)
+        ax.add_patch(Rectangle(
+            (rect.x0, rect.y0), strip, rect.height, transform=ax.transAxes,
+            facecolor="none", edgecolor=edgecolor, hatch=hatch, linewidth=0.0,
+            clip_on=False, zorder=zorder + 0.1,
+        ))
+        ax.plot([rect.x0 + strip, rect.x0 + strip], [rect.y0, rect.y1],
+                transform=ax.transAxes, color=edgecolor, linewidth=0.6,
+                zorder=zorder + 0.1, clip_on=False)
     return patch
 
 
 def guarded_text(
     ax: mpl.axes.Axes,
-    bounds: tuple[float, float, float, float],
+    bounds: "Rect | tuple[float, float, float, float]",
     label: str,
     x: float,
     y: float,
@@ -843,6 +933,8 @@ def guarded_text(
 ) -> mpl.text.Text:
     """Add text whose final bbox must stay at least 2 mm inside a module."""
 
+    if isinstance(bounds, Rect):
+        bounds = bounds.bounds
     artist = ax.text(x, y, text_value, transform=ax.transAxes, **kwargs)
     guards = getattr(ax.figure, "_thermoroute_text_guards", [])
     guards.append((artist, ax, bounds, label, 2.0, dimensions))
@@ -894,13 +986,31 @@ def arrow_axes(
     end: tuple[float, float],
     *,
     color: str = OI["mid"],
-    linewidth: float = 1.2,
-    mutation_scale: float = 9,
-) -> None:
+    linewidth: float = 1.0,
+    mutation_scale: float = 8,
+    waypoints: Sequence[tuple[float, float]] = (),
+    register: bool = True,
+) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Draw a straight or orthogonally routed connector in axes coordinates.
+
+    ``waypoints`` turns the connector into a polyline: the plain segments are
+    drawn as a line and only the final leg carries the head, so a route that
+    has to leave a column and come back does not become a curve sliding under
+    the modules it passes.  Every segment is registered on the figure so
+    :func:`validate_diagram_geometry` can prove it never enters a module.
+    """
+
+    points = [tuple(start), *[tuple(point) for point in waypoints], tuple(end)]
+    if len(points) > 2:
+        ax.plot([point[0] for point in points[:-1]],
+                [point[1] for point in points[:-1]],
+                transform=ax.transAxes, color=color, linewidth=linewidth,
+                solid_capstyle="round", solid_joinstyle="round",
+                zorder=3, clip_on=False)
     ax.add_patch(
         FancyArrowPatch(
-            start,
-            end,
+            points[-2],
+            points[-1],
             transform=ax.transAxes,
             arrowstyle="-|>",
             mutation_scale=mutation_scale,
@@ -912,19 +1022,97 @@ def arrow_axes(
             zorder=3,
         )
     )
+    segments = list(zip(points[:-1], points[1:]))
+    if register:
+        routes = getattr(ax.figure, "_thermoroute_routes", [])
+        routes.extend((ax, a, b) for a, b in segments)
+        ax.figure._thermoroute_routes = routes
+    return segments
 
 
-def add_figure_header(fig: mpl.figure.Figure, title: str, subtitle: str) -> None:
-    fig.text(0.03, 0.965, title, ha="left", va="top", fontsize=10.5,
-             fontweight="bold", color=OI["ink"])
-    fig.text(0.03, 0.925, subtitle, ha="left", va="top", fontsize=7.7,
-             color=OI["mid"])
+def _segment_enters(rect: Rect, a: tuple[float, float], b: tuple[float, float],
+                    *, slack: float) -> bool:
+    """True when segment ``a``--``b`` has a point strictly inside ``rect``.
+
+    Sampling is enough here and is far easier to trust than a clipping
+    routine: every connector in these figures is either axis-aligned or a short
+    straight run inside a gutter, so a point on 200 evenly spaced stations
+    cannot miss an incursion that matters at 140 mm.
+    """
+
+    inner = rect.inset(slack)
+    if inner.width <= 0 or inner.height <= 0:
+        return False
+    steps = 200
+    for index in range(steps + 1):
+        t = index / steps
+        x = a[0] + (b[0] - a[0]) * t
+        y = a[1] + (b[1] - a[1]) * t
+        if inner.x0 < x < inner.x1 and inner.y0 < y < inner.y1:
+            return True
+    return False
+
+
+def register_module(ax: mpl.axes.Axes, name: str, rect: Rect) -> Rect:
+    """Record a module rectangle for the diagram geometry check.
+
+    Registration is per-Axes because the rectangles are in axes fractions:
+    panel (a)'s 0.5 and panel (d)'s 0.5 are different places, so comparing
+    them would invent collisions.
+    """
+
+    modules = getattr(ax.figure, "_thermoroute_modules", [])
+    modules.append((ax, name, rect))
+    ax.figure._thermoroute_modules = modules
+    return rect
+
+
+def validate_diagram_geometry(fig: mpl.figure.Figure) -> None:
+    """Fail closed when modules overlap or a connector runs through one.
+
+    Text collisions are only half of what goes wrong in a hand-placed
+    schematic.  The other half -- a box landing on a box, and an arrow taking a
+    short cut across a module it has nothing to do with -- is invisible to a
+    text-bbox check, so it is asserted here on the declared geometry.
+    """
+
+    modules = getattr(fig, "_thermoroute_modules", [])
+    failures: list[str] = []
+    for index, (ax_a, name_a, rect_a) in enumerate(modules):
+        for ax_b, name_b, rect_b in modules[index + 1:]:
+            if ax_a is not ax_b:
+                continue
+            dx = min(rect_a.x1, rect_b.x1) - max(rect_a.x0, rect_b.x0)
+            dy = min(rect_a.y1, rect_b.y1) - max(rect_a.y0, rect_b.y0)
+            if dx > 1e-9 and dy > 1e-9:
+                failures.append(f"module-overlap:{name_a}|{name_b}")
+    # A connector legitimately touches the two modules it joins, so an
+    # endpoint on a module edge is allowed; anything reaching into the body of
+    # a module is not.
+    for route_ax, a, b in getattr(fig, "_thermoroute_routes", []):
+        for module_ax, name, rect in modules:
+            if module_ax is not route_ax:
+                continue
+            if _segment_enters(rect, a, b, slack=0.004):
+                failures.append(
+                    f"connector-through-module:{name}:"
+                    f"{tuple(round(v, 3) for v in a)}->{tuple(round(v, 3) for v in b)}"
+                )
+    if failures:
+        raise RuntimeError("Diagram geometry QA failed:\n" + "\n".join(sorted(set(failures))))
 
 
 def save_figure(fig: mpl.figure.Figure, path: Path, title: str, description: str) -> None:
     """Save deterministic SVG/PDF/PNG deliverables and SVG accessibility text."""
 
+    # Three independent gates, cheapest first.  figstyle.save with no formats
+    # runs the shared submission-wide text-collision check and raises on any
+    # overlapping pair; validate_text_layout adds this renderer's stricter
+    # module-inset and canvas-containment rules; validate_diagram_geometry
+    # covers what neither can see -- boxes and connectors.
+    figstyle.save(fig, path.stem, path.parent, formats=())
     validate_text_layout(fig)
+    validate_diagram_geometry(fig)
     fig.savefig(path, format="svg",
                 metadata={"Creator": "ThermoRoute PRE supporting-figure renderer", "Date": None},
                 facecolor="white")
@@ -932,7 +1120,7 @@ def save_figure(fig: mpl.figure.Figure, path: Path, title: str, description: str
                 metadata={"Creator": "ThermoRoute PRE supporting-figure renderer",
                           "CreationDate": None, "ModDate": None},
                 facecolor="white")
-    fig.savefig(path.with_suffix(".png"), format="png", dpi=300,
+    fig.savefig(path.with_suffix(".png"), format="png", dpi=PNG_DPI,
                 metadata={"Software": "ThermoRoute PRE supporting-figure renderer"},
                 facecolor="white")
     plt.close(fig)
@@ -961,48 +1149,68 @@ def save_figure(fig: mpl.figure.Figure, path: Path, title: str, description: str
 def render_fig_s1(
     registry: Sequence[dict[str, str]], reasons: Counter[str], audit: dict[str, object]
 ) -> Path:
-    fig = plt.figure(figsize=(FULL_WIDTH, 156 * MM))
-    gs = fig.add_gridspec(2, 2, left=0.09, right=0.98, bottom=0.085, top=0.95,
-                          height_ratios=[1.02, 0.80], hspace=0.88, wspace=0.22)
+    fig = plt.figure(figsize=figstyle.figsize(figstyle.FULL_MM, 152.0))
+    # Constrained layout owns the margins.  The previous draft set left/right/
+    # top/bottom and an hspace of 0.88 by hand to open room for panel headings
+    # and panel (b)'s legend; the legend now has a cell of its own, so the
+    # layout engine reserves exactly the space each panel needs.
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.00, 0.86], hspace=0.16, wspace=0.20)
+    map_gs = gs[0, 1].subgridspec(2, 1, height_ratios=[1.0, 0.36], hspace=0.05)
 
     ax = fig.add_subplot(gs[0, 0])
     clean_axis(ax)
     panel_heading(ax, "a", "Cohort ledger")
-    box(ax, (0.04, 0.81), 0.92, 0.12,
-        facecolor=SEMANTIC_TOKENS["TR_BLUE_LIGHT"], edgecolor=OI["blue"])
-    ax.text(0.50, 0.87, "Initial candidates   n = 1,465", transform=ax.transAxes,
-            fontsize=8.2, fontweight="bold", ha="center", va="center", color=OI["blue"])
-    arrow_axes(ax, (0.50, 0.80), (0.50, 0.74), mutation_scale=7)
+    initial_rect = register_module(ax, "S1a initial", Rect(0.02, 0.855, 0.98, 0.975))
+    box(ax, initial_rect, facecolor=SEMANTIC_TOKENS["TR_BLUE_LIGHT"],
+        edgecolor=OI["blue"])
+    guarded_text(ax, initial_rect, "S1a initial", initial_rect.cx, initial_rect.cy,
+                 "Initial candidates   n = 1,465", ha="center", va="center",
+                 fontsize=8.0, fontweight="bold", color=OI["blue"])
 
-    box(ax, (0.04, 0.37), 0.92, 0.36, facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"],
-        edgecolor=OI["vermillion"], hatch="///")
-    ax.text(0.50, 0.665, "Rejected total   n = 1,345", transform=ax.transAxes,
-            fontsize=8.2, fontweight="bold", ha="center", va="center",
-            color=OI["vermillion"])
+    rejected_rect = register_module(ax, "S1a rejected", Rect(0.02, 0.455, 0.98, 0.795))
+    box(ax, rejected_rect, facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"],
+        edgecolor=OI["vermillion"], hatch="///", flag=True)
+    arrow_axes(ax, (initial_rect.cx, initial_rect.y0), (rejected_rect.cx, rejected_rect.y1),
+               color=OI["mid"], mutation_scale=7)
+
     reason_lines = [
-        ("×", reasons["no NWIS WTEMP+FLOW"], "no NWIS WTEMP + FLOW"),
-        ("△", reasons["low full-period coverage"], "low full-period coverage"),
-        ("□", reasons["low blind-test-period coverage"], "low 2019–20 coverage"),
+        ("X", reasons["no NWIS WTEMP+FLOW"], "no NWIS WTEMP + FLOW"),
+        ("^", reasons["low full-period coverage"], "low full-period coverage"),
+        ("s", reasons["low blind-test-period coverage"], "low 2019–20 coverage"),
     ]
-    for index, (symbol, count, label) in enumerate(reason_lines):
-        y = 0.57 - index * 0.085
-        ax.text(0.10, y, symbol, transform=ax.transAxes, fontsize=8.5,
-                fontweight="bold", va="center", color=OI["vermillion"])
-        ax.text(0.18, y, f"{count:,}", transform=ax.transAxes, fontsize=7.7,
-                fontweight="bold", va="center")
-        ax.text(0.38, y, label, transform=ax.transAxes, fontsize=7.5, va="center")
-    arrow_axes(ax, (0.50, 0.36), (0.50, 0.30), mutation_scale=7)
+    reason_rows = split_rows(rejected_rect.inset(0.02, 0.025), 1 + len(reason_lines))
+    guarded_text(ax, rejected_rect, "S1a rejected total", rejected_rect.cx, reason_rows[0],
+                 "Rejected total   n = 1,345", ha="center", va="center",
+                 fontsize=8.0, fontweight="bold", color=OI["vermillion"])
+    for (marker, count, label), y in zip(reason_lines, reason_rows[1:]):
+        # Marker shape carries the category as well as colour does.
+        ax.scatter([0.115], [y], transform=ax.transAxes, marker=marker, s=17,
+                   facecolor=OI["vermillion"], edgecolor=OI["ink"], linewidth=0.6,
+                   zorder=4)
+        # The guard is the module the text must stay inside; value-versus-label
+        # crowding inside the module is caught by the text-collision check.
+        guarded_text(ax, rejected_rect, "S1a reason count",
+                     0.30, y, f"{count:,}", dimensions="x", ha="right", va="center",
+                     fontsize=7.5, fontweight="bold")
+        guarded_text(ax, rejected_rect, "S1a reason label",
+                     0.345, y, label, dimensions="x", ha="left", va="center",
+                     fontsize=7.5)
 
-    box(ax, (0.04, 0.13), 0.92, 0.16,
-        facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
+    retained_rect = register_module(ax, "S1a retained", Rect(0.02, 0.235, 0.98, 0.395))
+    box(ax, retained_rect, facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
         edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.text(0.50, 0.21, "Retained fixed cohort\nn = 120", transform=ax.transAxes,
-            fontsize=8.2, fontweight="bold", ha="center", va="center",
-            color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linespacing=1.02)
-    ax.text(0.50, 0.055, "1,345 + 120 = 1,465", transform=ax.transAxes,
+    arrow_axes(ax, (rejected_rect.cx, rejected_rect.y0), (retained_rect.cx, retained_rect.y1),
+               color=OI["mid"], mutation_scale=7)
+    guarded_text(ax, retained_rect, "S1a retained", retained_rect.cx, retained_rect.cy,
+                 "Retained fixed cohort\nn = 120", ha="center", va="center",
+                 fontsize=8.0, fontweight="bold",
+                 color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linespacing=1.15)
+    ax.text(0.50, 0.155, "1,345 + 120 = 1,465", transform=ax.transAxes,
             fontsize=7.5, ha="center", va="center", color=OI["mid"])
 
-    ax = fig.add_subplot(gs[0, 1])
+    ax = fig.add_subplot(map_gs[0])
+    ax_legend = fig.add_subplot(map_gs[1])
+    clean_axis(ax_legend)
     panel_heading(ax, "b", "Coordinates by HUC2")
     counts = Counter(row["huc2"] for row in registry)
     hucs = sorted(counts, key=int)
@@ -1037,29 +1245,38 @@ def render_fig_s1(
     ax.set_yticks([25, 35, 45, 50])
     ax.grid(True, color=SEMANTIC_TOKENS["NEUTRAL_GRID"], linewidth=0.6, zorder=0)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.text(0.03, 0.04, "coordinate scatter • no basemap", transform=ax.transAxes,
+    ax.text(0.03, 0.035, "coordinate scatter • no basemap", transform=ax.transAxes,
             ha="left", va="bottom", fontsize=7.5, color=OI["mid"],
             bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.0})
-    ax.legend(handles=legend_handles, title="HUC2", ncol=5, loc="upper center",
-              bbox_to_anchor=(0.5, -0.17), frameon=False, columnspacing=0.55,
-              handletextpad=0.15, borderaxespad=0.0, title_fontsize=7.5)
+    # The legend lives in its own cell.  Hanging it off the map axes with
+    # bbox_to_anchor put it outside anything the layout engine measures, which
+    # is how it ended up crowding panel (d)'s heading.
+    ax_legend.legend(handles=legend_handles, title="HUC2", ncol=5, loc="upper center",
+                     bbox_to_anchor=(0.5, 1.0), frameon=False, columnspacing=0.7,
+                     handletextpad=0.2, borderaxespad=0.0, labelspacing=0.35,
+                     title_fontsize=7.5)
 
     ax = fig.add_subplot(gs[1, 0])
     panel_heading(ax, "c", "Stations per HUC2")
     values = [counts[huc] for huc in hucs]
     xpos = list(range(len(hucs)))
-    ax.bar(xpos, values, width=0.68, color=SEMANTIC_TOKENS["TR_BLUE_LIGHT"],
+    ax.bar(xpos, values, width=0.70, color=SEMANTIC_TOKENS["TR_BLUE_LIGHT"],
            edgecolor=OI["blue"],
            linewidth=0.7, zorder=2)
-    ax.scatter(xpos, values, marker="D", s=14, facecolor=OI["orange"],
+    ax.scatter(xpos, values, marker="D", s=13, facecolor=OI["orange"],
                edgecolor=OI["ink"], linewidth=0.6, zorder=3)
     for x, value in zip(xpos, values):
-        ax.text(x, value + 0.7, str(value), va="bottom", ha="center", fontsize=7.5)
-    ax.set_xticks(xpos, [f"{int(huc):02d}" for huc in hucs], rotation=45, ha="right")
+        ax.text(x, value + 0.9, str(value), va="bottom", ha="center", fontsize=7.5)
+    # Two-digit codes at 7.5 pt fit upright across 15 categories; the 45-degree
+    # rotation the previous draft used made every neighbouring pair of labels
+    # overlap (14 collisions) for no gain in fit.
+    ax.set_xticks(xpos, [f"{int(huc):02d}" for huc in hucs])
+    ax.set_xlim(-0.7, len(hucs) - 0.3)
     ax.set_ylim(0, 30)
     ax.set_yticks([0, 10, 20, 30])
-    ax.set_xlabel("HUC2", labelpad=1)
+    ax.set_xlabel("HUC2", labelpad=2)
     ax.set_ylabel("Retained stations", labelpad=2)
+    ax.tick_params(axis="x", pad=1.5)
     ax.grid(axis="y", color=SEMANTIC_TOKENS["NEUTRAL_GRID"], linewidth=0.6, zorder=0)
     ax.spines[["top", "right"]].set_visible(False)
 
@@ -1075,23 +1292,32 @@ def render_fig_s1(
         ("0.752", "minimum nearest (km)", OI["orange"], "^"),
         ("19", "stations <10 km", OI["vermillion"], "X"),
     ]
-    for index, (value, label, color, marker) in enumerate(diagnostics):
-        y = 0.84 - index * 0.145
-        row_bounds = (0.03, y - 0.065, 0.94, 0.13)
-        ax.add_patch(Rectangle(row_bounds[:2], row_bounds[2], row_bounds[3], transform=ax.transAxes,
+    # Marker | value | label are three fixed columns.  The value column used to
+    # end at 0.27 with the marker at 0.055, so "53.856" ran back over its own
+    # marker -- a collision no text-versus-text check can see.
+    marker_x, value_right, label_left = 0.045, 0.265, 0.305
+    diagnostic_rows = split_rows(Rect(0.02, 0.155, 0.98, 0.955), len(diagnostics))
+    row_height = (0.955 - 0.155) / len(diagnostics)
+    for index, ((value, label, color, marker), y) in enumerate(zip(diagnostics, diagnostic_rows)):
+        row_rect = register_module(
+            ax, f"S1d row {index}",
+            Rect(0.02, y - row_height * 0.44, 0.98, y + row_height * 0.44),
+        )
+        ax.add_patch(Rectangle((row_rect.x0, row_rect.y0), row_rect.width, row_rect.height,
+                               transform=ax.transAxes,
                                facecolor=mpl.colors.to_rgba(color, 0.09),
                                edgecolor=color, linewidth=0.75))
-        ax.scatter([0.055], [y], transform=ax.transAxes, marker=marker, s=22,
+        ax.scatter([marker_x], [y], transform=ax.transAxes, marker=marker, s=20,
                    facecolor=color, edgecolor=OI["ink"], linewidth=0.6, zorder=4)
-        guarded_text(ax, (0.02, y - 0.065, 0.30, 0.13), f"S1 diagnostic value {index}",
-                     0.27, y, value, dimensions="x", ha="right", va="center",
+        guarded_text(ax, row_rect, f"S1 diagnostic value {index}",
+                     value_right, y, value, dimensions="x", ha="right", va="center",
                      fontsize=8.0, fontweight="bold", color=OI["ink"])
-        guarded_text(ax, (0.30, y - 0.065, 0.67, 0.13), f"S1 diagnostic label {index}",
-                     0.342, y, label, dimensions="x", ha="left", va="center",
+        guarded_text(ax, row_rect, f"S1 diagnostic label {index}",
+                     label_left, y, label, dimensions="x", ha="left", va="center",
                      fontsize=7.5, color=OI["ink"])
-    ax.text(0.50, 0.055, "HUC overlap / proximity\n≠ hydraulic connectivity",
+    ax.text(0.50, 0.065, "HUC overlap / proximity\n≠ hydraulic connectivity",
             transform=ax.transAxes, ha="center", va="center", fontsize=7.5,
-            fontweight="bold", color=OI["vermillion"], linespacing=0.95)
+            fontweight="bold", color=OI["vermillion"], linespacing=1.15)
 
     path = HERE / "figS1_cohort_registry.svg"
     save_figure(
@@ -1104,9 +1330,11 @@ def render_fig_s1(
 def render_fig_s2(
     temporal: dict[str, object], bridge_report: dict[str, object], request_map: dict[str, object]
 ) -> Path:
-    fig = plt.figure(figsize=(FULL_WIDTH, 182 * MM))
-    gs = fig.add_gridspec(4, 1, left=0.065, right=0.975, bottom=0.055, top=0.96,
-                          height_ratios=[0.70, 1.02, 1.12, 1.24], hspace=0.52)
+    fig = plt.figure(figsize=figstyle.figsize(figstyle.FULL_MM, 170.0))
+    # Ratios follow the line counts each panel has to hold, not a guess: (d)
+    # carries eight lines on one side and seven on the other, so it gets the
+    # tallest row.
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.70, 0.92, 1.08, 1.30], hspace=0.22)
 
     ax = fig.add_subplot(gs[0, :])
     clean_axis(ax)
@@ -1125,76 +1353,90 @@ def render_fig_s2(
         (_display_year_interval(stage["interval"]), role_display[stage["role"]], *style)
         for stage, style in zip(temporal["chronology"], stage_styles)
     ]
-    xs = [0.015, 0.215, 0.415, 0.615, 0.815]
-    width = 0.17
-    for idx, ((years, role, color, marker, hatch), x) in enumerate(zip(stages, xs)):
-        box(ax, (x, 0.12), width, 0.68, facecolor=mpl.colors.to_rgba(color, 0.14),
-            edgecolor=color, hatch=hatch, linewidth=1.1)
-        ax.scatter([x + 0.085], [0.72], transform=ax.transAxes, marker=marker,
-                   s=42 if marker != "*" else 64, facecolor=color,
+    # Five equal stages derived from the count, not five hand-typed x values.
+    stage_columns = split_columns(0.0, 1.0, len(stages), gutter=0.022)
+    stage_rects = [Rect(column.x0, 0.14, column.x1, 0.94) for column in stage_columns]
+    for index, ((years, role, color, marker, hatch), rect) in enumerate(zip(stages, stage_rects)):
+        register_module(ax, f"S2a stage {index}", rect)
+        box(ax, rect, facecolor=mpl.colors.to_rgba(color, 0.14),
+            edgecolor=color, hatch=hatch, flag=True, linewidth=1.0)
+        # A two-line role gets two slots, so the longest stage label cannot
+        # push its second line through the bottom of its own box.
+        role_lines = role.count("\n") + 1
+        rows = split_rows(rect.inset(0.010, 0.100), 2 + role_lines)
+        ax.scatter([rect.cx], [rows[0]], transform=ax.transAxes, marker=marker,
+                   s=30 if marker != "*" else 50, facecolor=color,
                    edgecolor=OI["ink"], linewidth=0.6, zorder=4)
-        ax.text(x + 0.085, 0.56, years, transform=ax.transAxes, ha="center", va="center",
-                fontsize=8.4, fontweight="bold")
-        role_lines = role.split("\n")
-        role_positions = [0.30] if len(role_lines) == 1 else [0.37, 0.22]
-        for role_line, role_y in zip(role_lines, role_positions):
-            ax.text(x + 0.085, role_y, role_line, transform=ax.transAxes,
-                    ha="center", va="center", fontsize=7.5, fontweight="bold",
-                    color=OI["ink"])
-        if idx < len(stages) - 1:
-            arrow_axes(ax, (x + width + 0.006, 0.50), (xs[idx + 1] - 0.008, 0.50),
-                       linewidth=1.0, mutation_scale=8)
-    ax.text(0.985, 0.04, "time →", transform=ax.transAxes, ha="right", va="bottom",
+        guarded_text(ax, rect, f"S2a stage years {index}", rect.cx, rows[1], years,
+                     ha="center", va="center", fontsize=8.0, fontweight="bold")
+        # Regular weight, not bold: "EXPLORATORY" set bold is wider than a
+        # fifth of the text block, and the years above it already carry the
+        # emphasis.
+        guarded_text(ax, rect, f"S2a stage role {index}", rect.cx,
+                     sum(rows[2:]) / role_lines, role,
+                     ha="center", va="center", fontsize=7.5,
+                     color=OI["ink"], linespacing=1.15)
+        if index < len(stages) - 1:
+            arrow_axes(ax, (rect.x1, rect.cy), (stage_rects[index + 1].x0, rect.cy),
+                       color=OI["mid"], linewidth=1.0, mutation_scale=7)
+    # "time ->" sat on the last stage box; it now has the strip below them.
+    ax.text(0.995, 0.005, "time →", transform=ax.transAxes, ha="right", va="bottom",
             fontsize=7.5, color=OI["mid"])
 
     ax = fig.add_subplot(gs[1, 0])
     clean_axis(ax)
     panel_heading(ax, "b", "Issue-time boundary")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.add_patch(Rectangle((0.02, 0.20), 0.44, 0.70, transform=ax.transAxes,
-                           facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
-                           edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0))
-    ax.add_patch(Rectangle((0.54, 0.20), 0.44, 0.70, transform=ax.transAxes,
-                           facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"],
-                           edgecolor=OI["vermillion"], linewidth=1.0,
-                           hatch="///"))
-    ax.axvline(0.5, ymin=0.22, ymax=0.94, color=OI["ink"], linewidth=1.5, zorder=5)
-    ax.text(0.5, 0.95, "ISSUE  t", transform=ax.transAxes, ha="center", va="bottom",
-            fontsize=8.8, fontweight="bold")
-    ax.text(0.24, 0.82, f"✓  ALLOWED: {temporal['source_date_display']}", transform=ax.transAxes,
-            fontsize=7.8, fontweight="bold", color=SEMANTIC_TOKENS["ALLOWED_TEAL"],
-            va="center", ha="center")
-    allowed = [
-        ("○", "Observed WTEMP history"),
-        ("△", "FLOW + dated meteorology"),
-        ("◇", "Frozen reference inputs"),
-    ]
-    for i, (symbol, label) in enumerate(allowed):
-        y = 0.66 - i * 0.15
-        ax.text(0.08, y, symbol, transform=ax.transAxes, fontsize=9.0,
-                color=OI["blue"], va="center", fontweight="bold")
-        ax.text(0.14, y, label, transform=ax.transAxes, fontsize=7.5, va="center")
+    allowed_rect = register_module(ax, "S2b allowed", Rect(0.02, 0.16, 0.465, 0.86))
+    excluded_rect = register_module(ax, "S2b excluded", Rect(0.535, 0.16, 0.98, 0.86))
+    box(ax, allowed_rect, facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
+        edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
+    box(ax, excluded_rect, facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"],
+        edgecolor=OI["vermillion"], linewidth=1.0, hatch="///", flag=True)
+    ax.plot([0.5, 0.5], [0.16, 0.90], transform=ax.transAxes, color=OI["ink"],
+            linewidth=1.4, zorder=5, solid_capstyle="butt")
+    ax.text(0.5, 0.915, "ISSUE  t", transform=ax.transAxes, ha="center", va="bottom",
+            fontsize=8.0, fontweight="bold")
 
-    ax.text(0.76, 0.82, "✕  EXCLUDED AS INPUT", transform=ax.transAxes,
-            fontsize=7.8, fontweight="bold", color=OI["vermillion"], va="center", ha="center")
+    allowed = [
+        ("o", "Observed WTEMP history"),
+        ("^", "FLOW + dated meteorology"),
+        ("D", "Frozen reference inputs"),
+    ]
     excluded = [
         ("X", f"Target WTEMP at {temporal['target_date_expression']}"),
         ("X", "Future weather"),
         ("X", "Future vintages"),
     ]
-    for i, (symbol, label) in enumerate(excluded):
-        y = 0.66 - i * 0.15
-        ax.scatter([0.60], [y], transform=ax.transAxes, marker=symbol, s=25,
-                   facecolor=OI["vermillion"], edgecolor=OI["ink"], linewidth=0.6, zorder=5)
-        ax.text(0.66, y, label, transform=ax.transAxes, fontsize=7.5, va="center")
-    guarded_text(ax, (0.54, 0.20, 0.44, 0.70), "S2 horizon inset", 0.76, 0.315,
-                 "h = " + ", ".join(str(value) for value in temporal["horizons"]) + " d",
-                 ha="center", va="center", fontsize=7.5,
-                 fontweight="bold", color=OI["vermillion"])
-
-    ax.text(0.50, 0.07, "date-indexed retrospective hindcast", transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5, fontweight="bold", color=OI["ink"])
+    # The admissible/inadmissible status is carried by a drawn marker rather
+    # than a dingbat: Nimbus Sans has no U+2713/U+2715, and a glyph the chosen
+    # typeface lacks is exactly the kind of thing that ships as a tofu box.
+    for rect, title, title_color, status_marker, items, marker_color, label in (
+        (allowed_rect, f"ALLOWED: {temporal['source_date_display']}",
+         SEMANTIC_TOKENS["ALLOWED_TEAL"], "P", allowed, OI["blue"], "allowed"),
+        (excluded_rect, "EXCLUDED AS INPUT", OI["vermillion"], "X", excluded,
+         OI["vermillion"], "excluded"),
+    ):
+        rows = split_rows(rect.inset(0.012, 0.075), 1 + len(items))
+        ax.scatter([rect.x0 + 0.055], [rows[0]], transform=ax.transAxes,
+                   marker=status_marker, s=26, facecolor=title_color,
+                   edgecolor=OI["ink"], linewidth=0.6, zorder=5)
+        guarded_text(ax, rect, f"S2b {label} title", rect.x0 + 0.085, rows[0], title,
+                     dimensions="x", ha="left", va="center", fontsize=7.5,
+                     fontweight="bold", color=title_color)
+        for (marker, item), y in zip(items, rows[1:]):
+            ax.scatter([rect.x0 + 0.055], [y], transform=ax.transAxes, marker=marker,
+                       s=20, facecolor=marker_color, edgecolor=OI["ink"],
+                       linewidth=0.6, zorder=5)
+            guarded_text(ax, rect, f"S2b {label} item", rect.x0 + 0.085, y, item,
+                         dimensions="x", ha="left", va="center", fontsize=7.5)
+    # The horizon set used to be a floating inset inside the excluded box, where
+    # it landed on "Future vintages" -- the one text collision FigS2 reported.
+    # It is now part of the panel footer, outside every module.
+    horizons = ", ".join(str(value) for value in temporal["horizons"])
+    ax.text(0.50, 0.045,
+            f"date-indexed retrospective hindcast   •   h = {horizons} d",
+            transform=ax.transAxes, ha="center", va="center", fontsize=7.5,
+            fontweight="bold", color=OI["ink"])
 
     # Variable/provider/source-date matrix.
     ax = fig.add_subplot(gs[2, 0])
@@ -1204,27 +1446,33 @@ def render_fig_s2(
         (variable, temporal["provider_by_variable"][variable], temporal["source_date_display"])
         for variable in ROUTE_A_VARIABLES
     ]
-    headers = [(0.07, "VARIABLE"), (0.38, "PROVIDER"), (0.66, "SOURCE DATE")]
+    header_y = 0.945
+    rule_y = 0.895
+    headers = [(0.115, "VARIABLE"), (0.40, "PROVIDER"), (0.66, "SOURCE DATE")]
     for x, label in headers:
-        ax.text(x, 0.88, label, transform=ax.transAxes, fontsize=7.5,
+        ax.text(x, header_y, label, transform=ax.transAxes, fontsize=7.5,
                 fontweight="bold", ha="left", va="center", color=OI["mid"])
-    ax.plot([0.04, 0.96], [0.835, 0.835], transform=ax.transAxes,
+    ax.plot([0.04, 0.96], [rule_y, rule_y], transform=ax.transAxes,
             color=OI["mid"], linewidth=0.8)
-    for index, (variable, provider, source_date) in enumerate(matrix):
-        y = 0.77 - index * 0.087
+    table_rect = Rect(0.04, 0.155, 0.96, rule_y - 0.02)
+    row_ys = split_rows(table_rect, len(matrix))
+    row_height = table_rect.height / len(matrix)
+    for index, ((variable, provider, source_date), y) in enumerate(zip(matrix, row_ys)):
         if index % 2 == 0:
-            ax.add_patch(Rectangle((0.04, y - 0.038), 0.92, 0.076, transform=ax.transAxes,
+            ax.add_patch(Rectangle((table_rect.x0, y - row_height * 0.46),
+                                   table_rect.width, row_height * 0.92,
+                                   transform=ax.transAxes,
                                    facecolor="#F4F4F4", edgecolor="none"))
         marker = ["o", "s", "^", "D"][index % 4]
         ax.scatter([0.075], [y], transform=ax.transAxes, s=16, marker=marker,
                    facecolor=OI["sky"], edgecolor=OI["ink"], linewidth=0.6, zorder=4)
         ax.text(0.115, y, variable, transform=ax.transAxes, fontsize=7.5,
                 fontweight="bold", ha="left", va="center")
-        ax.text(0.38, y, provider, transform=ax.transAxes, fontsize=7.5,
+        ax.text(0.40, y, provider, transform=ax.transAxes, fontsize=7.5,
                 ha="left", va="center")
         ax.text(0.66, y, source_date, transform=ax.transAxes, fontsize=7.5,
                 ha="left", va="center")
-    ax.text(0.50, 0.08, f"vintage: {temporal['retrieval_vintage_display']}",
+    ax.text(0.50, 0.055, f"vintage: {temporal['retrieval_vintage_display']}",
             transform=ax.transAxes, fontsize=7.5, fontweight="bold",
             ha="center", va="center", color=OI["blue"])
 
@@ -1232,21 +1480,12 @@ def render_fig_s2(
     ax = fig.add_subplot(gs[3, 0])
     clean_axis(ax)
     panel_heading(ax, "d", "Outcome-free predictor bridge: capability and limit")
-    left_bounds = (0.02, 0.12, 0.46, 0.76)
-    right_bounds = (0.52, 0.12, 0.46, 0.76)
-    ax.add_patch(Rectangle(left_bounds[:2], left_bounds[2], left_bounds[3],
-                           transform=ax.transAxes,
-                           facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
-                           edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.1))
-    ax.add_patch(Rectangle(right_bounds[:2], right_bounds[2], right_bounds[3],
-                           transform=ax.transAxes, facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"],
-                           edgecolor=OI["vermillion"], linewidth=1.1, hatch="///"))
-    guarded_text(ax, left_bounds, "S2 bridge capability title", 0.25, 0.785,
-                 "✓  PASS_EXACT_PRODUCT_BRIDGE", ha="center", va="center",
-                 fontsize=7.5, fontweight="bold", color=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    guarded_text(ax, right_bounds, "S2 bridge limitation title", 0.75, 0.785,
-                 "!  LIMITS — NOT ESTABLISHED", ha="center", va="center",
-                 fontsize=8.0, fontweight="bold", color=OI["vermillion"])
+    left_rect = register_module(ax, "S2d capability", Rect(0.02, 0.155, 0.485, 0.93))
+    right_rect = register_module(ax, "S2d limitation", Rect(0.515, 0.155, 0.98, 0.93))
+    box(ax, left_rect, facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
+        edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
+    box(ax, right_rect, facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"],
+        edgecolor=OI["vermillion"], linewidth=1.0, hatch="///", flag=True)
     left_lines = [
         f"{_display_year_interval((bridge_report['interval']['start'], bridge_report['interval']['end']))} only",
         f"{bridge_report['site_count']} sites • {bridge_report['row_count']:,} rows",
@@ -1263,15 +1502,31 @@ def render_fig_s2(
         "not an operational replay",
         "outcomes not requested or read",
     ]
-    for index, text_value in enumerate(left_lines):
-        guarded_text(ax, left_bounds, f"S2 capability {index}", 0.25, 0.69 - index * 0.072,
-                     text_value, ha="center", va="center", fontsize=7.5,
-                     fontweight="bold" if index < 2 else "normal", color=OI["ink"])
-    for index, text_value in enumerate(right_lines):
-        guarded_text(ax, right_bounds, f"S2 limitation {index}", 0.75, 0.67 - index * 0.105,
-                     text_value, ha="center", va="center", fontsize=7.5,
-                     fontweight="bold" if index < 2 else "normal", color=OI["ink"])
-    ax.text(0.50, 0.045, "bound report + 120-request source map • latest retrospective retrieval",
+    # Rows are counted in rendered lines, so the two-line limitation gets two
+    # slots and cannot crowd the entry under it.
+    for rect, title, title_color, status_marker, lines, label in (
+        (left_rect, "PASS_EXACT_PRODUCT_BRIDGE", SEMANTIC_TOKENS["ALLOWED_TEAL"],
+         "P", left_lines, "capability"),
+        (right_rect, "LIMITS — NOT ESTABLISHED", OI["vermillion"],
+         "X", right_lines, "limitation"),
+    ):
+        line_counts = [1] + [text.count("\n") + 1 for text in lines]
+        rows = split_rows(rect.inset(0.012, 0.055), sum(line_counts))
+        ax.scatter([rect.x0 + 0.055], [rows[0]], transform=ax.transAxes,
+                   marker=status_marker, s=26, facecolor=title_color,
+                   edgecolor=OI["ink"], linewidth=0.6, zorder=5)
+        guarded_text(ax, rect, f"S2d {label} 0", rect.x0 + 0.085, rows[0], title,
+                     dimensions="x", ha="left", va="center", fontsize=7.5,
+                     fontweight="bold", color=title_color)
+        cursor = 1
+        for index, (text_value, span) in enumerate(zip(lines, line_counts[1:]), start=1):
+            centre = sum(rows[cursor:cursor + span]) / span
+            cursor += span
+            guarded_text(ax, rect, f"S2d {label} {index}", rect.cx, centre, text_value,
+                         ha="center", va="center", fontsize=7.5,
+                         fontweight="bold" if index <= 2 else "normal",
+                         color=OI["ink"], linespacing=1.15)
+    ax.text(0.50, 0.055, "bound report + 120-request source map • latest retrospective retrieval",
             transform=ax.transAxes, ha="center", va="center", fontsize=7.5,
             color=OI["mid"], fontweight="bold")
 
@@ -1283,248 +1538,308 @@ def render_fig_s2(
     return path
 
 
-def render_fig_s3(architecture: dict[str, object]) -> Path:
-    fig = plt.figure(figsize=(FULL_WIDTH, 122 * MM))
-    ax = fig.add_axes([0.025, 0.04, 0.95, 0.92])
-    clean_axis(ax)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+def stack_entries(
+    ax: mpl.axes.Axes,
+    rect: Rect,
+    name: str,
+    entries: Sequence[tuple[str, dict]],
+    *,
+    inset_x: float = 0.010,
+    inset_y: float = 0.020,
+    max_step: float | None = None,
+) -> None:
+    """Centre a stack of text entries inside a module, one slot per line.
 
-    for x, label in [(0.115, "(a) INPUTS"), (0.375, "(b) REPRESENTATION"),
-                     (0.655, "(c) HEADS"), (0.89, "(d) CALIBRATION")]:
-        ax.text(x, 0.975, label, transform=ax.transAxes, ha="center", va="center",
-                fontsize=7.5, fontweight="bold", color=OI["mid"])
+    A two-line entry occupies two slots, so adding a line to any module pushes
+    the stack apart instead of letting one entry sit on the next.  ``max_step``
+    caps the slot height so a tall module holding few lines reads as a block of
+    text rather than as widely scattered lines.
+    """
+
+    line_counts = [text.count("\n") + 1 for text, _ in entries]
+    inner = rect.inset(inset_x, inset_y)
+    total = sum(line_counts)
+    if max_step is not None and total * max_step < inner.height:
+        half = 0.5 * total * max_step
+        inner = Rect(inner.x0, inner.cy - half, inner.x1, inner.cy + half)
+    rows = split_rows(inner, total)
+    cursor = 0
+    for index, ((text_value, style), span) in enumerate(zip(entries, line_counts)):
+        centre = sum(rows[cursor:cursor + span]) / span
+        cursor += span
+        guarded_text(ax, rect, f"{name} line {index}", rect.cx, centre, text_value,
+                     ha="center", va="center", linespacing=1.15, **style)
+
+
+def render_fig_s3(architecture: dict[str, object]) -> Path:
+    """Draw the model/calibration schematic on a declared grid.
+
+    The previous draft placed every box, inset and connector by hand in figure
+    coordinates.  Three things went wrong that no text-collision check could
+    see: module titles ran across the border of the neighbouring box, the
+    tanh identity box overlapped the head boxes below it, and two long curved
+    connectors were pushed to ``zorder=0.5`` so they could pass *underneath*
+    three unrelated modules.
+
+    Here the figure is a grid of four columns and four rows plus a full-width
+    identity band.  Modules occupy whole cells, connectors are only ever
+    allowed to travel in the gutters between cells, and
+    :func:`validate_diagram_geometry` refuses the render if a module overlaps a
+    module or a connector reaches into one.
+    """
+
+    fig = plt.figure(figsize=figstyle.figsize(figstyle.FULL_MM, 148.0))
+    # One exact full-figure axes: the schematic is geometry, not data, so the
+    # layout engine has nothing useful to solve here.
+    fig.set_layout_engine("none")
+    ax = fig.add_axes([0.012, 0.010, 0.976, 0.975])
+    clean_axis(ax)
+
+    # ---- the grid -------------------------------------------------------
+    # Column widths follow the longest string each column has to hold at
+    # 7.5 pt; the gutters are wide enough for an arrowhead, and the one
+    # between representation and heads is wider because three connectors fan
+    # out through it.
+    columns = {
+        "inputs": (0.005, 0.229),
+        "representation": (0.259, 0.507),
+        "heads": (0.557, 0.767),
+        "calibration": (0.797, 0.995),
+    }
+    rows = {
+        1: (0.815, 0.950),
+        2: (0.658, 0.793),
+        3: (0.501, 0.636),
+        4: (0.344, 0.479),
+    }
+    band = Rect(0.259, 0.075, 0.995, 0.322)
+    footer = Rect(0.005, 0.000, 0.995, 0.052)
+
+    def cell(column: str, first: int, last: int | None = None) -> Rect:
+        x0, x1 = columns[column]
+        y0 = rows[last or first][0]
+        y1 = rows[first][1]
+        return Rect(x0, y0, x1, y1)
+
+    def row_centre(index: int) -> float:
+        return 0.5 * sum(rows[index])
+
+    gutter_ab = 0.5 * (columns["inputs"][1] + columns["representation"][0])
+
+    for column, label in (("inputs", "(a) INPUTS"),
+                          ("representation", "(b) REPRESENTATION"),
+                          ("heads", "(c) HEADS"),
+                          ("calibration", "(d) CALIBRATION")):
+        ax.text(columns[column][0], 0.978, label, transform=ax.transAxes,
+                ha="left", va="center", fontsize=7.5, fontweight="bold",
+                color=OI["mid"])
 
     quantile_labels = tuple(
         f"q{int(round(float(probability) * 100)):02d}"
         for probability in architecture["quantiles"]
     )
+    variables = tuple(architecture["variables"])
+    # Two per line, then the odd one: the widest line is "RHMEAN • DH", which
+    # fits the inputs column with room to spare.  The list is projected from
+    # the asserted registry rather than typed out, so it cannot drift from it.
+    variable_lines = "\n".join(
+        " • ".join(variables[start:stop])
+        for start, stop in ((0, 2), (2, 4), (4, 6), (6, len(variables)))
+        if variables[start:stop]
+    )
+    teal = SEMANTIC_TOKENS["ALLOWED_TEAL"]
+    teal_light = SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"]
+    blue_light = SEMANTIC_TOKENS["TR_BLUE_LIGHT"]
+    purple_light = "#F9EAF3"
+    calibration_period = architecture["calibration_display"]
 
-    # Input contract.
-    input_bounds = (0.002, 0.54, 0.245, 0.35)
-    box(ax, input_bounds[:2], input_bounds[2], input_bounds[3],
-        facecolor=SEMANTIC_TOKENS["TR_BLUE_LIGHT"], edgecolor=OI["blue"])
-    guarded_text(ax, input_bounds, "S3 input title", 0.1245, 0.845,
-                 f"{len(architecture['variables'])} VARIABLES\n"
-                 f"+ {'MASK' if architecture['missingness_mask'] else 'NO MASK'}",
-                 ha="center", va="center", fontsize=8.0,
-                 fontweight="bold", color=OI["blue"], linespacing=1.05)
-    variable_lines = "WTEMP • FLOW\nTEMP • PRCP\nRHMEAN • DH\nWDSP"
-    guarded_text(ax, input_bounds, "S3 variable registry", 0.1245, 0.745, variable_lines,
-                 ha="center", va="center", fontsize=7.5, linespacing=1.22)
-    guarded_text(ax, input_bounds, "S3 construction buffer", 0.1245, 0.605,
-                 "32-day buffer\nconstruction only\n≠ effective\nmemory",
-                 ha="center", va="center", fontsize=7.5, fontweight="bold",
-                 color=OI["vermillion"], linespacing=0.98)
+    title = {"fontsize": 8.0, "fontweight": "bold"}
+    subtitle = {"fontsize": 7.5, "fontweight": "bold"}
+    detail = {"fontsize": 7.5, "color": OI["ink"]}
 
-    wlevel_bounds = (0.002, 0.40, 0.245, 0.09)
-    box(ax, wlevel_bounds[:2], wlevel_bounds[2], wlevel_bounds[3],
-        facecolor=SEMANTIC_TOKENS["WARNING_LIGHT"], edgecolor=OI["vermillion"],
-        hatch="///", radius=0.01)
-    ax.scatter([0.045], [0.445], transform=ax.transAxes, marker="X", s=25,
-               facecolor=OI["vermillion"], edgecolor=OI["ink"], linewidth=0.6, zorder=5)
-    guarded_text(ax, wlevel_bounds, "S3 WLEVEL module", 0.13, 0.46, "WLEVEL",
-                 ha="center", va="center", fontsize=7.5, fontweight="bold",
-                 color=OI["vermillion"])
-    guarded_text(ax, wlevel_bounds, "S3 WLEVEL module", 0.13, 0.43, "excluded",
-                 ha="center", va="center", fontsize=7.5, color=OI["ink"])
-
-    anchor_bounds = (0.002, 0.11, 0.245, 0.22)
-    box(ax, anchor_bounds[:2], anchor_bounds[2], anchor_bounds[3],
-        facecolor="#FFF7D1", edgecolor=OI["orange"])
-    guarded_text(ax, anchor_bounds, "S3 anchor module", 0.1245, 0.292,
-                 architecture["anchor_identity"],
-                 ha="center", va="center", fontsize=8.0, fontweight="bold",
-                 color="#986900")
-    guarded_text(ax, anchor_bounds, "S3 anchor module", 0.1245, 0.238,
-                 str(architecture["anchor_method"]).replace(
-                     "frozen damped-persistence anchor",
-                     "frozen damped-\npersistence anchor",
-                 ),
-                 ha="center", va="center", fontsize=7.5, linespacing=1.0)
-    guarded_text(ax, anchor_bounds, "S3 anchor module", 0.1245, 0.175,
-                 str(architecture["anchor_composition"]).replace(
-                     "fitted blend of last y and climatology",
-                     "fitted blend of\nlast y and\nclimatology",
-                 ),
-                 ha="center", va="center", fontsize=7.5, linespacing=1.0)
-
-    # Parallel representation branches and their combination.
-    box(ax, (0.27, 0.70), 0.21, 0.16,
-        facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
-        edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.scatter([0.30], [0.81], transform=ax.transAxes, marker="D", s=23,
-               facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], edgecolor=OI["ink"],
-               linewidth=0.6, zorder=5)
-    ax.text(0.33, 0.81, "SPARSE ROUTER", transform=ax.transAxes, ha="left", va="center",
-            fontsize=7.8, fontweight="bold", color=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.text(0.375, 0.75,
-            f"{len(architecture['variables'])} variables • lags 0–{architecture['max_router_lag']}",
-            transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5)
-
-    tcn_bounds = (0.26, 0.50, 0.245, 0.16)
-    box(ax, tcn_bounds[:2], tcn_bounds[2], tcn_bounds[3],
-        facecolor=SEMANTIC_TOKENS["TR_BLUE_LIGHT"], edgecolor=OI["blue"])
-    ax.scatter([0.29], [0.61], transform=ax.transAxes, marker="^", s=25,
-               facecolor=OI["blue"], edgecolor=OI["ink"], linewidth=0.6, zorder=5)
-    guarded_text(ax, tcn_bounds, "S3 TCN module", 0.3825, 0.62, "LEFT-LOOKING TCN",
-                 ha="center", va="center", fontsize=7.5, fontweight="bold",
-                 color=OI["blue"])
-    guarded_text(ax, tcn_bounds, "S3 TCN module", 0.3825, 0.575,
-                 f"{architecture['tcn_blocks']} blocks • kernel {architecture['tcn_kernel']}",
-                 ha="center", va="center", fontsize=7.5)
-    guarded_text(ax, tcn_bounds, "S3 TCN module", 0.3825, 0.535,
-                 f"receptive field {architecture['tcn_receptive_field']}",
-                 ha="center", va="center", fontsize=7.5)
-
-    box(ax, (0.27, 0.31), 0.21, 0.13, facecolor="#F9EAF3", edgecolor=OI["purple"])
-    ax.scatter([0.30], [0.39], transform=ax.transAxes, marker="s", s=21,
-               facecolor=OI["purple"], edgecolor=OI["ink"], linewidth=0.6, zorder=5)
-    ax.text(0.375, 0.405, "MIXTURE OF", transform=ax.transAxes, ha="center",
-            va="center", fontsize=7.5, fontweight="bold", color=OI["purple"])
-    ax.text(0.375, 0.37, "EXPERTS", transform=ax.transAxes, ha="center",
-            va="center", fontsize=7.5, fontweight="bold", color=OI["purple"])
-    ax.text(0.375, 0.335, "combined\nrepresentation", transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5, linespacing=1.0)
-
-    box(ax, (0.27, 0.14), 0.21, 0.12,
-        facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
-        edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.text(0.375, 0.22, "PROPOSAL P", transform=ax.transAxes, ha="center", va="center",
-            fontsize=7.8, fontweight="bold", color=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.text(0.375, 0.17, "learned relaxation κ", transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5)
-
-    arrow_axes(ax, (0.21, 0.77), (0.27, 0.78),
-               color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
-    arrow_axes(ax, (0.21, 0.68), (0.27, 0.58), color=OI["blue"], linewidth=1.0)
-    arrow_axes(ax, (0.375, 0.70), (0.375, 0.45),
-               color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
-    arrow_axes(ax, (0.43, 0.50), (0.43, 0.45), color=OI["blue"], linewidth=1.0)
-    arrow_axes(ax, (0.21, 0.60), (0.27, 0.20),
-               color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
-
-    # Three explicitly separate heads.
-    head_specs = [
-        (0.62, OI["blue"], SEMANTIC_TOKENS["TR_BLUE_LIGHT"],
-         "o", "POINT HEAD", "MSE residual r"),
-        (0.16, SEMANTIC_TOKENS["ALLOWED_TEAL"],
-         SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"], "^", "EVENT HEAD", "event score"),
+    # ---- modules --------------------------------------------------------
+    # (rect, key, edge, fill, hatch, marker, entries)
+    modules = [
+        (cell("inputs", 1, 2), "S3 inputs", OI["blue"], blue_light, None, None, [
+            (f"{len(variables)} VARIABLES\n"
+             f"+ {'MASK' if architecture['missingness_mask'] else 'NO MASK'}",
+             {**title, "color": OI["blue"]}),
+            (variable_lines, detail),
+            (f"{architecture['context_length']}-day buffer\nconstruction only\n"
+             "≠ effective\nmemory",
+             {**subtitle, "color": OI["vermillion"]}),
+        ]),
+        (cell("inputs", 3), "S3 wlevel", OI["vermillion"],
+         SEMANTIC_TOKENS["WARNING_LIGHT"], "///", ("X", OI["vermillion"]), [
+            ("WLEVEL", {**subtitle, "color": OI["vermillion"]}),
+            ("excluded", detail),
+        ]),
+        (Rect(columns["inputs"][0], band.y0, columns["inputs"][1], rows[4][1]),
+         "S3 anchor", OI["orange"], "#FFF7D1", None, None, [
+            (str(architecture["anchor_identity"]), {**title, "color": "#986900"}),
+            ("frozen damped-\npersistence anchor", detail),
+            ("fitted blend of\nlast y and\nclimatology", detail),
+        ]),
+        (cell("representation", 1), "S3 router", teal, teal_light, None, ("D", teal), [
+            ("SPARSE ROUTER", {**subtitle, "color": teal}),
+            (f"{len(variables)} variables\nlags 0–{architecture['max_router_lag']}",
+             detail),
+        ]),
+        (cell("representation", 2), "S3 tcn", OI["blue"], blue_light, None,
+         ("^", OI["blue"]), [
+            ("LEFT-LOOKING TCN", {**subtitle, "color": OI["blue"]}),
+            (f"{architecture['tcn_blocks']} blocks • kernel {architecture['tcn_kernel']}",
+             detail),
+            (f"receptive field {architecture['tcn_receptive_field']}", detail),
+        ]),
+        (cell("representation", 3), "S3 mixture", OI["purple"], purple_light, None,
+         ("s", OI["purple"]), [
+            ("MIXTURE OF\nEXPERTS", {**subtitle, "color": OI["purple"]}),
+            ("combined\nrepresentation", detail),
+        ]),
+        (cell("representation", 4), "S3 proposal", teal, teal_light, None, None, [
+            ("PROPOSAL P", {**subtitle, "color": teal}),
+            ("learned relaxation κ", detail),
+        ]),
+        (cell("heads", 1), "S3 event head", teal, teal_light, None, ("^", teal), [
+            ("EVENT HEAD", {**subtitle, "color": teal}),
+            ("event score", detail),
+        ]),
+        (cell("heads", 2, 3), "S3 quantile heads", OI["purple"], purple_light, None,
+         ("D", OI["purple"]), [
+            ("Q HEADS", {**subtitle, "color": OI["purple"]}),
+            (f"{quantile_labels[1]}: separate", detail),
+            ("anchor-bounded", detail),
+            (f"{quantile_labels[0]}/{quantile_labels[2]}: ± widths", detail),
+        ]),
+        (cell("heads", 4), "S3 point head", OI["blue"], blue_light, None,
+         ("o", OI["blue"]), [
+            ("POINT HEAD", {**subtitle, "color": OI["blue"]}),
+            ("MSE residual r", detail),
+        ]),
+        (cell("calibration", 1), "S3 platt", teal, teal_light, None, None, [
+            ("PLATT", {**title, "color": teal}),
+            (f"fit {calibration_period} only", detail),
+        ]),
+        (cell("calibration", 2), "S3 probability", teal, "white", None, None, [
+            ("CALIBRATED\nPROBABILITY", {**subtitle, "color": teal}),
+        ]),
+        (cell("calibration", 3), "S3 cqr", OI["purple"], purple_light, None, None, [
+            ("CQR", {**title, "color": OI["purple"]}),
+            ("member average", detail),
+            (f"fit {calibration_period} only", detail),
+        ]),
+        (cell("calibration", 4), "S3 interval", OI["purple"], "white", None, None, [
+            ("CALIBRATED\nINTERVAL", {**subtitle, "color": OI["purple"]}),
+        ]),
     ]
-    for y, color, face, marker, title, detail in head_specs:
-        box(ax, (0.56, y), 0.19, 0.14, facecolor=face, edgecolor=color)
-        ax.scatter([0.59], [y + 0.095], transform=ax.transAxes, marker=marker, s=22,
-                   facecolor=color, edgecolor=OI["ink"], linewidth=0.6, zorder=5)
-        ax.text(0.62, y + 0.095, title, transform=ax.transAxes, ha="left", va="center",
-                fontsize=7.5, fontweight="bold", color=color)
-        ax.text(0.655, y + 0.045, detail, transform=ax.transAxes, ha="center", va="center",
-                fontsize=7.5)
-    quantile_bounds = (0.545, 0.35, 0.225, 0.22)
-    box(ax, quantile_bounds[:2], quantile_bounds[2], quantile_bounds[3],
-        facecolor="#F9EAF3", edgecolor=OI["purple"])
-    ax.scatter([0.575], [0.53], transform=ax.transAxes, marker="D", s=22,
-               facecolor=OI["purple"], edgecolor=OI["ink"], linewidth=0.6, zorder=5)
-    ax.text(0.605, 0.53, "Q HEADS", transform=ax.transAxes, ha="left", va="center",
-            fontsize=7.5, fontweight="bold", color=OI["purple"])
-    guarded_text(ax, quantile_bounds, "S3 quantile module", 0.6575, 0.485,
-                 f"{quantile_labels[1]}: separate", ha="center", va="center", fontsize=7.5)
-    guarded_text(ax, quantile_bounds, "S3 quantile module", 0.6575, 0.44,
-                 "anchor-bounded", ha="center", va="center", fontsize=7.5)
-    guarded_text(ax, quantile_bounds, "S3 quantile module", 0.6575, 0.395,
-                 f"{quantile_labels[0]}/{quantile_labels[2]}: ± widths",
-                 ha="center", va="center", fontsize=7.5)
-    arrow_axes(ax, (0.48, 0.39), (0.56, 0.69), color=OI["blue"], linewidth=1.0)
-    arrow_axes(ax, (0.48, 0.38), (0.56, 0.47), color=OI["purple"], linewidth=1.0)
-    arrow_axes(ax, (0.48, 0.37), (0.56, 0.26),
-               color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
+    for rect, key, edge, fill, hatch, marker, entries in modules:
+        register_module(ax, key, rect)
+        box(ax, rect, facecolor=fill, edgecolor=edge, hatch=hatch,
+            flag=hatch is not None, linewidth=1.0)
+        if marker is not None:
+            shape, marker_color = marker
+            ax.scatter([rect.x0 + (0.050 if hatch else 0.022)], [rect.y1 - 0.024],
+                       transform=ax.transAxes, marker=shape, s=20,
+                       facecolor=marker_color, edgecolor=OI["ink"], linewidth=0.6,
+                       zorder=5)
+        # 0.036 of the axes is about 5 mm: comfortable leading, and it stops the
+        # tall anchor and output modules from scattering three lines over 55 mm.
+        stack_entries(ax, rect, key, entries, max_step=0.036)
 
-    # Anchor-bound point identity, with the bounded-correction tanh schematic
-    # relocated here from Figure 1(b) on 2026-08-06: the damped anchor line A,
-    # the shaded A+/-delta envelope, and the in-panel non-safety warning.
-    formula_bounds = (0.48, 0.76, 0.50, 0.195)
-    box(ax, formula_bounds[:2], formula_bounds[2], formula_bounds[3],
-        facecolor="white", edgecolor=OI["blue"],
-        linewidth=1.0)
-    tanh_ax = ax.inset_axes([0.495, 0.855, 0.155, 0.100])
+    # ---- the anchor-bounded point identity ------------------------------
+    # Relocated from Figure 1(b) on 2026-08-06 and kept here: the damped anchor
+    # line A, the shaded A+/-delta envelope, and the in-panel non-safety
+    # warning.  It now has a band of its own instead of a box overlapping the
+    # head modules.
+    register_module(ax, "S3 identity band", band)
+    box(ax, band, facecolor="white", edgecolor=OI["blue"], linewidth=1.0)
+    ax.text(band.x0 + 0.016, band.y1 - 0.026, "ANCHOR-BOUNDED POINT IDENTITY",
+            transform=ax.transAxes, ha="left", va="center", fontsize=7.5,
+            fontweight="bold", color=OI["blue"])
+
+    tanh_ax = ax.inset_axes([0.330, 0.108, 0.150, 0.150])
     tz = np.linspace(-3.0, 3.0, 301)
-    tanh_ax.axhspan(-1, 1, facecolor=SEMANTIC_TOKENS["TR_BLUE_LIGHT"], alpha=0.55,
+    tanh_ax.axhspan(-1, 1, facecolor=blue_light, alpha=0.55,
                     hatch="//", edgecolor=SEMANTIC_TOKENS["TR_BLUE"])
     tanh_ax.axhline(1, color=SEMANTIC_TOKENS["TR_BLUE"], linestyle=(0, (4, 2)), linewidth=0.9)
     tanh_ax.axhline(-1, color=SEMANTIC_TOKENS["TR_BLUE"], linestyle=(0, (4, 2)), linewidth=0.9)
     tanh_ax.axhline(0, color=OI["mid"], linewidth=0.65)
-    tanh_ax.plot(tz, np.tanh(tz), color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=2.0)
+    tanh_ax.plot(tz, np.tanh(tz), color=teal, linewidth=1.8)
     tanh_ax.scatter([0], [0], s=14, marker="D", facecolor="white",
-                    edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=0.6, zorder=4)
+                    edgecolor=teal, linewidth=0.6, zorder=4)
     tanh_ax.set_xlim(-3, 3)
     tanh_ax.set_ylim(-1.24, 1.24)
     tanh_ax.set_xticks([-2, 0, 2])
-    tanh_ax.set_yticks([-1, 0, 1], ["A\u2212\u03b4", "A", "A+\u03b4"])
-    tanh_ax.text(0.97, 0.04, "z/\u03b4", transform=tanh_ax.transAxes, fontsize=7.5,
-                 color=OI["mid"], ha="right", va="bottom")
+    tanh_ax.set_yticks([-1, 0, 1], ["A−δ", "A", "A+δ"])
+    tanh_ax.set_xlabel("z/δ", labelpad=1.0, fontsize=7.5, color=OI["mid"])
     tanh_ax.spines[["top", "right"]].set_visible(False)
     tanh_ax.tick_params(length=2.0, width=0.6, color=OI["mid"], labelsize=7.5)
-    right_bounds = (0.665, 0.855, 0.315, 0.100)
-    guarded_text(ax, right_bounds, "S3 anchor-bound formula", 0.8225, 0.921,
-                 "\u0177 = A + \u03b4 tanh(z/\u03b4)", ha="center", va="center", fontsize=7.5)
-    guarded_text(ax, right_bounds, "S3 anchor-bound formula", 0.8225, 0.887,
-                 f"z = P \u2212 A + r  \u2022  \u03b4 = {architecture['delta_scale']:.1f} \u00b0C",
-                 ha="center", va="center", fontsize=7.5)
-    warning_bounds = (0.495, 0.76, 0.485, 0.090)
-    guarded_text(ax, warning_bounds, "S3 non-safety bound", 0.7375, 0.805,
-                 "Deviation from anchor;\nnot an error or safety bound",
-                 ha="center", va="center", fontsize=7.5, fontweight="bold",
-                 color=OI["vermillion"], linespacing=1.0)
-    arrow_axes(ax, (0.655, 0.76), (0.655, 0.78), color=OI["blue"], linewidth=1.0)
 
-    # Anchor and learned proposal lanes merge into the point identity. Curved
-    # connectors sit behind modules so no line crosses text.
-    for start, color, rad in [((0.21, 0.20), OI["orange"], -0.25),
-                              ((0.48, 0.20), SEMANTIC_TOKENS["ALLOWED_TEAL"], -0.15)]:
-        ax.add_patch(FancyArrowPatch(start, (0.58, 0.80), transform=ax.transAxes,
-                                     arrowstyle="-|>", mutation_scale=8,
-                                     connectionstyle=f"arc3,rad={rad}", linewidth=1.0,
-                                     color=color, clip_on=False, zorder=0.5))
+    identity_rect = Rect(0.500, band.y0 + 0.020, band.x1 - 0.014, band.y1 - 0.050)
+    stack_entries(ax, identity_rect, "S3 identity", [
+        ("ŷ = A + δ tanh(z/δ)", {"fontsize": 7.5}),
+        (f"z = P − A + r  •  δ = {architecture['delta_scale']:.1f} °C",
+         {"fontsize": 7.5}),
+        ("Deviation from anchor;\nnot an error or safety bound",
+         {**subtitle, "color": OI["vermillion"]}),
+    ], inset_x=0.004, inset_y=0.004)
 
-    box(ax, (0.80, 0.40), 0.18, 0.17, facecolor="#F9EAF3", edgecolor=OI["purple"])
-    ax.text(0.89, 0.525, "CQR", transform=ax.transAxes, ha="center", va="center",
-            fontsize=8.0, fontweight="bold", color=OI["purple"])
-    ax.text(0.89, 0.48, "member average", transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5)
-    ax.text(0.89, 0.435, f"fit {architecture['calibration_display']} only", transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5)
-    arrow_axes(ax, (0.77, 0.47), (0.80, 0.47), color=OI["purple"], linewidth=1.0)
-    interval_bounds = (0.80, 0.30, 0.18, 0.085)
-    ax.add_patch(Rectangle(interval_bounds[:2], interval_bounds[2], interval_bounds[3],
-                           transform=ax.transAxes, facecolor="white",
-                           edgecolor=OI["purple"], linewidth=0.9))
-    guarded_text(ax, interval_bounds, "S3 final interval", 0.89, 0.343,
-                 "CALIBRATED\nINTERVAL", ha="center", va="center", fontsize=7.5,
-                 fontweight="bold", color=OI["purple"], linespacing=0.95)
-    arrow_axes(ax, (0.89, 0.40), (0.89, 0.375), color=OI["purple"], linewidth=1.0)
+    # ---- connectors -----------------------------------------------------
+    # Every route below either joins two facing edges or travels inside a
+    # gutter.  The single crossing -- the router's descent past the input-to-TCN
+    # feed -- is unavoidable for a parallel merge and crosses a line, not a box.
+    input_rect = cell("inputs", 1, 2)
+    router_rect = cell("representation", 1)
+    tcn_rect = cell("representation", 2)
+    mixture_rect = cell("representation", 3)
+    proposal_rect = cell("representation", 4)
+    event_rect = cell("heads", 1)
+    quantile_rect = cell("heads", 2, 3)
+    point_rect = cell("heads", 4)
+    platt_rect = cell("calibration", 1)
+    probability_rect = cell("calibration", 2)
+    cqr_rect = cell("calibration", 3)
+    interval_rect = cell("calibration", 4)
+    anchor_rect = Rect(columns["inputs"][0], band.y0, columns["inputs"][1], rows[4][1])
 
-    box(ax, (0.80, 0.17), 0.18, 0.12,
-        facecolor=SEMANTIC_TOKENS["ALLOWED_TEAL_LIGHT"],
-        edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.text(0.89, 0.255, "PLATT", transform=ax.transAxes, ha="center", va="center",
-            fontsize=8.0, fontweight="bold", color=SEMANTIC_TOKENS["ALLOWED_TEAL"])
-    ax.text(0.89, 0.205, f"fit {architecture['calibration_display']} only", transform=ax.transAxes,
-            ha="center", va="center", fontsize=7.5)
-    arrow_axes(ax, (0.75, 0.225), (0.80, 0.225),
-               color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
-    probability_bounds = (0.80, 0.07, 0.18, 0.085)
-    ax.add_patch(Rectangle(probability_bounds[:2], probability_bounds[2], probability_bounds[3],
-                           transform=ax.transAxes, facecolor="white",
-                           edgecolor=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=0.9))
-    guarded_text(ax, probability_bounds, "S3 final probability", 0.89, 0.113,
-                 "CALIBRATED\nPROBABILITY", ha="center", va="center", fontsize=7.5,
-                 fontweight="bold", color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linespacing=0.95)
-    arrow_axes(ax, (0.89, 0.17), (0.89, 0.145),
-               color=SEMANTIC_TOKENS["ALLOWED_TEAL"], linewidth=1.0)
+    arrow_axes(ax, (input_rect.x1, row_centre(1)), (router_rect.x0, row_centre(1)),
+               color=OI["blue"])
+    arrow_axes(ax, (input_rect.x1, row_centre(2)), (tcn_rect.x0, row_centre(2)),
+               color=OI["blue"])
+    # Router and TCN are parallel branches; the router reaches the mixture down
+    # the inputs/representation gutter rather than through the TCN box.
+    arrow_axes(ax, (router_rect.x0, router_rect.y0 + 0.030),
+               (mixture_rect.x0, mixture_rect.cy), color=teal,
+               waypoints=[(gutter_ab, router_rect.y0 + 0.030),
+                          (gutter_ab, mixture_rect.cy)])
+    arrow_axes(ax, (tcn_rect.cx, tcn_rect.y0), (mixture_rect.cx, mixture_rect.y1),
+               color=OI["blue"])
+    arrow_axes(ax, (mixture_rect.cx, mixture_rect.y0), (proposal_rect.cx, proposal_rect.y1),
+               color=OI["purple"])
+    for target, color in ((event_rect, teal), (quantile_rect, OI["purple"]),
+                          (point_rect, OI["blue"])):
+        arrow_axes(ax, (mixture_rect.x1, mixture_rect.cy), (target.x0, target.cy),
+                   color=color)
+    arrow_axes(ax, (event_rect.x1, event_rect.cy), (platt_rect.x0, platt_rect.cy),
+               color=teal)
+    arrow_axes(ax, (platt_rect.cx, platt_rect.y0), (probability_rect.cx, probability_rect.y1),
+               color=teal)
+    arrow_axes(ax, (quantile_rect.x1, cqr_rect.cy), (cqr_rect.x0, cqr_rect.cy),
+               color=OI["purple"])
+    arrow_axes(ax, (cqr_rect.cx, cqr_rect.y0), (interval_rect.cx, interval_rect.y1),
+               color=OI["purple"])
+    # Anchor A, proposal P and the point residual r are the three terms of the
+    # identity; each enters the band from the module directly beside or above it.
+    arrow_axes(ax, (anchor_rect.x1, band.cy), (band.x0, band.cy), color=OI["orange"])
+    arrow_axes(ax, (proposal_rect.cx, proposal_rect.y0), (proposal_rect.cx, band.y1),
+               color=teal)
+    arrow_axes(ax, (point_rect.cx, point_rect.y0), (point_rect.cx, band.y1),
+               color=OI["blue"])
 
-    box(ax, (0.02, 0.008), 0.72, 0.055, facecolor="#F3F3F3", edgecolor=OI["mid"],
-        radius=0.008, linewidth=0.7)
-    ax.text(0.38, 0.035, "κ / router: internal allocations ≠ physical routing",
+    box(ax, footer, facecolor="#F3F3F3", edgecolor=OI["mid"], radius=0.006,
+        linewidth=0.7)
+    ax.text(footer.cx, footer.cy, "κ / router: internal allocations ≠ physical routing",
             transform=ax.transAxes, ha="center", va="center", fontsize=7.5,
             fontweight="bold", color=OI["ink"])
 
@@ -2219,7 +2534,7 @@ def write_manifest(
 
     figure_specs = {
         "FigS1": {
-            "path": HERE / "figS1_cohort_registry.svg", "height_mm": 156,
+            "path": HERE / "figS1_cohort_registry.svg", "height_mm": 152,
             "description": "four-panel cohort ledger, coordinate/HUC2 display, bars, and audit",
             "source_keys": ["registry", "panel", "rejection_ledger", "environmental_audit",
                             "marker_projection", "redraw_specification",
@@ -2241,7 +2556,7 @@ def write_manifest(
             "scope_status_value_id": "figs1.scope_status",
         },
         "FigS2": {
-            "path": HERE / "figS2_information_boundary.svg", "height_mm": 182,
+            "path": HERE / "figS2_information_boundary.svg", "height_mm": 170,
             "description": "four-panel chronology, issue boundary, source matrix, and bridge limits",
             "source_keys": ["protocol", "configuration_source", "bridge_manifest",
                             "bridge_report", "bridge_request_map", "bridge_panel",
@@ -2280,7 +2595,7 @@ def write_manifest(
             "scope_status_value_id": "figs2.scope_status",
         },
         "FigS3": {
-            "path": HERE / "figS3_model_architecture.svg", "height_mm": 122,
+            "path": HERE / "figS3_model_architecture.svg", "height_mm": 148,
             "description": "four-column PRE model, bound, heads, and calibration dataflow",
             "source_keys": ["protocol", "calibration_erratum", "configuration_source",
                             "model_suite_source", "model_source", "anchor_source",
@@ -2341,7 +2656,7 @@ def write_manifest(
         artifacts["SVG"]["vector"] = True
         artifacts["PDF"]["vector"] = True
         artifacts["PDF"]["font_embedding"] = "TrueType (Matplotlib pdf.fonttype=42)"
-        artifacts["PNG"]["dpi"] = 300
+        artifacts["PNG"]["dpi"] = PNG_DPI
         marks = spec["marks"]
         panels = {
             panel_id: {"marks": [item for item in marks if item["panel_id"] == panel_id]}
@@ -2364,7 +2679,7 @@ def write_manifest(
             "caption_value_ids": spec["caption_value_ids"],
             "scope_status_value_id": spec["scope_status_value_id"],
             "render_profile": {
-                "placed_width_mm": 140,
+                "placed_width_mm": round(figstyle.FULL_MM, 1),
                 "placed_height_mm": spec["height_mm"],
                 "background": "white",
                 "minimum_nominal_text_pt": min(font_sizes),
@@ -2373,10 +2688,10 @@ def write_manifest(
                     "paper/FIGURE_REDRAW_SPEC.md#3.1-Semantic-palette",
                 "svg_accessibility": "role=img; aria-labelledby=svg-title svg-desc",
                 "pdf_fonttype": 42,
-                "png_dpi": 300,
+                "png_dpi": PNG_DPI,
             },
             "artifacts": artifacts,
-            "width_mm": 140,
+            "width_mm": round(figstyle.FULL_MM, 1),
             "height_mm": spec["height_mm"],
             "white_background": True,
             "svg_xml_well_formed": True,

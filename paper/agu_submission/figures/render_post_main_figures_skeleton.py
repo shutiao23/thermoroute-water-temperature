@@ -150,8 +150,13 @@ EVIDENCE_ROOT_ENV = "THERMOROUTE_FIGURE_EVIDENCE_ROOT"
 # the 170 mm double-column maximum and 95 mm exceeds the 85 mm single-column
 # maximum.  Do not reintroduce them.
 # --------------------------------------------------------------------------
+# Full width is 139.7 mm, not 140: the AGU class sets \textwidth to 5.5 in =
+# 397.48 TeX pt, so a 140 mm figure overshoots by 0.30 mm and makes pdflatex
+# emit an Overfull \hbox of 0.85 pt for every figure, burying real warnings.
+# These duplicate paper/figstyle.py because the shared module is imported far
+# below (it needs sys.path set up first); the values are asserted equal there.
 SINGLE_COLUMN_MM = 85.0
-FULL_WIDTH_MM = 140.0
+FULL_WIDTH_MM = 139.7
 MAX_HEIGHT_MM = 228.0
 MIN_BODY_PT = 8.0
 MIN_ABSOLUTE_PT = 7.5
@@ -1143,13 +1148,39 @@ def print_status(roots: Roots) -> int:
 # invented coordinates.
 # ===========================================================================
 import json as _json
+import textwrap as _tw
 
 import numpy as _np
 import pandas as _pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as _plt
+from matplotlib.patches import Patch as _Patch
 from matplotlib.patches import Rectangle as _Rectangle
+from matplotlib.text import Text as _Text
+from matplotlib.transforms import Bbox as _Bbox
+
+# ---------------------------------------------------------------------------
+# Shared WRR style.  paper/figstyle.py is the single authority for typeface,
+# type sizes, palette, figure widths, colorbar placement, and the text-overlap
+# gate that every save must pass.  It lives one level above this package, so the
+# paper directory goes on sys.path before the import.
+# ---------------------------------------------------------------------------
+_PAPER_DIR = str(Path(__file__).resolve().parents[2])
+if _PAPER_DIR not in sys.path:
+    sys.path.insert(0, _PAPER_DIR)
+import figstyle  # noqa: E402
+
+# The width constants above are declared before this import can run, so assert
+# they still agree with the shared authority rather than letting them drift.
+if (SINGLE_COLUMN_MM, FULL_WIDTH_MM, MAX_HEIGHT_MM) != (
+    figstyle.SINGLE_MM, figstyle.FULL_MM, figstyle.MAX_HEIGHT_MM
+):
+    raise ValueError(
+        "figure widths disagree with paper/figstyle.py: "
+        f"{(SINGLE_COLUMN_MM, FULL_WIDTH_MM, MAX_HEIGHT_MM)} vs "
+        f"{(figstyle.SINGLE_MM, figstyle.FULL_MM, figstyle.MAX_HEIGHT_MM)}"
+    )
 
 CONV_CSV = "outputs/conventional/holdout_metrics_2021_2023.csv"
 CONV_JSON = "outputs/conventional/holdout_summary_2021_2023.json"
@@ -1173,26 +1204,28 @@ BASELINE_MODELS_CONV = (
 ALL_MODELS_CONV = BASELINE_MODELS_CONV + ("LightGBM", "LSTM", "ThermoRoute") \
     + ABLATION_MODELS_CONV + EXT_MODELS_CONV
 
-# (colour, marker, linestyle).  Colour is Okabe-Ito derived (colourblind-safe);
-# every series also varies marker shape and/or dash so each panel survives a
-# grayscale check.  No result is encoded by colour alone.
+# (colour, marker, linestyle).  Colour comes from figstyle.SERIES so a model
+# keeps one identity across every figure in the submission; the ablation and
+# external variants borrow from the same Wong palette.  Every series also varies
+# marker shape and/or dash, so no result is encoded by colour alone and each
+# panel survives a grayscale check.
 MODEL_STYLE_CONV = {
-    "ThermoRoute":       ("#0072B2", "o", "-"),
-    "LightGBM":          ("#CC79A7", "s", "-"),
-    "LSTM":              ("#009E73", "^", "-"),
-    "Persistence":       ("#777777", "D", (0, (4, 2))),
-    "DampedPersistence": ("#E69F00", "v", (0, (4, 2))),
-    "Climatology":       ("#B8B8B8", "P", (0, (1, 2))),
-    "DampedPriorOnly":   ("#E69F00", "v", (0, (1, 2))),
-    "TR-noTCN":          ("#008C7A", "o", (0, (5, 2))),
-    "TR-noMoE":          ("#56B4E9", "s", (0, (5, 2))),
-    "TR-noRouter":       ("#0072B2", "^", (0, (5, 2))),
-    "TR-noDynamicPrior": ("#009E73", "D", (0, (5, 2))),
-    "TR-fixedKappa":     ("#CC79A7", "v", (0, (5, 2))),
-    "TR-unbounded":      ("#D55E00", "P", (0, (5, 2))),
-    "ThermoRoute-ext":   ("#0072B2", "o", (0, (2, 2))),
-    "LSTM-ext":          ("#009E73", "^", (0, (2, 2))),
-    "LightGBM-ext":      ("#CC79A7", "s", (0, (2, 2))),
+    "ThermoRoute":       (figstyle.SERIES["ThermoRoute"], "o", "-"),
+    "LightGBM":          (figstyle.SERIES["LightGBM"], "s", "-"),
+    "LSTM":              (figstyle.SERIES["LSTM"], "^", "-"),
+    "Persistence":       (figstyle.SERIES["Persistence"], "D", (0, (4, 2))),
+    "DampedPersistence": (figstyle.SERIES["DampedPersistence"], "v", (0, (4, 2))),
+    "Climatology":       (figstyle.SERIES["Climatology"], "P", (0, (1, 2))),
+    "DampedPriorOnly":   (figstyle.SERIES["DampedPersistence"], "v", (0, (1, 2))),
+    "TR-noTCN":          (figstyle.WONG["green"], "o", (0, (5, 2))),
+    "TR-noMoE":          (figstyle.WONG["sky"], "s", (0, (5, 2))),
+    "TR-noRouter":       (figstyle.WONG["blue"], "^", (0, (5, 2))),
+    "TR-noDynamicPrior": (figstyle.WONG["purple"], "D", (0, (5, 2))),
+    "TR-fixedKappa":     (figstyle.WONG["orange"], "v", (0, (5, 2))),
+    "TR-unbounded":      (figstyle.WONG["vermillion"], "P", (0, (5, 2))),
+    "ThermoRoute-ext":   (figstyle.SERIES["ThermoRoute"], "o", (0, (2, 2))),
+    "LSTM-ext":          (figstyle.SERIES["LSTM"], "^", (0, (2, 2))),
+    "LightGBM-ext":      (figstyle.SERIES["LightGBM"], "s", (0, (2, 2))),
 }
 MODEL_LABEL_CONV = {
     "ThermoRoute": "ThermoRoute", "LightGBM": "LightGBM", "LSTM": "global LSTM",
@@ -1203,22 +1236,27 @@ MODEL_LABEL_CONV = {
     "TR-unbounded": "TR-unbounded", "ThermoRoute-ext": "ThermoRoute-ext",
     "LSTM-ext": "LSTM-ext", "LightGBM-ext": "LightGBM-ext",
 }
-
-
-def _mm(value: float) -> float:
-    return value / 25.4
+# Short forms used for direct end-of-line labelling, where a legend would
+# otherwise have to sit on top of the data.  Expanded in the figure footnote.
+MODEL_TAG_CONV = {
+    "ThermoRoute": "ThermoRoute", "LightGBM": "LightGBM", "LSTM": "LSTM",
+    "Persistence": "Persistence", "DampedPersistence": "Damped",
+    "Climatology": "Climatology",
+}
 
 
 def _conventional_rcparams() -> None:
-    _plt.rcParams.update({
-        "font.size": 8.0, "axes.titlesize": 8.5, "axes.titleweight": "bold",
-        "axes.labelsize": 8.0, "xtick.labelsize": 7.5,
-        "ytick.labelsize": 7.5, "legend.fontsize": 7.0,
-        "axes.spines.top": False, "axes.spines.right": False,
-        "pdf.fonttype": 42, "ps.fonttype": 42, "svg.fonttype": "none",
-        "savefig.dpi": 300, "figure.dpi": 120, "axes.grid": False,
-        "grid.alpha": 0.25, "lines.linewidth": 1.3,
-    })
+    """Apply the shared submission style.
+
+    Everything this used to set by hand -- typeface chain, the 8 pt / 7.5 pt
+    ladder, ``pdf.fonttype 42``, the spines -- now comes from ``paper/figstyle``,
+    which also turns constrained layout on.  Constrained layout is the actual
+    fix for most of the collisions this renderer used to produce: it reserves
+    space for titles, colorbars and figure-level text instead of leaving them to
+    hand-tuned ``left/right/top/bottom`` fractions that drift whenever a label
+    changes length.
+    """
+    figstyle.use()
 
 
 def load_conventional(roots: Roots):
@@ -1266,143 +1304,398 @@ def _skill_vs(metrics, candidate, reference, horizon):
         metrics[reference][horizon]["RMSE"]
 
 
+RENDER_LOG: list[dict[str, object]] = []
+
+
+def _min_type_size(fig, floor_pt: float = MIN_ABSOLUTE_PT) -> float:
+    """Return the smallest type size actually drawn, refusing below the floor.
+
+    ``figstyle.check_overlaps`` only sees text that belongs to an axes or to the
+    figure; this walks every ``Text`` in the tree, so legend entries and the
+    ruled pseudo-tables are covered too.  Nothing may be smaller than 7.5 pt at
+    final size, and final size is authored size because every figure is saved at
+    its exact millimetre width with no tight bounding box.
+    """
+    fig.canvas.draw()
+    sizes = []
+    offenders = []
+    for artist in fig.findobj(_Text):
+        if not artist.get_visible() or not artist.get_text().strip():
+            continue
+        size = float(artist.get_fontsize())
+        sizes.append(size)
+        if size < floor_pt - 1e-6:
+            offenders.append((artist.get_text()[:32], round(size, 2)))
+    if offenders:
+        raise ValueError(
+            f"type below the {floor_pt} pt floor: {sorted(set(offenders))[:8]}")
+    return min(sizes) if sizes else float("nan")
+
+
+def _assert_on_page(fig, tolerance_px: float = 1.0) -> None:
+    """Refuse a figure whose text runs off the page.
+
+    ``figstyle.check_overlaps`` catches text landing on text; it cannot catch
+    text landing on nothing because it left the canvas.  A ``supxlabel`` is the
+    usual culprit -- constrained layout reserves a strip for it but never
+    shortens it -- and a note that runs out of both margins reads as a broken
+    figure, not a busy one.
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    page = fig.bbox
+    spills = []
+    # Deliberately not ``findobj``: matplotlib keeps tick-label artists for
+    # locator ticks that fall outside the view limits, parked off-canvas and
+    # never drawn.  They are not a spill.  The artists that can genuinely leave
+    # the page are the figure-level and axes-level ones placed by hand.
+    artists = list(fig.texts)
+    for ax in fig.axes:
+        artists.extend(ax.texts)
+        artists.extend([ax.title, ax.xaxis.label, ax.yaxis.label])
+        legend = ax.get_legend()
+        if legend is not None:
+            artists.extend(legend.get_texts())
+    for artist in artists:
+        if not artist.get_visible() or not artist.get_text().strip():
+            continue
+        box = artist.get_window_extent(renderer)
+        if (box.x0 < page.x0 - tolerance_px or box.x1 > page.x1 + tolerance_px
+                or box.y0 < page.y0 - tolerance_px
+                or box.y1 > page.y1 + tolerance_px):
+            spills.append(artist.get_text()[:32])
+    if spills:
+        raise ValueError(f"text runs off the page: {sorted(set(spills))[:6]}")
+
+
 def _save_conventional(fig, stem, out_dir: Path) -> None:
-    # Save at the exact authored figure size (no bbox_inches="tight"): tight
-    # bbox expands beyond the AGU target when labels/annotations spill, which
-    # would scale type below the 7.5 pt floor at placed size.  Margins are set
-    # per figure so labels stay inside the box without clipping.
-    for ext in ("pdf", "png", "svg"):
-        fig.savefig(out_dir / f"{stem}.{ext}", dpi=300)
+    """Save at the exact authored size, refusing on collisions or small type.
+
+    No ``bbox_inches='tight'``: a tight bbox grows the figure past the AGU
+    target whenever a label spills, and the production rescale back to the
+    column width then drops 7.5 pt type below the floor.  Constrained layout has
+    already fitted everything inside the authored box, so the box is what ships.
+    ``figstyle.save`` raises if any two text artists still overlap.
+    """
+    width_mm, height_mm = (v * 25.4 for v in fig.get_size_inches())
+    smallest = _min_type_size(fig)
+    _assert_on_page(fig)
+    figstyle.save(fig, stem, out_dir)
     _plt.close(fig)
-    print(f"wrote {stem}.pdf/.png/.svg", flush=True)
+    RENDER_LOG.append({"stem": stem, "width_mm": round(width_mm, 1),
+                       "height_mm": round(height_mm, 1),
+                       "min_pt": round(smallest, 2)})
+    print(f"wrote {stem}.pdf/.png/.svg  "
+          f"{width_mm:.0f} x {height_mm:.0f} mm  min type {smallest:.1f} pt",
+          flush=True)
 
 
 def _style(model):
-    return MODEL_STYLE_CONV.get(model, ("#202020", "o", "-"))
+    return MODEL_STYLE_CONV.get(model, (PALETTE["NEUTRAL_INK"], "o", "-"))
 
 
 def _panel_label(ax, text):
-    ax.set_title(text, loc="left", fontweight="bold", fontsize=9.0)
+    """Bold panel label and short title in one string, left-aligned above the axes.
+
+    Kept short on purpose: a long ``loc='left'`` title overruns its own axes and
+    lands on the neighbouring panel's title, which is not something constrained
+    layout can undo.  Anything longer belongs in the axis label or the caption.
+    """
+    ax.set_title(text, loc="left", fontweight="bold", fontsize=PANEL_LABEL_PT_RANGE[0])
+
+
+def _grid(ax, axis="y"):
+    ax.grid(axis=axis, color=figstyle.GRID, linewidth=0.4, zorder=0)
+    ax.set_axisbelow(True)
+
+
+def _spread(values, height, lo, hi):
+    """Push 1-D label centres apart so no two boxes of ``height`` can overlap."""
+    out = list(values)
+    prev = None
+    for i in sorted(range(len(out)), key=lambda k: out[k]):
+        out[i] = out[i] if prev is None else max(out[i], prev + height)
+        prev = out[i]
+    overflow = (max(out) + height / 2.0) - hi
+    if overflow > 0:
+        out = [v - overflow for v in out]
+    return out
+
+
+def _direct_labels(ax, entries, x_end, *, fontsize=MIN_ABSOLUTE_PT,
+                   pad_pt=4.0, gap_pt=1.5):
+    """Label each series at its right-hand end instead of drawing a legend.
+
+    A legend inside a small panel either covers data or is squeezed below the
+    type floor; both were true of the previous draft.  Direct labels remove the
+    choice.  Room for them is taken out of the x range after measuring the
+    widest label, and the label centres are pushed apart in display space, so
+    coincident series (LightGBM and the LSTM are equal to three decimals at
+    7 days) still read as two labels rather than one smear.
+
+    ``entries`` is ``[(y_value, text, colour), ...]`` at ``x_end``.
+    """
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    texts = [ax.text(x_end, y, label, color=colour, fontsize=fontsize,
+                     va="center", ha="left", clip_on=False)
+             for y, label, colour in entries]
+    fig.canvas.draw()
+    boxes = [t.get_window_extent(renderer) for t in texts]
+    axis_box = ax.get_window_extent(renderer)
+    pad_px = pad_pt * fig.dpi / 72.0
+    needed = max(b.width for b in boxes) + pad_px
+    if axis_box.width - needed <= 0.35 * axis_box.width:
+        raise ValueError("direct labels would take more than the panel can give")
+    x0, x1 = ax.get_xlim()
+    ax.set_xlim(x0, x0 + (x1 - x0) * axis_box.width / (axis_box.width - needed))
+    fig.canvas.draw()
+
+    axis_box = ax.get_window_extent(renderer)
+    step = max(b.height for b in boxes) + gap_pt * fig.dpi / 72.0
+    centres = _spread([ax.transData.transform((x_end, y))[1] for y, _, _ in entries],
+                      step, axis_box.y0, axis_box.y1)
+    inverse = ax.transData.inverted()
+    span = ax.get_xlim()[1] - ax.get_xlim()[0]
+    pad_data = pad_px * span / axis_box.width
+    for text, centre, (y_true, _, colour) in zip(texts, centres, entries):
+        y_label = inverse.transform((0, centre))[1]
+        text.set_position((x_end + pad_data, y_label))
+        # A label pushed clear of its own series needs a leader, or the reader
+        # attributes it to whichever line it drifted next to.
+        if abs(centre - ax.transData.transform((x_end, y_true))[1]) > 2.0:
+            ax.plot([x_end + 0.18 * pad_data, x_end + 0.82 * pad_data],
+                    [y_true, y_label], color=colour, lw=0.4, clip_on=False,
+                    solid_capstyle="butt", zorder=1)
+    return texts
+
+
+def _text_table(ax, headers, rows, col_x, *, fontsize=MIN_ABSOLUTE_PT,
+                top=0.95, bottom=0.06, stripe=True):
+    """Draw a small ruled table out of ordinary text artists.
+
+    ``matplotlib.table.Table`` neither wraps nor reports its cell text to
+    ``figstyle.check_overlaps``, so a cell that outgrows its column overflows
+    silently.  Building the table from text artists puts every string under the
+    same collision gate as the rest of the figure, and lets a cell carry
+    pre-wrapped multi-line content whose height the row honours.
+    """
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    # Clear the ticks before switching the axis off.  ``axis("off")`` only stops
+    # the axis being drawn; the tick-label artists survive with visible=True and
+    # are still counted by the overlap gate, which then reports a collision
+    # against invisible "0.0 ... 1.0" labels nobody can see.
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis("off")
+    row_lines = [max(cell.count("\n") + 1 for cell in row) for row in rows]
+    units = 1.0 + 0.45 + sum(row_lines) + 0.35 * max(len(rows) - 1, 0)
+    step = (top - bottom) / units
+    cursor = top
+    for x, head in zip(col_x, headers):
+        ax.text(x, cursor, head, transform=ax.transAxes, va="top", ha="left",
+                fontsize=fontsize, fontweight="bold", color=PALETTE["NEUTRAL_INK"])
+    cursor -= step
+    ax.axhline(cursor + 0.22 * step, xmin=col_x[0], xmax=0.99,
+               color=figstyle.RULE, linewidth=0.6)
+    cursor -= 0.45 * step
+    for index, (row, lines) in enumerate(zip(rows, row_lines)):
+        if stripe and index % 2 == 0:
+            ax.add_patch(_Rectangle(
+                (col_x[0] - 0.02, cursor - lines * step), 1.01 - col_x[0],
+                lines * step, transform=ax.transAxes, zorder=0,
+                facecolor=PALETTE["NA_FILL"], edgecolor="none"))
+        for x, cell in zip(col_x, row):
+            ax.text(x, cursor - 0.12 * step, cell, transform=ax.transAxes,
+                    va="top", ha="left", fontsize=fontsize,
+                    color=PALETTE["NEUTRAL_INK"], linespacing=1.35)
+        cursor -= lines * step + 0.35 * step
+    return cursor
+
+
+def _fig_note(fig, text, *, fontsize=MIN_ABSOLUTE_PT, start=96):
+    """Attach a figure-level note, wrapped to the figure's own width.
+
+    ``fig.supxlabel`` neither wraps nor is shrunk by constrained layout, so a
+    long note simply runs off both edges of the page -- which is what the first
+    draft of this renderer shipped.  Wrap, measure, and narrow until it fits.
+    """
+    words = " ".join(text.split())
+    note = None
+    for columns in range(start, 39, -6):
+        note = fig.supxlabel("\n".join(_tw.wrap(words, columns)),
+                             fontsize=fontsize, color=figstyle.MUTED,
+                             linespacing=1.35)
+        fig.canvas.draw()
+        width = note.get_window_extent(fig.canvas.get_renderer()).width
+        if width <= fig.bbox.width - 0.02 * fig.bbox.width:
+            return note
+    return note
+
+
+def _short_reason(raw, width):
+    """Verbatim failure reason, wrapped, with the URL query truncated.
+
+    The NWIS failures carry the whole request URL.  Keeping the human-readable
+    prefix verbatim and marking the cut with an ellipsis says exactly as much as
+    the record supports without pretending the string was shorter than it is.
+    """
+    text = (raw or "—").split(": http")[0].strip()
+    if text != (raw or "—").strip():
+        text = text + " …"
+    return "\n".join(_tw.wrap(text, width=width)) or "—"
 
 
 def render_fig02(metrics, summary, out_dir):
-    """fig02 -- baseline choice sets the reported gain (target, pooled)."""
-    fig = _plt.figure(figsize=(_mm(140), _mm(95)))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.05, 1.0],
-                          hspace=0.62, wspace=0.30,
-                          left=0.135, right=0.955, top=0.89, bottom=0.135)
-    ax_a = fig.add_subplot(gs[0, :])
+    """fig02 -- baseline choice sets the reported gain (target, pooled).
+
+    Layout: (a) and (b) share the top row, (c) takes the whole second row so its
+    five row labels fit on one line each.  Both line panels are labelled at the
+    right-hand end of each series rather than by a legend, which is what used to
+    sit over the data in (a) and (b).
+    """
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 112.0))
+    # Two subfigures, not one 2x2 gridspec.  In a shared gridspec the wide row
+    # labels of panel (c) set the left margin of the whole first column, which
+    # left panel (a) with about half the plotting width of panel (b).  A
+    # subfigure gets its own margins.
+    top, bottom = fig.subfigures(2, 1, height_ratios=[1.0, 0.82])
+    gs = top.add_gridspec(1, 2)
+
+    ax_a = top.add_subplot(gs[0, 0])
+    ladder = []
     for ref in LADDER_REFERENCES:
         colour, marker, ls = _style(ref)
         ys = [_skill_vs(metrics, "ThermoRoute", ref, h) for h in CONV_HORIZONS]
         ax_a.plot(CONV_HORIZONS, ys, ls=ls, marker=marker, color=colour,
-                  ms=5.5, lw=1.4, label=MODEL_LABEL_CONV[ref],
-                  markeredgecolor="k", markeredgewidth=0.3)
-        ax_a.annotate(f"{ys[-1]:+.2f}", (CONV_HORIZONS[-1], ys[-1]),
-                      textcoords="offset points", xytext=(0, 7),
-                      fontsize=6.6, color=colour, ha="center")
-    ax_a.axhline(0.0, color="#202020", lw=0.8)
+                  ms=4.0, lw=1.2, markeredgecolor="white", markeredgewidth=0.4)
+        ladder.append((float(ys[-1]), MODEL_TAG_CONV[ref], colour))
+    ax_a.axhline(0.0, color=PALETTE["NEUTRAL_INK"], lw=0.7)
     ax_a.set_xticks(CONV_HORIZONS)
-    ax_a.set_xlabel("forecast horizon (days)")
-    ax_a.set_ylabel("Skill vs reference\n(+ favours candidate)")
-    _panel_label(ax_a, "(a) Reference ladder: ThermoRoute skill against each reference")
-    ax_a.legend(loc="upper left", ncol=3, frameon=False, fontsize=6.8,
-                columnspacing=1.2, handlelength=2.2)
-    ax_a.grid(axis="y", alpha=0.25)
-    ax_a.set_xlim(0.6, 7.6)
+    ax_a.set_xlim(0.5, 7.5)
+    ax_a.set_ylim(-0.16, 0.74)
+    ax_a.set_xlabel("forecast horizon (d)")
+    ax_a.set_ylabel("skill vs reference\n(+ favours ThermoRoute)")
+    _panel_label(ax_a, "(a) Reference ladder")
+    _grid(ax_a)
 
-    ax_b = fig.add_subplot(gs[1, 0])
-    for m in PRIMARY_MODELS_CONV:
-        colour, marker, ls = _style(m)
-        ys = [metrics[m][h]["RMSE"] for h in CONV_HORIZONS]
+    ax_b = top.add_subplot(gs[0, 1])
+    primary = []
+    for model in PRIMARY_MODELS_CONV:
+        colour, marker, ls = _style(model)
+        ys = [metrics[model][h]["RMSE"] for h in CONV_HORIZONS]
         ax_b.plot(CONV_HORIZONS, ys, ls=ls, marker=marker, color=colour,
-                  ms=5, lw=1.3, label=MODEL_LABEL_CONV[m],
-                  markeredgecolor="k", markeredgewidth=0.3)
+                  ms=4.0, lw=1.2, markeredgecolor="white", markeredgewidth=0.4)
+        primary.append((float(ys[-1]), MODEL_TAG_CONV[model], colour))
     ax_b.set_xticks(CONV_HORIZONS)
-    ax_b.set_xlabel("forecast horizon (days)")
+    ax_b.set_xlim(0.5, 7.5)
+    ax_b.set_ylim(0.45, 2.42)
+    ax_b.set_xlabel("forecast horizon (d)")
     ax_b.set_ylabel("pooled RMSE (\u00b0C)")
-    _panel_label(ax_b, "(b) Six primary models, pooled RMSE")
-    ax_b.legend(loc="upper left", ncol=2, frameon=False, fontsize=6.5,
-                columnspacing=1.0, handlelength=2.0)
-    ax_b.grid(axis="y", alpha=0.25)
+    _panel_label(ax_b, "(b) Six primary models")
+    _grid(ax_b)
 
-    ax_c = fig.add_subplot(gs[1, 1])
+    ax_c = bottom.subplots()
     rows = [
-        ("ThermoRoute \u2212 Damped persistence", 1,
-         metrics["ThermoRoute"][1]["RMSE"] - metrics["DampedPersistence"][1]["RMSE"]),
-        ("ThermoRoute \u2212 Damped persistence", 3,
-         metrics["ThermoRoute"][3]["RMSE"] - metrics["DampedPersistence"][3]["RMSE"]),
-        ("ThermoRoute \u2212 Damped persistence", 7,
-         metrics["ThermoRoute"][7]["RMSE"] - metrics["DampedPersistence"][7]["RMSE"]),
-        ("ThermoRoute \u2212 LightGBM", 3,
-         metrics["ThermoRoute"][3]["RMSE"] - metrics["LightGBM"][3]["RMSE"]),
-        ("ThermoRoute \u2212 LightGBM", 7,
-         metrics["ThermoRoute"][7]["RMSE"] - metrics["LightGBM"][7]["RMSE"]),
+        ("Damped persistence", 1, "DampedPersistence"),
+        ("Damped persistence", 3, "DampedPersistence"),
+        ("Damped persistence", 7, "DampedPersistence"),
+        ("LightGBM", 3, "LightGBM"),
+        ("LightGBM", 7, "LightGBM"),
     ]
+    values = _np.array([metrics["ThermoRoute"][h]["RMSE"] - metrics[ref][h]["RMSE"]
+                        for _, h, ref in rows])
+    colours = [_style(ref)[0] for _, _, ref in rows]
     y = _np.arange(len(rows))[::-1]
-    vals = _np.array([r[2] for r in rows])
-    colours = ["#E69F00", "#E69F00", "#E69F00", "#CC79A7", "#CC79A7"]
-    ax_c.hlines(y, 0, vals, color=colours, lw=2.0, alpha=0.85)
-    ax_c.scatter(vals, y, color=colours, s=42, zorder=3,
-                 edgecolor="k", linewidth=0.4)
-    ax_c.axvline(0.0, color="#202020", lw=0.9)
-    ax_c.axvline(0.05, color="#D55E00", lw=0.9, ls=(0, (3, 2)))
-    ax_c.text(0.045, 0.99, "+0.05 ceiling",
-              transform=ax_c.get_xaxis_transform(), color="#D55E00",
-              fontsize=6.2, ha="right", va="top")
+    ax_c.hlines(y, 0, values, color=colours, lw=1.6)
+    ax_c.scatter(values, y, color=colours, s=26, zorder=3,
+                 edgecolor="white", linewidth=0.5)
+    ax_c.axvline(0.0, color=PALETTE["NEUTRAL_INK"], lw=0.7)
+    ax_c.axvline(0.05, color=figstyle.WONG["vermillion"], lw=0.7, ls=(0, (3, 2)))
+    ax_c.text(0.05, 0.5, "+0.05 \u00b0C ceiling", transform=ax_c.get_xaxis_transform(),
+              color=figstyle.WONG["vermillion"], fontsize=MIN_ABSOLUTE_PT,
+              rotation=90, ha="right", va="center")
     ax_c.set_yticks(y)
-    ax_c.set_yticklabels([f"{r[0]}\n{r[1]} d" for r in rows], fontsize=6.8)
-    ax_c.set_xlabel("\u0394RMSE (\u00b0C; \u2212 favours ThermoRoute)", fontsize=7.5)
-    _panel_label(ax_c, "(c) Paired \u0394RMSE (pooled)")
+    ax_c.set_yticklabels([f"vs {name}, {h} d" for name, h, _ in rows])
+    ax_c.set_ylim(-0.7, len(rows) - 0.3)
     ax_c.set_xlim(-0.20, 0.12)
-    ax_c.grid(axis="x", alpha=0.25)
-    fig.text(0.5, 0.012,
-             "CI and win rate: not reported (\u2014) for the held-out window "
-             "(paper Table 4.6).\n\u0394RMSE is pooled over common held-out keys; "
-             "station-level clustered procedure not re-run.",
-             ha="center", va="bottom", fontsize=6.0, color="#444444",
-             linespacing=1.3)
-    fig.suptitle("Held-out 2021\u20132023 \u00b7 pooled metrics over common forecast keys",
-                 y=0.965, fontsize=8.5, fontweight="bold")
+    ax_c.set_xlabel("\u0394RMSE (\u00b0C; \u2212 favours ThermoRoute)")
+    _panel_label(ax_c, "(c) Paired \u0394RMSE, ThermoRoute minus reference")
+    _grid(ax_c, axis="x")
+
+    fig.suptitle("Held-out 2021\u20132023 \u00b7 pooled metrics over common forecast keys")
+    _fig_note(fig,
+              "In (a) and (b) \u201cDamped\u201d is damped persistence. \u0394RMSE in (c) is "
+              "pooled over common held-out keys; the station-level clustered "
+              "procedure was not re-run, so confidence intervals and win rates "
+              "are not reported (\u2014) for the held-out window (paper Table 4.6).")
+
+    # Direct labels last, and only once the suptitle and the two-line figure
+    # footnote are in place: both change how much height constrained layout
+    # gives the axes, and these labels are positioned in display space.
+    _direct_labels(ax_a, ladder, CONV_HORIZONS[-1])
+    _direct_labels(ax_b, primary, CONV_HORIZONS[-1])
     _save_conventional(fig, "fig02_point_performance", out_dir)
 
 
 def render_figS4(metrics, summary, out_dir):
-    """figS4 -- point-performance heterogeneity (all models x horizons, pooled)."""
-    fig = _plt.figure(figsize=(_mm(140), _mm(102)))
-    gs = fig.add_gridspec(1, 2, left=0.20, right=0.86, top=0.88,
-                          bottom=0.09, wspace=0.50)
-    axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
+    """figS4 -- point-performance heterogeneity (all models x horizons, pooled).
+
+    The collision this figure used to ship was structural, not cosmetic:
+    ``fig.colorbar(im0, ax=axes[0])`` puts the bar immediately right of the left
+    heatmap, which is exactly where the right heatmap's row labels are, so the
+    bar's tick numbers landed on "Damped persistence", "Climatology",
+    "ThermoRoute", "TR-noDynamicPrior" and "TR-fixedKappa".  Routing both bars
+    through ``figstyle.colorbar`` makes them part of the constrained layout,
+    which reserves the column instead of overprinting it.  The two heatmaps also
+    share one y axis now: sixteen model names printed twice cost more width than
+    the panels could spare.
+    """
     models = list(ALL_MODELS_CONV)
     rmse = _np.array([[metrics[m][h]["RMSE"] for h in CONV_HORIZONS]
                       for m in models])
     skill = _np.array([[metrics[m][h]["SKILL_PERSISTENCE"] for h in CONV_HORIZONS]
                        for m in models])
 
-    im0 = axes[0].imshow(rmse, cmap="YlOrRd", aspect="auto")
-    axes[0].set_title("(a) Pooled RMSE (\u00b0C)", loc="left", fontweight="bold")
+    fig, axes = _plt.subplots(
+        1, 2, sharey=True, figsize=figstyle.figsize(FULL_WIDTH_MM, 118.0))
+
+    im0 = axes[0].imshow(rmse, cmap=figstyle.SEQUENTIAL, aspect="auto")
     vlim = max(abs(_np.nanmin(skill)), abs(_np.nanmax(skill)))
-    im1 = axes[1].imshow(skill, cmap="RdBu_r", aspect="auto",
+    im1 = axes[1].imshow(skill, cmap=figstyle.DIVERGING, aspect="auto",
                          vmin=-vlim, vmax=vlim)
-    axes[1].set_title("(b) Skill vs persistence (+ favours)",
-                      loc="left", fontweight="bold", fontsize=8.0)
-    for ax, mat, fmt in ((axes[0], rmse, "{:.2f}"),
-                         (axes[1], skill, "{:+.2f}")):
+    _panel_label(axes[0], "(a) Pooled RMSE (\u00b0C)")
+    _panel_label(axes[1], "(b) Skill vs persistence")
+
+    axes[0].set_yticks(range(len(models)))
+    axes[0].set_yticklabels([MODEL_LABEL_CONV[m] for m in models])
+    for ax, mat, fmt, span in ((axes[0], rmse, "{:.2f}",
+                                (float(rmse.min()), float(rmse.max()))),
+                               (axes[1], skill, "{:+.2f}", (-vlim, vlim))):
         ax.set_xticks(range(len(CONV_HORIZONS)))
         ax.set_xticklabels([f"{h} d" for h in CONV_HORIZONS])
-        ax.set_yticks(range(len(models)))
-        ax.set_yticklabels([MODEL_LABEL_CONV[m] for m in models], fontsize=6.0)
         ax.set_xlabel("forecast horizon")
-        vmax = _np.nanmax(_np.abs(mat))
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        low, high = span
         for (i, j), v in _ndenumerate(mat):
-            color = "white" if abs(v) > 0.55 * vmax else "black"
+            shade = (v - low) / (high - low) if high > low else 0.5
+            dark = shade > 0.66 or (span[0] < 0 and shade < 0.2)
             ax.text(j, i, fmt.format(v), ha="center", va="center",
-                    fontsize=6.0, color=color)
-    fig.colorbar(im0, ax=axes[0], shrink=0.82)
-    fig.colorbar(im1, ax=axes[1], shrink=0.82)
-    fig.suptitle("figS4 \u00b7 16 models \u00d7 horizon, pooled 2021\u20132023 "
-                 "(station-level detail not in CSV)",
-                 fontsize=8.0, fontweight="bold")
+                    fontsize=MIN_ABSOLUTE_PT,
+                    color="white" if dark else PALETTE["NEUTRAL_INK"])
+    for image, ax, label in ((im0, axes[0], "pooled RMSE (\u00b0C)"),
+                             (im1, axes[1], "skill (+ favours the model)")):
+        bar = figstyle.colorbar(fig, image, ax, label=label)
+        bar.ax.tick_params(labelsize=MIN_ABSOLUTE_PT)
+        bar.set_label(label, fontsize=MIN_ABSOLUTE_PT)
+
+    fig.suptitle("Sixteen models \u00d7 horizon, pooled over the held-out 2021\u20132023 window")
+    _fig_note(fig, "Station-level detail is not available in the conventional "
+                   "holdout table; every cell is pooled over common forecast keys.")
     _save_conventional(fig, "figS4_point_heterogeneity", out_dir)
 
 
@@ -1413,190 +1706,249 @@ def _ndenumerate(arr):
 
 
 def render_figS6(metrics, summary, out_dir):
-    """figS6 -- temporal opportunity, missingness, and attrition."""
+    """figS6 -- temporal opportunity, missingness, and attrition.
+
+    Panel (b) was a 6.3 pt monospace block whose reason strings were cut at 29
+    characters mid-word; it is now a ruled two-column list at the 7.5 pt floor
+    with the reasons wrapped rather than clipped.
+    """
     failures = summary.get("station_failures", [])
     n_panel = summary.get("n_stations_panel", 120)
     n_scored = n_panel - len(failures)
     n_win = summary.get("n_windows_temporal")
-    fig = _plt.figure(figsize=(_mm(140), _mm(90)))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.05], wspace=0.26,
-                          left=0.125, right=0.975, top=0.88, bottom=0.13)
+
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 88.0))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.12])
+
     ax_a = fig.add_subplot(gs[0, 0])
-    stages = ["Panel sites", "Scored sites", "h=1 keys", "h=3 keys", "h=7 keys"]
+    stages = ["Panel sites", "Scored sites", "h = 1 d keys",
+              "h = 3 d keys", "h = 7 d keys"]
     counts = [n_panel, n_scored,
               metrics["ThermoRoute"][1]["n"],
               metrics["ThermoRoute"][3]["n"],
               metrics["ThermoRoute"][7]["n"]]
-    colours = ["#0072B2", "#009E73", "#CC79A7", "#E69F00", "#D55E00"]
-    bars = ax_a.barh(range(len(stages)), counts, color=colours, alpha=0.9,
-                     edgecolor="k", linewidth=0.4)
+    colours = [figstyle.WONG["blue"], figstyle.WONG["green"],
+               figstyle.WONG["sky"], figstyle.WONG["orange"],
+               figstyle.WONG["vermillion"]]
+    bars = ax_a.barh(range(len(stages)), counts, color=colours,
+                     edgecolor="white", linewidth=0.5, zorder=2)
     ax_a.set_yticks(range(len(stages)))
-    ax_a.set_yticklabels(stages, fontsize=6.8)
+    ax_a.set_yticklabels(stages)
     ax_a.invert_yaxis()
     ax_a.set_xscale("log")
+    ax_a.set_xlim(50, max(counts) * 9)
     ax_a.set_xlabel("count (log scale)")
-    _panel_label(ax_a, "(a) Attrition: 120 sites \u2192 115 scored \u2192 keys")
-    for bar, c in zip(bars, counts):
-        ax_a.text(c * 1.03, bar.get_y() + bar.get_height() / 2,
-                  f"{c:,}", va="center", fontsize=6.8)
-    ax_a.set_xlim(50, max(counts) * 4)
-    ax_a.grid(axis="x", alpha=0.25, which="both")
+    _panel_label(ax_a, f"(a) Attrition: {n_panel} \u2192 {n_scored} sites")
+    for bar, count in zip(bars, counts):
+        ax_a.text(count * 1.15, bar.get_y() + bar.get_height() / 2,
+                  f"{count:,}", va="center", ha="left",
+                  fontsize=MIN_ABSOLUTE_PT)
+    _grid(ax_a, axis="x")
 
     ax_b = fig.add_subplot(gs[0, 1])
-    ax_b.axis("off")
-    _panel_label(ax_b, f"(b) Fetch failures ({len(failures)} of {n_panel} excluded)")
-    lines = ["site_no    reason", "-" * 24]
-    for f in failures:
-        reason = (f.get("nwis") or "\u2014")
-        reason = (reason[:28] + "\u2026") if len(reason) > 29 else reason
-        lines.append(f"{str(f.get('site_no', '?')):<10} {reason}")
+    _panel_label(ax_b, f"(b) Fetch failures ({len(failures)} of {n_panel})")
+    rows = [[str(f.get("site_no", "?")), _short_reason(f.get("nwis"), 30)]
+            for f in failures]
+    tail = _text_table(ax_b, ["site", "reason for exclusion"], rows,
+                       col_x=(0.03, 0.32), top=0.95, bottom=0.14)
     if n_win is not None:
-        lines.append("")
-        lines.append(f"temporal windows scored: {n_win:,}")
-    ax_b.text(0.02, 0.93, "\n".join(lines), transform=ax_b.transAxes,
-              va="top", ha="left", fontsize=6.3,
-              family="DejaVu Sans Mono",
-              bbox=dict(boxstyle="round,pad=0.35", fc=PALETTE["NA_FILL"],
-                        ec=PALETTE["WARNING_VERMILION"], lw=0.8))
-    fig.suptitle("figS6 \u00b7 missingness and attrition on the held-out 2021\u20132023 panel",
-                 y=0.965, fontsize=8.0, fontweight="bold")
+        ax_b.text(0.03, max(tail - 0.03, 0.0),
+                  f"temporal windows scored: {n_win:,}",
+                  transform=ax_b.transAxes, va="top", ha="left",
+                  fontsize=MIN_ABSOLUTE_PT, color=figstyle.MUTED)
+
+    fig.suptitle("Missingness and attrition on the held-out 2021\u20132023 panel")
     _save_conventional(fig, "figS6_attrition_missingness", out_dir)
 
 
 def render_figS8(metrics, summary, out_dir):
-    """figS8 -- external history-dependent arm and failure disposition."""
+    """figS8 -- external history-dependent arm and failure disposition.
+
+    Two restructures rather than restyles.  The six-entry legend ("LightGBM
+    (temporal)", "LightGBM-ext (external)", ...) could not be set at 7.5 pt in a
+    half-width panel, so the encoding is factored into its two real dimensions:
+    colour names the model, hatch names the cohort, and the key is five short
+    entries in reserved headroom.  And the panels are stacked instead of side by
+    side, which gives the failure list the width to print each reason on one
+    line.
+    """
     pairs = [("LightGBM", "LightGBM-ext"), ("LSTM", "LSTM-ext"),
              ("ThermoRoute", "ThermoRoute-ext")]
     failures = summary.get("station_failures", [])
-    fig = _plt.figure(figsize=(_mm(140), _mm(95)))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.2, 1.0], wspace=0.28,
-                          left=0.095, right=0.975, top=0.88, bottom=0.16)
+
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 108.0))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.72])
+
     ax_a = fig.add_subplot(gs[0, 0])
-    width = 0.38
+    width = 0.13
     x = _np.arange(len(CONV_HORIZONS))
-    for k, (temp, ext) in enumerate(pairs):
-        colour, marker, _ = _style(temp)
-        y_temp = [metrics[temp][h]["RMSE"] for h in CONV_HORIZONS]
-        y_ext = [metrics[ext][h]["RMSE"] for h in CONV_HORIZONS]
-        off = (k - 1) * width
-        ax_a.bar(x + off - width / 2, y_temp, width, color=colour, alpha=0.9,
-                 edgecolor="k", linewidth=0.4,
-                 label=f"{MODEL_LABEL_CONV[temp]} (temporal)")
-        ax_a.bar(x + off + width / 2, y_ext, width, color=colour, alpha=0.4,
-                 hatch="///", edgecolor="k", linewidth=0.4,
-                 label=f"{MODEL_LABEL_CONV[ext]} (external)")
+    for k, (temporal, external) in enumerate(pairs):
+        colour = _style(temporal)[0]
+        offset = (k - 1) * 2.2 * width
+        ax_a.bar(x + offset - width / 2,
+                 [metrics[temporal][h]["RMSE"] for h in CONV_HORIZONS],
+                 width, color=colour, edgecolor="white", linewidth=0.5, zorder=2)
+        ax_a.bar(x + offset + width / 2,
+                 [metrics[external][h]["RMSE"] for h in CONV_HORIZONS],
+                 width, facecolor="white", hatch="////", edgecolor=colour,
+                 linewidth=0.6, zorder=2)
     ax_a.set_xticks(x)
     ax_a.set_xticklabels([f"{h} d" for h in CONV_HORIZONS])
     ax_a.set_xlabel("forecast horizon")
     ax_a.set_ylabel("pooled RMSE (\u00b0C)")
-    _panel_label(ax_a, "(a) External (site-ID-disjoint) vs temporal cohort")
-    ax_a.legend(loc="upper left", ncol=2, frameon=False, fontsize=5.8,
-                columnspacing=0.8, handlelength=1.6)
-    ax_a.grid(axis="y", alpha=0.25)
+    ax_a.set_ylim(0, 2.75)
+    _panel_label(ax_a, "(a) External (site-ID-disjoint) cohort against the temporal cohort")
+    _grid(ax_a)
+    handles = [_Patch(facecolor=_style(m)[0], edgecolor="white",
+                      label=MODEL_LABEL_CONV[m]) for m, _ in pairs]
+    handles += [_Patch(facecolor=figstyle.MUTED, edgecolor="white",
+                       label="temporal cohort"),
+                _Patch(facecolor="white", hatch="////", edgecolor=figstyle.MUTED,
+                       label="external cohort")]
+    ax_a.legend(handles=handles, loc="upper left", ncol=5,
+                fontsize=MIN_ABSOLUTE_PT, columnspacing=1.0, handlelength=1.4,
+                handletextpad=0.5)
 
-    ax_b = fig.add_subplot(gs[0, 1])
-    ax_b.axis("off")
-    _panel_label(ax_b, f"(b) Failures ({len(failures)} excluded)")
-    rows = [["site_no", "status", "reason"]]
-    for f in failures:
-        reason = (f.get("nwis") or "\u2014")
-        reason = (reason[:16] + "\u2026") if len(reason) > 17 else reason
-        rows.append([str(f.get("site_no", "?")), "excluded", reason])
-    celltext = rows[1:] if len(rows) > 1 else [["\u2014", "\u2014", "\u2014"]]
-    table = ax_b.table(cellText=celltext, colLabels=rows[0],
-                       loc="upper center", cellLoc="left",
-                       colWidths=[0.15, 0.14, 0.46])
-    table.auto_set_font_size(False)
-    table.set_fontsize(5.6)
-    table.scale(1.0, 1.25)
-    for (r, c), cell in table.get_celld().items():
-        cell.set_edgecolor("#D0D0D0")
-        if r == 0:
-            cell.set_facecolor("#DCEAF4")
-            cell.set_text_props(weight="bold")
-        else:
-            cell.set_facecolor("#FFFFFF" if r % 2 else "#F7F7F7")
-    ax_b.text(0.5, 0.04,
-              "External cohort: site-ID disjoint,\nhistory-dependent; not ungauged.\n"
-              "Outcome-QC waterfall (Table 4.10)\nnot reported for the held-out window.",
-              transform=ax_b.transAxes, ha="center", va="bottom",
-              fontsize=5.8, color="#444444", linespacing=1.3)
-    fig.suptitle("figS8 \u00b7 external arm and failure disposition (2021\u20132023)",
-                 y=0.965, fontsize=8.0, fontweight="bold")
+    ax_b = fig.add_subplot(gs[1, 0])
+    _panel_label(ax_b, f"(b) Failure disposition ({len(failures)} sites excluded)")
+    rows = [[str(f.get("site_no", "?")), "excluded",
+             _short_reason(f.get("nwis"), 70)] for f in failures] \
+        or [["\u2014", "\u2014", "no failures recorded"]]
+    _text_table(ax_b, ["site", "status", "reason"], rows,
+                col_x=(0.01, 0.12, 0.25), top=0.94, bottom=0.05)
+
+    fig.suptitle("External arm and failure disposition, held-out 2021\u20132023")
+    _fig_note(fig,
+              "The external cohort is site-ID disjoint and history-dependent; "
+              "it is not an ungauged-basin arm. The outcome-QC waterfall "
+              "(Table 4.10) is not reported for the held-out window.")
     _save_conventional(fig, "figS8_external_arm_failures", out_dir)
 
 
-def render_notice(figure_id, stem, title, reason_lines, out_dir,
-                  width_mm=85.0, height_mm=62.0):
-    """Render an explicit 'not reported' notice; no axes, no invented data."""
-    fig, ax = _plt.subplots(figsize=(_mm(width_mm), _mm(height_mm)))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-    ax.add_patch(_Rectangle((0.02, 0.02), 0.96, 0.96, transform=ax.transAxes,
-                            facecolor=PALETTE["NA_FILL"],
-                            edgecolor=PALETTE["WARNING_VERMILION"], lw=1.6))
-    body = "\n".join(reason_lines)
-    text = f"{figure_id} \u2014 {title}\n\nNOT REPORTED for the 2021\u20132023 held-out window\n\n{body}"
-    ax.text(0.5, 0.5, text, ha="center", va="center",
-            transform=ax.transAxes, fontsize=7.6, color=PALETTE["NEUTRAL_INK"],
-            linespacing=1.45, wrap=True)
+NOTICE_WRAP_COLUMNS = 76
+NOTICE_HEADLINE_PT = 8.5
+NOTICE_FLAG_PT = 8.0
+
+
+def render_notice(label, stem, title, body_text, out_dir,
+                  width_mm=FULL_WIDTH_MM, flag=None):
+    """Render an explicit 'not reported' notice; no axes, no invented data.
+
+    These panels are legitimate -- the held-out window really does emit no
+    held-region arm and no probability family -- so they have to look
+    deliberate.  The previous draft fixed an 85 x 62 mm square, poured
+    hand-broken lines into it, and drew the border at a fixed fraction of the
+    figure: the prose ran out of the box on both sides and broke mid-sentence,
+    inside a mostly empty square.
+
+    Here the order is inverted.  The prose is one string, wrapped to a measured
+    column; the figure height is then set from what the wrapped block actually
+    measures; and the border is drawn last, around the text's own extent,
+    centred on the page.  The box fits the text, never the other way round.
+    """
+    lines = _tw.wrap(" ".join(body_text.split()), width=NOTICE_WRAP_COLUMNS)
+    flag = flag or "NOT REPORTED for the 2021\u20132023 held-out window"
+    outer_mm, inset_mm = 3.5, 6.0
+    gap_head_mm, gap_flag_mm = 1.6, 3.4
+
+    fig = _plt.figure(figsize=figstyle.figsize(width_mm, 60.0))
+    fig.set_layout_engine("none")
+    head = fig.text(0.5, 0.9, f"{label} \u2014 {title}", ha="center", va="top",
+                    fontsize=NOTICE_HEADLINE_PT, fontweight="bold",
+                    color=PALETTE["NEUTRAL_INK"])
+    banner = fig.text(0.5, 0.6, flag, ha="center", va="top",
+                      fontsize=NOTICE_FLAG_PT, fontweight="bold",
+                      color=PALETTE["WARNING_VERMILION"])
+    body = fig.text(0.5, 0.3, "\n".join(lines), ha="center", va="top",
+                    fontsize=MIN_ABSOLUTE_PT, linespacing=1.5,
+                    color=PALETTE["NEUTRAL_INK"])
+
+    # Measure what the three blocks really occupy, then size the page to them.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
+    def mm_of(artist, attribute):
+        box = artist.get_window_extent(renderer)
+        return getattr(box, attribute) / fig.dpi * 25.4
+
+    head_mm, flag_mm, body_mm = (mm_of(a, "height") for a in (head, banner, body))
+    height_mm = (2 * outer_mm + 2 * inset_mm + head_mm + gap_head_mm
+                 + flag_mm + gap_flag_mm + body_mm)
+    fig.set_size_inches(*figstyle.figsize(width_mm, height_mm))
+
+    cursor = outer_mm + inset_mm
+    for artist, block in ((head, head_mm), (banner, flag_mm), (body, body_mm)):
+        artist.set_position((0.5, 1.0 - cursor / height_mm))
+        cursor += block + (gap_head_mm if artist is head else gap_flag_mm)
+
+    fig.canvas.draw()
+    extent = _Bbox.union([a.get_window_extent(renderer)
+                          for a in (head, banner, body)])
+    extent = extent.transformed(fig.transFigure.inverted())
+    pad_x, pad_y = inset_mm / width_mm, inset_mm / height_mm
+    half = extent.width / 2.0 + pad_x          # centred on the page, not on the
+    fig.add_artist(_Rectangle(                  # widest line's own midpoint
+        (0.5 - half, extent.y0 - pad_y), 2 * half, extent.height + 2 * pad_y,
+        transform=fig.transFigure, zorder=0, facecolor=PALETTE["NA_FILL"],
+        edgecolor=PALETTE["WARNING_VERMILION"], linewidth=1.0))
     _save_conventional(fig, stem, out_dir)
 
 
 def render_fig03_notice(metrics, summary, out_dir):
     render_notice(
-        "fig03", "fig03_spatial_partition_transfer",
-        "Spatial partition / whole-region transfer",
-        ["Development-period figure (Stage-13c region-transfer evidence,",
-         "2019-01-01 to 2020-12-31).  The 2021-2023 conventional holdout",
-         "emits no held-region arm, so this figure is not rendered from the",
-         "conventional metrics CSV.  See paper section 4.4 for the",
-         "development-period three-arm values."], out_dir)
+        "Figure 3", "fig03_spatial_partition_transfer",
+        "Spatial partition and whole-region transfer",
+        "Development-period figure (Stage-13c region-transfer evidence, "
+        "2019-01-01 to 2020-12-31). The 2021\u20132023 conventional holdout emits no "
+        "held-region arm, so this figure is not rendered from the conventional "
+        "metrics CSV. See paper section 4.4 for the development-period "
+        "three-arm values.", out_dir,
+        flag="NO HELD-REGION ARM EXISTS for the 2021\u20132023 held-out window")
 
 
 def render_fig04_notice(metrics, summary, out_dir):
     render_notice(
-        "fig04", "fig04_heterogeneity_and_interval_cost",
-        "Regional/seasonal heterogeneity and interval cost",
-        ["Panels require a per-HUC2 regional breakdown, the eight temporal-",
-         "coverage candidates, and the 90% coverage-width plane.  None was",
-         "computed for 2021-2023: the conventional holdout CSV is pooled (no",
-         "HUC2 dimension) and the probability pipeline was not re-run (paper",
-         "Table 4.9: not reported).  No value is invented."], out_dir)
+        "Figure 4", "fig04_heterogeneity_and_interval_cost",
+        "Regional and seasonal heterogeneity, and interval cost",
+        "Panels require a per-HUC2 regional breakdown, the eight "
+        "temporal-coverage candidates, and the 90% coverage\u2013width plane. None "
+        "was computed for 2021\u20132023: the conventional holdout CSV is pooled "
+        "(no HUC2 dimension) and the probability pipeline was not re-run "
+        "(paper Table 4.9: not reported). No value is invented.", out_dir)
 
 
 def render_figS5_notice(metrics, summary, out_dir):
     render_notice(
-        "figS5", "figS5_probability_reliability",
+        "Figure S5", "figS5_probability_reliability",
         "Event score, reliability, and probabilistic diagnostics",
-        ["Requires the SI08 probability family (coverage, pinball, Brier,",
-         "log loss, AUROC/AUPRC, ECE, calibration slope/intercept,",
-         "station-balanced reliability bins).  Not computed for 2021-2023",
-         "(paper Table 4.9: not reported).  The development-period",
-         "probability diagnostics (paper section 4.5) stand as the only",
-         "probability evidence in this paper."], out_dir)
+        "Requires the SI08 probability family (coverage, pinball, Brier, log "
+        "loss, AUROC/AUPRC, ECE, calibration slope and intercept, "
+        "station-balanced reliability bins). Not computed for 2021\u20132023 (paper "
+        "Table 4.9: not reported). The development-period probability "
+        "diagnostics of paper section 4.5 stand as the only probability "
+        "evidence in this paper.", out_dir)
 
 
 def render_figS7_notice(metrics, summary, out_dir):
     render_notice(
-        "figS7", "figS7_spatial_leave_huc2",
+        "Figure S7", "figS7_spatial_leave_huc2",
         "Spatial and leave-HUC2 influence",
-        ["Requires per-HUC2 effects and leave-one-HUC2 omissions.  The",
-         "conventional holdout CSV is pooled with no HUC2 dimension, so this",
-         "figure is not reported for the held-out window.  No value is",
-         "invented."], out_dir)
+        "Requires per-HUC2 effects and leave-one-HUC2 omissions. The "
+        "conventional holdout CSV is pooled with no HUC2 dimension, so this "
+        "figure is not reported for the held-out window. No value is invented.",
+        out_dir)
 
 
 def render_figS9_notice(metrics, summary, out_dir):
     render_notice(
-        "figS9", "figS9_conformal_calibration",
+        "Figure S9", "figS9_conformal_calibration",
         "Development-period conformal calibration sensitivity",
-        ["Development-period figure (Stage-22 adaptive conformal,",
-         "2019-01-01 to 2020-12-24).  Not a 2021-2023 result and not rendered",
-         "from the conventional metrics CSV.  See paper section 4.5 for the",
-         "development-period split-CQR / block-max / delayed-ACI values."],
-        out_dir)
+        "Development-period figure (Stage-22 adaptive conformal, 2019-01-01 to "
+        "2020-12-24). Not a 2021\u20132023 result and not rendered from the "
+        "conventional metrics CSV. See paper section 4.5 for the "
+        "development-period split-CQR, block-maximum and delayed-ACI values.",
+        out_dir,
+        flag="DEVELOPMENT-PERIOD EVIDENCE ONLY \u00b7 not a 2021\u20132023 result")
 
 
 CONVENTIONAL_DISPATCH = (
@@ -1627,8 +1979,14 @@ def render_conventional(roots: Roots, only: str | None = None) -> None:
             skipped.append((figure_id, repr(exc)))
             print(f"ERROR rendering {figure_id}: {exc!r}", file=sys.stderr)
     print(f"rendered: {rendered}", flush=True)
+    print(f"resolved typeface: {figstyle.resolved_font()}", flush=True)
+    for entry in RENDER_LOG:
+        print(f"  {entry['stem']:38} {entry['width_mm']:>5.1f} x "
+              f"{entry['height_mm']:>5.1f} mm   min type {entry['min_pt']:.1f} pt",
+              flush=True)
     if skipped:
         print(f"failed: {skipped}", file=sys.stderr)
+        sys.exit(1)
 
 
 def main() -> None:

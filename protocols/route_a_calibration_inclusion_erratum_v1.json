@@ -1,0 +1,81 @@
+{
+  "format": "thermoroute.route-a-calibration-inclusion-erratum.v1",
+  "status": "DRAFT_PRELABEL_OUTCOME_FREE",
+  "erratum_id": "route-a-prelabel-calibration-inclusion-m01-018",
+  "recorded_date": "2026-07-30",
+  "prelabel_attestation": {
+    "post_2020_wtemp_requested_or_inspected": false,
+    "confirmation_outcomes_requested_or_inspected": false,
+    "confirmation_labels_2021_2023_requested_or_inspected": false,
+    "outcome_endpoint_called": false,
+    "outcome_independent": true,
+    "network_used": false
+  },
+  "governance_inputs": {
+    "base_protocol": {
+      "path": "protocols/route_a_confirmatory_v1.json",
+      "role": "frozen_base_protocol_reference"
+    },
+    "inference_amendment": {
+      "path": "protocols/route_a_inference_amendment_v2.json",
+      "role": "frozen_cqr_platt_fit_interval_reference"
+    },
+    "defect_id": "M-01",
+    "decision": "code_change_and_development_rerun_accepted_new_source_sha256_bb02498a_void"
+  },
+  "scientific_scope": {
+    "role": "DEVELOPMENT_CALIBRATION_INCLUSION_ALIGNMENT_WITH_CONFIRMATION",
+    "confirmatory_five_test_family_changed": false,
+    "formal_margins_changed": false,
+    "formal_decisions_changed": false,
+    "inference_allowed": false,
+    "coverage_or_probability_claims_may_change_only_after_authorized_rerun": true
+  },
+  "defect": {
+    "summary": "Development Stage-09 CQR and horizon Platt calibrators were fitted on jointly labelled three-horizon windows, while frozen confirmation inference admits targets independently by horizon.",
+    "development_old_rule": "require_observed_target complete-case: issue retained for calib only when h1, h3, and h7 targets are all observed and all lie inside C.SPLIT.calib; issue dates near the calib upper bound are embargoed by max(horizon).",
+    "confirmation_rule": "independent_horizon_targets=True with an explicit evaluation_interval: retain an issue when at least one horizon has an observed in-bound target; mask unavailable horizons.",
+    "mismatch": "calibration_fit_population_was_a_joint_labelled_subset_of_the_confirmation_inclusion_rule",
+    "affected_artifacts": [
+      "frozen_2018_CQR_offsets",
+      "frozen_2018_horizon_Platt_calibrators",
+      "ThermoRoute_LightGBM_ablation_calibration_artifacts_inputs"
+    ]
+  },
+  "correction": {
+    "code_paths": [
+      "src/thermoroute/datasets.py",
+      "src/thermoroute/train.py",
+      "src/thermoroute/registry.py",
+      "src/thermoroute/development_controls.py",
+      "src/thermoroute/model_suite.py",
+      "scripts/09_usgs_experiment.py",
+      "scripts/16_lstm_baseline.py",
+      "tests/test_leakage.py"
+    ],
+    "new_development_rule": "When require_observed_target builds multi-split development windows, train/val/test remain jointly labelled; the calib split uses the confirmation per-horizon inclusion rule on C.SPLIT.calib=(2018-01-01, 2018-12-31).",
+    "unchanged": [
+      "train_val_test_joint_complete_case_semantics",
+      "C.SPLIT.calib_calendar_bounds",
+      "CQR_purge_of_target_dates_after_2018-12-31",
+      "confirmation_independent_horizon_targets_API",
+      "loss_function_left_to_M-04_worker"
+    ],
+    "deprecated_rule": "joint_three_horizon_complete_case_as_the_CQR_Platt_fitting_population",
+    "fail_closed": [
+      "independent_horizon_targets_still_requires_explicit_evaluation_interval",
+      "calibration_artifacts_drop_or_reject_non_finite_y_true",
+      "non_calib_splits_may_not_carry_masked_targets_in_window_registry"
+    ]
+  },
+  "rerun_implications": {
+    "prior_run_id_bb02498a8396ea7c6110": "void_for_formal_publication_after_source_tree_change",
+    "new_source_sha256_required": true,
+    "stage09_restart_not_performed_by_this_erratum": true,
+    "post_2020_labels_not_read": true
+  },
+  "open_questions_for_parallel_workers": [
+    "M-04_loss_rescaling_must_not_alter_calibration_inclusion",
+    "whether_development_test_split_should_later_also_adopt_independent_horizon_inclusion_is_out_of_M-01_scope"
+  ]
+}

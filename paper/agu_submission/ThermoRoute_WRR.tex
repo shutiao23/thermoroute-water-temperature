@@ -90,7 +90,7 @@ institution, street, city, state, postcode, country
 % environment.  All three slots are always supplied; ``{}'' would mark an
 % unused one, but the canonical Markdown is required to carry exactly three.
 \keypoints%
-    {Station-median skill at a seven-day lead is +0.251 against persistence but +0.038 against damped persistence at 120 U.S. gauges.}
+    {Station-median skill at a seven-day lead is +0.251 against persistence but +0.038 against damped persistence.}
     {A gradient-boosted tree with site identity has the lowest station-median RMSE at 1, 3, and 7 days on identical prediction keys.}
     {Holding out whole hydrologic regions instead of random sites lowers three-day skill against persistence from +0.187 to +0.116.}
 
@@ -108,8 +108,9 @@ from three cheaper explanations: seasonal damping, favourable key selection, and
 spatial interpolation between neighbouring gauges. Here we score a constrained
 deep predictor against damped persistence, gradient-boosted trees with and
 without site identity, a global LSTM, and an information-matched plain causal
-convolutional network on one common set of 249,072 station/\allowbreak date/\allowbreak horizon keys, at
-120 U.S. gauges in 15 hydrologic regions, with all preprocessing fitted strictly
+convolutional network on one common set of 249,072 station/\allowbreak date/\allowbreak horizon keys,
+at a 120-station registry spanning 15 hydrologic regions (the reportable
+station count is given in Section 4.6), with all preprocessing fitted strictly
 backwards in time and whole regions, not random sites, held out. On the
 development window (2019--2020) the same fixed model reports a seven-day median
 station skill of +0.251 against persistence but +0.038 against damped
@@ -121,7 +122,7 @@ architecture. Three-day skill against persistence falls from +0.187 under a
 random held-site split to +0.116 under whole-region holdout, at a mean
 nearest-training-gauge distance of 289 km. We then evaluate the same model suite
 on a held-out 2021--2023 test window (Section 4.6); those comparative metrics are
-reported as clearly marked placeholders pending computation. Reported skill for
+reported in that section. Reported skill for
 this variable is therefore largely a statement about the reference model and the
 spatial partition rather than about the architecture.
 
@@ -340,10 +341,11 @@ acquisition and records \texttt{PASS\_\allowbreak{}EXACT\_\allowbreak{}PRODUCT\_
 registry.
 
 Daily mean water temperature (\texttt{00010}, °C), discharge (\texttt{00060}, cfs), and
-raw-only gage height (\texttt{00065}, ft) for 2021--2023 are retrieved with the USGS
-\texttt{dataretrieval} client
-(\href{https://doi.org/10.5066/P94I5TX3}{Hodson and Hariharan, 2023}), recording
-exact request and response bytes, qualifiers, timestamps, and content hashes.
+raw-only gage height (\texttt{00065}, ft) for 2021--2023 are retrieved by direct
+requests to the USGS NWIS waterservices daily-values REST service
+(\texttt{https:/\allowbreak{}/\allowbreak{}waterservices.usgs.gov/\allowbreak{}nwis/\allowbreak{}dv/\allowbreak{}}), with every request and response
+byte-pair recorded, checksummed, and content-addressed by a \texttt{SnapshotStore}
+cache, preserving qualifiers, timestamps, and content hashes.
 Where two or more finite series exist for a parameter and date, the cell is marked
 missing with an explicit conflict code rather than averaged or selected. The
 primary analysis uses every finite parsed value regardless of approval qualifier,
@@ -354,11 +356,12 @@ only; they are not read by model-selection, feature-selection, threshold-selecti
 calibration, or station-inclusion code, all of which is fixed on data through
 2020.
 
-A restricted external cohort of 30 stations is defined by a fixed 34-state
-metadata query that identifies stream sites advertising daily water-temperature
-capability, with a deterministic seed selecting stations whose site identifiers do
-not occur in the development registry. This is site-identifier disjointness only,
-and those models still consume each target site\textquotesingle s observed history (Section 3.4).
+A pooled-preprocessing sensitivity re-fits the model suite on the same 120-site
+registry with station-agnostic (pooled) transforms in place of the per-station
+transforms used by the primary arm, so that preprocessing aggregation is the only
+difference between the two. It is not a site-disjoint cohort: every site in the
+sensitivity arm is already in the development registry, and each target site
+still supplies its own observed history (Section 3.4).
 
 \begin{figure}
 \centering
@@ -605,8 +608,7 @@ and as the sequence history. This is \textbf{gauged} transfer to a region whose 
 were not used in fitting; it is \textbf{not} prediction at a site with no
 observational record, which is a different problem and a different evaluation
 (\href{https://doi.org/10.3390/w14071032}{Weierbach et al., 2022};
-\href{https://doi.org/10.1002/hyp.14400}{Rahmani, Shen, et al., 2021}). The same
-caveat applies to the 30-site external cohort of Section 2.3.
+\href{https://doi.org/10.1002/hyp.14400}{Rahmani, Shen, et al., 2021}).
 
 \subsection{Conformal intervals}\label{conformal-intervals}
 
@@ -1042,7 +1044,7 @@ Sections 4.1--4.5, which use a different aggregation.
 Model & RMSE 1 & 3 & 7 & MAE 1 & 3 & 7 & bias 1 & 3 & 7 \\
 \midrule\noalign{}
 Persistence & \texttt{0.829} & \texttt{1.645} & \texttt{2.237} & \texttt{0.574} & \texttt{1.168} & \texttt{1.607} & \texttt{-0.001} & \texttt{-0.004} & \texttt{-0.012} \\
-DampedPersistence & \texttt{0.799} & \texttt{1.457} & \texttt{1.759} & \texttt{0.561} & \texttt{1.050} & \texttt{1.288} & \texttt{-0.034} & \texttt{-0.091} & \texttt{-0.173} \\
+Damped persist. & \texttt{0.799} & \texttt{1.457} & \texttt{1.759} & \texttt{0.561} & \texttt{1.050} & \texttt{1.288} & \texttt{-0.034} & \texttt{-0.091} & \texttt{-0.173} \\
 Climatology & \texttt{1.948} & \texttt{1.948} & \texttt{1.950} & \texttt{1.454} & \texttt{1.454} & \texttt{1.456} & \texttt{-0.382} & \texttt{-0.380} & \texttt{-0.378} \\
 LightGBM & \texttt{0.605} & \texttt{1.334} & \texttt{1.708} & \texttt{0.422} & \texttt{0.962} & \texttt{1.256} & \texttt{-0.027} & \texttt{-0.109} & \texttt{-0.200} \\
 LSTM & \texttt{0.688} & \texttt{1.369} & \texttt{1.708} & \texttt{0.493} & \texttt{1.003} & \texttt{1.257} & \texttt{-0.006} & \texttt{-0.062} & \texttt{-0.163} \\
@@ -1059,10 +1061,10 @@ ThermoRoute & \texttt{0.658} & \texttt{1.342} & \texttt{1.686} & \texttt{0.462} 
 \noindent
 \begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
-Model & persist. 1 d & 3 d & 7 d & damped 1 d & 3 d & 7 d \\
+Model & persist. 1 & 3 & 7 & damped 1 & 3 & 7 \\
 \midrule\noalign{}
 Persistence & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} & \texttt{-0.037} & \texttt{-0.129} & \texttt{-0.271} \\
-DampedPersistence & \texttt{+0.036} & \texttt{+0.114} & \texttt{+0.213} & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} \\
+Damped persist. & \texttt{+0.036} & \texttt{+0.114} & \texttt{+0.213} & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} \\
 Climatology & \texttt{-1.349} & \texttt{-0.184} & \texttt{+0.128} & \texttt{-1.437} & \texttt{-0.337} & \texttt{-0.108} \\
 LightGBM & \texttt{+0.270} & \texttt{+0.189} & \texttt{+0.236} & \texttt{+0.243} & \texttt{+0.085} & \texttt{+0.029} \\
 LSTM & \texttt{+0.171} & \texttt{+0.167} & \texttt{+0.236} & \texttt{+0.140} & \texttt{+0.060} & \texttt{+0.029} \\
@@ -1071,7 +1073,7 @@ ThermoRoute & \texttt{+0.207} & \texttt{+0.184} & \texttt{+0.246} & \texttt{+0.1
 \end{tabularx}
 }
 
-\textbf{Table 4.8a. Accuracy (RMSE, MAE, bias) --- one-factor ablations.} \emph{n} = 118,275 (\emph{h} = 1 d), 117,476 (\emph{h} = 3 d), 116,524 (\emph{h} = 7 d) forecast keys. Column groups are lead times in days. Pooled over all common held-out keys, not station-medians.
+\textbf{Table 4.8a. Accuracy (RMSE, MAE, bias) --- one-factor ablations.} Each row removes one component from ThermoRoute; the \texttt{TR-} prefix is dropped. \emph{n} = 118,275 (\emph{h} = 1 d), 117,476 (\emph{h} = 3 d), 116,524 (\emph{h} = 7 d) forecast keys. Column groups are lead times in days. Pooled over all common held-out keys, not station-medians.
 
 {\small
 \setlength{\tabcolsep}{3pt}
@@ -1081,12 +1083,12 @@ ThermoRoute & \texttt{+0.207} & \texttt{+0.184} & \texttt{+0.246} & \texttt{+0.1
 \toprule\noalign{}
 Model & RMSE 1 & 3 & 7 & MAE 1 & 3 & 7 & bias 1 & 3 & 7 \\
 \midrule\noalign{}
-TR-fixedKappa & \texttt{0.654} & \texttt{1.341} & \texttt{1.684} & \texttt{0.458} & \texttt{0.970} & \texttt{1.233} & \texttt{+0.015} & \texttt{-0.043} & \texttt{-0.127} \\
-TR-noDynamicPrior & \texttt{0.654} & \texttt{1.341} & \texttt{1.692} & \texttt{0.459} & \texttt{0.969} & \texttt{1.239} & \texttt{+0.026} & \texttt{-0.023} & \texttt{-0.119} \\
-TR-noMoE & \texttt{0.662} & \texttt{1.346} & \texttt{1.689} & \texttt{0.467} & \texttt{0.974} & \texttt{1.236} & \texttt{+0.002} & \texttt{-0.034} & \texttt{-0.129} \\
-TR-noRouter & \texttt{0.663} & \texttt{1.349} & \texttt{1.689} & \texttt{0.467} & \texttt{0.978} & \texttt{1.237} & \texttt{-0.010} & \texttt{-0.044} & \texttt{-0.128} \\
-TR-noTCN & \texttt{0.696} & \texttt{1.378} & \texttt{1.711} & \texttt{0.489} & \texttt{0.996} & \texttt{1.254} & \texttt{-0.015} & \texttt{-0.062} & \texttt{-0.166} \\
-TR-unbounded & \texttt{0.654} & \texttt{1.335} & \texttt{1.679} & \texttt{0.462} & \texttt{0.969} & \texttt{1.231} & \texttt{+0.007} & \texttt{-0.057} & \texttt{-0.130} \\
+fixed κ & \texttt{0.654} & \texttt{1.341} & \texttt{1.684} & \texttt{0.458} & \texttt{0.970} & \texttt{1.233} & \texttt{+0.015} & \texttt{-0.043} & \texttt{-0.127} \\
+no dyn. prior & \texttt{0.654} & \texttt{1.341} & \texttt{1.692} & \texttt{0.459} & \texttt{0.969} & \texttt{1.239} & \texttt{+0.026} & \texttt{-0.023} & \texttt{-0.119} \\
+no MoE & \texttt{0.662} & \texttt{1.346} & \texttt{1.689} & \texttt{0.467} & \texttt{0.974} & \texttt{1.236} & \texttt{+0.002} & \texttt{-0.034} & \texttt{-0.129} \\
+no router & \texttt{0.663} & \texttt{1.349} & \texttt{1.689} & \texttt{0.467} & \texttt{0.978} & \texttt{1.237} & \texttt{-0.010} & \texttt{-0.044} & \texttt{-0.128} \\
+no TCN & \texttt{0.696} & \texttt{1.378} & \texttt{1.711} & \texttt{0.489} & \texttt{0.996} & \texttt{1.254} & \texttt{-0.015} & \texttt{-0.062} & \texttt{-0.166} \\
+unbounded & \texttt{0.654} & \texttt{1.335} & \texttt{1.679} & \texttt{0.462} & \texttt{0.969} & \texttt{1.231} & \texttt{+0.007} & \texttt{-0.057} & \texttt{-0.130} \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -1099,14 +1101,14 @@ TR-unbounded & \texttt{0.654} & \texttt{1.335} & \texttt{1.679} & \texttt{0.462}
 \noindent
 \begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
-Model & persist. 1 d & 3 d & 7 d & damped 1 d & 3 d & 7 d \\
+Model & persist. 1 & 3 & 7 & damped 1 & 3 & 7 \\
 \midrule\noalign{}
-TR-fixedKappa & \texttt{+0.211} & \texttt{+0.185} & \texttt{+0.247} & \texttt{+0.181} & \texttt{+0.080} & \texttt{+0.043} \\
-TR-noDynamicPrior & \texttt{+0.211} & \texttt{+0.185} & \texttt{+0.244} & \texttt{+0.181} & \texttt{+0.080} & \texttt{+0.038} \\
-TR-noMoE & \texttt{+0.202} & \texttt{+0.182} & \texttt{+0.245} & \texttt{+0.172} & \texttt{+0.076} & \texttt{+0.040} \\
-TR-noRouter & \texttt{+0.200} & \texttt{+0.180} & \texttt{+0.245} & \texttt{+0.170} & \texttt{+0.074} & \texttt{+0.040} \\
-TR-noTCN & \texttt{+0.161} & \texttt{+0.162} & \texttt{+0.235} & \texttt{+0.129} & \texttt{+0.055} & \texttt{+0.028} \\
-TR-unbounded & \texttt{+0.211} & \texttt{+0.189} & \texttt{+0.249} & \texttt{+0.181} & \texttt{+0.084} & \texttt{+0.046} \\
+fixed κ & \texttt{+0.211} & \texttt{+0.185} & \texttt{+0.247} & \texttt{+0.181} & \texttt{+0.080} & \texttt{+0.043} \\
+no dyn. prior & \texttt{+0.211} & \texttt{+0.185} & \texttt{+0.244} & \texttt{+0.181} & \texttt{+0.080} & \texttt{+0.038} \\
+no MoE & \texttt{+0.202} & \texttt{+0.182} & \texttt{+0.245} & \texttt{+0.172} & \texttt{+0.076} & \texttt{+0.040} \\
+no router & \texttt{+0.200} & \texttt{+0.180} & \texttt{+0.245} & \texttt{+0.170} & \texttt{+0.074} & \texttt{+0.040} \\
+no TCN & \texttt{+0.161} & \texttt{+0.162} & \texttt{+0.235} & \texttt{+0.129} & \texttt{+0.055} & \texttt{+0.028} \\
+unbounded & \texttt{+0.211} & \texttt{+0.189} & \texttt{+0.249} & \texttt{+0.181} & \texttt{+0.084} & \texttt{+0.046} \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -1149,12 +1151,15 @@ held-out panel), so Table 4.10 is omitted and no QC counts are invented.
 \end{figure}
 
 The development-period benchmark diagnostics of Sections 4.1--4.5 anticipate the
-held-out evaluation: the reference model rather than the architecture sets the
-reported gain, a gradient-boosted tree is the most accurate model on identical
-keys, an information-matched plain convolutional network reproduces the full
-architecture, and whole-region holdout removes a third of the transfer skill a
-random split reports. The 2021--2023 cells above test whether those development
-findings hold on an independent later window.
+held-out evaluation. Two of those findings have held-out counterparts in the
+2021--2023 cells above: the reference model rather than the architecture sets the
+reported gain --- seven-day skill against persistence remains high while skill
+against damped persistence collapses --- and a gradient-boosted tree with site
+identity has the lowest pooled RMSE at the one- and three-day leads on identical
+held-out keys. The information-matched plain convolutional network and the
+whole-region holdout are development-period-only analyses and are not re-tested
+on the held-out window. The 2021--2023 cells above test the first two findings on
+an independent later window.
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -1411,8 +1416,9 @@ Reported spatial transfer depends on how the map is cut: three-day skill against
 persistence falls from +0.187 to +0.172 under a random held-site split and to
 +0.116 under whole-region holdout, at a mean nearest-training-gauge distance of
 289 km, on a panel where 19 of 120 stations have a neighbour within 10 km. The
-held-out 2021--2023 evaluation (Section 4.6) tests these findings on an
-independent later window; its metric cells are placeholders pending computation.
+held-out 2021--2023 evaluation tests the reference-model and model-ranking
+findings on an independent later window; its pooled metrics are reported in
+Section 4.6, computed from the conventional holdout.
 
 The mechanism common to all three is that each design choice absorbs an
 alternative explanation into the reported number: seasonal damping into a weak
@@ -1495,8 +1501,10 @@ Analyses were run on Python 3.12 with NumPy, pandas, pyarrow, SciPy
 (\href{https://doi.org/10.1038/s41592-019-0686-2}{Virtanen et al., 2020}),
 scikit-learn (Pedregosa et al., 2011), LightGBM
 (\href{https://proceedings.neurips.cc/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html}{Ke et al., 2017}),
-PyTorch (Paszke et al., 2019), and the USGS \texttt{dataretrieval} client
-(\href{https://doi.org/10.5066/P94I5TX3}{Hodson and Hariharan, 2023}).
+and PyTorch (Paszke et al., 2019). USGS NWIS daily values are retrieved by direct
+requests to the USGS waterservices daily-values REST endpoint, with every request
+and response byte-pair cached and content-addressed by the in-repository
+\texttt{SnapshotStore} provenance store.
 
 \textbf{Reproduction.} Sections 4.1--4.5 are reproducible from the archived panel, the archived model
 bundles, and the pinned environment. Section 4.6 is reproducible from the
@@ -1514,8 +1522,7 @@ statement is not a claim that it has.
 None is a real identifier or value, and none may be replaced by a reserved,
 draft, example, or estimated figure. The held-out 2021--2023 metric cells in
 Section 4.6 were filled from
-\texttt{outputs/\allowbreak{}conventional/\allowbreak{}holdout\_\allowbreak{}metrics\_\allowbreak{}2021\_\allowbreak{}2023.csv} using the token grammar
-\texttt{\textless{}\textless{}METRIC\_\allowbreak{}MODEL\_\allowbreak{}hN\textgreater{}\textgreater{}} (e.g. \texttt{\textless{}\textless{}RMSE\_\allowbreak{}ThermoRoute\_\allowbreak{}h1\textgreater{}\textgreater{}}); the Table 4.7/4.8 cells
+\texttt{outputs/\allowbreak{}conventional/\allowbreak{}holdout\_\allowbreak{}metrics\_\allowbreak{}2021\_\allowbreak{}2023.csv}; the Table 4.7/4.8 cells
 are pooled CSV values (with baseline skills derived from pooled RMSE rows), the
 Table 4.6 ΔRMSE column is the pooled difference RMSE\_ThermoRoute −
 RMSE\_reference, and the Table 4.6 cluster-bootstrap interval, win rate, Table

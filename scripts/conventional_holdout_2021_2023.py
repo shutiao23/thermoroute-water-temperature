@@ -83,6 +83,18 @@ DEV_PRED_FILES = {
     "final": "outputs/predictions/usgs_predictions_v2.parquet",
 }
 
+# Stage-09b plain neural controls: training checkpoints + stored arm predictions.
+# These arms have no inference bundle; the conventional scorer loads their
+# best_model_state directly and borrows the frozen stage-09 preprocessing from
+# the same-variable ThermoRoute bundle (proved faithful by G15).
+PLAIN_CONTROL_RUN_ID = "e87f141ad92c33ce1d3f"
+PLAIN_CONTROL_ARMS = ("PlainMLP-7var", "PlainCausalTCN-7var")
+G15_REPORT = "plain_controls_g15.json"
+
+
+def plain_control_run_dir(multicore: Path) -> Path:
+    return multicore / "outputs" / "runs" / "09b_development_controls" / PLAIN_CONTROL_RUN_ID
+
 
 def registry_site_overlap() -> float:
     """Overlap of the external bundle's station_to_index with the 120-site
@@ -97,7 +109,7 @@ def log(msg: str) -> None:
 
 def load_registry(registry_path: Path) -> pd.DataFrame:
     reg = pd.read_csv(registry_path, dtype={"site_no": str, "legacy_site_id": str})
-    reg = reg[["site_no", "legacy_site_id", "lat", "lon"]].copy()
+    reg = reg[["site_no", "legacy_site_id", "lat", "lon", "huc2"]].copy()
     reg["site_no"] = reg["site_no"].str.strip()
     return reg
 
@@ -246,6 +258,7 @@ def run_validation(
     registry_path: Path,
     device: str,
     models: list[str],
+    skip_plain_controls: bool = False,
 ) -> dict:
     """Reproduce 2019-2020 dev predictions with frozen bundles and compare."""
     log("=== VALIDATION: reproducing 2019-2020 dev predictions ===")
@@ -278,7 +291,7 @@ def run_validation(
                 model_name=model, scope="conventional", feature_set="USGS", split="confirm")
         else:
             ens, member_frames, _ = CS.sequence_ensemble(
-                bundle_dir, wd, model_name=model, scope="conventional",
+                bundle_dir, wd, station_names, model_name=model, scope="conventional",
                 feature_set="USGS", device=device, split="confirm")
         ref = load_dev_predictions(multicore, dev_model)
         if ref.empty:
@@ -290,7 +303,72 @@ def run_validation(
         diag = CS.compare_to_reference(member_filtered, ref, atol=1e-2)
         log(f"    {model}: max_abs_diff={diag['max_abs_diff']:.6g} match={diag['match']}")
         diagnostics["models"][model] = diag
+
+    # G15: plain-control preprocessing-borrow reproduction on the dev test rows.
+    diagnostics["plain_controls"] = _validate_plain_controls(
+        multicore, wd, station_names, device, skip_plain_controls)
     return diagnostics
+
+
+def _validate_plain_controls(
+    multicore: Path,
+    wd,
+    station_names,
+    device: str,
+    skip_plain_controls: bool,
+) -> dict:
+    """G15: prove the frozen-transform borrow reproduces stored plain-control dev test.
+
+    Reuses the 2019-2020 confirmation windows already built by
+    :func:`run_validation`.  Each arm is admitted only if every seed reproduces
+    every dev-test forecast key within ``atol=1e-2`` on y_pred/q05/q50/q95/
+    p_exceed.  Failing arms are recorded ``EXCLUDED_PREPROCESSING_MISMATCH``
+    (not a hard abort), and the holdout scorer excludes them.
+    """
+    from thermoroute.plain_controls import CONTROL_SEEDS
+    report: dict = {"arms": {}, "admitted": [], "excluded": [], "skipped": skip_plain_controls}
+    if skip_plain_controls:
+        log("  skip plain controls (--skip-plain-controls)")
+        return report
+    run_dir = plain_control_run_dir(multicore)
+    checkpoint_dir = run_dir / "checkpoints"
+    arm_pred_dir = run_dir / "arm_predictions"
+    if not checkpoint_dir.is_dir() or not arm_pred_dir.is_dir():
+        log(f"  skip plain controls: Stage-09b run not found at {run_dir}")
+        report["skipped"] = True
+        return report
+    metrics = ("y_pred", "q05", "q50", "q95", "p_exceed")
+    for arm in PLAIN_CONTROL_ARMS:
+        log(f"  validating plain control {arm} (G15) ...")
+        try:
+            _ens, member_frames, meta = CS.plain_control_ensemble(
+                checkpoint_dir, wd, station_names, arm, device=device, split="confirm",
+                scope="development_only_2006_2020", feature_set="all_7_variables",
+                n_stations=len(station_names), seeds=CONTROL_SEEDS,
+                expected_run_id=PLAIN_CONTROL_RUN_ID)
+        except Exception as exc:
+            log(f"    {arm}: load/inference failed -> EXCLUDED ({exc})")
+            report["arms"][arm] = {"status": "EXCLUDED_PREPROCESSING_MISMATCH", "error": str(exc)}
+            report["excluded"].append(arm)
+            continue
+        ref_parts = [pd.read_parquet(arm_pred_dir / arm / f"seed{seed}.parquet",
+                                     columns=list(metrics) + ["seed", "split"] + ["site_id", "horizon", "issue_date", "target_date"])
+                     for seed in CONTROL_SEEDS]
+        reference = pd.concat([r[r["split"] == "test"] for r in ref_parts], ignore_index=True)
+        diag = CS.compare_predictions_to_reference(
+            member_frames, reference, atol=1e-2, metrics=metrics, require_all_keys=True)
+        arm_ok = bool(diag["match"])
+        status = "PASS" if arm_ok else "EXCLUDED_PREPROCESSING_MISMATCH"
+        log(f"    {arm}: max_abs_diff={diag['max_abs_diff']:.6g} -> {status}")
+        report["arms"][arm] = {
+            "status": status,
+            "trainable_parameters": meta.get("trainable_parameters"),
+            "n_members": meta.get("member_count"),
+            "per_seed": diag["per_seed"],
+        }
+        (report["admitted"] if arm_ok else report["excluded"]).append(arm)
+    report["overall_status"] = "PASS" if not report["excluded"] else "EXCLUDED_PREPROCESSING_MISMATCH"
+    return report
 
 
 # --------------------------------------------------------------------------- #
@@ -303,6 +381,8 @@ def run_holdout(
     max_stations: int | None,
     skip_external: bool,
     skip_ablations: bool,
+    plain_control_admission: dict | None = None,
+    skip_plain_controls: bool = False,
 ) -> dict:
     log("=== HOLDOUT: 2021-2023 conventional evaluation ===")
     registry = load_registry(registry_path)
@@ -407,6 +487,36 @@ def run_holdout(
         model_frames["LSTM"] = ens
         metadata_by_model["LSTM"] = meta
         calibrated_models.add("LSTM")
+
+    # --- plain neural controls (Tier A; no bundle, no calibration) ---
+    # Admitted only after G15 proves the borrowed stage-09 preprocessing
+    # reproduces the stored dev-test predictions.  These arms carry raw heads
+    # only (NO_FROZEN_CALIBRATION); probability_metrics must skip them.
+    admitted_arms = (plain_control_admission or {}).get("admitted", [])
+    if skip_plain_controls:
+        log("  skip plain controls (--skip-plain-controls)")
+    elif not admitted_arms:
+        log("  skip plain controls: no G15 admission (run validation first)")
+    else:
+        from thermoroute.plain_controls import CONTROL_SEEDS, DEFAULT_N_STATIONS
+        checkpoint_dir = plain_control_run_dir(multicore) / "checkpoints"
+        for arm in admitted_arms:
+            if not (checkpoint_dir / arm).is_dir():
+                log(f"  skip {arm}: checkpoints missing")
+                continue
+            log(f"  scoring plain control {arm} ...")
+            ens, _member_frames, meta = CS.plain_control_ensemble(
+                checkpoint_dir, wd, station_names, arm, device=device, split="confirm",
+                scope="conventional", feature_set="all_7_variables",
+                n_stations=DEFAULT_N_STATIONS, seeds=CONTROL_SEEDS,
+                cohort="temporal", expected_run_id=PLAIN_CONTROL_RUN_ID)
+            meta = dict(meta)
+            ens = CS.assign_cohort_metadata(
+                {arm: ens}, metadata_by_model={arm: meta}, cohort="temporal",
+                registry_huc2=registry_huc2)[arm]
+            model_frames[arm] = ens
+            metadata_by_model[arm] = meta
+            uncalibrated_models.add(arm)
 
     # --- external pooled cohort (same registry; pooled-preprocessing sensitivity) ---
     if not skip_external:
@@ -527,6 +637,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-holdout", action="store_true")
     p.add_argument("--skip-external", action="store_true")
     p.add_argument("--skip-ablations", action="store_true")
+    p.add_argument("--skip-plain-controls", action="store_true",
+                   help="skip the Stage-09b plain neural controls (Tier A); "
+                        "by default they are admitted after the G15 reproduction gate")
     p.add_argument("--allow-incomplete-cohort", action="store_true",
                    help="stamp a waiver into the manifest when acquisition is incomplete")
     p.add_argument("--validation-models", nargs="*",
@@ -541,22 +654,27 @@ def main(argv: list[str] | None = None) -> int:
         multicore = Path(args.multicore)
     else:
         multicore = Path(args.bundle_root)
-    if not (multicore / TEMPORAL_BUNDLES["ThermoRoute"]).exists():
+    if not (multicore / "outputs" / "models" / TEMPORAL_BUNDLES["ThermoRoute"]).exists():
         raise FileNotFoundError(
-            f"ThermoRoute bundle not found under {multicore}; "
-            "run scripts/verify_model_bundles.py or point --bundle-root at the "
-            "worktree that holds the frozen bundles"
-        )
+            f"ThermoRoute bundle not found under {multicore}/outputs/models; "
+            "run scripts/verify_model_bundles.py or point --multicore at the "
+            "worktree that holds the frozen bundles (or --bundle-root at a "
+            "local outputs/models directory)")
     panel_path, registry_path = Path(args.panel), Path(args.registry)
 
+    plain_admission: dict | None = None
     if not args.skip_validation:
-        diag = run_validation(multicore, panel_path, registry_path, args.device, args.validation_models)
+        diag = run_validation(multicore, panel_path, registry_path, args.device,
+                              args.validation_models, args.skip_plain_controls)
         (OUT / "validation_2019_2020.json").write_text(json.dumps(diag, indent=2, default=str))
         log(f"  wrote {OUT / 'validation_2019_2020.json'}")
+        plain_admission = diag.get("plain_controls")
 
     if not args.skip_holdout:
         run_holdout(multicore, registry_path, args.device, args.max_stations,
-                    args.skip_external, args.skip_ablations)
+                    args.skip_external, args.skip_ablations,
+                    plain_control_admission=plain_admission,
+                    skip_plain_controls=args.skip_plain_controls)
     return 0
 
 

@@ -222,6 +222,97 @@ def sequence_ensemble(
 
 
 # --------------------------------------------------------------------------- #
+# Plain neural controls (Stage-09b checkpoints; no bundle, no calibration)
+# --------------------------------------------------------------------------- #
+def plain_control_ensemble(
+    checkpoint_dir: str | Path,
+    wd,
+    station_names: Sequence[str],
+    model_name: str,
+    *,
+    device: str | torch.device = "cpu",
+    split: str = "confirm",
+    batch_size: int = 4096,
+    scope: str = "conventional",
+    feature_set: str = "all_7_variables",
+    n_stations: int = 120,
+    seeds: Sequence[int] = (0, 1, 2, 3, 4),
+    cohort: str = "temporal",
+    expected_run_id: str | None = None,
+) -> tuple[pd.DataFrame, list[pd.DataFrame], dict[str, Any]]:
+    """Run every plain-control seed checkpoint and average them.
+
+    Plain controls have no inference bundle, so this loads each
+    ``checkpoint_dir/<model_name>/seed{seed}.pt`` ``best_model_state``
+    (via :func:`plain_controls.load_plain_control_checkpoint`), runs
+    :func:`_forward_collect` over ``wd.idx(split)``, and averages the heads
+    across seeds exactly as :func:`sequence_ensemble` averages across bundle
+    members.  Because no frozen CQR/Platt calibration exists for these arms,
+    the ensemble is labelled ``NO_FROZEN_CALIBRATION`` with the raw heads
+    retained as ``*_raw`` twins (:func:`mark_uncalibrated_frame`).
+
+    ``station_names`` is the explicit decoder (Trap 5): the global
+    ``C.STATIONS`` is never read here.  The borrowed stage-09 preprocessing
+    (the ``wd`` built from a same-variable ThermoRoute bundle) is proved
+    faithful by the G15 reproduction gate, not assumed.
+    """
+    from .plain_controls import (
+        EXPECTED_PARAMETER_COUNTS,
+        PlainControlError,
+        load_plain_control_checkpoint,
+    )
+    checkpoint_dir = Path(checkpoint_dir)
+    seeds_tuple = tuple(int(s) for s in seeds)
+    if not seeds_tuple:
+        raise ValueError("plain_control_ensemble requires at least one seed")
+    idx = wd.idx(split)
+    member_arrays: list[dict[str, np.ndarray]] = []
+    member_meta: dict[str, Any] | None = None
+    param_count = EXPECTED_PARAMETER_COUNTS.get(model_name)
+    for seed in seeds_tuple:
+        ckpt_path = checkpoint_dir / model_name / f"seed{seed}.pt"
+        try:
+            model, mmeta = load_plain_control_checkpoint(
+                ckpt_path, arm_id=model_name, seed=seed, n_stations=n_stations,
+                expected_run_id=expected_run_id,
+            )
+        except PlainControlError:
+            raise
+        model.eval()
+        arr = _forward_collect(model, wd, idx, device, batch_size)
+        member_arrays.append(arr)
+        if member_meta is None:
+            member_meta = mmeta
+    accum: dict[str, np.ndarray] | None = None
+    for arr in member_arrays:
+        if accum is None:
+            accum = {k: v.astype(np.float64).copy() for k, v in arr.items()}
+        else:
+            for k in accum:
+                accum[k] += arr[k]
+    n_members = len(member_arrays)
+    ens_arrays = {k: v / n_members for k, v in (accum or {}).items()}
+    ens_frame = _arrays_to_frame(
+        ens_arrays, idx, wd, station_names, model_name, scope, feature_set, 0, split)
+    member_frames = [
+        _arrays_to_frame(arr, idx, wd, station_names, model_name, scope, feature_set, seed, split)
+        for seed, arr in zip(seeds_tuple, member_arrays)
+    ]
+    ens_frame = mark_uncalibrated_frame(
+        ens_frame, cohort=cohort, bundle_sha256="", n_members=n_members)
+    metadata = dict(member_meta or {})
+    metadata.update({
+        "members": [f"seed{seed}" for seed in seeds_tuple],
+        "member_count": n_members,
+        "trainable_parameters": param_count,
+        "calibration_state": NO_CALIBRATION_STATE,
+        "has_bundle": False,
+        "_checkpoint_dir": str(checkpoint_dir),
+    })
+    return ens_frame, member_frames, metadata
+
+
+# --------------------------------------------------------------------------- #
 # LightGBM ensemble inference
 # --------------------------------------------------------------------------- #
 def lightgbm_ensemble(
@@ -785,4 +876,62 @@ def compare_to_reference(
     diagnostics["max_abs_diff"] = all_max
     diagnostics["atol"] = atol
     diagnostics["match"] = all_max <= atol
+    return diagnostics
+
+
+def compare_predictions_to_reference(
+    member_frames: list[pd.DataFrame],
+    reference: pd.DataFrame,
+    *,
+    atol: float = 1e-2,
+    metrics: Sequence[str] = ("y_pred", "q05", "q50", "q95", "p_exceed"),
+    require_all_keys: bool = True,
+) -> dict[str, Any]:
+    """Multi-metric per-seed reproduction diagnostic (G15 for plain controls).
+
+    Generalises :func:`compare_to_reference` (which is ``y_pred``-only) to every
+    requested head.  ``member_frames[i]`` corresponds to seed ``i`` and
+    ``reference`` must carry a ``seed`` column.  Each seed passes only if every
+    metric's ``max_abs_diff <= atol`` and (when ``require_all_keys``) every
+    reference forecast key is reproduced (``n_common == n_dev``).
+    """
+    merge_keys = ["site_id", "horizon", "issue_date", "target_date"]
+    diagnostics: dict[str, Any] = {"per_seed": [], "atol": atol, "metrics": list(metrics)}
+    overall_max = 0.0
+    all_pass = True
+    for seed_i, mf in enumerate(member_frames):
+        ref = reference[reference["seed"] == seed_i]
+        entry: dict[str, Any] = {"seed": seed_i, "n_frozen": int(len(mf)), "n_dev": int(len(ref))}
+        if mf.empty or ref.empty or len(mf.merge(ref[merge_keys], on=merge_keys, how="inner")) == 0:
+            entry.update({"n_common": 0, "max_abs_diff": {m: float("nan") for m in metrics},
+                          "within_atol": False, "all_keys_reproduced": False})
+            diagnostics["per_seed"].append(entry)
+            all_pass = False
+            continue
+        merged = mf.merge(
+            ref[merge_keys + list(metrics)], on=merge_keys,
+            suffixes=("_frozen", "_dev"), how="inner")
+        per_metric: dict[str, float] = {}
+        seed_within = True
+        for metric in metrics:
+            d = np.abs(merged[f"{metric}_frozen"].to_numpy(float)
+                       - merged[f"{metric}_dev"].to_numpy(float))
+            maxd = float(np.max(d)) if len(d) else float("nan")
+            per_metric[metric] = maxd
+            overall_max = max(overall_max, maxd if np.isfinite(maxd) else 0.0)
+            if not np.isfinite(maxd) or maxd > atol:
+                seed_within = False
+        all_keys = int(len(merged)) == int(len(ref))
+        entry.update({
+            "n_common": int(len(merged)),
+            "max_abs_diff": per_metric,
+            "overall_max_abs_diff": float(np.nanmax(list(per_metric.values()))),
+            "within_atol": bool(seed_within),
+            "all_keys_reproduced": bool(all_keys),
+        })
+        if not (seed_within and (all_keys or not require_all_keys)):
+            all_pass = False
+        diagnostics["per_seed"].append(entry)
+    diagnostics["max_abs_diff"] = overall_max
+    diagnostics["match"] = bool(all_pass)
     return diagnostics

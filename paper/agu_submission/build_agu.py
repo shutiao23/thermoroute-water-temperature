@@ -47,9 +47,16 @@ WITHDRAWN_PATTERNS = {
     "legacy safety claim": re.compile(r"\bbounded-degradation guarantee\b", re.I),
 }
 
+# The status block must (a) name the study design and (b) promise that anything
+# not computed is flagged rather than silently omitted.  The second phrase used
+# to be "clearly marked", from "the 2021-2023 metric cells are clearly marked
+# <<...>> placeholders pending computation".  Section 4.6 is now filled from the
+# holdout CSV, so that sentence was removed as untrue and replaced by "quantities
+# whose pipelines were not re-run for 2021-2023 are explicitly marked as not
+# reported".  The guard tracks the promise, not the old wording.
 REQUIRED_STATUS_TEXT = (
     "conventional comparative holdout",
-    "clearly marked",
+    "explicitly marked as not reported",
 )
 
 # AGU allows at most three Key Points of at most 140 characters each.  They are
@@ -290,14 +297,20 @@ def _validate_markdown(markdown: str) -> None:
     for phrase in BANNED_PHRASES:
         if phrase in folded:
             raise ValueError(f"canonical Markdown contains a banned phrase: {phrase}")
-    # The held-out 2021--2023 metric cells are ``<<...>>`` placeholders.  At
-    # least one must be present so an empty result cell can never be presented as
-    # a computed value; the exact count is not fixed (one per metric cell).
+    # The invariant is that an empty result cell can never be presented as a
+    # computed value.  While the held-out cells were unfilled that meant "at
+    # least one ``<<...>>`` must survive"; now that Section 4.6 is computed from
+    # holdout_metrics_2021_2023.csv it means the opposite -- no unfilled slot may
+    # remain.  Anything genuinely unavailable is written out as "not reported",
+    # which is prose a reader can act on, not a token that looks like a value.
     if "<<placeholder>>" in folded:
         raise ValueError("canonical Markdown contains a literal <<placeholder>> stub")
-    if RESULT_SLOT_MARKER not in markdown:
+    if RESULT_SLOT_MARKER in markdown:
+        surviving = markdown.count(RESULT_SLOT_MARKER)
         raise ValueError(
-            "canonical Markdown carries no '<<...>>' holdout metric placeholders"
+            f"canonical Markdown still carries {surviving} unfilled "
+            f"'{RESULT_SLOT_MARKER}...' result slot(s); fill them from the holdout "
+            "CSV or state the quantity as not reported"
         )
     _extract_keypoints(markdown)
     violations = [
@@ -535,9 +548,15 @@ def _render(markdown: str) -> str:
     surviving = len(
         RESULT_SLOT_LATEX.findall(body_tex.replace(r"\allowbreak{}", ""))
     )
-    if surviving < 1:
+    # Counterpart to the Markdown-side check in _validate_markdown: while the
+    # held-out cells were unfilled this guarded against Pandoc eating the
+    # placeholders, so it required at least one to survive.  Section 4.6 is now
+    # computed, the Markdown carries no slots, and the invariant inverts -- a
+    # surviving slot here would mean the converter manufactured one.
+    if surviving:
         raise ValueError(
-            "conversion lost every '<<...>>' holdout metric placeholder"
+            f"conversion produced {surviving} '<<...>>' result slot(s) from a "
+            "Markdown source that carries none"
         )
 
     if len(keypoint_items) != KEYPOINTS_MACRO_ARITY:

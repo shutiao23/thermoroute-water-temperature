@@ -1,0 +1,196 @@
+{
+  "gate": "G15_plain_control_preprocessing_borrow",
+  "run_id": "e87f141ad92c33ce1d3f",
+  "interval": "2019-01-01..2020-12-31",
+  "borrowed_bundle": "thermoroute_usgs_bundle_665afcb4d674161943ae",
+  "atol": 0.01,
+  "n_stations": 120,
+  "arms": {
+    "PlainMLP-7var": {
+      "trainable_parameters": 38860,
+      "n_members": 5,
+      "seeds": {
+        "0": {
+          "seed": 0,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "1": {
+          "seed": 1,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "2": {
+          "seed": 2,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "3": {
+          "seed": 3,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "4": {
+          "seed": 4,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        }
+      },
+      "status": "PASS"
+    },
+    "PlainCausalTCN-7var": {
+      "trainable_parameters": 38346,
+      "n_members": 5,
+      "seeds": {
+        "0": {
+          "seed": 0,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "1": {
+          "seed": 1,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "2": {
+          "seed": 2,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "3": {
+          "seed": 3,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        },
+        "4": {
+          "seed": 4,
+          "n_frozen": 253350,
+          "n_dev": 249072,
+          "n_common": 249072,
+          "max_abs_diff": {
+            "y_pred": 0.0,
+            "q05": 0.0,
+            "q50": 0.0,
+            "q95": 0.0,
+            "p_exceed": 0.0
+          },
+          "overall_max_abs_diff": 0.0,
+          "within_atol": true,
+          "all_keys_reproduced": true,
+          "status": "PASS"
+        }
+      },
+      "status": "PASS"
+    }
+  },
+  "overall_status": "PASS",
+  "conclusion": "The stage-09 preprocessing borrow (frozen ThermoRoute transforms) reproduces every plain-control dev-test prediction within tolerance; plain controls are admitted to the conventional holdout."
+}

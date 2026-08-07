@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="240.944882pt" height="175.748031pt" viewBox="0 0 240.944882 175.748031" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="396pt" height="110.631496pt" viewBox="0 0 396 110.631496" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-08-07T01:05:57.553406</dc:date>
+    <dc:date>2026-08-07T10:05:08.869961</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -21,39 +21,31 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 175.748031 
-L 240.944882 175.748031 
-L 240.944882 0 
+   <path d="M 0 110.631496 
+L 396 110.631496 
+L 396 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
-  <g id="axes_1">
-   <g id="patch_2">
-    <path d="M 33.852756 153.709228 
-L 213.115748 153.709228 
-L 213.115748 23.796283 
-L 33.852756 23.796283 
+  <g id="patch_2">
+   <path d="M 51.317126 100.710236 
+L 344.682874 100.710236 
+L 344.682874 9.92126 
+L 51.317126 9.92126 
 z
-" clip-path="url(#pbfe5d05a24)" style="fill: #f2f2f2; stroke: #d55e00; stroke-width: 1.6; stroke-linejoin: miter"/>
-   </g>
-   <g id="text_1">
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(43.946689 46.056698)">figS7 — Spatial and leave-HUC2 influence</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(123.484252 56.010739)"/>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(24.746002 65.964779)">NOT REPORTED for the 2021–2023 held-out window</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(123.484252 75.91882)"/>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(10.626033 85.872861)">Requires per-HUC2 effects and leave-one-HUC2 omissions. </text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(116.416846 95.826901)">The</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(6.950127 105.780942)">conventional holdout CSV is pooled with no HUC2 dimension,</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(111.038658 115.734982)">so this</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(12.355627 125.689023)">figure is not reported for the held-out window.  No value is</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(105.576752 135.643064)">invented.</text>
-   </g>
+" style="fill: #f2f2f2; stroke: #d55e00; stroke-linejoin: miter"/>
+  </g>
+  <g id="text_1">
+   <text style="fill: #202020; font: 700 8.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="198" y="33.227103" transform="rotate(-0 198 33.227103)">Figure S7 — Spatial and leave-HUC2 influence</text>
+  </g>
+  <g id="text_2">
+   <text style="fill: #d55e00; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="198" y="45.697067" transform="rotate(-0 198 45.697067)">NOT REPORTED for the 2021–2023 held-out window</text>
+  </g>
+  <g id="text_3">
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(68.381836 62.259393)">Requires per-HUC2 effects and leave-one-HUC2 omissions. The conventional</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(70.245703 72.229706)">holdout CSV is pooled with no HUC2 dimension, so this figure is not reported</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(122.345508 82.066425)">for the held-out window. No value is invented.</text>
   </g>
  </g>
- <defs>
-  <clipPath id="pbfe5d05a24">
-   <rect x="30.11811" y="21.089764" width="186.732283" height="135.325984"/>
-  </clipPath>
- </defs>
 </svg>

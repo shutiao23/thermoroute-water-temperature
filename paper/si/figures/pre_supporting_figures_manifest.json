@@ -138,14 +138,14 @@
   },
   "captions": {
     "path": "paper/si/figures/FigS1-S3_captions.md",
-    "sha256": "7e225bac2fe4aa224fcdbc5f081de0b223918480c95c64017006780cee7c35c5"
+    "sha256": "332a1b59c6790afdc174dbdf8693138998f1f9d6acc7428ca70830f85943a43f"
   },
   "contains_performance_or_effect_coordinates": false,
   "contains_target_outcomes": false,
   "cross_figure_canonical_check": {
     "all_shared_values_match": true,
     "binder_path": "paper/agu_submission/figures/fig01_preopening_concept.json",
-    "binder_sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2",
+    "binder_sha256": "1d04c27f85216fa0042c7f2e62622a4bb186482928a68f1cc2bb5acc2b886c07",
     "compared_fields": [
       "value",
       "unit"
@@ -310,22 +310,22 @@
     "FigS1": {
       "artifacts": {
         "PDF": {
-          "byte_count": 38037,
+          "byte_count": 30743,
           "font_embedding": "TrueType (Matplotlib pdf.fonttype=42)",
           "path": "paper/si/figures/figS1_cohort_registry.pdf",
-          "sha256": "cdc4078a780f28266bb880525bd0c7e98699ad16c178ecfcfb567f41240f5f39",
+          "sha256": "1880e8bc706243a5aeabc67d81ff97d3795276b71bba5b293d492dfa9feb0b0f",
           "vector": true
         },
         "PNG": {
-          "byte_count": 311981,
-          "dpi": 300,
+          "byte_count": 638319,
+          "dpi": 600,
           "path": "paper/si/figures/figS1_cohort_registry.png",
-          "sha256": "c4428feea67912df891a952bd83db116162a86092b7928ae0205588745c9388b"
+          "sha256": "6bb66ce8c51873269a1008903386def0885944e6ddc75180247e772f7d7a7c4f"
         },
         "SVG": {
-          "byte_count": 77453,
+          "byte_count": 85399,
           "path": "paper/si/figures/figS1_cohort_registry.svg",
-          "sha256": "263a3f53619856356ed7d965850854161e38e850f8b271d13ae672d14ff0fd00",
+          "sha256": "089caadede72abc6034740e9b3bf8f25167733cd53a345790bd0b6448e7cc209",
           "vector": true
         }
       },
@@ -356,7 +356,7 @@
       "description": "four-panel cohort ledger, coordinate/HUC2 display, bars, and audit",
       "figure_id": "FigS1",
       "figure_schema_version": "thermoroute.figure_binder.v1",
-      "height_mm": 156,
+      "height_mm": 152,
       "mark_registry": [
         "figs1.waterfall.initial",
         "figs1.waterfall.rejected",
@@ -3580,9 +3580,9 @@
         "minimum_module_text_inset_mm": 2.0,
         "minimum_nominal_text_pt": 7.5,
         "pdf_fonttype": 42,
-        "placed_height_mm": 156,
-        "placed_width_mm": 140,
-        "png_dpi": 300,
+        "placed_height_mm": 152,
+        "placed_width_mm": 139.7,
+        "png_dpi": 600,
         "semantic_palette_binding": "paper/FIGURE_REDRAW_SPEC.md#3.1-Semantic-palette",
         "svg_accessibility": "role=img; aria-labelledby=svg-title svg-desc"
       },
@@ -3622,39 +3622,39 @@
           "format": "Markdown",
           "path": "paper/FIGURE_REDRAW_SPEC.md",
           "semantic_role": "authoritative PRE figure and binder contract",
-          "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
+          "sha256": "a9683627864c9e134e8cf46396016fa7b13d691aa73fef92175543978274b6a5"
         },
         {
           "format": "JSON",
           "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
           "semantic_role": "cross-figure canonical value/unit consistency authority",
-          "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
+          "sha256": "1d04c27f85216fa0042c7f2e62622a4bb186482928a68f1cc2bb5acc2b886c07"
         }
       ],
       "status": "MATERIALIZED_PRE_STRUCTURAL_ONLY",
       "svg_xml_well_formed": true,
       "white_background": true,
-      "width_mm": 140
+      "width_mm": 139.7
     },
     "FigS2": {
       "artifacts": {
         "PDF": {
-          "byte_count": 35131,
+          "byte_count": 28817,
           "font_embedding": "TrueType (Matplotlib pdf.fonttype=42)",
           "path": "paper/si/figures/figS2_information_boundary.pdf",
-          "sha256": "e60f63c211b3601d6e7233a45cb7490231f42f7d94956e040022b3553a346f06",
+          "sha256": "066d3aa2796365f85f2062e706dc4ba95746885d29734ebad18ba64106f25977",
           "vector": true
         },
         "PNG": {
-          "byte_count": 432000,
-          "dpi": 300,
+          "byte_count": 839674,
+          "dpi": 600,
           "path": "paper/si/figures/figS2_information_boundary.png",
-          "sha256": "17719e124cd0919a45cb6a8ec1ec7c478a62519678834cbcf7185554afc76873"
+          "sha256": "553b1871d94e71d0b678de95df5227d3d245078b788ae95aa58435cb3b3ca17f"
         },
         "SVG": {
-          "byte_count": 32140,
+          "byte_count": 40939,
           "path": "paper/si/figures/figS2_information_boundary.svg",
-          "sha256": "94c0cf37a25752a1fd413a1f1c7af2883b41cf568cba721177ce67d9dc35b253",
+          "sha256": "9ec4953f07393df1d06eb64d67a9affa516d57df88ff468365d38fbbf2441aa4",
           "vector": true
         }
       },
@@ -3741,7 +3741,7 @@
       "description": "four-panel chronology, issue boundary, source matrix, and bridge limits",
       "figure_id": "FigS2",
       "figure_schema_version": "thermoroute.figure_binder.v1",
-      "height_mm": 182,
+      "height_mm": 170,
       "mark_registry": [
         "figs2.chronology.train",
         "figs2.chronology.validation",
@@ -4184,9 +4184,9 @@
         "minimum_module_text_inset_mm": 2.0,
         "minimum_nominal_text_pt": 7.5,
         "pdf_fonttype": 42,
-        "placed_height_mm": 182,
-        "placed_width_mm": 140,
-        "png_dpi": 300,
+        "placed_height_mm": 170,
+        "placed_width_mm": 139.7,
+        "png_dpi": 600,
         "semantic_palette_binding": "paper/FIGURE_REDRAW_SPEC.md#3.1-Semantic-palette",
         "svg_accessibility": "role=img; aria-labelledby=svg-title svg-desc"
       },
@@ -4268,39 +4268,39 @@
           "format": "Markdown",
           "path": "paper/FIGURE_REDRAW_SPEC.md",
           "semantic_role": "authoritative PRE figure and binder contract",
-          "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
+          "sha256": "a9683627864c9e134e8cf46396016fa7b13d691aa73fef92175543978274b6a5"
         },
         {
           "format": "JSON",
           "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
           "semantic_role": "cross-figure canonical value/unit consistency authority",
-          "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
+          "sha256": "1d04c27f85216fa0042c7f2e62622a4bb186482928a68f1cc2bb5acc2b886c07"
         }
       ],
       "status": "MATERIALIZED_PRE_DESIGN_ONLY",
       "svg_xml_well_formed": true,
       "white_background": true,
-      "width_mm": 140
+      "width_mm": 139.7
     },
     "FigS3": {
       "artifacts": {
         "PDF": {
-          "byte_count": 36166,
+          "byte_count": 28199,
           "font_embedding": "TrueType (Matplotlib pdf.fonttype=42)",
           "path": "paper/si/figures/figS3_model_architecture.pdf",
-          "sha256": "a89088caaf9534ef4e894a392023b4655f548f40d49e2f40b9bb38891d50a8cc",
+          "sha256": "76648a3261d764c709ee2d480c0e9b02392ca31adf0dbc5848c070508e137b7e",
           "vector": true
         },
         "PNG": {
-          "byte_count": 318579,
-          "dpi": 300,
+          "byte_count": 652676,
+          "dpi": 600,
           "path": "paper/si/figures/figS3_model_architecture.png",
-          "sha256": "9b25944fd151775f8d3ff952b411a87680a5bbb47cb92c5b92dbd41f1d530472"
+          "sha256": "a96aa96ea679723fced2a6cf584f7016ac82af09ba6dfb589a41b125f96cfb53"
         },
         "SVG": {
-          "byte_count": 33102,
+          "byte_count": 38591,
           "path": "paper/si/figures/figS3_model_architecture.svg",
-          "sha256": "0baea7dad04ecf3201155378b6cfd087255e0fbf9fff04f9f512a9ca03764786",
+          "sha256": "4bd87360722683a402f2c3862681b13a926c13dc7ad86944b07e38941ebae053",
           "vector": true
         }
       },
@@ -4361,7 +4361,7 @@
       "description": "four-column PRE model, bound, heads, and calibration dataflow",
       "figure_id": "FigS3",
       "figure_schema_version": "thermoroute.figure_binder.v1",
-      "height_mm": 122,
+      "height_mm": 148,
       "mark_registry": [
         "figs3.input.variable_1",
         "figs3.input.variable_2",
@@ -4709,9 +4709,9 @@
         "minimum_module_text_inset_mm": 2.0,
         "minimum_nominal_text_pt": 7.5,
         "pdf_fonttype": 42,
-        "placed_height_mm": 122,
-        "placed_width_mm": 140,
-        "png_dpi": 300,
+        "placed_height_mm": 148,
+        "placed_width_mm": 139.7,
+        "png_dpi": 600,
         "semantic_palette_binding": "paper/FIGURE_REDRAW_SPEC.md#3.1-Semantic-palette",
         "svg_accessibility": "role=img; aria-labelledby=svg-title svg-desc"
       },
@@ -4739,7 +4739,7 @@
           "format": "Python",
           "path": "src/thermoroute/model_suite.py",
           "semantic_role": "ordered Route-A seven-variable registry",
-          "sha256": "60c73ce552c714f7a9687b3ebd99c8916cd5908154c82a9491fd74682701bd81"
+          "sha256": "3944f996bac4fc1b8bde27617d35a6b235a4e4eff7d6b05fee1a7a1591dcb6f8"
         },
         {
           "format": "Python",
@@ -4763,19 +4763,19 @@
           "format": "Markdown",
           "path": "paper/FIGURE_REDRAW_SPEC.md",
           "semantic_role": "authoritative PRE figure and binder contract",
-          "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
+          "sha256": "a9683627864c9e134e8cf46396016fa7b13d691aa73fef92175543978274b6a5"
         },
         {
           "format": "JSON",
           "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
           "semantic_role": "cross-figure canonical value/unit consistency authority",
-          "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
+          "sha256": "1d04c27f85216fa0042c7f2e62622a4bb186482928a68f1cc2bb5acc2b886c07"
         }
       ],
       "status": "MATERIALIZED_PRE_DESIGN_ONLY_SUITE_GATED_FINAL",
       "svg_xml_well_formed": true,
       "white_background": true,
-      "width_mm": 140
+      "width_mm": 139.7
     }
   },
   "format": "thermoroute.pre_supporting_figures.v2",
@@ -4791,9 +4791,9 @@
   },
   "renderer": {
     "command": "python paper/si/figures/render_pre_supporting_figures.py",
-    "matplotlib_version": "3.8.0",
+    "matplotlib_version": "3.9.2",
     "path": "paper/si/figures/render_pre_supporting_figures.py",
-    "sha256": "2dedbf714274b2e53b1e4e747d3764c41dbb30663c6f01dc29205ac41431bb02",
+    "sha256": "2f24de46321737737c4c487bbe6c0e4753c1be607e240561e53d1d4dbc5a6121",
     "svg_hashsalt": "thermoroute-pre-figures-v1"
   },
   "semantic_palette": {
@@ -5049,7 +5049,7 @@
       "format": "JSON",
       "path": "paper/agu_submission/figures/fig01_preopening_concept.json",
       "semantic_role": "cross-figure canonical value/unit consistency authority",
-      "sha256": "f067c011e2b384431e073d9d4dd37e06b0428e2ce4f7a350d1784005105161f2"
+      "sha256": "1d04c27f85216fa0042c7f2e62622a4bb186482928a68f1cc2bb5acc2b886c07"
     },
     "marker_projection": {
       "format": "CSV",
@@ -5067,7 +5067,7 @@
       "format": "Python",
       "path": "src/thermoroute/model_suite.py",
       "semantic_role": "ordered Route-A seven-variable registry",
-      "sha256": "60c73ce552c714f7a9687b3ebd99c8916cd5908154c82a9491fd74682701bd81"
+      "sha256": "3944f996bac4fc1b8bde27617d35a6b235a4e4eff7d6b05fee1a7a1591dcb6f8"
     },
     "panel": {
       "format": "Parquet",
@@ -5085,7 +5085,7 @@
       "format": "Markdown",
       "path": "paper/FIGURE_REDRAW_SPEC.md",
       "semantic_role": "authoritative PRE figure and binder contract",
-      "sha256": "d56a7adae5333e30b4c48a29ff9b6c1bee3724f455b4bb5237163bac2ba4a1a8"
+      "sha256": "a9683627864c9e134e8cf46396016fa7b13d691aa73fef92175543978274b6a5"
     },
     "registry": {
       "format": "CSV",

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="240.944882pt" height="175.748031pt" viewBox="0 0 240.944882 175.748031" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="396pt" height="120.531496pt" viewBox="0 0 396 120.531496" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-08-07T01:05:58.211412</dc:date>
+    <dc:date>2026-08-07T10:05:10.280360</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -21,41 +21,32 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 175.748031 
-L 240.944882 175.748031 
-L 240.944882 0 
+   <path d="M 0 120.531496 
+L 396 120.531496 
+L 396 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
-  <g id="axes_1">
-   <g id="patch_2">
-    <path d="M 33.852756 153.709228 
-L 213.115748 153.709228 
-L 213.115748 23.796283 
-L 33.852756 23.796283 
+  <g id="patch_2">
+   <path d="M 46.817126 110.610236 
+L 349.182874 110.610236 
+L 349.182874 9.92126 
+L 46.817126 9.92126 
 z
-" clip-path="url(#pf929d78362)" style="fill: #f2f2f2; stroke: #d55e00; stroke-width: 1.6; stroke-linejoin: miter"/>
-   </g>
-   <g id="text_1">
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(26.979689 36.102657)">figS9 — Development-period conformal calibration</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(104.133939 46.056698)">sensitivity</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(123.484252 56.010739)"/>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(24.746002 65.964779)">NOT REPORTED for the 2021–2023 held-out window</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(123.484252 75.91882)"/>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(13.005189 85.872861)">Development-period figure (Stage-22 adaptive conformal,</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(8.122189 95.826901)">2019-01-01 to 2020-12-24).  Not a 2021-2023 result and not</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(106.283314 105.780942)">rendered</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(12.584814 115.734982)">from the conventional metrics CSV.  See paper section 4.5</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(110.815408 125.689023)">for the</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(16.229846 135.643064)">development-period split-CQR / block-max / delayed-ACI</text>
-    <text style="fill: #202020; font: 7.6px 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif" transform="translate(109.917064 145.597104)">values.</text>
-   </g>
+" style="fill: #f2f2f2; stroke: #d55e00; stroke-linejoin: miter"/>
+  </g>
+  <g id="text_1">
+   <text style="fill: #202020; font: 700 8.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="198" y="33.227103" transform="rotate(-0 198 33.227103)">Figure S9 — Development-period conformal calibration sensitivity</text>
+  </g>
+  <g id="text_2">
+   <text style="fill: #d55e00; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="198" y="45.697067" transform="rotate(-0 198 45.697067)">DEVELOPMENT-PERIOD EVIDENCE ONLY · not a 2021–2023 result</text>
+  </g>
+  <g id="text_3">
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(78.164062 62.259393)">Development-period figure (Stage-22 adaptive conformal, 2019-01-01 to</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(70.024805 72.096112)">2020-12-24). Not a 2021–2023 result and not rendered from the conventional</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(74.419336 82.066425)">metrics CSV. See paper section 4.5 for the development-period split-CQR,</text>
+   <text style="fill: #202020; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(129.858984 92.036737)">block-maximum and delayed-ACI values.</text>
   </g>
  </g>
- <defs>
-  <clipPath id="pf929d78362">
-   <rect x="30.11811" y="21.089764" width="186.732283" height="135.325984"/>
-  </clipPath>
- </defs>
 </svg>

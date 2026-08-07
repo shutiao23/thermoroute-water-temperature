@@ -103,8 +103,9 @@ training lineage.
 
 ### 3.6 A draft guard that must be run
 
-The 2021--2023 holdout scoring applies a **strict** `q05 < q95` to the
-member-averaged nominal heads and aborts on violation. On the development panel,
+The 2021--2023 holdout scoring applies a **strict** `q05 < q95` check to the
+member-averaged nominal heads, and the ensemble is validated against this
+ordering before any held-out metric is reported. On the development panel,
 member averaging clears every affected key for the models in the primary registry;
 the only survivors are single-member per-station cases, and that variant is not a
 primary model. The holdout period is different data. The same read-only check

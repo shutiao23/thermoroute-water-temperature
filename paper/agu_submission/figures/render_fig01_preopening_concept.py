@@ -15,21 +15,33 @@
 #   POST/PRE figure-state tokens (POST_TEMPLATE_ONLY, POST gate, POST skeletons) -> holdout-period / structural labels
 #   Stage-19 "withheld script" framing               -> the conventional holdout scorer computes the target-period probabilistic family
 # No result numbers are filled in this pass; <<...>> / pending cells wait on the metrics CSV.
-"""Render the three-panel ThermoRoute opening figure (restructured 2026-08-06).
+"""Render the three-panel ThermoRoute opening figure (relaid out 2026-08-07).
 
 Panel assignment under the benchmark restructure:
   (a) station map -- 120 retained gauges on a CONUS coordinate scatter, coloured
       by HUC2 with redundant marker encoding and sized by retained 2006--2015
-      observed WTEMP day count, with a nearest-neighbour distance inset.
+      observed WTEMP day count, beside the nearest-neighbour distance histogram.
   (b) cluster geometry against the claim gate -- HUC2 counts, three frozen gate
       gauges, and the HUC2/4/6/8 ladder.
-  (c) the persistence challenge -- station median |d_h T| by horizon from
+  (c) the persistence challenge -- station median |dT| by horizon from
       observed exact-day pairs in the 2006--2015 training interval.
 
 The bounded-correction tanh schematic that previously occupied panel (b) has been
 relocated to Figure S3(c).  The renderer keeps every frozen-input integrity check
 and reuses the cohort geometry, gate, and persistence derivations of the prior
-render; only the panel assignment and the ladder extension are new.
+render.
+
+Layout (2026-08-07 redraw).  The previous revision positioned panels, insets,
+gate boxes, ladder cells and flow nodes in figure/axes fractions by hand, and at
+least six pairs of elements collided in the rendered PDF: the (a) heading under
+the inset axis label, the inset over the map, four inset annotations over each
+other, the (c) heading cut by the (a) axes, the (c) subtitle clipped at the page
+edge, the (b) hatched band over the bar labels and the y-axis label, the ladder
+under the scope verdict, and the HUC2 legend spilling outside the figure.  Every
+one of those was a consequence of guessing coordinates.  Nothing is positioned in
+figure fractions any more: one figure-level ``GridSpec`` under constrained layout
+owns the geometry, each element claims a cell, and ``figstyle.check_overlaps``
+fails the render if any two text artists still touch.
 """
 
 from __future__ import annotations
@@ -38,6 +50,7 @@ import ast
 import hashlib
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree
@@ -49,10 +62,17 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
+# paper/figstyle.py is the single style contract for every submission figure:
+# Nimbus Sans (metric Helvetica), 8 pt body / 7.5 pt ticks / 9 pt bold panel
+# labels, Wong (2011) colour-blind-safe palette, pdf.fonttype 42, 600 dpi,
+# constrained layout, and the text-collision guard.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import figstyle  # noqa: E402  (path is set immediately above)
 
-WIDTH_MM = 140
-HEIGHT_MM = 92
-DPI = 300
+
+WIDTH_MM = figstyle.FULL_MM      # the AGU class \textwidth, from the style module
+HEIGHT_MM = 186.0                # < AGU's 228 mm ceiling; see LAYOUT_MM below
+DPI = 600
 MIN_VISIBLE_STROKE_PT = 0.6
 # Persistence (panel c) publication scale, declared independent of observed extrema.
 PERSIST_Y_MIN_C = 0.0
@@ -107,29 +127,68 @@ CLUSTER_LADDER = (
     ("HUC6", 75, 36.364, 0.4848, 0.1000, False),
     ("HUC8", 95, 72.000, 0.7579, 0.0417, True),
 )
+# The one gate criterion the ladder can move, drawn once as a threshold line and
+# checked against the frozen contract before it is used.
+MIN_EFFECTIVE_FRACTION_DISPLAY = 0.75
+# Where each gate gauge puts its own threshold, as a fraction of its own axis.
+# The strip to the right of it is reserved for the PASS/FAIL word.
+GATE_THRESHOLD_AXIS_FRACTION = 0.62
+EVIDENCE_SPINE_LABELS = (
+    "dated inputs\n≤ t",
+    "exact\nkeys",
+    "station\neffects",
+    "HUC\nsensitivity",
+    "claim\ngate",
+)
 
-# Okabe--Ito hues, plus neutral ink. Patterns and symbols duplicate color.
-BLUE = "#0072B2"
-VERMILION = "#D55E00"
-TEAL = "#008C7A"
+# Wong (2011) hues via the shared style module, plus neutral ink.  Patterns and
+# words duplicate colour everywhere colour carries meaning.
+BLUE = figstyle.WONG["blue"]
+VERMILION = figstyle.WONG["vermillion"]
+TEAL = figstyle.WONG["green"]
 INK = "#202020"
-MID = "#60656B"
-LIGHT = "#D0D0D0"
+MID = figstyle.MUTED
+LIGHT = figstyle.GRID
 PALE_BLUE = "#DCEAF4"
 PALE_VERMILION = "#F9E3D6"
 PALE_TEAL = "#DCEFEA"
+PALE_GREY = "#EDEDED"
 WHITE = "#FFFFFF"
-# Full Okabe--Ito set for the 15-way HUC2 map encoding (mirrors Figure S1).
-OI_HUC_COLORS = ("#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7")
+# Full Okabe--Ito/Wong set for the 15-way HUC2 map encoding (mirrors Figure S1).
+OI_HUC_COLORS = (
+    figstyle.WONG["blue"],
+    figstyle.WONG["orange"],
+    figstyle.WONG["green"],
+    figstyle.WONG["vermillion"],
+    figstyle.WONG["purple"],
+)
 OI_HUC_MARKERS = ("o", "s", "^", "D", "v", "<", ">", "p")
+
+# Nimbus Sans has no U+2713 CHECK MARK and no U+2095 SUBSCRIPT SMALL H; both
+# render as tofu once the figure leaves DejaVu.  Verdicts are therefore words
+# (which are also the non-colour channel), and the horizon is on the x axis
+# rather than in a subscript.
+PASS_WORD = "PASS"
+FAIL_WORD = "FAIL"
+
+# Panel block heights in mm.  These are GridSpec height ratios, not positions:
+# constrained layout distributes the padding, so the numbers only set the
+# relative vertical budget of the three panel blocks.
+LAYOUT_MM = {"a": 47.0, "b": 86.0, "c": 32.0}
+# Height of each panel-heading row, which lives in the outer grid.
+HEAD_MM = 6.5
+# Declared nearest-neighbour histogram extent (panel a), fixed independently of
+# the observed maximum and validated against it at render time.
+NN_HIST_MAX_KM = 400.0
+NN_HIST_BIN_KM = 20.0
 
 CAPTION = (
     "Figure 1. Cohort, geometry against the claim gate, and the persistence "
     "challenge. (a) The 120 retained gauges on a CONUS coordinate scatter (no "
     "basemap), coloured by HUC2 region with redundant marker encoding and sized "
-    "by retained 2006--2015 observed WTEMP day count; inset: zero-based histogram "
-    "of nearest-neighbour distance between retained stations, annotating the "
-    "10 km mark (19 stations) and the 289 km whole-region-holdout mean "
+    "by retained 2006--2015 observed WTEMP day count; beside it, a zero-based "
+    "histogram of nearest-neighbour distance between retained stations, marking "
+    "the 10 km distance (19 stations) and the 289 km whole-region-holdout mean "
     "nearest-training-gauge distance. (b) The 657,480-row panel collapses to 120 "
     "sites across 15 pre-attrition HUC2 groups; three frozen gate checks "
     "(>=30 groups, >=0.75 effective fraction, <25% largest share) are shown as "
@@ -424,65 +483,84 @@ def registry_geometry(registry_path: Path) -> tuple[list[str], np.ndarray, tuple
 
 
 def configure_matplotlib() -> None:
+    """Apply the shared submission style, then this figure's render guards."""
+    figstyle.use()
     mpl.rcParams.update(
         {
-            "font.family": "DejaVu Sans",
-            "font.size": 7.5,
-            "axes.labelsize": 7.5,
-            "axes.titlesize": 9.0,
-            "xtick.labelsize": 7.5,
-            "ytick.labelsize": 7.5,
-            "legend.fontsize": 7.5,
-            "axes.linewidth": 0.65,
-            "lines.linewidth": 1.2,
-            "pdf.fonttype": 42,
-            "ps.fonttype": 42,
-            "svg.fonttype": "none",
-            "svg.hashsalt": "thermoroute-figure-1-v3",
+            # The SVG guard below refuses any visible stroke under 0.6 pt, so
+            # the grid and hatch widths are lifted to that floor.
+            "grid.linewidth": MIN_VISIBLE_STROKE_PT,
             "hatch.linewidth": MIN_VISIBLE_STROKE_PT,
+            "svg.hashsalt": "thermoroute-figure-1-v4",
+            "savefig.dpi": DPI,
             "savefig.facecolor": WHITE,
             "figure.facecolor": WHITE,
         }
     )
+    resolved = figstyle.resolved_font()
+    if resolved == "DejaVu Sans":
+        raise RuntimeError(
+            "Figure 1 resolved to DejaVu Sans: no Helvetica-metric sans-serif is "
+            "installed, and AGU line art must not ship the silent fallback"
+        )
 
 
-def prepare_panel(ax: mpl.axes.Axes) -> None:
-    ax.set_axis_off()
-    frame = Rectangle(
-        (0.0, 0.0),
-        1.0,
-        1.0,
-        transform=ax.transAxes,
-        facecolor=WHITE,
-        edgecolor=LIGHT,
-        linewidth=0.85,
-        clip_on=False,
-    )
-    ax.add_patch(frame)
+def blank_axes(ax: mpl.axes.Axes) -> mpl.axes.Axes:
+    """Turn a grid cell into a bare drawing surface with unit coordinates.
+
+    ``set_axis_off`` leaves invisible tick labels behind, and those still carry
+    text and a window extent, so the collision guard reports phantom hits
+    between two annotation cells.  Emptying the locators removes them.
+    """
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.patch.set_visible(False)
+    return ax
+
+
+def free_text(ax: mpl.axes.Axes, x: float, y: float, text: str, **kwargs) -> mpl.text.Text:
+    """Annotation text that draws but does not push the layout around.
+
+    Constrained layout sizes every cell from its artists' tight bounding box,
+    so a multi-line note in an annotation cell would steal width and height
+    from the plot beside it -- panel (c) collapsed to 8 mm that way.  These
+    strings are laid out inside a cell that is already the right size, so they
+    are excluded from the margin calculation and policed by the collision
+    guard instead.
+    """
+    artist = ax.text(x, y, text, **kwargs)
+    artist.set_in_layout(False)
+    return artist
 
 
 def panel_heading(ax: mpl.axes.Axes, letter: str, title: str, subtitle: str) -> None:
-    ax.text(
-        0.030,
-        0.918,
-        f"({letter})  {title}",
-        transform=ax.transAxes,
-        fontsize=10,
-        fontweight="bold",
-        ha="left",
-        va="center",
-        color=INK,
+    """Panel label, title and subtitle in a cell of their own.
+
+    The heading used to be text at a guessed axes fraction inside the panel, so
+    it sat on whatever the panel drew there.  It now owns a grid row, and the
+    rule marks where the panel block starts.
+    """
+    blank_axes(ax)
+    ax.axhline(0.80, color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT, zorder=0)
+    free_text(
+        ax, 0.0, 0.12, f"({letter})  {title}",
+        transform=ax.transAxes, fontsize=9.0, fontweight="bold",
+        ha="left", va="baseline", color=INK,
     )
-    ax.text(
-        0.100,
-        0.835,
-        subtitle,
-        transform=ax.transAxes,
-        fontsize=7.5,
-        ha="left",
-        va="center",
-        color=MID,
+    free_text(
+        ax, 1.0, 0.12, subtitle,
+        transform=ax.transAxes, fontsize=7.5,
+        ha="right", va="baseline", color=MID,
     )
+
+
+def sub_title(ax: mpl.axes.Axes, text: str) -> None:
+    """A within-panel axes title, one step below the panel heading."""
+    ax.set_title(text, loc="left", fontsize=8.0, fontweight="normal", color=INK, pad=3.0)
 
 
 def _huc_encoding(huc_codes: list[str]) -> list[dict[str, object]]:
@@ -505,35 +583,45 @@ def _huc_encoding(huc_codes: list[str]) -> list[dict[str, object]]:
 
 
 def draw_panel_a(
-    panel: mpl.axes.Axes,
+    axes: dict[str, mpl.axes.Axes],
     map_data: dict[str, object],
 ) -> None:
-    prepare_panel(panel)
+    """(a) Station map, nearest-neighbour distances, and the HUC2 key.
+
+    Three cells: the coordinate scatter, the distance histogram beside it (it
+    was an inset lying across the map), and a legend strip beneath both (the
+    15-entry HUC2 key used to overflow the left figure margin).
+    """
     panel_heading(
-        panel,
+        axes["head"],
         "a",
         "Station map",
-        "120 retained gauges \u2022 coloured by HUC2 \u2022 no basemap",
+        "120 retained gauges • marker size: 2006–2015 observed days",
     )
-    ax = panel.inset_axes([0.105, 0.150, 0.820, 0.620])
-    huc_codes = sorted(EXPECTED_HUC_COUNTS, key=int)
-    huc_codes = [f"{int(c):02d}" for c in huc_codes]
+
+    ax = axes["map"]
+    huc_codes = [f"{int(code):02d}" for code in sorted(EXPECTED_HUC_COUNTS, key=int)]
     encoding = _huc_encoding(huc_codes)
     enc_by_code = {e["huc2"]: e for e in encoding}
     day_counts = map_data["day_counts"]
     dc_min = float(day_counts.min())
     dc_max = float(day_counts.max())
-    # Map observed-day count to marker area in [18, 78] pt^2.
+
     def size_for(count: int) -> float:
+        # Observed-day count -> marker area in [8, 38] pt^2.
         if dc_max <= dc_min:
-            return 38.0
-        return 18.0 + 60.0 * (count - dc_min) / (dc_max - dc_min)
+            return 23.0
+        return 8.0 + 30.0 * (count - dc_min) / (dc_max - dc_min)
 
     legend_handles: list[Line2D] = []
     for code in huc_codes:
         e = enc_by_code[code]
         mask = map_data["huc2"] == code
-        face = e["color"] if e["fill"] == "filled" else WHITE
+        filled = e["fill"] == "filled"
+        face = e["color"] if filled else WHITE
+        # Open markers carry their hue on the edge; drawing them white-on-black
+        # threw colour away for seven of the fifteen regions.
+        edge = INK if filled else e["color"]
         sizes = np.array([size_for(int(c)) for c in day_counts[mask]])
         ax.scatter(
             map_data["lon"][mask],
@@ -541,353 +629,421 @@ def draw_panel_a(
             s=sizes,
             marker=e["marker"],
             facecolor=face,
-            edgecolor=INK,
-            linewidth=0.6,
+            edgecolor=edge,
+            linewidth=0.7 if filled else 0.8,
             alpha=0.92,
             zorder=3,
         )
         legend_handles.append(
             Line2D(
                 [0], [0], marker=e["marker"], color="none",
-                markerfacecolor=face, markeredgecolor=INK, markeredgewidth=0.6,
-                markersize=4.2, label=code,
+                markerfacecolor=face, markeredgecolor=edge,
+                markeredgewidth=0.7 if filled else 0.8, markersize=3.6, label=code,
             )
         )
     ax.set_xlim(MAP_X_MIN, MAP_X_MAX)
     ax.set_ylim(MAP_Y_MIN, MAP_Y_MAX)
-    ax.set_xticks([-120, -100, -80, -70])
-    ax.set_yticks([25, 35, 45, 50])
-    ax.set_xlabel("Longitude (\u00b0E)", labelpad=2)
-    ax.set_ylabel("Latitude (\u00b0N)", labelpad=2)
+    # Degree-suffixed tick labels carry the axis meaning, so the map needs no
+    # axis labels and gives the row back to the data area.
+    ax.set_xticks(
+        [-120, -110, -100, -90, -80, -70],
+        ["120°W", "110°W", "100°W", "90°W", "80°W", "70°W"],
+    )
+    ax.set_yticks([25, 30, 35, 40, 45, 50], ["25°N", "30°N", "35°N", "40°N", "45°N", "50°N"])
     ax.grid(True, color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT, zorder=0)
     ax.set_axisbelow(True)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.tick_params(length=2.5, width=0.65, color=MID)
-    ax.text(
-        0.025, 0.035, "coordinate scatter \u2022 no basemap",
+    ax.tick_params(length=2.5, width=MIN_VISIBLE_STROKE_PT, color=MID)
+    free_text(
+        ax, 0.015, 0.03, "coordinate scatter • no basemap",
         transform=ax.transAxes, ha="left", va="bottom", fontsize=7.5, color=MID,
-        bbox={"facecolor": WHITE, "edgecolor": "none", "pad": 1.0},
-    )
-    ax.legend(
-        handles=legend_handles, title="HUC2", ncol=8, loc="upper center",
-        bbox_to_anchor=(0.5, -0.165), frameon=False, columnspacing=0.5,
-        handletextpad=0.1, borderaxespad=0.0, title_fontsize=7.5,
+        bbox={"facecolor": WHITE, "edgecolor": "none", "pad": 1.0}, zorder=4,
     )
 
-    # Inset: zero-based histogram of nearest-neighbour distance.
-    nn = map_data["nn"]
-    inset = panel.inset_axes([0.085, 0.535, 0.370, 0.300])
-    bins = np.linspace(0.0, max(float(nn.max()), WHOLE_REGION_HOLDOUT_MEAN_KM) * 1.02, 16)
-    inset.hist(nn, bins=bins, color=PALE_BLUE, edgecolor=BLUE, linewidth=0.7)
-    inset.axvline(
-        NN_THRESHOLD_KM, color=VERMILION, linestyle=(0, (4, 2)), linewidth=0.9
+    # Nearest-neighbour distance: its own cell, with the two marked distances
+    # as legend entries rather than four text boxes stacked on the bars.
+    nn = np.asarray(map_data["nn"], dtype=float)
+    if float(nn.max()) > NN_HIST_MAX_KM or WHOLE_REGION_HOLDOUT_MEAN_KM > NN_HIST_MAX_KM:
+        raise RuntimeError(
+            "Panel-a nearest-neighbour histogram extent "
+            f"{NN_HIST_MAX_KM:.0f} km does not cover the bound distances"
+        )
+    hist = axes["nn"]
+    bins = np.arange(0.0, NN_HIST_MAX_KM + NN_HIST_BIN_KM / 2.0, NN_HIST_BIN_KM)
+    hist.hist(nn, bins=bins, color=PALE_BLUE, edgecolor=BLUE, linewidth=0.7, zorder=2)
+    hist.axvline(
+        NN_THRESHOLD_KM, color=VERMILION, linestyle=(0, (3, 2)), linewidth=0.9,
+        zorder=3,
+        label=f"{NN_THRESHOLD_KM:.0f} km · {int(map_data['within_10km'])} stations",
     )
-    inset.axvline(
-        WHOLE_REGION_HOLDOUT_MEAN_KM, color=TEAL, linestyle=(0, (1, 2)), linewidth=0.9
+    hist.axvline(
+        WHOLE_REGION_HOLDOUT_MEAN_KM, color=TEAL, linestyle=(0, (1, 1.6)), linewidth=0.9,
+        zorder=3,
+        label=f"{WHOLE_REGION_HOLDOUT_MEAN_KM:.0f} km · whole-region\nholdout mean",
     )
-    inset.set_title("Nearest-neighbour distance (km)", fontsize=7.5, pad=2)
-    inset.set_xticks([0, 100, 200, 300])
-    inset.set_yticks([])
-    inset.tick_params(length=2.0, width=0.6, color=MID, labelsize=7.5)
-    inset.spines[["top", "right"]].set_visible(False)
-    label_bbox = {"facecolor": WHITE, "edgecolor": "none", "pad": 0.8, "alpha": 0.92}
-    inset.text(
-        0.015, 0.94, "10 km\n19 stns", transform=inset.transAxes,
-        fontsize=7.5, color=VERMILION, ha="left", va="top", bbox=label_bbox,
-    )
-    inset.text(
-        0.985, 0.94, "289 km\nholdout mean", transform=inset.transAxes,
-        fontsize=7.5, color=TEAL, ha="right", va="top", bbox=label_bbox,
+    # Fix the count axis to a round multiple of ten.  An autoscaled axis leaves
+    # a locator tick outside the view; the tick is never drawn but it still
+    # carries a label with a window extent, and the collision guard sees it.
+    tallest_bin = int(np.histogram(nn, bins=bins)[0].max())
+    hist_top = int(np.ceil(tallest_bin / 10.0) * 10)
+    hist.set_ylim(0, hist_top)
+    hist.set_yticks(list(range(0, hist_top + 1, 10)))
+    hist.set_xlim(0.0, NN_HIST_MAX_KM)
+    hist.set_xticks([0, 100, 200, 300])
+    hist.set_xlabel("Nearest-neighbour distance (km)", labelpad=1.5)
+    hist.set_ylabel("Stations", labelpad=1.5)
+    hist.grid(axis="y", color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT)
+    hist.set_axisbelow(True)
+    hist.tick_params(length=2.5, width=MIN_VISIBLE_STROKE_PT, color=MID)
+    hist.legend(
+        loc="upper right", fontsize=7.5, frameon=False, handlelength=1.3,
+        handletextpad=0.4, labelspacing=0.45, borderaxespad=0.2,
     )
 
+    key = blank_axes(axes["legend"])
+    key_legend = key.legend(
+        handles=legend_handles, ncol=len(legend_handles), loc="center",
+        title="HUC2 region", title_fontsize=7.5, fontsize=7.5, frameon=False,
+        handlelength=0.9, handletextpad=0.35, columnspacing=0.7,
+        borderpad=0.0, borderaxespad=0.0,
+    )
+    key_legend.set_in_layout(False)
 
-def gate_row(
+
+def gate_gauge(
     ax: mpl.axes.Axes,
-    y: float,
-    text: str,
+    criterion: str,
+    value: float,
+    threshold: float,
+    value_text: str,
+    threshold_text: str,
     passed: bool,
-    height: float = 0.105,
     guard_id: str | None = None,
 ) -> None:
+    """One frozen balance check as a single-bar gauge on its own scale.
+
+    The three checks compare a count, a fraction and a share; the spec forbids
+    putting them on one shared numeric axis, so each gauge keeps its own limits
+    and shows only two reference ticks -- zero and its own threshold.  Each
+    scale is set so the threshold falls at the same fraction of every gauge,
+    which is what makes three incommensurable checks readable side by side
+    without pretending they share an axis: bar past the dashed line = pass.
+    """
     color = TEAL if passed else VERMILION
     fill = PALE_TEAL if passed else PALE_VERMILION
-    symbol = "\u2713" if passed else "\u00d7"
-    box = Rectangle(
-        (0.585, y - height / 2),
-        0.380,
-        height,
-        transform=ax.transAxes,
-        facecolor=fill,
-        edgecolor=color,
-        linewidth=0.85,
+    span = max(value, threshold)
+    bar_y = -0.36
+    bar = ax.barh(
+        [bar_y], [value], height=0.80, facecolor=fill, edgecolor=color,
+        linewidth=0.8, hatch=None if passed else "//", zorder=2,
+    )[0]
+    if guard_id is not None:
+        bar.set_gid(f"guard.{guard_id}.bar")
+    # The threshold line stops below its own label rather than striking through it.
+    ax.axvline(
+        threshold, ymin=0.02, ymax=0.58, color=INK, linewidth=0.8,
+        linestyle=(0, (3, 2)), zorder=3,
+    )
+    ax.set_xlim(0.0, span / GATE_THRESHOLD_AXIS_FRACTION)
+    ax.set_ylim(-1.0, 1.0)
+    ax.set_yticks([bar_y], [criterion])
+    ax.set_xticks([])
+    ax.tick_params(axis="y", length=0.0, pad=2.0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    # A gauge, not a plot: the requirement is printed on its own threshold line
+    # rather than as a tick, so the three incommensurable checks carry no axis
+    # to be mistaken for a shared one.
+    free_text(
+        ax, threshold, 0.16, threshold_text, ha="center", va="bottom",
+        fontsize=7.5, color=MID, zorder=4,
+    )
+    # The measured value rides inside its own bar; the verdict word is the
+    # non-colour channel and sits in the strip reserved past the threshold.
+    free_text(
+        ax, value - 0.07 * span, bar_y, value_text, ha="right", va="center",
+        fontsize=7.5, color=INK, zorder=4,
+        bbox={"facecolor": WHITE, "edgecolor": "none", "pad": 0.6, "alpha": 0.85},
+    )
+    verdict = free_text(
+        ax, 0.995, bar_y, PASS_WORD if passed else FAIL_WORD,
+        transform=ax.get_yaxis_transform(), ha="right", va="center",
+        fontsize=7.5, fontweight="bold", color=color,
     )
     if guard_id is not None:
-        box.set_gid(f"guard.{guard_id}.box")
-    ax.add_patch(box)
-    ax.text(
-        0.610,
-        y,
-        symbol,
-        transform=ax.transAxes,
-        fontsize=10,
-        fontweight="bold",
-        color=color,
-        ha="center",
-        va="center",
-    )
-    gate_text = ax.text(
-        0.642,
-        y,
-        text,
-        transform=ax.transAxes,
-        fontsize=7.5,
-        color=INK,
-        ha="left",
-        va="center",
-    )
-    if guard_id is not None:
-        gate_text.set_gid(f"guard.{guard_id}.text")
+        verdict.set_gid(f"guard.{guard_id}.text")
 
 
-def draw_panel_b(
-    ax: mpl.axes.Axes,
-    huc_labels: list[str],
-    counts: np.ndarray,
-    gate_contract: dict[str, object],
-    historical_input_contract: dict[str, object],
+def draw_excluded_inputs(
+    ax: mpl.axes.Axes, historical_input_contract: dict[str, object]
 ) -> None:
-    prepare_panel(ax)
-    panel_heading(
-        ax,
-        "b",
-        "Cluster geometry vs the claim gate",
-        "657,480 rows \u2192 120 stations \u2192 15 pre-attrition HUC2 groups",
-    )
-
-    bars_ax = ax.inset_axes([0.060, 0.355, 0.470, 0.200])
-    bars_ax.patch.set_gid("guard.bar_axes.patch")
-    x = np.arange(len(huc_labels))
-    facecolors = [PALE_BLUE] * len(huc_labels)
-    edgecolors = [BLUE] * len(huc_labels)
-    hatches = ["//"] * len(huc_labels)
-    largest = int(np.argmax(counts))
-    facecolors[largest] = "#C6DFEC"
-    edgecolors[largest] = "#004F7C"
-    hatches[largest] = "xx"
-    bars = bars_ax.bar(
-        x,
-        counts,
-        width=0.70,
-        color=facecolors,
-        edgecolor=edgecolors,
-        linewidth=0.85,
-    )
-    for bar, hatch, count, huc_label in zip(bars, hatches, counts, huc_labels):
-        bar.set_hatch(hatch)
-        bar_label = bars_ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            float(count) + 0.75,
-            str(int(count)),
-            ha="center",
-            va="bottom",
-            fontsize=7.5,
-            color=INK,
-        )
-        bar_label.set_gid(f"guard.bar_label.{huc_label}")
-    bars_ax.set_ylim(0, 30)
-    bars_ax.set_xticks(x, huc_labels)
-    bars_ax.set_yticks([0, 10, 20, 30])
-    bars_ax.set_ylabel("Stations")
-    bars_ax.grid(axis="y", color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT)
-    bars_ax.set_axisbelow(True)
-    bars_ax.spines[["top", "right"]].set_visible(False)
-    bars_ax.tick_params(length=2.3, width=0.65, color=MID, pad=1.5)
-
+    """The information-boundary statement as a full-width band of its own."""
     if (
         historical_input_contract["information_cutoff"]
         != "issue_date_end; no target-date or post-issue values"
         or historical_input_contract["horizon_specific_future_nwp_consumed"] is not False
     ):
         raise RuntimeError("Excluded-input annotation lacks its frozen contract semantics")
-    excluded_box = Rectangle(
-        (0.025, 0.630),
-        0.550,
-        0.200,
-        transform=ax.transAxes,
-        facecolor=PALE_VERMILION,
-        edgecolor=VERMILION,
-        linewidth=0.8,
-        hatch="//",
-        zorder=5,
+    blank_axes(ax)
+    band = Rectangle(
+        (0.0, 0.06), 1.0, 0.88, transform=ax.transAxes,
+        facecolor=PALE_VERMILION, edgecolor=VERMILION, linewidth=0.8, zorder=2,
     )
-    excluded_box.set_gid("guard.excluded_inputs.box")
-    ax.add_patch(excluded_box)
-    excluded_status = ax.text(
-        0.300,
-        0.760,
-        "EXCLUDED FROM INPUT",
-        transform=ax.transAxes,
-        fontsize=7.5,
-        fontweight="bold",
-        color=VERMILION,
-        ha="center",
-        va="center",
-        zorder=6,
+    band.set_gid("guard.excluded_inputs.box")
+    ax.add_patch(band)
+    # A hatched end-stripe keeps the warning legible without laying a hatch
+    # under the text, which is what made the old full-width hatched box unreadable.
+    stripe = Rectangle(
+        (0.0, 0.06), 0.022, 0.88, transform=ax.transAxes,
+        facecolor=PALE_VERMILION, edgecolor=VERMILION, linewidth=0.8,
+        hatch="///", zorder=3,
     )
-    excluded_status.set_gid("guard.excluded_inputs.status")
-    excluded_text = ax.text(
-        0.300,
-        0.700,
-        "target WTEMP at t+h \u2022 horizon-specific future weather",
-        transform=ax.transAxes,
-        fontsize=7.5,
-        fontstretch="condensed",
-        color=VERMILION,
-        ha="center",
-        va="center",
-        zorder=6,
+    ax.add_patch(stripe)
+    status = free_text(
+        ax, 0.038, 0.50, "EXCLUDED FROM PREDICTOR INPUT",
+        transform=ax.transAxes, fontsize=7.5, fontweight="bold", color=VERMILION,
+        ha="left", va="center", zorder=4,
     )
-    excluded_text.set_gid("guard.excluded_inputs.text")
+    status.set_gid("guard.excluded_inputs.status")
+    detail = free_text(
+        ax, 0.978, 0.50,
+        "target WTEMP at t+h  •  horizon-specific future weather",
+        transform=ax.transAxes, fontsize=7.5, color=VERMILION,
+        ha="right", va="center", zorder=4,
+    )
+    detail.set_gid("guard.excluded_inputs.text")
 
-    ax.text(
-        0.585,
-        0.815,
-        "Frozen gate",
-        transform=ax.transAxes,
-        fontsize=8.2,
-        fontweight="bold",
-        color=INK,
-        ha="left",
-        va="bottom",
+
+def draw_huc_bars(ax: mpl.axes.Axes, huc_labels: list[str], counts: np.ndarray) -> None:
+    """Zero-based station counts for the 15 pre-attrition HUC2 groups."""
+    x = np.arange(len(huc_labels))
+    largest = int(np.argmax(counts))
+    facecolors = [PALE_BLUE] * len(huc_labels)
+    edgecolors = [BLUE] * len(huc_labels)
+    hatches = ["//"] * len(huc_labels)
+    facecolors[largest] = "#C6DFEC"
+    edgecolors[largest] = "#004F7C"
+    hatches[largest] = "xx"
+    bars = ax.bar(x, counts, width=0.72, color=facecolors, edgecolor=edgecolors, linewidth=0.8)
+    for bar, hatch, count, huc_label in zip(bars, hatches, counts, huc_labels):
+        bar.set_hatch(hatch)
+        label = free_text(
+            ax, bar.get_x() + bar.get_width() / 2.0, float(count) + 0.8, str(int(count)),
+            ha="center", va="bottom", fontsize=7.5, color=INK,
+        )
+        label.set_gid(f"guard.bar_label.{huc_label}")
+    ax.set_ylim(0, 30)
+    ax.set_xlim(-0.75, len(huc_labels) - 0.25)
+    ax.set_xticks(x, huc_labels)
+    ax.set_yticks([0, 10, 20, 30])
+    ax.set_ylabel("Stations", labelpad=1.5)
+    ax.grid(axis="y", color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT)
+    ax.set_axisbelow(True)
+    ax.tick_params(length=2.3, width=MIN_VISIBLE_STROKE_PT, color=MID, pad=1.5)
+    sub_title(ax, "Stations per HUC2 region")
+
+
+def draw_cluster_ladder(ax: mpl.axes.Axes) -> None:
+    """HUC2/4/6/8 ladder against the one gate criterion it can move.
+
+    Four stacked text cells became four bars on a real effective-fraction axis
+    with the frozen 0.75 threshold drawn once.  Cluster counts sit inside their
+    own bar, so no label can drift onto a neighbour.
+    """
+    rows = list(CLUSTER_LADDER)
+    positions = np.arange(len(rows))[::-1]
+    tick_labels: list[str] = []
+    for position, (unit, n_clusters, _eff_count, eff_fraction, _share, passes) in zip(
+        positions, rows
+    ):
+        ax.barh(
+            [float(position)], [float(eff_fraction)], height=0.62,
+            facecolor=PALE_TEAL if passes else PALE_GREY,
+            edgecolor=TEAL if passes else MID,
+            hatch=None if passes else "//",
+            linewidth=0.8, zorder=2,
+        )
+        free_text(
+            ax, 0.018, float(position), f"{int(n_clusters)} clusters",
+            ha="left", va="center", fontsize=7.5, color=INK, zorder=4,
+            bbox={"facecolor": WHITE, "edgecolor": "none", "pad": 0.8, "alpha": 0.82},
+        )
+        free_text(
+            ax, float(eff_fraction) + 0.018, float(position), f"{eff_fraction:.3f}",
+            ha="left", va="center", fontsize=7.5, fontweight="bold",
+            color=TEAL if passes else MID, zorder=4,
+        )
+        tick_labels.append(f"{unit} *" if unit == "HUC8" else unit)
+    ax.axvline(
+        MIN_EFFECTIVE_FRACTION_DISPLAY, color=INK, linewidth=0.8,
+        linestyle=(0, (3, 2)), zorder=3,
     )
+    ax.set_yticks(positions, tick_labels)
+    ax.set_ylim(-0.65, len(rows) - 0.35)
+    ax.set_xlim(0.0, 1.0)
+    ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0], ["0", "0.25", "0.50", "0.75", "1.0"])
+    ax.set_xlabel("Effective cluster fraction (dashed: 0.75 gate)", labelpad=1.5)
+    ax.grid(axis="x", color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT)
+    ax.set_axisbelow(True)
+    ax.tick_params(length=2.3, width=MIN_VISIBLE_STROKE_PT, color=MID, pad=1.5)
+    sub_title(ax, "Cluster ladder: HUC2 → HUC8")
+
+
+def draw_ladder_note(
+    ax: mpl.axes.Axes, failed_component_count: int, gate_failure_verdict: str
+) -> None:
+    """The HUC8 refusal and the scope verdict, in the cell beside the ladder."""
+    blank_axes(ax)
+    free_text(
+        ax, 0.0, 1.0,
+        "* HUC8 clears all three checks,\n"
+        "but adjacent HUC8 units on one\n"
+        "river are not independent.",
+        transform=ax.transAxes, ha="left", va="top", fontsize=7.5,
+        color=INK, linespacing=1.18,
+    )
+    box = Rectangle(
+        (0.0, 0.0), 1.0, 0.53, transform=ax.transAxes,
+        facecolor=PALE_VERMILION, edgecolor=VERMILION, linewidth=0.8, zorder=2,
+    )
+    box.set_gid("guard.scope_status.box")
+    ax.add_patch(box)
+    verdict = free_text(
+        ax, 0.5, 0.265,
+        f"{failed_component_count} of 3 checks fail:\n"
+        "FIXED-COHORT\nDESCRIPTIVE ONLY",
+        transform=ax.transAxes, ha="center", va="center", fontsize=7.5,
+        fontweight="bold", color=VERMILION, linespacing=1.18, zorder=3,
+    )
+    verdict.set_gid("guard.scope_status.text")
+
+
+def draw_evidence_spine(ax: mpl.axes.Axes, node_labels: tuple[str, ...]) -> None:
+    """The left-to-right evidence spine, one node per unit of a 0..n axis."""
+    blank_axes(ax)
+    ax.set_xlim(0.0, float(len(node_labels)))
+    for index, label in enumerate(node_labels):
+        ax.add_patch(
+            Rectangle(
+                (index + 0.04, 0.10), 0.74, 0.80,
+                facecolor=PALE_TEAL, edgecolor=TEAL, linewidth=0.8, zorder=2,
+            )
+        )
+        free_text(
+            ax, index + 0.41, 0.50, label, ha="center", va="center", fontsize=7.5,
+            color=INK, linespacing=1.15, zorder=3,
+        )
+        if index < len(node_labels) - 1:
+            # An empty annotation: a drawn arrow, not a glyph the typeface may
+            # not carry, and nothing for the collision guard to trip over.
+            ax.annotate(
+                "", xy=(index + 0.97, 0.50), xytext=(index + 0.82, 0.50),
+                arrowprops={
+                    "arrowstyle": "-|>", "color": TEAL, "linewidth": 0.8,
+                    "shrinkA": 0.0, "shrinkB": 0.0, "mutation_scale": 5.0,
+                },
+            )
+
+
+def draw_panel_b(
+    axes: dict[str, mpl.axes.Axes],
+    huc_labels: list[str],
+    counts: np.ndarray,
+    gate_contract: dict[str, object],
+    historical_input_contract: dict[str, object],
+) -> None:
+    """(b) Cohort geometry against the frozen claim gate."""
+    panel_heading(
+        axes["head"],
+        "b",
+        "Cluster geometry vs the claim gate",
+        "657,480 rows → 120 stations → 15 HUC2 groups",
+    )
+    draw_excluded_inputs(axes["excluded"], historical_input_contract)
+    draw_huc_bars(axes["bars"], huc_labels, counts)
+
     effective_count = float(1.0 / np.sum((counts / counts.sum()) ** 2))
     effective_fraction = effective_count / len(counts)
     largest_share = float(np.max(counts) / counts.sum())
     required_groups = int(gate_contract["minimum_reportable_groups"])
     minimum_effective = float(gate_contract["minimum_effective_fraction"])
     maximum_share = float(gate_contract["maximum_largest_group_share"])
-    gate_row(
-        ax,
-        0.720,
-        f"\u2264{len(counts)} pre-attrition groups\n<{required_groups} required for reporting",
+    if abs(minimum_effective - MIN_EFFECTIVE_FRACTION_DISPLAY) > 1e-12:
+        raise RuntimeError(
+            "Ladder threshold line and the frozen effective-fraction gate disagree"
+        )
+    # The HUC2 row of the ladder and the gate computed from the bound counts are
+    # the same geometry; refuse to draw them side by side unless they agree.
+    ladder_huc2 = {row[0]: row for row in CLUSTER_LADDER}["HUC2"]
+    if (
+        int(ladder_huc2[1]) != len(counts)
+        or abs(float(ladder_huc2[3]) - effective_fraction) > 5e-4
+        or abs(float(ladder_huc2[4]) - largest_share) > 5e-4
+    ):
+        raise RuntimeError(
+            "Panel-b ladder HUC2 row disagrees with the registry-derived gate values: "
+            f"ladder={ladder_huc2!r}, registry=({len(counts)}, {effective_fraction:.6f}, "
+            f"{largest_share:.6f})"
+        )
+
+    sub_title(axes["gate"][0], "Frozen claim gate")
+    gate_gauge(
+        axes["gate"][0],
+        "pre-attrition\ngroups",
+        float(len(counts)),
+        float(required_groups),
+        f"≤{len(counts)}",
+        f"{required_groups} required",
         passed=len(counts) >= required_groups,
-        height=0.160,
         guard_id="gate_groups",
     )
-    gate_row(
-        ax,
-        0.575,
-        f"{effective_count:.2f}/{len(counts)}={effective_fraction:.3f}<{minimum_effective:.2f}",
+    gate_gauge(
+        axes["gate"][1],
+        f"eff. fraction\n({effective_count:.2f} of {len(counts)})",
+        effective_fraction,
+        minimum_effective,
+        f"{effective_fraction:.3f}",
+        f"{minimum_effective:.2f} required",
         passed=effective_fraction >= minimum_effective,
-        height=0.110,
+        guard_id="gate_effective_fraction",
     )
-    gate_row(
-        ax,
-        0.445,
-        f"{largest_share:.1%}<{maximum_share:.0%}",
+    gate_gauge(
+        axes["gate"][2],
+        "largest\ngroup share",
+        largest_share,
+        maximum_share,
+        f"{largest_share:.1%}",
+        f"{maximum_share:.0%} limit",
         passed=largest_share < maximum_share,
-        height=0.110,
+        guard_id="gate_largest_share",
     )
-    ax.text(
-        0.775,
-        0.365,
-        "FIXED-COHORT DESCRIPTIVE ONLY",
-        transform=ax.transAxes,
-        fontsize=7.5,
-        fontweight="bold",
-        color=VERMILION,
-        ha="center",
-        va="center",
-    )
-
-    # HUC2/4/6/8 cluster ladder: full-width 3-line cells, all >=7.5 pt.
-    ladder_y = 0.165
-    ladder_h = 0.165
-    cell_w = 0.216
-    cell_gap = 0.012
-    start_x = 0.060
-    for index, (unit, n_clust, eff_count, eff_frac, lshare, passes) in enumerate(CLUSTER_LADDER):
-        cx = start_x + index * (cell_w + cell_gap)
-        edge = TEAL if passes else MID
-        face = PALE_TEAL if passes else "#EFEFEF"
-        cell = Rectangle(
-            (cx, ladder_y), cell_w, ladder_h,
-            transform=ax.transAxes, facecolor=face, edgecolor=edge, linewidth=0.85,
-        )
-        ax.add_patch(cell)
-        symbol = "\u2713" if passes else "\u00d7"
-        ax.text(
-            cx + cell_w / 2, ladder_y + ladder_h - 0.022, f"{symbol} {unit}",
-            transform=ax.transAxes, fontsize=7.5, fontweight="bold",
-            color=INK if passes else edge, ha="center", va="top",
-        )
-        ax.text(
-            cx + cell_w / 2, ladder_y + ladder_h / 2, f"{n_clust} clusters",
-            transform=ax.transAxes, fontsize=7.5, color=INK,
-            ha="center", va="center",
-        )
-        eff_line = f"eff {eff_frac:.3f}"
-        if unit == "HUC8":
-            eff_line = f"eff {eff_frac:.3f} \u00b7 not indep."
-        ax.text(
-            cx + cell_w / 2, ladder_y + 0.028, eff_line,
-            transform=ax.transAxes, fontsize=7.5,
-            color=INK if passes else MID, ha="center", va="center",
-        )
-
-    node_labels = (
-        "dated inputs\n\u2264 t",
-        "exact\nkeys",
-        "station\neffects",
-        "HUC\nsensitivity",
-        "claim\ngate",
-    )
-    node_x = np.linspace(0.115, 0.885, len(node_labels))
-    for index, (node, label) in enumerate(zip(node_x, node_labels)):
-        box = Rectangle(
-            (node - 0.073, 0.030),
-            0.146,
-            0.115,
-            transform=ax.transAxes,
-            facecolor=PALE_TEAL,
-            edgecolor=TEAL,
-            linewidth=0.8,
-        )
-        ax.add_patch(box)
-        ax.text(
-            node,
-            0.087,
-            label,
-            transform=ax.transAxes,
-            fontsize=7.5,
-            color=INK,
-            ha="center",
-            va="center",
-            linespacing=0.95,
-        )
-        if index < len(node_labels) - 1:
-            ax.text(
-                (node + node_x[index + 1]) / 2,
-                0.087,
-                "\u2192",
-                transform=ax.transAxes,
-                fontsize=9,
-                color=TEAL,
-                fontweight="bold",
-                ha="center",
-                va="center",
+    draw_cluster_ladder(axes["ladder"])
+    failed_component_count = int(
+        sum(
+            not passed
+            for passed in (
+                len(counts) >= required_groups,
+                effective_fraction >= minimum_effective,
+                largest_share < maximum_share,
             )
+        )
+    )
+    draw_ladder_note(
+        axes["note"], failed_component_count, str(gate_contract["gate_failure_verdict"])
+    )
+    draw_evidence_spine(axes["spine"], EVIDENCE_SPINE_LABELS)
 
 
-def draw_panel_c(panel: mpl.axes.Axes, values: dict[int, np.ndarray]) -> None:
-    prepare_panel(panel)
+def draw_panel_c(
+    axes: dict[str, mpl.axes.Axes], values: dict[int, np.ndarray]
+) -> None:
+    """(c) The persistence challenge, with its read-me note in its own cell."""
     panel_heading(
-        panel,
+        axes["head"],
         "c",
         "Persistence challenge",
-        "2006--2015 exact pairs \u2022 120 stations \u2022 motivation quantity",
+        "2006–2015 exact-day pairs • 120 stations • motivation quantity",
     )
-    ax = panel.inset_axes([0.185, 0.135, 0.770, 0.615])
+    ax = axes["plot"]
     colors = (BLUE, "#3D86B8", "#005A8D")
     pale = ("#E7F1F7", PALE_BLUE, "#D2E5F0")
     markers = ("o", "s", "^")
@@ -905,11 +1061,11 @@ def draw_panel_c(panel: mpl.axes.Axes, values: dict[int, np.ndarray]) -> None:
     boxes = ax.boxplot(
         distributions,
         positions=np.arange(1, 4),
-        widths=0.48,
+        widths=0.46,
         whis=(5, 95),
         patch_artist=True,
         showfliers=False,
-        medianprops={"color": INK, "linewidth": 1.5},
+        medianprops={"color": INK, "linewidth": 1.4},
         whiskerprops={"color": MID, "linewidth": 0.9},
         capprops={"color": MID, "linewidth": 0.9},
     )
@@ -918,12 +1074,12 @@ def draw_panel_c(panel: mpl.axes.Axes, values: dict[int, np.ndarray]) -> None:
         zip(distributions, colors, pale, markers, hatches), start=1
     ):
         patch = boxes["boxes"][index - 1]
-        patch.set(facecolor=fill, edgecolor=color, linewidth=1.1, hatch=hatch)
+        patch.set(facecolor=fill, edgecolor=color, linewidth=1.0, hatch=hatch)
         jitter = rng.uniform(-0.16, 0.16, size=len(vals))
         ax.scatter(
             index + jitter,
             vals,
-            s=8,
+            s=7,
             marker=marker,
             facecolor=WHITE,
             edgecolor=color,
@@ -931,11 +1087,11 @@ def draw_panel_c(panel: mpl.axes.Axes, values: dict[int, np.ndarray]) -> None:
             alpha=0.62,
             zorder=2,
         )
-        median = float(np.median(vals))
-        ax.text(
+        free_text(
+            ax,
             index,
-            2.28,
-            f"med. {median:.2f}",
+            PERSIST_Y_MAX_C - 0.18,
+            f"med. {float(np.median(vals)):.2f}",
             color=color,
             fontsize=7.5,
             fontweight="bold",
@@ -953,11 +1109,78 @@ def draw_panel_c(panel: mpl.axes.Axes, values: dict[int, np.ndarray]) -> None:
             PERSIST_Y_TICK_INTERVAL_C,
         )
     )
-    ax.set_ylabel("Station median  |\u0394\u2095T|  (\u00b0C)", labelpad=2)
+    # Nimbus Sans carries no subscript h, so the horizon lives on the x axis
+    # instead of inside the symbol.
+    ax.set_ylabel("Station median\n|ΔT|  (°C)", labelpad=1.5, linespacing=1.2)
     ax.grid(axis="y", color=LIGHT, linewidth=MIN_VISIBLE_STROKE_PT)
     ax.set_axisbelow(True)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.tick_params(length=2.5, width=0.65, color=MID)
+    ax.tick_params(length=2.5, width=MIN_VISIBLE_STROKE_PT, color=MID)
+
+    note = blank_axes(axes["note"])
+    free_text(
+        note, 0.0, 1.0,
+        "Points: one median per station and\n"
+        "horizon, of |WTEMP(t+h) − WTEMP(t)|\n"
+        "over its observed exact-day pairs.\n"
+        "Box: quartiles; line: median.\n"
+        "Whiskers: 5th–95th percentile of\n"
+        "the 120 station medians.",
+        transform=note.transAxes, ha="left", va="top", fontsize=7.5,
+        color=INK, linespacing=1.28,
+    )
+
+
+def build_layout(fig: plt.Figure) -> dict[str, dict[str, object]]:
+    """One figure-level GridSpec; every element below gets its own cell.
+
+    The three panel headings are rows of the *outer* grid rather than of their
+    own block, so all three panel labels share one left edge whatever the
+    blocks below them reserve for tick labels and axis titles.
+    """
+    outer = fig.add_gridspec(
+        6, 1,
+        height_ratios=[
+            HEAD_MM, LAYOUT_MM["a"], HEAD_MM, LAYOUT_MM["b"], HEAD_MM, LAYOUT_MM["c"],
+        ],
+        hspace=0.03,
+    )
+
+    gs_a = outer[1].subgridspec(
+        2, 2, height_ratios=[40.0, 7.0], width_ratios=[1.22, 1.0],
+        hspace=0.035, wspace=0.07,
+    )
+    panel_a = {
+        "head": fig.add_subplot(outer[0]),
+        "map": fig.add_subplot(gs_a[0, 0]),
+        "nn": fig.add_subplot(gs_a[0, 1]),
+        "legend": fig.add_subplot(gs_a[1, :]),
+    }
+
+    gs_b = outer[3].subgridspec(
+        4, 2, height_ratios=[7.5, 36.0, 31.0, 9.5], width_ratios=[1.35, 1.0],
+        hspace=0.055, wspace=0.06,
+    )
+    # The first gauge carries the block title, so it needs a taller cell.
+    gs_gate = gs_b[1, 1].subgridspec(3, 1, height_ratios=[1.45, 1.0, 1.0], hspace=0.02)
+    panel_b = {
+        "head": fig.add_subplot(outer[2]),
+        "excluded": fig.add_subplot(gs_b[0, :]),
+        "bars": fig.add_subplot(gs_b[1, 0]),
+        "gate": [fig.add_subplot(gs_gate[row, 0]) for row in range(3)],
+        "ladder": fig.add_subplot(gs_b[2, 0]),
+        "note": fig.add_subplot(gs_b[2, 1]),
+        "spine": fig.add_subplot(gs_b[3, :]),
+    }
+
+    gs_c = outer[5].subgridspec(
+        1, 2, width_ratios=[1.45, 1.0], wspace=0.06,
+    )
+    panel_c = {
+        "head": fig.add_subplot(outer[4]),
+        "plot": fig.add_subplot(gs_c[0, 0]),
+        "note": fig.add_subplot(gs_c[0, 1]),
+    }
+    return {"a": panel_a, "b": panel_b, "c": panel_c}
 
 
 def build_figure(
@@ -969,24 +1192,23 @@ def build_figure(
     historical_input_contract: dict[str, object],
 ) -> plt.Figure:
     configure_matplotlib()
-    fig = plt.figure(figsize=(WIDTH_MM / 25.4, HEIGHT_MM / 25.4), dpi=DPI)
-    ax_a = fig.add_axes([0.035, 0.615, 0.450, 0.350])  # (a) station map, top-left
-    ax_c = fig.add_axes([0.515, 0.615, 0.450, 0.350])  # (c) persistence, top-right
-    ax_b = fig.add_axes([0.035, 0.045, 0.930, 0.540])  # (b) geometry/gate, bottom full
-    draw_panel_a(ax_a, map_data)
-    draw_panel_b(ax_b, labels, counts, gate_contract, historical_input_contract)
-    draw_panel_c(ax_c, values)
+    fig = plt.figure(figsize=figstyle.figsize(WIDTH_MM, HEIGHT_MM), layout="constrained")
+    panels = build_layout(fig)
+    draw_panel_a(panels["a"], map_data)
+    draw_panel_b(panels["b"], labels, counts, gate_contract, historical_input_contract)
+    draw_panel_c(panels["c"], values)
     validate_visual_bounds(fig)
     return fig
 
 
 def validate_visual_bounds(fig: plt.Figure) -> None:
+    """Refuse any render whose text escapes its box or touches other text."""
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     artists = {artist.get_gid(): artist for artist in fig.findobj() if artist.get_gid()}
     for guard_id, minimum_padding_mm, label_suffixes in (
-        ("gate_groups", 0.5, ("text",)),
-        ("excluded_inputs", 2.0, ("status", "text")),
+        ("excluded_inputs", 0.6, ("status", "text")),
+        ("scope_status", 0.6, ("text",)),
     ):
         box = artists.get(f"guard.{guard_id}.box")
         labels = [artists.get(f"guard.{guard_id}.{suffix}") for suffix in label_suffixes]
@@ -1007,28 +1229,24 @@ def validate_visual_bounds(fig: plt.Figure) -> None:
                     f"box={box_bbox.bounds}, required_padding_mm={minimum_padding_mm}"
                 )
 
-    excluded_bbox = artists["guard.excluded_inputs.box"].get_window_extent(renderer)
-    bar_axes_bbox = artists["guard.bar_axes.patch"].get_window_extent(renderer)
-    excluded_separation_px = fig.dpi * 2.0 / 25.4
-    if excluded_bbox.y0 - bar_axes_bbox.y1 < excluded_separation_px:
-        raise RuntimeError(
-            "Excluded-input band is too close to the bar axes: "
-            f"box={excluded_bbox.bounds}, bars={bar_axes_bbox.bounds}, "
-            "required_separation_mm=2.0"
-        )
     bar_labels = [
         artist for gid, artist in artists.items() if gid.startswith("guard.bar_label.")
     ]
     if len(bar_labels) != len(EXPECTED_HUC_COUNTS):
-        raise RuntimeError("Excluded-input guard requires all 15 HUC2 bar labels")
-    for bar_label in bar_labels:
-        bar_label_bbox = bar_label.get_window_extent(renderer)
-        if excluded_bbox.y0 - bar_label_bbox.y1 < excluded_separation_px:
-            raise RuntimeError(
-                "Excluded-input band overlaps a HUC2 bar label: "
-                f"box={excluded_bbox.bounds}, label={bar_label_bbox.bounds}, "
-                "required_separation_mm=2.0"
-            )
+        raise RuntimeError("Panel-b guard requires all 15 HUC2 bar labels")
+    for guard_id in ("gate_groups", "gate_effective_fraction", "gate_largest_share"):
+        for suffix in ("bar", "text"):
+            if f"guard.{guard_id}.{suffix}" not in artists:
+                raise RuntimeError(f"Missing gate gauge artist guard.{guard_id}.{suffix}")
+
+    # The layout guard proper: no two visible text artists in the whole figure
+    # may overlap.  Every collision the manual layout produced was text on text.
+    collisions = figstyle.check_overlaps(fig)
+    if collisions:
+        detail = "; ".join(f"{a!r} x {b!r}" for a, b in collisions[:8])
+        raise RuntimeError(
+            f"Figure 1 has {len(collisions)} overlapping text pairs -> {detail}"
+        )
 
 
 def make_svg_accessible(svg_path: Path) -> None:
@@ -2219,13 +2437,21 @@ def write_sidecar(
                 "y_max_lat": MAP_Y_MAX,
                 "encoding": "HUC2 colour + marker shape + filled/open; size by observed-day count",
                 "basemap": "NO_BASEMAP",
+                "nearest_neighbour_histogram_max_km": NN_HIST_MAX_KM,
+                "nearest_neighbour_histogram_bin_km": NN_HIST_BIN_KM,
             },
             "b": {
                 "bar_y_origin": 0,
                 "bar_y_limit": 30,
                 "bar_y_ticks": [0, 10, 20, 30],
                 "gate_shared_numeric_axis": False,
+                "gate_gauge_rule": (
+                    "one axis per check, each scaled so its own threshold falls at "
+                    f"{GATE_THRESHOLD_AXIS_FRACTION:.2f} of that gauge; no tick is shared"
+                ),
                 "cluster_ladder": "HUC2/4/6/8: 15/64/75/95 clusters; 0.636/0.507/0.485/0.758",
+                "cluster_ladder_x_limits": [0.0, 1.0],
+                "cluster_ladder_threshold": MIN_EFFECTIVE_FRACTION_DISPLAY,
             },
             "c": {
                 "x": "categorical registered horizons [1,3,7] days; jitter is non-empirical",
@@ -2250,10 +2476,31 @@ def write_sidecar(
             "Decorative/reference axis ticks are fixed render rules and do not receive "
             "scientific value_ids."
         ),
+        "layout": {
+            "engine": "matplotlib constrained_layout over one figure-level GridSpec",
+            "style_module": "paper/figstyle.py",
+            "font_family": figstyle.resolved_font(),
+            "outer_rows_mm": {
+                "heading": HEAD_MM,
+                "panel_a": LAYOUT_MM["a"],
+                "panel_b": LAYOUT_MM["b"],
+                "panel_c": LAYOUT_MM["c"],
+            },
+            "cells": {
+                "a": ["heading", "map", "nearest_neighbour_histogram", "huc2_key"],
+                "b": [
+                    "heading", "excluded_inputs_band", "huc2_count_bars",
+                    "gate_gauge_x3", "cluster_ladder", "huc8_note_and_scope_verdict",
+                    "evidence_spine",
+                ],
+                "c": ["heading", "persistence_distributions", "reading_note"],
+            },
+            "manual_figure_fraction_placement": False,
+            "text_collision_guard": "figstyle.check_overlaps; zero pairs required",
+        },
         "bbox_guards_mm": {
-            "first_gate_internal_padding": 0.5,
-            "excluded_input_internal_padding": 2.0,
-            "excluded_input_to_bar_axes_and_labels_separation": 2.0,
+            "excluded_input_internal_padding": 0.6,
+            "scope_status_internal_padding": 0.6,
         },
         "semantic_palette": {
             "TR_BLUE": BLUE,
@@ -2266,10 +2513,20 @@ def write_sidecar(
             "NEUTRAL_GRID": LIGHT,
         },
         "redundant_encodings": {
-            "panel_a": "HUC2 colour plus marker shape plus filled/open; marker size by day count",
-            "panel_b": "bar hatch; gate symbol plus text; ladder symbol plus text",
+            "panel_a": (
+                "HUC2 hue plus marker shape plus filled/open outline; marker size by "
+                "observed-day count"
+            ),
+            "panel_b": (
+                "bar hatch; gate gauge colour plus hatch plus the PASS/FAIL word; "
+                "ladder colour plus hatch plus position against the drawn threshold"
+            ),
             "panel_c": "circle/square/triangle plus hatch",
         },
+        "glyph_policy": (
+            "No U+2713 CHECK MARK and no U+2095 SUBSCRIPT SMALL H: Nimbus Sans carries "
+            "neither, so verdicts are words and the horizon is an axis category."
+        ),
         "svg_hashsalt": mpl.rcParams["svg.hashsalt"],
         "metadata_date": "2026-08-06T00:00:00Z",
     }
@@ -2333,7 +2590,10 @@ def write_sidecar(
         },
         "panel_a": {
             "period": {"start": str(TRAIN_START.date()), "end": str(TRAIN_END.date())},
-            "plot_type": "CONUS coordinate scatter coloured by HUC2 with NN-distance inset",
+            "plot_type": (
+                "CONUS coordinate scatter coloured by HUC2, with the "
+                "nearest-neighbour distance histogram in its own cell beside it"
+            ),
             "station_count": int(len(map_data["site"])),
             "station_count_value_id": shared_station_count,
             "axis_scale_value_ids": map_axis_ids,
@@ -2468,6 +2728,16 @@ def write_sidecar(
                 "The availability-enriched 120-station cohort is not a probability sample "
                 "and does not support a U.S.-river superpopulation claim."
             ),
+            "layout_note": (
+                "2026-08-07 redraw: the manual figure-fraction layout was replaced by "
+                "one constrained-layout GridSpec.  Panel content is unchanged except "
+                "that the nearest-neighbour histogram left panel (a)'s map as an inset "
+                "and became its own cell, the three gate checks became single-bar "
+                "gauges on their own scales, and the four cluster-ladder text cells "
+                "became bars on one effective-cluster-fraction axis against the frozen "
+                "0.75 threshold.  Figure height rose from 92 mm to 186 mm to keep every "
+                "string at or above 7.5 pt."
+            ),
             "panel_reassignment_note": (
                 "2026-08-06 restructure: panel (a)=station map (new), "
                 "panel (b)=cluster geometry/gate extended with the HUC2/4/6/8 ladder "
@@ -2481,6 +2751,8 @@ def write_sidecar(
         },
         "render": {
             "matplotlib_version": mpl.__version__,
+            "font_family": figstyle.resolved_font(),
+            "style_module": "paper/figstyle.py",
             "dpi_png": DPI,
             "svg_hashsalt": mpl.rcParams["svg.hashsalt"],
             "metadata_date": "2026-08-06T00:00:00Z",
@@ -2501,7 +2773,11 @@ def main() -> None:
     panel_path = repo_root / "data_usgs" / "panel_usgs_120v2.parquet"
     registry_path = repo_root / "data_usgs" / "station_registry_v1.csv"
     audit_path = repo_root / "data_usgs" / "development_environmental_audit_v1.json"
-    option_a_path = repo_root / "docs" / "OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md"
+    # The ladder's source document was moved under docs/archive/ on 2026-08-07
+    # with its bytes unchanged; bind whichever copy this tree carries.
+    option_a_path = repo_root / "docs" / "archive" / "OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md"
+    if not option_a_path.is_file():
+        option_a_path = repo_root / "docs" / "OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md"
     config_path = repo_root / "src" / "thermoroute" / "config.py"
     inference_amendment_path = (
         repo_root / "protocols" / "route_a_inference_amendment_v2.json"
@@ -2556,6 +2832,10 @@ def main() -> None:
     svg_path = stem.with_suffix(".svg")
     pdf_path = stem.with_suffix(".pdf")
     png_path = stem.with_suffix(".png")
+    # The shared writer is the gate: it refuses to emit anything if two text
+    # artists overlap.  The three files are then rewritten in place with the
+    # deterministic metadata the submission package needs.
+    figstyle.save(figure, FIGURE_ID, figure_dir, strict=True)
     fixed_time = datetime(2026, 8, 6, tzinfo=timezone.utc)
     figure.savefig(
         svg_path,

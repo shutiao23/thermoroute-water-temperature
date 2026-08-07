@@ -305,9 +305,9 @@ def main(argv: list[str] | None = None) -> int:
     ]
     missing = []
     for title, models in [
-        ("Table 4.7. Held-out 2021--2023 station-median metrics, primary models.",
+        ("Table 4.7. Held-out 2021--2023 pooled metrics, primary models.",
          PRIMARY_MODELS),
-        ("Table 4.8. Held-out 2021--2023 station-median metrics, one-factor ablations.",
+        ("Table 4.8. Held-out 2021--2023 pooled metrics, one-factor ablations.",
          ablation_models),
     ]:
         if not any(m in present for m in models):
