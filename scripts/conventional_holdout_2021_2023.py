@@ -466,6 +466,9 @@ def run_holdout(
         model_frames[model] = ens
         metadata_by_model[model] = meta
         calibrated_models.add(model)
+        if "q05_raw" in ens.columns:
+            bad = int((ens["q05_raw"].to_numpy(float) >= ens["q95_raw"].to_numpy(float)).sum())
+            log(f"    {model}: {len(ens)} rows, {bad} degenerate pre-CQR heads")
 
     for model in ["ThermoRoute", "LightGBM"]:
         score_temporal(model)

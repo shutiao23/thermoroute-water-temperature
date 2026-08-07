@@ -134,26 +134,27 @@ def _forward_collect(
     return out_arrays
 
 
-def _calibrate_arrays(
-    arrays: Mapping[str, np.ndarray],
+def _restrict_calibration_registry(
     metadata: Mapping[str, Any],
-    wd,
-    station_names: Sequence[str],
+    sites: set[str],
     *,
     external: bool,
-    label: str,
-) -> dict[str, np.ndarray]:
-    """Apply frozen CQR + Platt calibration over ALL window rows (like opening)."""
-    station = np.asarray(
-        [station_names[int(i)] for i in wd.station], dtype=object
-    )
-    sites = set(str(value) for value in station)
-    # The frozen registry covers every candidate site; dry sites that built no
-    # windows carry no predictions and no thresholds to apply, so restrict the
-    # calibration view to the decoded sites (no numeric change).
+    horizons: Sequence[int] | None = None,
+) -> Mapping[str, Any]:
+    """Restrict the frozen calibration registry to decoded sites/horizons.
+
+    Dry sites that built no windows carry no predictions and no thresholds
+    to apply, so their entries are dropped from the calibration view (no
+    numeric change).  The offset audit is rebuilt from the raw signed
+    offsets so it stays consistent with the restricted deployed registry.
+    When ``horizons`` is given, the calibrator registry is restricted to
+    those leads as well (per-lead calibration calls).
+    """
     thresholds = metadata.get("event_thresholds", {})
-    if not external and isinstance(thresholds, Mapping) and set(thresholds) != sites:
-        restricted = dict(metadata)
+    if not isinstance(thresholds, Mapping):
+        return metadata
+    restricted = dict(metadata)
+    if not external and set(thresholds) != sites:
         restricted["event_thresholds"] = {
             key: value for key, value in thresholds.items() if str(key) in sites
         }
@@ -174,7 +175,50 @@ def _calibrate_arrays(
             }
             restricted["conformal_offset_audit"] = _build_cqr_offset_audit(
                 raw_restricted, restricted_offsets)
-        metadata = restricted
+    if horizons is not None:
+        wanted = {str(int(h)) for h in horizons}
+        calibrators = metadata.get("event_calibrators", {})
+        if isinstance(calibrators, Mapping) and set(calibrators) != wanted:
+            restricted["event_calibrators"] = {
+                key: value for key, value in calibrators.items()
+                if str(key) in wanted
+            }
+        offsets = restricted.get("conformal_offsets", {})
+        if isinstance(offsets, Mapping):
+            restricted_offsets = {
+                key: value for key, value in offsets.items()
+                if str(key).rsplit("|", 1)[-1] in wanted
+            }
+            restricted["conformal_offsets"] = restricted_offsets
+            audit = restricted.get("conformal_offset_audit", {})
+            raw = audit.get("raw_signed_offsets")
+            if isinstance(raw, Mapping):
+                from .conformal import _build_cqr_offset_audit
+
+                raw_restricted = {
+                    key: value for key, value in raw.items()
+                    if str(key).rsplit("|", 1)[-1] in wanted
+                }
+                restricted["conformal_offset_audit"] = _build_cqr_offset_audit(
+                    raw_restricted, restricted_offsets)
+    return restricted
+
+
+def _calibrate_arrays(
+    arrays: Mapping[str, np.ndarray],
+    metadata: Mapping[str, Any],
+    wd,
+    station_names: Sequence[str],
+    *,
+    external: bool,
+    label: str,
+) -> dict[str, np.ndarray]:
+    """Apply frozen CQR + Platt calibration over ALL window rows (like opening)."""
+    station = np.asarray(
+        [station_names[int(i)] for i in wd.station], dtype=object
+    )
+    sites = set(str(value) for value in station)
+    metadata = _restrict_calibration_registry(metadata, sites, external=external)
     q05, q50, q95, prob = apply_frozen_calibration(
         metadata,
         station,
@@ -476,9 +520,10 @@ def lightgbm_ensemble(
                 q50=("q50", "mean"), q95=("q95", "mean"),
                 p_exceed=("p_exceed", "mean"), y_true=("y_true", "first")))
     ens["seed"] = 0
-    ens = apply_frozen_calibration_to_frame(
-        ens, manifest, list(ens["site_id"].astype(str).unique()),
-        external=external, label=model_name)
+    manifest = _restrict_calibration_registry(
+        manifest, set(ens["site_id"].astype(str)), external=external)
+    ens = _calibrate_frame_columns(
+        ens, manifest, external=external, label=model_name)
     ens = stamp_calibration_columns(
         ens, manifest, external=external, n_members=len(members))
     for column in CONTRACT_COLS:
@@ -642,6 +687,48 @@ def pivot_metrics(long_metrics: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     wide.columns.name = None
     return wide
+
+
+def _calibrate_frame_columns(
+    frame: pd.DataFrame,
+    metadata: Mapping[str, Any],
+    *,
+    external: bool,
+    label: str,
+) -> pd.DataFrame:
+    """Calibrate a long-format frame per lead.
+
+    LightGBM frames are long-format and some windows lack rows for every
+    lead (panel-boundary windows whose far target falls past the panel).
+    Each lead is therefore calibrated as its own (n, 1) array with the
+    calibration registry view restricted to that lead; raw twins are kept.
+    """
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    horizons = sorted(set(int(v) for v in out["horizon"]))
+    for h in horizons:
+        mask = out["horizon"].to_numpy(int) == h
+        station = out.loc[mask, "site_id"].astype(str).to_numpy()
+        q05 = out.loc[mask, "q05"].to_numpy(float).reshape(-1, 1)
+        q50 = out.loc[mask, "q50"].to_numpy(float).reshape(-1, 1)
+        q95 = out.loc[mask, "q95"].to_numpy(float).reshape(-1, 1)
+        prob = out.loc[mask, "p_exceed"].to_numpy(float).reshape(-1, 1)
+        meta_h = _restrict_calibration_registry(
+            metadata, set(station), external=external, horizons=[h])
+        cq05, cq50, cq95, cprob = apply_frozen_calibration(
+            meta_h, station, [h], q05, q50, q95, prob,
+            external=external, label=label,
+        )
+        out.loc[mask, "q05_raw"] = q05[:, 0]
+        out.loc[mask, "q50_raw"] = q50[:, 0]
+        out.loc[mask, "q95_raw"] = q95[:, 0]
+        out.loc[mask, "p_exceed_raw"] = prob[:, 0]
+        out.loc[mask, "q05"] = cq05[:, 0]
+        out.loc[mask, "q50"] = cq50[:, 0]
+        out.loc[mask, "q95"] = cq95[:, 0]
+        out.loc[mask, "p_exceed"] = cprob[:, 0]
+    return out
 
 
 def stamp_calibration_columns(
@@ -958,10 +1045,16 @@ def validate_prediction_table(
 
 
 def station_reportable_counts(pred: pd.DataFrame, *, horizon: int) -> int:
-    """Count stations with >= MINIMUM_VALID_TARGETS at one horizon (any model)."""
+    """Count reportable stations at one horizon.
+
+    A station is reportable when the primary model (ThermoRoute) has at
+    least MINIMUM_VALID_TARGETS valid paired targets at that lead — the
+    station/lead cell rule of the manuscript (Section 3.6), not a pooled
+    all-model row count.
+    """
     from .conventional_stats import MINIMUM_VALID_TARGETS
-    g = pred[pred.horizon == int(horizon)]
-    return int(g.groupby("site_id").size().loc[lambda s: s >= MINIMUM_VALID_TARGETS].nunique())
+    g = pred[(pred.horizon == int(horizon)) & (pred["model"] == "ThermoRoute")]
+    return int((g.groupby("site_id").size() >= MINIMUM_VALID_TARGETS).sum())
 
 
 # --------------------------------------------------------------------------- #

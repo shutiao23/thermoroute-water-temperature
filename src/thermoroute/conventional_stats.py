@@ -33,6 +33,16 @@ BASELINE_MODELS = ("Persistence", "DampedPersistence", "Climatology")
 SKILL_BASELINES = ("Persistence", "DampedPersistence", "Climatology")
 HOLM_FAMILY_SIZE = 5
 
+# The frozen five-test family (12_claim_stats.py FROZEN_FAMILY_TEST_IDS):
+# ThermoRoute vs damped persistence at every lead, plus vs LightGBM at 3/7 d.
+HOLM_FAMILY_CONTRASTS = (
+    ("ThermoRoute", "DampedPersistence", 1),
+    ("ThermoRoute", "DampedPersistence", 3),
+    ("ThermoRoute", "DampedPersistence", 7),
+    ("ThermoRoute", "LightGBM", 3),
+    ("ThermoRoute", "LightGBM", 7),
+)
+
 
 def station_metrics(
     pred: pd.DataFrame,
@@ -174,6 +184,7 @@ def cluster_inference(
     registry: pd.DataFrame,
     *,
     holm_family: int = HOLM_FAMILY_SIZE,
+    holm_family_contrasts: Sequence[tuple[str, str, int]] | None = None,
     n_boot: int = 10000,
     seed: int = 0,
 ) -> dict[str, dict[str, Any]]:
@@ -213,14 +224,21 @@ def cluster_inference(
         })
     for index, record in enumerate(records):
         record["holm_p"] = float(np.nan)
+    out = {f"{r['candidate']}|{r['reference']}|{r['horizon']}": r for r in records}
+    family_keys = [
+        (c, r, int(h)) for c, r, h in holm_family_contrasts
+    ] if holm_family_contrasts is not None else [
+        (record["candidate"], record["reference"], int(record["horizon"]))
+        for record in records[:holm_family]
+    ]
     family = np.asarray(
-        [record["p_cluster_sign_flip"] for record in records[:holm_family]],
+        [out[f"{c}|{r}|{h}"]["p_cluster_sign_flip"] for c, r, h in family_keys],
         dtype=float,
     )
     adjusted = holm_adjust(family)
-    for record, value in zip(records[:holm_family], adjusted):
-        record["holm_p"] = float(value)
-    return {f"{r['candidate']}|{r['reference']}|{r['horizon']}": r for r in records}
+    for (c, r, h), value in zip(family_keys, adjusted):
+        out[f"{c}|{r}|{h}"]["holm_p"] = float(value)
+    return out
 
 
 def probability_metrics(pred: pd.DataFrame) -> pd.DataFrame:

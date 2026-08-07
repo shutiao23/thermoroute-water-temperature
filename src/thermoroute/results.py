@@ -39,7 +39,12 @@ def empty_predictions() -> pd.DataFrame:
 
 
 def make_pred_frame(**arrays) -> pd.DataFrame:
-    """Build a predictions frame; missing probabilistic columns become NaN."""
+    """Build a predictions frame; missing probabilistic columns become NaN.
+
+    Extra keyword columns (for example the raw pre-calibration twins of the
+    Phase-2 prediction-table contract) are preserved after the canonical
+    ``PRED_COLS`` block.
+    """
     n = len(arrays["y_true"])
     data = {}
     for c in PRED_COLS:
@@ -49,7 +54,10 @@ def make_pred_frame(**arrays) -> pd.DataFrame:
             data[c] = np.full(n, np.nan)
         else:
             data[c] = arrays.get(c)
-    return pd.DataFrame(data)[PRED_COLS]
+    extra = [c for c in arrays if c not in PRED_COLS]
+    for c in extra:
+        data[c] = arrays[c]
+    return pd.DataFrame(data)[list(PRED_COLS) + extra]
 
 
 def validate_predictions(pred: pd.DataFrame, *,

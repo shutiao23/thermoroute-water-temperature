@@ -1,0 +1,65 @@
+{
+  "gates": {
+    "G1_finite_heads": {
+      "pass": true,
+      "detail": "0 non-finite head rows"
+    },
+    "G2_ordered_heads": {
+      "pass": true,
+      "detail": "0 unordered head rows"
+    },
+    "G3_event_in_unit_interval": {
+      "pass": true,
+      "detail": "0 out-of-range p_exceed"
+    },
+    "G4_strict_precalibration_width": {
+      "pass": true,
+      "detail": "q05_raw < q95_raw violated"
+    },
+    "G5_postcalibration_valid": {
+      "pass": true,
+      "detail": "calibrated heads invalid"
+    },
+    "G6_schema_validation": {
+      "pass": true,
+      "detail": "schema OK"
+    },
+    "G7_no_duplicate_keys": {
+      "pass": true,
+      "detail": "0 duplicate rows"
+    },
+    "G8_sites_in_registry": {
+      "pass": true,
+      "detail": "0 unknown sites"
+    },
+    "G9_y_true_tieback": {
+      "pass": true,
+      "detail": "no reference supplied (orchestrator supplies it)"
+    },
+    "G10_explicit_station_decode": {
+      "pass": true,
+      "detail": "verified by orchestrator (see report)"
+    },
+    "G11_event_observed_consistent": {
+      "pass": true,
+      "detail": "recomputed event disagrees"
+    },
+    "G12_common_forecast_keys": {
+      "pass": true,
+      "detail": "{'pooled_prep': {'1': 1, '3': 1, '7': 1}, 'temporal': {'1': 1, '3': 1, '7': 1}}"
+    },
+    "G13_cohort_accounting": {
+      "pass": true,
+      "detail": "{'h1': 61, 'h3': 65, 'h7': 67}"
+    },
+    "G14_no_http_failed_without_waiver": {
+      "pass": true,
+      "detail": "waiver state checked by orchestrator"
+    }
+  },
+  "n_stations_reportable": {
+    "h1": 61,
+    "h3": 65,
+    "h7": 67
+  }
+}

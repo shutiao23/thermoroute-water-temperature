@@ -40,7 +40,9 @@ def load_predictions(path: Path) -> pd.DataFrame:
 
 def load_registry(path: Path) -> pd.DataFrame:
     registry = pd.read_csv(path, dtype={"site_no": str})
-    registry = registry[["site_no", "lat", "lon", "huc2"]].copy()
+    registry = registry[
+        ["site_no", "lat", "lon", "huc2", "huc_metadata_status"]
+    ].copy()
     registry["site_no"] = registry["site_no"].str.strip()
     return registry
 
@@ -57,22 +59,29 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     pred = load_predictions(args.predictions)
     registry = load_registry(args.registry)
-    pred["site_id"] = pred["site_id"].astype(str)
+    pred["site_id"] = pred["site_id"].astype(str).str.zfill(8)
 
     station = CS.station_metrics(pred)
+    station["site_id"] = station["site_id"].astype(str).str.zfill(8)
     pooled = CS.pooled_metrics(pred)
     skill = CS.skill_table(station, pooled)
 
-    # Paired contrasts: every non-baseline model vs each baseline per lead.
+    # Paired contrasts: every non-baseline model vs each baseline per lead,
+    # plus the frozen five-test family's LightGBM references (H2 tests).
     contrasts = []
     non_baselines = sorted(set(pred["model"]) - set(CS.BASELINE_MODELS))
     for model in non_baselines:
         for base in CS.BASELINE_MODELS:
             for horizon in sorted(set(int(h) for h in pred["horizon"])):
                 contrasts.append((model, base, horizon))
+    for formal in CS.HOLM_FAMILY_CONTRASTS:
+        if formal not in contrasts:
+            contrasts.append(formal)
     effects = CS.paired_effects(station, contrasts=contrasts)
+    effects["site_id"] = effects["site_id"].astype(str).str.zfill(8)
     inference = CS.cluster_inference(
-        effects, registry, n_boot=args.n_boot, seed=args.seed
+        effects, registry, n_boot=args.n_boot, seed=args.seed,
+        holm_family_contrasts=CS.HOLM_FAMILY_CONTRASTS,
     )
     probability = CS.probability_metrics(pred)
     reliability = CS.reliability_bins(pred)
