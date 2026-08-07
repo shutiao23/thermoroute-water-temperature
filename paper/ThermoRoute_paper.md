@@ -154,12 +154,7 @@ regions, seasons, and the width of a calibrated interval? The predictor whose
 skill we decompose, ThermoRoute, is described in full in Section 3.1; its
 architecture is the object under test rather than the contribution.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig01_preopening_concept.pdf}
-\caption{Figure 1. The cohort, and what its geometry can carry.}
-\label{fig:F1}
-\end{figure}
+![The cohort, and what its geometry can carry.](figures/fig01_preopening_concept.pdf)
 
 ---
 
@@ -211,12 +206,7 @@ and 19 have another retained station within 10 km, so station-level independence
 is not tenable. Two stations contain 2,059 rows of signed negative discharge
 (minimum −121 cfs), retained with their sign rather than clipped.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{../si/figures/figS1_cohort_registry.pdf}
-\caption{Figure S1. Cohort selection and registry geometry.}
-\label{fig:S1}
-\end{figure}
+![Cohort selection and registry geometry.](../si/figures/figS1_cohort_registry.pdf)
 
 ### 2.2 Temporal roles and the common key set
 
@@ -285,12 +275,7 @@ capability, with a deterministic seed selecting stations whose site identifiers 
 not occur in the development registry. This is site-identifier disjointness only,
 and those models still consume each target site's observed history (Section 3.4).
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{../si/figures/figS2_information_boundary.pdf}
-\caption{Figure S2. Temporal chronology and information/product boundary.}
-\label{fig:S2}
-\end{figure}
+![Temporal chronology and information/product boundary.](../si/figures/figS2_information_boundary.pdf)
 
 ---
 
@@ -393,12 +378,7 @@ end-to-end training wall-clock time is `[TRAINING WALL-CLOCK TO BE RECORDED]` an
 inference throughput is `[INFERENCE COST TO BE RECORDED]`; neither is present in
 the run records, and neither is estimated here.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{../si/figures/figS3_model_architecture.pdf}
-\caption{Figure S3. Full model, bound, and calibration dataflow.}
-\label{fig:S3}
-\end{figure}
+![Full model, bound, and calibration dataflow.](../si/figures/figS3_model_architecture.pdf)
 
 ### 3.2 The reference set
 
@@ -697,12 +677,7 @@ Section 3.6 and are approximate. The held-out 2021–2023 evaluation
 set determines the size of the reported gain, the next question is whether it
 also determines which model wins.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig02_point_performance.pdf}
-\caption{Figure 2. Baseline choice, not architecture, sets the reported gain.}
-\label{fig:F2}
-\end{figure}
+![Baseline choice, not architecture, sets the reported gain.](figures/fig02_point_performance.pdf)
 
 ### 4.2 The most accurate model on this panel is a gradient-boosted tree
 
@@ -725,12 +700,7 @@ maximum absolute correction of 1.0000 °C against the configured 1 °C limit and
 the derived station-by-lead RMSE inequality holding in all 360 cells — a
 property of the construction rather than a fitted outcome.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/figS4_point_heterogeneity.pdf}
-\caption{Figure S4. Point-performance heterogeneity.}
-\label{fig:S4}
-\end{figure}
+![Point-performance heterogeneity.](figures/figS4_point_heterogeneity.pdf)
 
 ### 4.3 An information-matched plain convolutional network reproduces the architecture
 
@@ -802,12 +772,7 @@ its station embedding disabled in this arm, gives 0.679, 1.445, and 1.876 °C.
 Since the spatial partition moves the answer this much, the next question is
 whether the remaining skill is spatially and seasonally uniform.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig03_spatial_partition_transfer.pdf}
-\caption{Figure 3. The spatial partition changes the transfer conclusion.}
-\label{fig:F3}
-\end{figure}
+![The spatial partition changes the transfer conclusion.](figures/fig03_spatial_partition_transfer.pdf)
 
 ### 4.5 Skill is regionally uniform, and interval coverage is bought with width
 
@@ -852,18 +817,9 @@ by the water-temperature and air-temperature channels and is nearly insensitive
 to discharge. These are synthetic data-corruption probes, not climate
 projections, physically coherent scenarios, or deployment-safety tests.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig04_heterogeneity_and_interval_cost.pdf}
-\caption{Figure 4. Regional and seasonal heterogeneity, and what coverage costs.}
-\label{fig:F4}
-\end{figure}
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/figS7_spatial_leave_huc2.pdf}
-\caption{Figure S7. Spatial and leave-HUC2 influence.}
-\label{fig:S7}
-\end{figure}
+![Regional and seasonal heterogeneity, and what coverage costs.](figures/fig04_heterogeneity_and_interval_cost.pdf)
+
+![Spatial and leave-HUC2 influence.](figures/figS7_spatial_leave_huc2.pdf)
 
 ### 4.6 Held-out 2021–2023 evaluation
 
@@ -908,96 +864,48 @@ are zero against themselves by definition). These pooled held-out metrics are
 not directly comparable with the station-median development-period values of
 Sections 4.1–4.5, which use a different aggregation.
 
-**Table 4.7a. Accuracy (RMSE, MAE, bias) — primary models.** *n* = 118,275 (h = 1 d), 117,476 (h = 3 d), 116,524 (h = 7 d) forecast keys.
+**Table 4.7a. Accuracy (RMSE, MAE, bias) — primary models.** *n* = 118,275 (*h* = 1 d), 117,476 (*h* = 3 d), 116,524 (*h* = 7 d) forecast keys. Column groups are lead times in days. Pooled over all common held-out keys, not station-medians.
 
-| Model | h (d) | RMSE (°C) | MAE (°C) | bias (°C) |
-|---|---:|---|---|---|
-| Persistence | 1 | `0.829` | `0.574` | `-0.001` |
-| Persistence | 3 | `1.645` | `1.168` | `-0.004` |
-| Persistence | 7 | `2.237` | `1.607` | `-0.012` |
-| DampedPersistence | 1 | `0.799` | `0.561` | `-0.034` |
-| DampedPersistence | 3 | `1.457` | `1.050` | `-0.091` |
-| DampedPersistence | 7 | `1.759` | `1.288` | `-0.173` |
-| Climatology | 1 | `1.948` | `1.454` | `-0.382` |
-| Climatology | 3 | `1.948` | `1.454` | `-0.380` |
-| Climatology | 7 | `1.950` | `1.456` | `-0.378` |
-| LightGBM | 1 | `0.605` | `0.422` | `-0.027` |
-| LightGBM | 3 | `1.334` | `0.962` | `-0.109` |
-| LightGBM | 7 | `1.708` | `1.256` | `-0.200` |
-| LSTM | 1 | `0.688` | `0.493` | `-0.006` |
-| LSTM | 3 | `1.369` | `1.003` | `-0.062` |
-| LSTM | 7 | `1.708` | `1.257` | `-0.163` |
-| ThermoRoute | 1 | `0.658` | `0.462` | `+0.014` |
-| ThermoRoute | 3 | `1.342` | `0.971` | `-0.033` |
-| ThermoRoute | 7 | `1.686` | `1.235` | `-0.129` |
+| Model | RMSE 1 | 3 | 7 | MAE 1 | 3 | 7 | bias 1 | 3 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Persistence | `0.829` | `1.645` | `2.237` | `0.574` | `1.168` | `1.607` | `-0.001` | `-0.004` | `-0.012` |
+| DampedPersistence | `0.799` | `1.457` | `1.759` | `0.561` | `1.050` | `1.288` | `-0.034` | `-0.091` | `-0.173` |
+| Climatology | `1.948` | `1.948` | `1.950` | `1.454` | `1.454` | `1.456` | `-0.382` | `-0.380` | `-0.378` |
+| LightGBM | `0.605` | `1.334` | `1.708` | `0.422` | `0.962` | `1.256` | `-0.027` | `-0.109` | `-0.200` |
+| LSTM | `0.688` | `1.369` | `1.708` | `0.493` | `1.003` | `1.257` | `-0.006` | `-0.062` | `-0.163` |
+| ThermoRoute | `0.658` | `1.342` | `1.686` | `0.462` | `0.971` | `1.235` | `+0.014` | `-0.033` | `-0.129` |
 
-**Table 4.7b. Skill vs persistence and climatology — primary models.**
+**Table 4.7b. Skill against persistence and damped persistence — primary models.** Column groups are lead times in days. Skill = 1 − RMSE_model/RMSE_reference; positive favours the model. Baseline rows are derived from the same pooled RMSE ratios. Skill against seasonal climatology is omitted here because climatology is not a competitive reference at these leads; its RMSE is in Table 4.7a.
 
-| Model | h (d) | skill vs. persist | skill vs. clim |
-|---|---:|---|---|
-| Persistence | 1 | `0.000` | `0.574` |
-| Persistence | 3 | `0.000` | `0.156` |
-| Persistence | 7 | `0.000` | `-0.147` |
-| DampedPersistence | 1 | `0.036` | `0.590` |
-| DampedPersistence | 3 | `0.114` | `0.252` |
-| DampedPersistence | 7 | `0.213` | `0.098` |
-| Climatology | 1 | `-1.349` | `0.000` |
-| Climatology | 3 | `-0.184` | `0.000` |
-| Climatology | 7 | `0.128` | `0.000` |
-| LightGBM | 1 | `0.270` | `0.689` |
-| LightGBM | 3 | `0.189` | `0.315` |
-| LightGBM | 7 | `0.236` | `0.124` |
-| LSTM | 1 | `0.171` | `0.647` |
-| LSTM | 3 | `0.167` | `0.297` |
-| LSTM | 7 | `0.236` | `0.124` |
-| ThermoRoute | 1 | `0.207` | `0.662` |
-| ThermoRoute | 3 | `0.184` | `0.311` |
-| ThermoRoute | 7 | `0.246` | `0.135` |
-**Table 4.8a. Accuracy (RMSE, MAE, bias) — one-factor ablations.** *n* = 118,275 (h = 1 d), 117,476 (h = 3 d), 116,524 (h = 7 d) forecast keys.
+| Model | persist. 1 d | 3 d | 7 d | damped 1 d | 3 d | 7 d |
+|---|---:|---:|---:|---:|---:|---:|
+| Persistence | `+0.000` | `+0.000` | `+0.000` | `-0.037` | `-0.129` | `-0.271` |
+| DampedPersistence | `+0.036` | `+0.114` | `+0.213` | `+0.000` | `+0.000` | `+0.000` |
+| Climatology | `-1.349` | `-0.184` | `+0.128` | `-1.437` | `-0.337` | `-0.108` |
+| LightGBM | `+0.270` | `+0.189` | `+0.236` | `+0.243` | `+0.085` | `+0.029` |
+| LSTM | `+0.171` | `+0.167` | `+0.236` | `+0.140` | `+0.060` | `+0.029` |
+| ThermoRoute | `+0.207` | `+0.184` | `+0.246` | `+0.177` | `+0.079` | `+0.041` |
+**Table 4.8a. Accuracy (RMSE, MAE, bias) — one-factor ablations.** *n* = 118,275 (*h* = 1 d), 117,476 (*h* = 3 d), 116,524 (*h* = 7 d) forecast keys. Column groups are lead times in days. Pooled over all common held-out keys, not station-medians.
 
-| Model | h (d) | RMSE (°C) | MAE (°C) | bias (°C) |
-|---|---:|---|---|---|
-| tr-fixedkappa | 1 | `0.654` | `0.458` | `+0.015` |
-| tr-fixedkappa | 3 | `1.341` | `0.970` | `-0.043` |
-| tr-fixedkappa | 7 | `1.684` | `1.233` | `-0.127` |
-| tr-nodynamicprior | 1 | `0.654` | `0.459` | `+0.026` |
-| tr-nodynamicprior | 3 | `1.341` | `0.969` | `-0.023` |
-| tr-nodynamicprior | 7 | `1.692` | `1.239` | `-0.119` |
-| tr-nomoe | 1 | `0.662` | `0.467` | `+0.002` |
-| tr-nomoe | 3 | `1.346` | `0.974` | `-0.034` |
-| tr-nomoe | 7 | `1.689` | `1.236` | `-0.129` |
-| tr-norouter | 1 | `0.663` | `0.467` | `-0.010` |
-| tr-norouter | 3 | `1.349` | `0.978` | `-0.044` |
-| tr-norouter | 7 | `1.689` | `1.237` | `-0.128` |
-| tr-notcn | 1 | `0.696` | `0.489` | `-0.015` |
-| tr-notcn | 3 | `1.378` | `0.996` | `-0.062` |
-| tr-notcn | 7 | `1.711` | `1.254` | `-0.166` |
-| tr-unbounded | 1 | `0.654` | `0.462` | `+0.007` |
-| tr-unbounded | 3 | `1.335` | `0.969` | `-0.057` |
-| tr-unbounded | 7 | `1.679` | `1.231` | `-0.130` |
+| Model | RMSE 1 | 3 | 7 | MAE 1 | 3 | 7 | bias 1 | 3 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| TR-fixedKappa | `0.654` | `1.341` | `1.684` | `0.458` | `0.970` | `1.233` | `+0.015` | `-0.043` | `-0.127` |
+| TR-noDynamicPrior | `0.654` | `1.341` | `1.692` | `0.459` | `0.969` | `1.239` | `+0.026` | `-0.023` | `-0.119` |
+| TR-noMoE | `0.662` | `1.346` | `1.689` | `0.467` | `0.974` | `1.236` | `+0.002` | `-0.034` | `-0.129` |
+| TR-noRouter | `0.663` | `1.349` | `1.689` | `0.467` | `0.978` | `1.237` | `-0.010` | `-0.044` | `-0.128` |
+| TR-noTCN | `0.696` | `1.378` | `1.711` | `0.489` | `0.996` | `1.254` | `-0.015` | `-0.062` | `-0.166` |
+| TR-unbounded | `0.654` | `1.335` | `1.679` | `0.462` | `0.969` | `1.231` | `+0.007` | `-0.057` | `-0.130` |
 
-**Table 4.8b. Skill vs persistence and climatology — one-factor ablations.**
+**Table 4.8b. Skill against persistence and damped persistence — one-factor ablations.**
 
-| Model | h (d) | skill vs. persist | skill vs. clim |
-|---|---:|---|---|
-| tr-fixedkappa | 1 | `0.211` | `0.664` |
-| tr-fixedkappa | 3 | `0.185` | `0.312` |
-| tr-fixedkappa | 7 | `0.247` | `0.136` |
-| tr-nodynamicprior | 1 | `0.211` | `0.664` |
-| tr-nodynamicprior | 3 | `0.185` | `0.311` |
-| tr-nodynamicprior | 7 | `0.244` | `0.132` |
-| tr-nomoe | 1 | `0.202` | `0.660` |
-| tr-nomoe | 3 | `0.182` | `0.309` |
-| tr-nomoe | 7 | `0.245` | `0.134` |
-| tr-norouter | 1 | `0.200` | `0.659` |
-| tr-norouter | 3 | `0.180` | `0.307` |
-| tr-norouter | 7 | `0.245` | `0.134` |
-| tr-notcn | 1 | `0.161` | `0.643` |
-| tr-notcn | 3 | `0.162` | `0.293` |
-| tr-notcn | 7 | `0.235` | `0.123` |
-| tr-unbounded | 1 | `0.211` | `0.664` |
-| tr-unbounded | 3 | `0.189` | `0.315` |
-| tr-unbounded | 7 | `0.249` | `0.139` |
+| Model | persist. 1 d | 3 d | 7 d | damped 1 d | 3 d | 7 d |
+|---|---:|---:|---:|---:|---:|---:|
+| TR-fixedKappa | `+0.211` | `+0.185` | `+0.247` | `+0.181` | `+0.080` | `+0.043` |
+| TR-noDynamicPrior | `+0.211` | `+0.185` | `+0.244` | `+0.181` | `+0.080` | `+0.038` |
+| TR-noMoE | `+0.202` | `+0.182` | `+0.245` | `+0.172` | `+0.076` | `+0.040` |
+| TR-noRouter | `+0.200` | `+0.180` | `+0.245` | `+0.170` | `+0.074` | `+0.040` |
+| TR-noTCN | `+0.161` | `+0.162` | `+0.235` | `+0.129` | `+0.055` | `+0.028` |
+| TR-unbounded | `+0.211` | `+0.189` | `+0.249` | `+0.181` | `+0.084` | `+0.046` |
 **Table 4.9 — interval and probability behaviour on the held-out keys.**
 *Not reported for the held-out window.* The interval and probability family —
 empirical marginal coverage at the nominal 90% level, mean interval width, the
@@ -1017,24 +925,12 @@ qualifier-restricted `{A}` sensitivity for each comparison row — were not
 recomputed for 2021–2023 (the outcome-QC pipeline was not re-run on the
 held-out panel), so Table 4.10 is omitted and no QC counts are invented.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/figS5_probability_reliability.pdf}
-\caption{Figure S5. Event score, reliability, and expanded probabilistic diagnostics.}
-\label{fig:S5}
-\end{figure}
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/figS6_attrition_missingness.pdf}
-\caption{Figure S6. Temporal opportunity, missingness, and attrition.}
-\label{fig:S6}
-\end{figure}
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/figS8_external_arm_failures.pdf}
-\caption{Figure S8. Outcome QC, external-history scope, and failure disposition.}
-\label{fig:S8}
-\end{figure}
+![Event score, reliability, and expanded probabilistic diagnostics.](figures/figS5_probability_reliability.pdf)
+
+![Temporal opportunity, missingness, and attrition.](figures/figS6_attrition_missingness.pdf)
+
+![Outcome QC, external-history scope, and failure disposition.](figures/figS8_external_arm_failures.pdf)
+
 <!-- FIGURE_ANCHOR id=S10 state=POST role=first_citation source=paper/FIGURE_REDRAW_SPEC.md#figure-s10 -->
 
 The development-period benchmark diagnostics of Sections 4.1–4.5 anticipate the
@@ -1250,12 +1146,7 @@ development period; the corresponding held-out-window metrics are not reported
 either, because the probability-metrics pipeline was not re-run on the 2021–2023
 held-out panel (Section 4.6, Table 4.9 omitted).
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/figS9_conformal_calibration.pdf}
-\caption{Figure S9. Development-period conformal calibration sensitivity.}
-\label{fig:S9}
-\end{figure}
+![Development-period conformal calibration sensitivity.](figures/figS9_conformal_calibration.pdf)
 
 ### 6.4 Threshold and archive scope
 

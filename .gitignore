@@ -73,3 +73,5 @@ dist/
 # (the persisted tables, metrics and validation report are committed instead).
 outputs/conventional/panel_2021_2023.parquet
 outputs/conventional/raw_2021_2023/
+paper/agu_submission/ThermoRoute_WRR.fdb_latexmk
+paper/agu_submission/ThermoRoute_WRR.fls

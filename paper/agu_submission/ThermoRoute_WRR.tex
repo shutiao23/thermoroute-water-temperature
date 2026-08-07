@@ -6,6 +6,7 @@
 \usepackage{hyperref}
 \providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 \providecommand{\ph}[1]{\texttt{\textless{}\textless{}#1\textgreater{}\textgreater{}}}
+\providecommand{\pandocbounded}[1]{#1}
 \setlength{\emergencystretch}{3em}
 % Still required under agujournal2025.cls: removing \sloppy reintroduces four
 % overfull \hbox warnings in the body text.
@@ -221,12 +222,11 @@ regions, seasons, and the width of a calibrated interval? The predictor whose
 skill we decompose, ThermoRoute, is described in full in Section 3.1; its
 architecture is the object under test rather than the contribution.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/fig01\_preopening\_concept.pdf\}
-\textbackslash caption\{Figure 1. The cohort, and what its geometry can carry.\}
-\textbackslash label\{fig:F1\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={The cohort, and what its geometry can carry.}]{figures/fig01_preopening_concept.pdf}}
+\caption{The cohort, and what its geometry can carry.}
+\end{figure}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -278,12 +278,11 @@ and 19 have another retained station within 10 km, so station-level independence
 is not tenable. Two stations contain 2,059 rows of signed negative discharge
 (minimum −121 cfs), retained with their sign rather than clipped.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{../si/figures/figS1\_cohort\_registry.pdf\}
-\textbackslash caption\{Figure S1. Cohort selection and registry geometry.\}
-\textbackslash label\{fig:S1\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Cohort selection and registry geometry.}]{../si/figures/figS1_cohort_registry.pdf}}
+\caption{Cohort selection and registry geometry.}
+\end{figure}
 
 \subsection{Temporal roles and the common key set}\label{temporal-roles-and-the-common-key-set}
 
@@ -361,12 +360,11 @@ capability, with a deterministic seed selecting stations whose site identifiers 
 not occur in the development registry. This is site-identifier disjointness only,
 and those models still consume each target site\textquotesingle s observed history (Section 3.4).
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{../si/figures/figS2\_information\_boundary.pdf\}
-\textbackslash caption\{Figure S2. Temporal chronology and information/product boundary.\}
-\textbackslash label\{fig:S2\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Temporal chronology and information/product boundary.}]{../si/figures/figS2_information_boundary.pdf}}
+\caption{Temporal chronology and information/product boundary.}
+\end{figure}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -483,12 +481,11 @@ end-to-end training wall-clock time is \texttt{{[}TRAINING\ \allowbreak{}WALL-CL
 inference throughput is \texttt{{[}INFERENCE\ \allowbreak{}COST\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}RECORDED{]}}; neither is present in
 the run records, and neither is estimated here.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{../si/figures/figS3\_model\_architecture.pdf\}
-\textbackslash caption\{Figure S3. Full model, bound, and calibration dataflow.\}
-\textbackslash label\{fig:S3\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Full model, bound, and calibration dataflow.}]{../si/figures/figS3_model_architecture.pdf}}
+\caption{Full model, bound, and calibration dataflow.}
+\end{figure}
 
 \subsection{The reference set}\label{the-reference-set}
 
@@ -773,7 +770,7 @@ identical keys, the same fixed model reports a seven-day median station skill of
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}rrrrr>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}rrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
 Lead & Persistence & Damped persistence & LightGBM & LSTM & ThermoRoute \\
 \midrule\noalign{}
@@ -809,12 +806,11 @@ Section 3.6 and are approximate. The held-out 2021--2023 evaluation
 set determines the size of the reported gain, the next question is whether it
 also determines which model wins.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/fig02\_point\_performance.pdf\}
-\textbackslash caption\{Figure 2. Baseline choice, not architecture, sets the reported gain.\}
-\textbackslash label\{fig:F2\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Baseline choice, not architecture, sets the reported gain.}]{figures/fig02_point_performance.pdf}}
+\caption{Baseline choice, not architecture, sets the reported gain.}
+\end{figure}
 
 \subsection{The most accurate model on this panel is a gradient-boosted tree}\label{the-most-accurate-model-on-this-panel-is-a-gradient-boosted-tree}
 
@@ -837,12 +833,11 @@ maximum absolute correction of 1.0000 °C against the configured 1 °C limit and
 the derived station-by-lead RMSE inequality holding in all 360 cells --- a
 property of the construction rather than a fitted outcome.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/figS4\_point\_heterogeneity.pdf\}
-\textbackslash caption\{Figure S4. Point-performance heterogeneity.\}
-\textbackslash label\{fig:S4\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Point-performance heterogeneity.}]{figures/figS4_point_heterogeneity.pdf}}
+\caption{Point-performance heterogeneity.}
+\end{figure}
 
 \subsection{An information-matched plain convolutional network reproduces the architecture}\label{an-information-matched-plain-convolutional-network-reproduces-the-architecture}
 
@@ -884,7 +879,7 @@ honestly? Between a quarter and a third of it does not.
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}Xrr>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}Xrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
 Arm & Design & 1 d & 3 d & 7 d \\
 \midrule\noalign{}
@@ -923,12 +918,11 @@ its station embedding disabled in this arm, gives 0.679, 1.445, and 1.876 °C.
 Since the spatial partition moves the answer this much, the next question is
 whether the remaining skill is spatially and seasonally uniform.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/fig03\_spatial\_partition\_transfer.pdf\}
-\textbackslash caption\{Figure 3. The spatial partition changes the transfer conclusion.\}
-\textbackslash label\{fig:F3\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={The spatial partition changes the transfer conclusion.}]{figures/fig03_spatial_partition_transfer.pdf}}
+\caption{The spatial partition changes the transfer conclusion.}
+\end{figure}
 
 \subsection{Skill is regionally uniform, and interval coverage is bought with width}\label{skill-is-regionally-uniform-and-interval-coverage-is-bought-with-width}
 
@@ -973,18 +967,17 @@ by the water-temperature and air-temperature channels and is nearly insensitive
 to discharge. These are synthetic data-corruption probes, not climate
 projections, physically coherent scenarios, or deployment-safety tests.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/fig04\_heterogeneity\_and\_interval\_cost.pdf\}
-\textbackslash caption\{Figure 4. Regional and seasonal heterogeneity, and what coverage costs.\}
-\textbackslash label\{fig:F4\}
-\textbackslash end\{figure\}
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/figS7\_spatial\_leave\_huc2.pdf\}
-\textbackslash caption\{Figure S7. Spatial and leave-HUC2 influence.\}
-\textbackslash label\{fig:S7\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Regional and seasonal heterogeneity, and what coverage costs.}]{figures/fig04_heterogeneity_and_interval_cost.pdf}}
+\caption{Regional and seasonal heterogeneity, and what coverage costs.}
+\end{figure}
+
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Spatial and leave-HUC2 influence.}]{figures/figS7_spatial_leave_huc2.pdf}}
+\caption{Spatial and leave-HUC2 influence.}
+\end{figure}
 
 \subsection{Held-out 2021--2023 evaluation}\label{held-out-20212023-evaluation}
 
@@ -1038,130 +1031,82 @@ are zero against themselves by definition). These pooled held-out metrics are
 not directly comparable with the station-median development-period values of
 Sections 4.1--4.5, which use a different aggregation.
 
-\textbf{Table 4.7a. Accuracy (RMSE, MAE, bias) --- primary models.} \emph{n} = 118,275 (h = 1 d), 117,476 (h = 3 d), 116,524 (h = 7 d) forecast keys.
+\textbf{Table 4.7a. Accuracy (RMSE, MAE, bias) --- primary models.} \emph{n} = 118,275 (\emph{h} = 1 d), 117,476 (\emph{h} = 3 d), 116,524 (\emph{h} = 7 d) forecast keys. Column groups are lead times in days. Pooled over all common held-out keys, not station-medians.
 
 {\small
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrll>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
-Model & h (d) & RMSE (°C) & MAE (°C) & bias (°C) \\
+Model & RMSE 1 & 3 & 7 & MAE 1 & 3 & 7 & bias 1 & 3 & 7 \\
 \midrule\noalign{}
-Persistence & 1 & \texttt{0.829} & \texttt{0.574} & \texttt{-0.001} \\
-Persistence & 3 & \texttt{1.645} & \texttt{1.168} & \texttt{-0.004} \\
-Persistence & 7 & \texttt{2.237} & \texttt{1.607} & \texttt{-0.012} \\
-DampedPersistence & 1 & \texttt{0.799} & \texttt{0.561} & \texttt{-0.034} \\
-DampedPersistence & 3 & \texttt{1.457} & \texttt{1.050} & \texttt{-0.091} \\
-DampedPersistence & 7 & \texttt{1.759} & \texttt{1.288} & \texttt{-0.173} \\
-Climatology & 1 & \texttt{1.948} & \texttt{1.454} & \texttt{-0.382} \\
-Climatology & 3 & \texttt{1.948} & \texttt{1.454} & \texttt{-0.380} \\
-Climatology & 7 & \texttt{1.950} & \texttt{1.456} & \texttt{-0.378} \\
-LightGBM & 1 & \texttt{0.605} & \texttt{0.422} & \texttt{-0.027} \\
-LightGBM & 3 & \texttt{1.334} & \texttt{0.962} & \texttt{-0.109} \\
-LightGBM & 7 & \texttt{1.708} & \texttt{1.256} & \texttt{-0.200} \\
-LSTM & 1 & \texttt{0.688} & \texttt{0.493} & \texttt{-0.006} \\
-LSTM & 3 & \texttt{1.369} & \texttt{1.003} & \texttt{-0.062} \\
-LSTM & 7 & \texttt{1.708} & \texttt{1.257} & \texttt{-0.163} \\
-ThermoRoute & 1 & \texttt{0.658} & \texttt{0.462} & \texttt{+0.014} \\
-ThermoRoute & 3 & \texttt{1.342} & \texttt{0.971} & \texttt{-0.033} \\
-ThermoRoute & 7 & \texttt{1.686} & \texttt{1.235} & \texttt{-0.129} \\
+Persistence & \texttt{0.829} & \texttt{1.645} & \texttt{2.237} & \texttt{0.574} & \texttt{1.168} & \texttt{1.607} & \texttt{-0.001} & \texttt{-0.004} & \texttt{-0.012} \\
+DampedPersistence & \texttt{0.799} & \texttt{1.457} & \texttt{1.759} & \texttt{0.561} & \texttt{1.050} & \texttt{1.288} & \texttt{-0.034} & \texttt{-0.091} & \texttt{-0.173} \\
+Climatology & \texttt{1.948} & \texttt{1.948} & \texttt{1.950} & \texttt{1.454} & \texttt{1.454} & \texttt{1.456} & \texttt{-0.382} & \texttt{-0.380} & \texttt{-0.378} \\
+LightGBM & \texttt{0.605} & \texttt{1.334} & \texttt{1.708} & \texttt{0.422} & \texttt{0.962} & \texttt{1.256} & \texttt{-0.027} & \texttt{-0.109} & \texttt{-0.200} \\
+LSTM & \texttt{0.688} & \texttt{1.369} & \texttt{1.708} & \texttt{0.493} & \texttt{1.003} & \texttt{1.257} & \texttt{-0.006} & \texttt{-0.062} & \texttt{-0.163} \\
+ThermoRoute & \texttt{0.658} & \texttt{1.342} & \texttt{1.686} & \texttt{0.462} & \texttt{0.971} & \texttt{1.235} & \texttt{+0.014} & \texttt{-0.033} & \texttt{-0.129} \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
 
-\textbf{Table 4.7b. Skill vs persistence and climatology --- primary models.}
+\textbf{Table 4.7b. Skill against persistence and damped persistence --- primary models.} Column groups are lead times in days. Skill = 1 − RMSE\_model/RMSE\_reference; positive favours the model. Baseline rows are derived from the same pooled RMSE ratios. Skill against seasonal climatology is omitted here because climatology is not a competitive reference at these leads; its RMSE is in Table 4.7a.
 
 {\small
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrl>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
-Model & h (d) & skill vs. persist & skill vs. clim \\
+Model & persist. 1 d & 3 d & 7 d & damped 1 d & 3 d & 7 d \\
 \midrule\noalign{}
-Persistence & 1 & \texttt{0.000} & \texttt{0.574} \\
-Persistence & 3 & \texttt{0.000} & \texttt{0.156} \\
-Persistence & 7 & \texttt{0.000} & \texttt{-0.147} \\
-DampedPersistence & 1 & \texttt{0.036} & \texttt{0.590} \\
-DampedPersistence & 3 & \texttt{0.114} & \texttt{0.252} \\
-DampedPersistence & 7 & \texttt{0.213} & \texttt{0.098} \\
-Climatology & 1 & \texttt{-1.349} & \texttt{0.000} \\
-Climatology & 3 & \texttt{-0.184} & \texttt{0.000} \\
-Climatology & 7 & \texttt{0.128} & \texttt{0.000} \\
-LightGBM & 1 & \texttt{0.270} & \texttt{0.689} \\
-LightGBM & 3 & \texttt{0.189} & \texttt{0.315} \\
-LightGBM & 7 & \texttt{0.236} & \texttt{0.124} \\
-LSTM & 1 & \texttt{0.171} & \texttt{0.647} \\
-LSTM & 3 & \texttt{0.167} & \texttt{0.297} \\
-LSTM & 7 & \texttt{0.236} & \texttt{0.124} \\
-ThermoRoute & 1 & \texttt{0.207} & \texttt{0.662} \\
-ThermoRoute & 3 & \texttt{0.184} & \texttt{0.311} \\
-ThermoRoute & 7 & \texttt{0.246} & \texttt{0.135} \\
+Persistence & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} & \texttt{-0.037} & \texttt{-0.129} & \texttt{-0.271} \\
+DampedPersistence & \texttt{+0.036} & \texttt{+0.114} & \texttt{+0.213} & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} \\
+Climatology & \texttt{-1.349} & \texttt{-0.184} & \texttt{+0.128} & \texttt{-1.437} & \texttt{-0.337} & \texttt{-0.108} \\
+LightGBM & \texttt{+0.270} & \texttt{+0.189} & \texttt{+0.236} & \texttt{+0.243} & \texttt{+0.085} & \texttt{+0.029} \\
+LSTM & \texttt{+0.171} & \texttt{+0.167} & \texttt{+0.236} & \texttt{+0.140} & \texttt{+0.060} & \texttt{+0.029} \\
+ThermoRoute & \texttt{+0.207} & \texttt{+0.184} & \texttt{+0.246} & \texttt{+0.177} & \texttt{+0.079} & \texttt{+0.041} \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
 
-\textbf{Table 4.8a. Accuracy (RMSE, MAE, bias) --- one-factor ablations.} \emph{n} = 118,275 (h = 1 d), 117,476 (h = 3 d), 116,524 (h = 7 d) forecast keys.
+\textbf{Table 4.8a. Accuracy (RMSE, MAE, bias) --- one-factor ablations.} \emph{n} = 118,275 (\emph{h} = 1 d), 117,476 (\emph{h} = 3 d), 116,524 (\emph{h} = 7 d) forecast keys. Column groups are lead times in days. Pooled over all common held-out keys, not station-medians.
 
 {\small
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrll>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
-Model & h (d) & RMSE (°C) & MAE (°C) & bias (°C) \\
+Model & RMSE 1 & 3 & 7 & MAE 1 & 3 & 7 & bias 1 & 3 & 7 \\
 \midrule\noalign{}
-tr-fixedkappa & 1 & \texttt{0.654} & \texttt{0.458} & \texttt{+0.015} \\
-tr-fixedkappa & 3 & \texttt{1.341} & \texttt{0.970} & \texttt{-0.043} \\
-tr-fixedkappa & 7 & \texttt{1.684} & \texttt{1.233} & \texttt{-0.127} \\
-tr-nodynamicprior & 1 & \texttt{0.654} & \texttt{0.459} & \texttt{+0.026} \\
-tr-nodynamicprior & 3 & \texttt{1.341} & \texttt{0.969} & \texttt{-0.023} \\
-tr-nodynamicprior & 7 & \texttt{1.692} & \texttt{1.239} & \texttt{-0.119} \\
-tr-nomoe & 1 & \texttt{0.662} & \texttt{0.467} & \texttt{+0.002} \\
-tr-nomoe & 3 & \texttt{1.346} & \texttt{0.974} & \texttt{-0.034} \\
-tr-nomoe & 7 & \texttt{1.689} & \texttt{1.236} & \texttt{-0.129} \\
-tr-norouter & 1 & \texttt{0.663} & \texttt{0.467} & \texttt{-0.010} \\
-tr-norouter & 3 & \texttt{1.349} & \texttt{0.978} & \texttt{-0.044} \\
-tr-norouter & 7 & \texttt{1.689} & \texttt{1.237} & \texttt{-0.128} \\
-tr-notcn & 1 & \texttt{0.696} & \texttt{0.489} & \texttt{-0.015} \\
-tr-notcn & 3 & \texttt{1.378} & \texttt{0.996} & \texttt{-0.062} \\
-tr-notcn & 7 & \texttt{1.711} & \texttt{1.254} & \texttt{-0.166} \\
-tr-unbounded & 1 & \texttt{0.654} & \texttt{0.462} & \texttt{+0.007} \\
-tr-unbounded & 3 & \texttt{1.335} & \texttt{0.969} & \texttt{-0.057} \\
-tr-unbounded & 7 & \texttt{1.679} & \texttt{1.231} & \texttt{-0.130} \\
+TR-fixedKappa & \texttt{0.654} & \texttt{1.341} & \texttt{1.684} & \texttt{0.458} & \texttt{0.970} & \texttt{1.233} & \texttt{+0.015} & \texttt{-0.043} & \texttt{-0.127} \\
+TR-noDynamicPrior & \texttt{0.654} & \texttt{1.341} & \texttt{1.692} & \texttt{0.459} & \texttt{0.969} & \texttt{1.239} & \texttt{+0.026} & \texttt{-0.023} & \texttt{-0.119} \\
+TR-noMoE & \texttt{0.662} & \texttt{1.346} & \texttt{1.689} & \texttt{0.467} & \texttt{0.974} & \texttt{1.236} & \texttt{+0.002} & \texttt{-0.034} & \texttt{-0.129} \\
+TR-noRouter & \texttt{0.663} & \texttt{1.349} & \texttt{1.689} & \texttt{0.467} & \texttt{0.978} & \texttt{1.237} & \texttt{-0.010} & \texttt{-0.044} & \texttt{-0.128} \\
+TR-noTCN & \texttt{0.696} & \texttt{1.378} & \texttt{1.711} & \texttt{0.489} & \texttt{0.996} & \texttt{1.254} & \texttt{-0.015} & \texttt{-0.062} & \texttt{-0.166} \\
+TR-unbounded & \texttt{0.654} & \texttt{1.335} & \texttt{1.679} & \texttt{0.462} & \texttt{0.969} & \texttt{1.231} & \texttt{+0.007} & \texttt{-0.057} & \texttt{-0.130} \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
 
-\textbf{Table 4.8b. Skill vs persistence and climatology --- one-factor ablations.}
+\textbf{Table 4.8b. Skill against persistence and damped persistence --- one-factor ablations.}
 
 {\small
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrl>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrr>{\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
-Model & h (d) & skill vs. persist & skill vs. clim \\
+Model & persist. 1 d & 3 d & 7 d & damped 1 d & 3 d & 7 d \\
 \midrule\noalign{}
-tr-fixedkappa & 1 & \texttt{0.211} & \texttt{0.664} \\
-tr-fixedkappa & 3 & \texttt{0.185} & \texttt{0.312} \\
-tr-fixedkappa & 7 & \texttt{0.247} & \texttt{0.136} \\
-tr-nodynamicprior & 1 & \texttt{0.211} & \texttt{0.664} \\
-tr-nodynamicprior & 3 & \texttt{0.185} & \texttt{0.311} \\
-tr-nodynamicprior & 7 & \texttt{0.244} & \texttt{0.132} \\
-tr-nomoe & 1 & \texttt{0.202} & \texttt{0.660} \\
-tr-nomoe & 3 & \texttt{0.182} & \texttt{0.309} \\
-tr-nomoe & 7 & \texttt{0.245} & \texttt{0.134} \\
-tr-norouter & 1 & \texttt{0.200} & \texttt{0.659} \\
-tr-norouter & 3 & \texttt{0.180} & \texttt{0.307} \\
-tr-norouter & 7 & \texttt{0.245} & \texttt{0.134} \\
-tr-notcn & 1 & \texttt{0.161} & \texttt{0.643} \\
-tr-notcn & 3 & \texttt{0.162} & \texttt{0.293} \\
-tr-notcn & 7 & \texttt{0.235} & \texttt{0.123} \\
-tr-unbounded & 1 & \texttt{0.211} & \texttt{0.664} \\
-tr-unbounded & 3 & \texttt{0.189} & \texttt{0.315} \\
-tr-unbounded & 7 & \texttt{0.249} & \texttt{0.139} \\
+TR-fixedKappa & \texttt{+0.211} & \texttt{+0.185} & \texttt{+0.247} & \texttt{+0.181} & \texttt{+0.080} & \texttt{+0.043} \\
+TR-noDynamicPrior & \texttt{+0.211} & \texttt{+0.185} & \texttt{+0.244} & \texttt{+0.181} & \texttt{+0.080} & \texttt{+0.038} \\
+TR-noMoE & \texttt{+0.202} & \texttt{+0.182} & \texttt{+0.245} & \texttt{+0.172} & \texttt{+0.076} & \texttt{+0.040} \\
+TR-noRouter & \texttt{+0.200} & \texttt{+0.180} & \texttt{+0.245} & \texttt{+0.170} & \texttt{+0.074} & \texttt{+0.040} \\
+TR-noTCN & \texttt{+0.161} & \texttt{+0.162} & \texttt{+0.235} & \texttt{+0.129} & \texttt{+0.055} & \texttt{+0.028} \\
+TR-unbounded & \texttt{+0.211} & \texttt{+0.189} & \texttt{+0.249} & \texttt{+0.181} & \texttt{+0.084} & \texttt{+0.046} \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -1185,24 +1130,23 @@ qualifier-restricted \texttt{\{A\}} sensitivity for each comparison row --- were
 recomputed for 2021--2023 (the outcome-QC pipeline was not re-run on the
 held-out panel), so Table 4.10 is omitted and no QC counts are invented.
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/figS5\_probability\_reliability.pdf\}
-\textbackslash caption\{Figure S5. Event score, reliability, and expanded probabilistic diagnostics.\}
-\textbackslash label\{fig:S5\}
-\textbackslash end\{figure\}
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/figS6\_attrition\_missingness.pdf\}
-\textbackslash caption\{Figure S6. Temporal opportunity, missingness, and attrition.\}
-\textbackslash label\{fig:S6\}
-\textbackslash end\{figure\}
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/figS8\_external\_arm\_failures.pdf\}
-\textbackslash caption\{Figure S8. Outcome QC, external-history scope, and failure disposition.\}
-\textbackslash label\{fig:S8\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Event score, reliability, and expanded probabilistic diagnostics.}]{figures/figS5_probability_reliability.pdf}}
+\caption{Event score, reliability, and expanded probabilistic diagnostics.}
+\end{figure}
+
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Temporal opportunity, missingness, and attrition.}]{figures/figS6_attrition_missingness.pdf}}
+\caption{Temporal opportunity, missingness, and attrition.}
+\end{figure}
+
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Outcome QC, external-history scope, and failure disposition.}]{figures/figS8_external_arm_failures.pdf}}
+\caption{Outcome QC, external-history scope, and failure disposition.}
+\end{figure}
 
 The development-period benchmark diagnostics of Sections 4.1--4.5 anticipate the
 held-out evaluation: the reference model rather than the architecture sets the
@@ -1417,12 +1361,11 @@ development period; the corresponding held-out-window metrics are not reported
 either, because the probability-metrics pipeline was not re-run on the 2021--2023
 held-out panel (Section 4.6, Table 4.9 omitted).
 
-\textbackslash begin\{figure\}{[}htbp{]}
-\textbackslash centering
-\textbackslash includegraphics{[}width=\textbackslash textwidth{]}\{figures/figS9\_conformal\_calibration.pdf\}
-\textbackslash caption\{Figure S9. Development-period conformal calibration sensitivity.\}
-\textbackslash label\{fig:S9\}
-\textbackslash end\{figure\}
+\begin{figure}
+\centering
+\pandocbounded{\includegraphics[keepaspectratio,alt={Development-period conformal calibration sensitivity.}]{figures/figS9_conformal_calibration.pdf}}
+\caption{Development-period conformal calibration sensitivity.}
+\end{figure}
 
 \subsection{Threshold and archive scope}\label{threshold-and-archive-scope}
 

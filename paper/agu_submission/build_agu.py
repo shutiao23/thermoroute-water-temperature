@@ -88,7 +88,7 @@ def _result_slot_pattern() -> re.Pattern[str]:
     # and ``\textless\textless``).  The body of the placeholder is irrelevant to
     # the survival check; only the opening pair is matched.
     less = r"(?:\\textless(?:\{\})?)+"
-    return re.compile(rf"(?:<<|{less}{{2}}|{less}(?:\\ )?{less})")
+    return re.compile(rf"(?:<<|(?:{less}){{2}}|{less}(?:\\ )?{less})")
 
 
 RESULT_SLOT_LATEX = _result_slot_pattern()
@@ -229,7 +229,7 @@ def _pandoc_path() -> str:
 def _convert(markdown: str, *, shift_headings: int | None = None) -> str:
     command = [
         _pandoc_path(),
-        "--from=gfm-raw_html",
+        "--from=gfm-raw_html+implicit_figures",
         "--to=latex",
         "--wrap=preserve",
     ]
@@ -361,7 +361,17 @@ def _make_code_spans_breakable(latex: str) -> str:
 WRAPPING_COLUMN_CHARACTERS = 24
 
 _UNESCAPED_AMPERSAND = re.compile(r"(?<!\\)&")
-_X_COLUMN = r">{\raggedright\arraybackslash}X"
+
+# A promoted ``X`` column keeps the alignment Pandoc inferred from the Markdown.
+# The last column is always promoted (tabularx needs at least one ``X``), so a
+# single raggedright constant would silently left-align the final numeric column
+# of every numeric table while its siblings stayed right-aligned.
+_X_COLUMNS = {
+    "l": r">{\raggedright\arraybackslash}X",
+    "c": r">{\centering\arraybackslash}X",
+    "r": r">{\raggedleft\arraybackslash}X",
+}
+_X_COLUMN = _X_COLUMNS["l"]
 
 
 def _column_content_widths(columns: str, content: str) -> list[int]:
@@ -390,7 +400,7 @@ def _bounded_column_spec(columns: str, content: str) -> str:
     widths = _column_content_widths(columns, content)
     last = len(columns) - 1
     return "".join(
-        _X_COLUMN
+        _X_COLUMNS[letter]
         if index == last or widths[index] >= WRAPPING_COLUMN_CHARACTERS
         else letter
         for index, letter in enumerate(columns)
@@ -547,6 +557,7 @@ def _render(markdown: str) -> str:
 \usepackage{{hyperref}}
 \providecommand{{\tightlist}}{{\setlength{{\itemsep}}{{0pt}}\setlength{{\parskip}}{{0pt}}}}
 \providecommand{{\ph}}[1]{{\texttt{{\textless{{}}\textless{{}}#1\textgreater{{}}\textgreater{{}}}}}}
+\providecommand{{\pandocbounded}}[1]{{#1}}
 \setlength{{\emergencystretch}}{{3em}}
 % Still required under agujournal2025.cls: removing \sloppy reintroduces four
 % overfull \hbox warnings in the body text.

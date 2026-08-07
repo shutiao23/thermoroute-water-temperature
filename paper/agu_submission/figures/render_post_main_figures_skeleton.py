@@ -1120,37 +1120,540 @@ def print_status(roots: Roots) -> int:
     return overall
 
 
+# ===========================================================================
+# Conventional 2021-2023 render path.
+#
+# The sealed-confirmatory POST gate above (opening receipt under
+# outputs/confirmatory/route_a_*/, trusted/* artifacts, Stage receipts) never
+# resolves for the conventional paper: that apparatus was not built and the
+# conventional holdout scorer (src/thermoroute/conventional_score.py) writes a
+# different, pooled long-form table instead.  This block is the surgical
+# conventional reframe requested for the feat/conventional branch: it reads the
+# real holdout numbers from outputs/conventional/holdout_metrics_2021_2023.csv
+# and holdout_summary_2021_2023.json and renders fig02-04 + S4-S9 into this
+# directory, reusing the AGU render profile and the Okabe-Ito semantic palette
+# defined above.  No sealed-confirmatory artifact is required and none is read.
+#
+# Data reality (matches paper section 4.6 and docs/B3_NUMBER_PLACEHOLDER_MAP.md):
+# the CSV is POOLED per model x horizon (RMSE/MAE/BIAS/SKILL_PERSISTENCE/
+# SKILL_CLIMATOLOGY/N_SKILL) with a string "pooled" horizon; there is no
+# station-level, no HUC2, and no probability/interval dimension.  Figures whose
+# required source does not exist (fig03/fig04/S5/S7/S9) are rendered as explicit
+# "not reported" notices that cite the paper disposition, never as empty axes or
+# invented coordinates.
+# ===========================================================================
+import json as _json
+
+import numpy as _np
+import pandas as _pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as _plt
+from matplotlib.patches import Rectangle as _Rectangle
+
+CONV_CSV = "outputs/conventional/holdout_metrics_2021_2023.csv"
+CONV_JSON = "outputs/conventional/holdout_summary_2021_2023.json"
+CONV_HORIZONS = (1, 3, 7)
+
+PRIMARY_MODELS_CONV = (
+    "Persistence", "DampedPersistence", "Climatology",
+    "LightGBM", "LSTM", "ThermoRoute",
+)
+LADDER_REFERENCES = (
+    "Persistence", "DampedPersistence", "Climatology", "LightGBM", "LSTM",
+)
+ABLATION_MODELS_CONV = (
+    "TR-noTCN", "TR-noMoE", "TR-noRouter",
+    "TR-noDynamicPrior", "TR-fixedKappa", "TR-unbounded",
+)
+EXT_MODELS_CONV = ("LightGBM-ext", "LSTM-ext", "ThermoRoute-ext")
+BASELINE_MODELS_CONV = (
+    "Persistence", "DampedPersistence", "DampedPriorOnly", "Climatology",
+)
+ALL_MODELS_CONV = BASELINE_MODELS_CONV + ("LightGBM", "LSTM", "ThermoRoute") \
+    + ABLATION_MODELS_CONV + EXT_MODELS_CONV
+
+# (colour, marker, linestyle).  Colour is Okabe-Ito derived (colourblind-safe);
+# every series also varies marker shape and/or dash so each panel survives a
+# grayscale check.  No result is encoded by colour alone.
+MODEL_STYLE_CONV = {
+    "ThermoRoute":       ("#0072B2", "o", "-"),
+    "LightGBM":          ("#CC79A7", "s", "-"),
+    "LSTM":              ("#009E73", "^", "-"),
+    "Persistence":       ("#777777", "D", (0, (4, 2))),
+    "DampedPersistence": ("#E69F00", "v", (0, (4, 2))),
+    "Climatology":       ("#B8B8B8", "P", (0, (1, 2))),
+    "DampedPriorOnly":   ("#E69F00", "v", (0, (1, 2))),
+    "TR-noTCN":          ("#008C7A", "o", (0, (5, 2))),
+    "TR-noMoE":          ("#56B4E9", "s", (0, (5, 2))),
+    "TR-noRouter":       ("#0072B2", "^", (0, (5, 2))),
+    "TR-noDynamicPrior": ("#009E73", "D", (0, (5, 2))),
+    "TR-fixedKappa":     ("#CC79A7", "v", (0, (5, 2))),
+    "TR-unbounded":      ("#D55E00", "P", (0, (5, 2))),
+    "ThermoRoute-ext":   ("#0072B2", "o", (0, (2, 2))),
+    "LSTM-ext":          ("#009E73", "^", (0, (2, 2))),
+    "LightGBM-ext":      ("#CC79A7", "s", (0, (2, 2))),
+}
+MODEL_LABEL_CONV = {
+    "ThermoRoute": "ThermoRoute", "LightGBM": "LightGBM", "LSTM": "global LSTM",
+    "Persistence": "Persistence", "DampedPersistence": "Damped persistence",
+    "Climatology": "Climatology", "DampedPriorOnly": "Damped anchor only",
+    "TR-noTCN": "TR-noTCN", "TR-noMoE": "TR-noMoE", "TR-noRouter": "TR-noRouter",
+    "TR-noDynamicPrior": "TR-noDynamicPrior", "TR-fixedKappa": "TR-fixedKappa",
+    "TR-unbounded": "TR-unbounded", "ThermoRoute-ext": "ThermoRoute-ext",
+    "LSTM-ext": "LSTM-ext", "LightGBM-ext": "LightGBM-ext",
+}
+
+
+def _mm(value: float) -> float:
+    return value / 25.4
+
+
+def _conventional_rcparams() -> None:
+    _plt.rcParams.update({
+        "font.size": 8.0, "axes.titlesize": 8.5, "axes.titleweight": "bold",
+        "axes.labelsize": 8.0, "xtick.labelsize": 7.5,
+        "ytick.labelsize": 7.5, "legend.fontsize": 7.0,
+        "axes.spines.top": False, "axes.spines.right": False,
+        "pdf.fonttype": 42, "ps.fonttype": 42, "svg.fonttype": "none",
+        "savefig.dpi": 300, "figure.dpi": 120, "axes.grid": False,
+        "grid.alpha": 0.25, "lines.linewidth": 1.3,
+    })
+
+
+def load_conventional(roots: Roots):
+    """Return (metrics, summary) where metrics[model][horizon][metric]=float.
+
+    Horizon keys are python ints 1/3/7 and the string "pooled".  Baseline skill
+    rows (Persistence/DampedPersistence/Climatology) are derived from pooled
+    RMSE exactly as paper section 4.6 and B3 section 5.2 specify, because the
+    CSV emits no SKILL_* rows for the three pure baselines.
+    """
+    csv_path = roots.repo / CONV_CSV
+    json_path = roots.repo / CONV_JSON
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"conventional metrics CSV not found: {csv_path}")
+    if not json_path.is_file():
+        raise FileNotFoundError(f"conventional summary JSON not found: {json_path}")
+    df = _pd.read_csv(csv_path)
+    summary = _json.loads(json_path.read_text(encoding="utf-8"))
+    metrics: dict[str, dict] = {}
+    for _, row in df.iterrows():
+        raw_h = row["horizon"]
+        horizon = "pooled" if str(raw_h) == "pooled" else int(raw_h)
+        model = str(row["model"])
+        metrics.setdefault(model, {}).setdefault(horizon, {})[row["metric"]] = \
+            float(row["value"])
+        metrics[model][horizon]["n"] = int(row["n"])
+    for h in CONV_HORIZONS:
+        rmse = {m: metrics[m][h]["RMSE"] for m in
+                ("Persistence", "DampedPersistence", "Climatology")}
+        metrics["Persistence"][h]["SKILL_PERSISTENCE"] = 0.0
+        metrics["Persistence"][h]["SKILL_CLIMATOLOGY"] = \
+            1.0 - rmse["Persistence"] / rmse["Climatology"]
+        metrics["DampedPersistence"][h]["SKILL_PERSISTENCE"] = \
+            1.0 - rmse["DampedPersistence"] / rmse["Persistence"]
+        metrics["DampedPersistence"][h]["SKILL_CLIMATOLOGY"] = \
+            1.0 - rmse["DampedPersistence"] / rmse["Climatology"]
+        metrics["Climatology"][h]["SKILL_PERSISTENCE"] = \
+            1.0 - rmse["Climatology"] / rmse["Persistence"]
+        metrics["Climatology"][h]["SKILL_CLIMATOLOGY"] = 0.0
+    return metrics, summary
+
+
+def _skill_vs(metrics, candidate, reference, horizon):
+    return 1.0 - metrics[candidate][horizon]["RMSE"] / \
+        metrics[reference][horizon]["RMSE"]
+
+
+def _save_conventional(fig, stem, out_dir: Path) -> None:
+    # Save at the exact authored figure size (no bbox_inches="tight"): tight
+    # bbox expands beyond the AGU target when labels/annotations spill, which
+    # would scale type below the 7.5 pt floor at placed size.  Margins are set
+    # per figure so labels stay inside the box without clipping.
+    for ext in ("pdf", "png", "svg"):
+        fig.savefig(out_dir / f"{stem}.{ext}", dpi=300)
+    _plt.close(fig)
+    print(f"wrote {stem}.pdf/.png/.svg", flush=True)
+
+
+def _style(model):
+    return MODEL_STYLE_CONV.get(model, ("#202020", "o", "-"))
+
+
+def _panel_label(ax, text):
+    ax.set_title(text, loc="left", fontweight="bold", fontsize=9.0)
+
+
+def render_fig02(metrics, summary, out_dir):
+    """fig02 -- baseline choice sets the reported gain (target, pooled)."""
+    fig = _plt.figure(figsize=(_mm(140), _mm(95)))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.05, 1.0],
+                          hspace=0.62, wspace=0.30,
+                          left=0.135, right=0.955, top=0.89, bottom=0.135)
+    ax_a = fig.add_subplot(gs[0, :])
+    for ref in LADDER_REFERENCES:
+        colour, marker, ls = _style(ref)
+        ys = [_skill_vs(metrics, "ThermoRoute", ref, h) for h in CONV_HORIZONS]
+        ax_a.plot(CONV_HORIZONS, ys, ls=ls, marker=marker, color=colour,
+                  ms=5.5, lw=1.4, label=MODEL_LABEL_CONV[ref],
+                  markeredgecolor="k", markeredgewidth=0.3)
+        ax_a.annotate(f"{ys[-1]:+.2f}", (CONV_HORIZONS[-1], ys[-1]),
+                      textcoords="offset points", xytext=(0, 7),
+                      fontsize=6.6, color=colour, ha="center")
+    ax_a.axhline(0.0, color="#202020", lw=0.8)
+    ax_a.set_xticks(CONV_HORIZONS)
+    ax_a.set_xlabel("forecast horizon (days)")
+    ax_a.set_ylabel("Skill vs reference\n(+ favours candidate)")
+    _panel_label(ax_a, "(a) Reference ladder: ThermoRoute skill against each reference")
+    ax_a.legend(loc="upper left", ncol=3, frameon=False, fontsize=6.8,
+                columnspacing=1.2, handlelength=2.2)
+    ax_a.grid(axis="y", alpha=0.25)
+    ax_a.set_xlim(0.6, 7.6)
+
+    ax_b = fig.add_subplot(gs[1, 0])
+    for m in PRIMARY_MODELS_CONV:
+        colour, marker, ls = _style(m)
+        ys = [metrics[m][h]["RMSE"] for h in CONV_HORIZONS]
+        ax_b.plot(CONV_HORIZONS, ys, ls=ls, marker=marker, color=colour,
+                  ms=5, lw=1.3, label=MODEL_LABEL_CONV[m],
+                  markeredgecolor="k", markeredgewidth=0.3)
+    ax_b.set_xticks(CONV_HORIZONS)
+    ax_b.set_xlabel("forecast horizon (days)")
+    ax_b.set_ylabel("pooled RMSE (\u00b0C)")
+    _panel_label(ax_b, "(b) Six primary models, pooled RMSE")
+    ax_b.legend(loc="upper left", ncol=2, frameon=False, fontsize=6.5,
+                columnspacing=1.0, handlelength=2.0)
+    ax_b.grid(axis="y", alpha=0.25)
+
+    ax_c = fig.add_subplot(gs[1, 1])
+    rows = [
+        ("ThermoRoute \u2212 Damped persistence", 1,
+         metrics["ThermoRoute"][1]["RMSE"] - metrics["DampedPersistence"][1]["RMSE"]),
+        ("ThermoRoute \u2212 Damped persistence", 3,
+         metrics["ThermoRoute"][3]["RMSE"] - metrics["DampedPersistence"][3]["RMSE"]),
+        ("ThermoRoute \u2212 Damped persistence", 7,
+         metrics["ThermoRoute"][7]["RMSE"] - metrics["DampedPersistence"][7]["RMSE"]),
+        ("ThermoRoute \u2212 LightGBM", 3,
+         metrics["ThermoRoute"][3]["RMSE"] - metrics["LightGBM"][3]["RMSE"]),
+        ("ThermoRoute \u2212 LightGBM", 7,
+         metrics["ThermoRoute"][7]["RMSE"] - metrics["LightGBM"][7]["RMSE"]),
+    ]
+    y = _np.arange(len(rows))[::-1]
+    vals = _np.array([r[2] for r in rows])
+    colours = ["#E69F00", "#E69F00", "#E69F00", "#CC79A7", "#CC79A7"]
+    ax_c.hlines(y, 0, vals, color=colours, lw=2.0, alpha=0.85)
+    ax_c.scatter(vals, y, color=colours, s=42, zorder=3,
+                 edgecolor="k", linewidth=0.4)
+    ax_c.axvline(0.0, color="#202020", lw=0.9)
+    ax_c.axvline(0.05, color="#D55E00", lw=0.9, ls=(0, (3, 2)))
+    ax_c.text(0.045, 0.99, "+0.05 ceiling",
+              transform=ax_c.get_xaxis_transform(), color="#D55E00",
+              fontsize=6.2, ha="right", va="top")
+    ax_c.set_yticks(y)
+    ax_c.set_yticklabels([f"{r[0]}\n{r[1]} d" for r in rows], fontsize=6.8)
+    ax_c.set_xlabel("\u0394RMSE (\u00b0C; \u2212 favours ThermoRoute)", fontsize=7.5)
+    _panel_label(ax_c, "(c) Paired \u0394RMSE (pooled)")
+    ax_c.set_xlim(-0.20, 0.12)
+    ax_c.grid(axis="x", alpha=0.25)
+    fig.text(0.5, 0.012,
+             "CI and win rate: not reported (\u2014) for the held-out window "
+             "(paper Table 4.6).\n\u0394RMSE is pooled over common held-out keys; "
+             "station-level clustered procedure not re-run.",
+             ha="center", va="bottom", fontsize=6.0, color="#444444",
+             linespacing=1.3)
+    fig.suptitle("Held-out 2021\u20132023 \u00b7 pooled metrics over common forecast keys",
+                 y=0.965, fontsize=8.5, fontweight="bold")
+    _save_conventional(fig, "fig02_point_performance", out_dir)
+
+
+def render_figS4(metrics, summary, out_dir):
+    """figS4 -- point-performance heterogeneity (all models x horizons, pooled)."""
+    fig = _plt.figure(figsize=(_mm(140), _mm(102)))
+    gs = fig.add_gridspec(1, 2, left=0.20, right=0.86, top=0.88,
+                          bottom=0.09, wspace=0.50)
+    axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
+    models = list(ALL_MODELS_CONV)
+    rmse = _np.array([[metrics[m][h]["RMSE"] for h in CONV_HORIZONS]
+                      for m in models])
+    skill = _np.array([[metrics[m][h]["SKILL_PERSISTENCE"] for h in CONV_HORIZONS]
+                       for m in models])
+
+    im0 = axes[0].imshow(rmse, cmap="YlOrRd", aspect="auto")
+    axes[0].set_title("(a) Pooled RMSE (\u00b0C)", loc="left", fontweight="bold")
+    vlim = max(abs(_np.nanmin(skill)), abs(_np.nanmax(skill)))
+    im1 = axes[1].imshow(skill, cmap="RdBu_r", aspect="auto",
+                         vmin=-vlim, vmax=vlim)
+    axes[1].set_title("(b) Skill vs persistence (+ favours)",
+                      loc="left", fontweight="bold", fontsize=8.0)
+    for ax, mat, fmt in ((axes[0], rmse, "{:.2f}"),
+                         (axes[1], skill, "{:+.2f}")):
+        ax.set_xticks(range(len(CONV_HORIZONS)))
+        ax.set_xticklabels([f"{h} d" for h in CONV_HORIZONS])
+        ax.set_yticks(range(len(models)))
+        ax.set_yticklabels([MODEL_LABEL_CONV[m] for m in models], fontsize=6.0)
+        ax.set_xlabel("forecast horizon")
+        vmax = _np.nanmax(_np.abs(mat))
+        for (i, j), v in _ndenumerate(mat):
+            color = "white" if abs(v) > 0.55 * vmax else "black"
+            ax.text(j, i, fmt.format(v), ha="center", va="center",
+                    fontsize=6.0, color=color)
+    fig.colorbar(im0, ax=axes[0], shrink=0.82)
+    fig.colorbar(im1, ax=axes[1], shrink=0.82)
+    fig.suptitle("figS4 \u00b7 16 models \u00d7 horizon, pooled 2021\u20132023 "
+                 "(station-level detail not in CSV)",
+                 fontsize=8.0, fontweight="bold")
+    _save_conventional(fig, "figS4_point_heterogeneity", out_dir)
+
+
+def _ndenumerate(arr):
+    for i in range(arr.shape[0]):
+        for j in range(arr.shape[1]):
+            yield (i, j), arr[i, j]
+
+
+def render_figS6(metrics, summary, out_dir):
+    """figS6 -- temporal opportunity, missingness, and attrition."""
+    failures = summary.get("station_failures", [])
+    n_panel = summary.get("n_stations_panel", 120)
+    n_scored = n_panel - len(failures)
+    n_win = summary.get("n_windows_temporal")
+    fig = _plt.figure(figsize=(_mm(140), _mm(90)))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.05], wspace=0.26,
+                          left=0.125, right=0.975, top=0.88, bottom=0.13)
+    ax_a = fig.add_subplot(gs[0, 0])
+    stages = ["Panel sites", "Scored sites", "h=1 keys", "h=3 keys", "h=7 keys"]
+    counts = [n_panel, n_scored,
+              metrics["ThermoRoute"][1]["n"],
+              metrics["ThermoRoute"][3]["n"],
+              metrics["ThermoRoute"][7]["n"]]
+    colours = ["#0072B2", "#009E73", "#CC79A7", "#E69F00", "#D55E00"]
+    bars = ax_a.barh(range(len(stages)), counts, color=colours, alpha=0.9,
+                     edgecolor="k", linewidth=0.4)
+    ax_a.set_yticks(range(len(stages)))
+    ax_a.set_yticklabels(stages, fontsize=6.8)
+    ax_a.invert_yaxis()
+    ax_a.set_xscale("log")
+    ax_a.set_xlabel("count (log scale)")
+    _panel_label(ax_a, "(a) Attrition: 120 sites \u2192 115 scored \u2192 keys")
+    for bar, c in zip(bars, counts):
+        ax_a.text(c * 1.03, bar.get_y() + bar.get_height() / 2,
+                  f"{c:,}", va="center", fontsize=6.8)
+    ax_a.set_xlim(50, max(counts) * 4)
+    ax_a.grid(axis="x", alpha=0.25, which="both")
+
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_b.axis("off")
+    _panel_label(ax_b, f"(b) Fetch failures ({len(failures)} of {n_panel} excluded)")
+    lines = ["site_no    reason", "-" * 24]
+    for f in failures:
+        reason = (f.get("nwis") or "\u2014")
+        reason = (reason[:28] + "\u2026") if len(reason) > 29 else reason
+        lines.append(f"{str(f.get('site_no', '?')):<10} {reason}")
+    if n_win is not None:
+        lines.append("")
+        lines.append(f"temporal windows scored: {n_win:,}")
+    ax_b.text(0.02, 0.93, "\n".join(lines), transform=ax_b.transAxes,
+              va="top", ha="left", fontsize=6.3,
+              family="DejaVu Sans Mono",
+              bbox=dict(boxstyle="round,pad=0.35", fc=PALETTE["NA_FILL"],
+                        ec=PALETTE["WARNING_VERMILION"], lw=0.8))
+    fig.suptitle("figS6 \u00b7 missingness and attrition on the held-out 2021\u20132023 panel",
+                 y=0.965, fontsize=8.0, fontweight="bold")
+    _save_conventional(fig, "figS6_attrition_missingness", out_dir)
+
+
+def render_figS8(metrics, summary, out_dir):
+    """figS8 -- external history-dependent arm and failure disposition."""
+    pairs = [("LightGBM", "LightGBM-ext"), ("LSTM", "LSTM-ext"),
+             ("ThermoRoute", "ThermoRoute-ext")]
+    failures = summary.get("station_failures", [])
+    fig = _plt.figure(figsize=(_mm(140), _mm(95)))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.2, 1.0], wspace=0.28,
+                          left=0.095, right=0.975, top=0.88, bottom=0.16)
+    ax_a = fig.add_subplot(gs[0, 0])
+    width = 0.38
+    x = _np.arange(len(CONV_HORIZONS))
+    for k, (temp, ext) in enumerate(pairs):
+        colour, marker, _ = _style(temp)
+        y_temp = [metrics[temp][h]["RMSE"] for h in CONV_HORIZONS]
+        y_ext = [metrics[ext][h]["RMSE"] for h in CONV_HORIZONS]
+        off = (k - 1) * width
+        ax_a.bar(x + off - width / 2, y_temp, width, color=colour, alpha=0.9,
+                 edgecolor="k", linewidth=0.4,
+                 label=f"{MODEL_LABEL_CONV[temp]} (temporal)")
+        ax_a.bar(x + off + width / 2, y_ext, width, color=colour, alpha=0.4,
+                 hatch="///", edgecolor="k", linewidth=0.4,
+                 label=f"{MODEL_LABEL_CONV[ext]} (external)")
+    ax_a.set_xticks(x)
+    ax_a.set_xticklabels([f"{h} d" for h in CONV_HORIZONS])
+    ax_a.set_xlabel("forecast horizon")
+    ax_a.set_ylabel("pooled RMSE (\u00b0C)")
+    _panel_label(ax_a, "(a) External (site-ID-disjoint) vs temporal cohort")
+    ax_a.legend(loc="upper left", ncol=2, frameon=False, fontsize=5.8,
+                columnspacing=0.8, handlelength=1.6)
+    ax_a.grid(axis="y", alpha=0.25)
+
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_b.axis("off")
+    _panel_label(ax_b, f"(b) Failures ({len(failures)} excluded)")
+    rows = [["site_no", "status", "reason"]]
+    for f in failures:
+        reason = (f.get("nwis") or "\u2014")
+        reason = (reason[:16] + "\u2026") if len(reason) > 17 else reason
+        rows.append([str(f.get("site_no", "?")), "excluded", reason])
+    celltext = rows[1:] if len(rows) > 1 else [["\u2014", "\u2014", "\u2014"]]
+    table = ax_b.table(cellText=celltext, colLabels=rows[0],
+                       loc="upper center", cellLoc="left",
+                       colWidths=[0.15, 0.14, 0.46])
+    table.auto_set_font_size(False)
+    table.set_fontsize(5.6)
+    table.scale(1.0, 1.25)
+    for (r, c), cell in table.get_celld().items():
+        cell.set_edgecolor("#D0D0D0")
+        if r == 0:
+            cell.set_facecolor("#DCEAF4")
+            cell.set_text_props(weight="bold")
+        else:
+            cell.set_facecolor("#FFFFFF" if r % 2 else "#F7F7F7")
+    ax_b.text(0.5, 0.04,
+              "External cohort: site-ID disjoint,\nhistory-dependent; not ungauged.\n"
+              "Outcome-QC waterfall (Table 4.10)\nnot reported for the held-out window.",
+              transform=ax_b.transAxes, ha="center", va="bottom",
+              fontsize=5.8, color="#444444", linespacing=1.3)
+    fig.suptitle("figS8 \u00b7 external arm and failure disposition (2021\u20132023)",
+                 y=0.965, fontsize=8.0, fontweight="bold")
+    _save_conventional(fig, "figS8_external_arm_failures", out_dir)
+
+
+def render_notice(figure_id, stem, title, reason_lines, out_dir,
+                  width_mm=85.0, height_mm=62.0):
+    """Render an explicit 'not reported' notice; no axes, no invented data."""
+    fig, ax = _plt.subplots(figsize=(_mm(width_mm), _mm(height_mm)))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    ax.add_patch(_Rectangle((0.02, 0.02), 0.96, 0.96, transform=ax.transAxes,
+                            facecolor=PALETTE["NA_FILL"],
+                            edgecolor=PALETTE["WARNING_VERMILION"], lw=1.6))
+    body = "\n".join(reason_lines)
+    text = f"{figure_id} \u2014 {title}\n\nNOT REPORTED for the 2021\u20132023 held-out window\n\n{body}"
+    ax.text(0.5, 0.5, text, ha="center", va="center",
+            transform=ax.transAxes, fontsize=7.6, color=PALETTE["NEUTRAL_INK"],
+            linespacing=1.45, wrap=True)
+    _save_conventional(fig, stem, out_dir)
+
+
+def render_fig03_notice(metrics, summary, out_dir):
+    render_notice(
+        "fig03", "fig03_spatial_partition_transfer",
+        "Spatial partition / whole-region transfer",
+        ["Development-period figure (Stage-13c region-transfer evidence,",
+         "2019-01-01 to 2020-12-31).  The 2021-2023 conventional holdout",
+         "emits no held-region arm, so this figure is not rendered from the",
+         "conventional metrics CSV.  See paper section 4.4 for the",
+         "development-period three-arm values."], out_dir)
+
+
+def render_fig04_notice(metrics, summary, out_dir):
+    render_notice(
+        "fig04", "fig04_heterogeneity_and_interval_cost",
+        "Regional/seasonal heterogeneity and interval cost",
+        ["Panels require a per-HUC2 regional breakdown, the eight temporal-",
+         "coverage candidates, and the 90% coverage-width plane.  None was",
+         "computed for 2021-2023: the conventional holdout CSV is pooled (no",
+         "HUC2 dimension) and the probability pipeline was not re-run (paper",
+         "Table 4.9: not reported).  No value is invented."], out_dir)
+
+
+def render_figS5_notice(metrics, summary, out_dir):
+    render_notice(
+        "figS5", "figS5_probability_reliability",
+        "Event score, reliability, and probabilistic diagnostics",
+        ["Requires the SI08 probability family (coverage, pinball, Brier,",
+         "log loss, AUROC/AUPRC, ECE, calibration slope/intercept,",
+         "station-balanced reliability bins).  Not computed for 2021-2023",
+         "(paper Table 4.9: not reported).  The development-period",
+         "probability diagnostics (paper section 4.5) stand as the only",
+         "probability evidence in this paper."], out_dir)
+
+
+def render_figS7_notice(metrics, summary, out_dir):
+    render_notice(
+        "figS7", "figS7_spatial_leave_huc2",
+        "Spatial and leave-HUC2 influence",
+        ["Requires per-HUC2 effects and leave-one-HUC2 omissions.  The",
+         "conventional holdout CSV is pooled with no HUC2 dimension, so this",
+         "figure is not reported for the held-out window.  No value is",
+         "invented."], out_dir)
+
+
+def render_figS9_notice(metrics, summary, out_dir):
+    render_notice(
+        "figS9", "figS9_conformal_calibration",
+        "Development-period conformal calibration sensitivity",
+        ["Development-period figure (Stage-22 adaptive conformal,",
+         "2019-01-01 to 2020-12-24).  Not a 2021-2023 result and not rendered",
+         "from the conventional metrics CSV.  See paper section 4.5 for the",
+         "development-period split-CQR / block-max / delayed-ACI values."],
+        out_dir)
+
+
+CONVENTIONAL_DISPATCH = (
+    ("fig02", render_fig02),
+    ("fig03", render_fig03_notice),
+    ("fig04", render_fig04_notice),
+    ("figS4", render_figS4),
+    ("figS5", render_figS5_notice),
+    ("figS6", render_figS6),
+    ("figS7", render_figS7_notice),
+    ("figS8", render_figS8),
+    ("figS9", render_figS9_notice),
+)
+
+
+def render_conventional(roots: Roots, only: str | None = None) -> None:
+    _conventional_rcparams()
+    out_dir = Path(__file__).resolve().parent
+    metrics, summary = load_conventional(roots)
+    rendered, skipped = [], []
+    for figure_id, builder in CONVENTIONAL_DISPATCH:
+        if only is not None and only != figure_id:
+            continue
+        try:
+            builder(metrics, summary, out_dir)
+            rendered.append(figure_id)
+        except Exception as exc:
+            skipped.append((figure_id, repr(exc)))
+            print(f"ERROR rendering {figure_id}: {exc!r}", file=sys.stderr)
+    print(f"rendered: {rendered}", flush=True)
+    if skipped:
+        print(f"failed: {skipped}", file=sys.stderr)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="POST skeleton for Figures 2-4")
+    parser = argparse.ArgumentParser(
+        description="Conventional 2021-2023 figure renderer (fig02-04, S4-S9). "
+                    "The legacy sealed-confirmatory POST gate is retained for "
+                    "--status inspection only.")
     parser.add_argument("--status", action="store_true",
-                        help="read-only gate report; renders nothing")
-    parser.add_argument("--figure", choices=[f.figure_id for f in FIGURES],
-                        help="render one figure (POST only)")
+                        help="read-only sealed-confirmatory gate report "
+                             "(apparatus legacy; renders nothing)")
+    parser.add_argument("--figure", default=None,
+                        help="render one figure id (fig02, fig03, fig04, "
+                             "figS4..figS9); default renders all nine")
     parser.add_argument("--evidence-root", default=None,
                         help="root holding outputs/ (defaults to "
                              f"${EVIDENCE_ROOT_ENV} or this worktree)")
     args = parser.parse_args()
 
-    validate_manifest()
     roots = resolve_roots(args.evidence_root)
 
     if args.status:
+        validate_manifest()
         sys.exit(print_status(roots))
 
-    targets = FIGURES if args.figure is None else tuple(
-        f for f in FIGURES if f.figure_id == args.figure
-    )
-    for figure in targets:
-        try:
-            render_figure(figure, roots)
-        except PostGateNotPassed as exc:
-            print(f"REFUSED {figure.figure_id}: {exc}", file=sys.stderr)
-            sys.exit(2)
-        except PanelBuilderNotImplemented as exc:
-            # Still fail-closed: no artifact, no axes, no placeholder.
-            print(f"REFUSED {figure.figure_id}: {exc}", file=sys.stderr)
-            sys.exit(2)
-    print("All requested figures rendered.", file=sys.stderr)
+    render_conventional(roots, only=args.figure)
 
 
 if __name__ == "__main__":
