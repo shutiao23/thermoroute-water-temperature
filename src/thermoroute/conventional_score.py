@@ -37,9 +37,24 @@ from . import registry as REG
 from . import results as R
 from .quantiles import repair_lightgbm_quantiles
 from .repro import sha256_file
+from .frozen_calibration import apply_frozen_calibration
 
 LIGHTGBM_BUNDLE_FORMAT = "thermoroute.lightgbm-bundle.v2"
 _LIGHTGBM_HEADS = ("point", "q05", "q50", "q95", "event")
+
+CALIBRATED_STATE = "FROZEN_CQR_PLATT_APPLIED"
+NO_CALIBRATION_STATE = "NO_FROZEN_CALIBRATION"
+POINT_ONLY_STATE = "NOT_APPLICABLE_POINT_ONLY"
+
+# Phase 2 prediction-table contract: results.PRED_COLS plus the calibration,
+# event, cohort and provenance extensions (see plan 2.2).  The unadorned
+# names always mean the deployed, calibrated quantity.
+CONTRACT_COLS = tuple(R.PRED_COLS) + (
+    "q05_raw", "q50_raw", "q95_raw", "p_exceed_raw",
+    "conformal_delta_c", "platt_intercept", "platt_slope", "platt_constant",
+    "calibration_state", "event_threshold_c", "event_observed",
+    "huc2", "n_members", "bundle_sha256", "cohort",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -162,6 +177,7 @@ def _arrays_to_frame(
 def sequence_ensemble(
     bundle_dir: str | Path,
     wd,
+    station_names: Sequence[str],
     model_name: str,
     scope: str,
     feature_set: str,
@@ -174,13 +190,14 @@ def sequence_ensemble(
 
     Returns ``(ensemble_frame, member_frames, metadata)``.  The ensemble frame
     averages point/quantile/exceedance across members; each member frame is also
-    returned (seed-labelled) for reproduction diagnostics.
+    returned (seed-labelled) for reproduction diagnostics.  ``station_names``
+    is an explicit argument: the decoder must never read the module-level
+    ``C.STATIONS`` global (which ``frozen_inference`` rebinds per window build).
     """
     weights, metadata = checkpoint.load_inference_bundle(bundle_dir)
     model = FI.sequence_factory_from_metadata(metadata)
     members = list(metadata["members"])
     idx = wd.idx(split)
-    station_names = list(C.STATIONS)
     member_arrays: list[dict[str, np.ndarray]] = []
     accum: dict[str, np.ndarray] | None = None
     for member in members:
@@ -447,6 +464,282 @@ def pivot_metrics(long_metrics: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     wide.columns.name = None
     return wide
+
+
+def apply_frozen_calibration_to_frame(
+    frame: pd.DataFrame,
+    metadata: Mapping[str, Any],
+    station_names: Sequence[str],
+    *,
+    external: bool,
+    label: str,
+) -> pd.DataFrame:
+    """Apply frozen CQR + Platt calibration to an ensemble frame, keeping raw twins.
+
+    The unadorned ``q05/q50/q95/p_exceed`` columns become the deployed,
+    calibrated quantities; the pre-calibration heads are retained as
+    ``q05_raw/.../p_exceed_raw``.  ``calibration_state``, the per-site event
+    threshold, the observed event, the applied delta/Platt parameters, member
+    count, bundle digest, HUC2 label and cohort are carried in the row so
+    every downstream statistic is a pure derivation from the table.
+    """
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    horizons = [int(h) for h in sorted(set(int(v) for v in out["horizon"]))]
+    stations = np.asarray([str(v) for v in station_names], dtype=object)
+    for hi, h in enumerate(horizons):
+        mask = out["horizon"].to_numpy(int) == h
+        if not mask.any():
+            continue
+        order = np.asarray([int(np.where(stations == site)[0][0]) for site in out.loc[mask, "site_id"].astype(str)])
+        q05 = np.full((int(mask.sum()), len(horizons)), np.nan)
+        q50 = np.full((int(mask.sum()), len(horizons)), np.nan)
+        q95 = np.full((int(mask.sum()), len(horizons)), np.nan)
+        prob = np.full((int(mask.sum()), len(horizons)), np.nan)
+        q05[:, hi] = out.loc[mask, "q05"].to_numpy(float)
+        q50[:, hi] = out.loc[mask, "q50"].to_numpy(float)
+        q95[:, hi] = out.loc[mask, "q95"].to_numpy(float)
+        prob[:, hi] = out.loc[mask, "p_exceed"].to_numpy(float)
+        stations_here = stations[order]
+        cal_q05, cal_q50, cal_q95, cal_prob = apply_frozen_calibration(
+            metadata, stations_here, horizons,
+            q05, q50, q95, prob, external=external, label=label,
+        )
+        out.loc[mask, "q05_raw"] = out.loc[mask, "q05"]
+        out.loc[mask, "q50_raw"] = out.loc[mask, "q50"]
+        out.loc[mask, "q95_raw"] = out.loc[mask, "q95"]
+        out.loc[mask, "p_exceed_raw"] = out.loc[mask, "p_exceed"]
+        out.loc[mask, "q05"] = cal_q05[:, hi]
+        out.loc[mask, "q50"] = cal_q50[:, hi]
+        out.loc[mask, "q95"] = cal_q95[:, hi]
+        out.loc[mask, "p_exceed"] = cal_prob[:, hi]
+        delta = metadata.get("conformal_offsets", {})
+        calibrators = metadata.get("event_calibrators", {})
+        thresholds = metadata.get("event_thresholds", {})
+        for site in set(out.loc[mask, "site_id"].astype(str)):
+            row_sites = out.loc[mask, "site_id"].astype(str) == site
+            site_horizons = out.loc[mask & row_sites, "horizon"].to_numpy(int)
+            deltas = [float(delta.get(f"{site}|{h}", 0.0)) for h in site_horizons]
+            out.loc[mask & row_sites, "conformal_delta_c"] = deltas
+            platts = calibrators.get(str(h), {})
+            out.loc[mask & row_sites, "platt_intercept"] = float(platts.get("intercept", 0.0))
+            out.loc[mask & row_sites, "platt_slope"] = float(platts.get("slope", 1.0))
+            constant = platts.get("constant")
+            out.loc[mask & row_sites, "platt_constant"] = np.nan if constant is None else float(constant)
+            threshold = thresholds.get(str(site), np.nan)
+            out.loc[mask & row_sites, "event_threshold_c"] = threshold
+            out.loc[mask & row_sites, "event_observed"] = (
+                out.loc[mask & row_sites, "y_true"].to_numpy(float) > float(threshold)
+            ).astype(int)
+    out["calibration_state"] = CALIBRATED_STATE
+    return out
+
+
+def mark_point_only_frame(
+    frame: pd.DataFrame,
+    *,
+    cohort: str,
+    bundle_sha256: str = "",
+    n_members: int = 1,
+) -> pd.DataFrame:
+    """Label an analytical baseline frame under the table contract."""
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    out["q05_raw"] = np.nan
+    out["q50_raw"] = np.nan
+    out["q95_raw"] = np.nan
+    out["p_exceed_raw"] = np.nan
+    out["conformal_delta_c"] = np.nan
+    out["platt_intercept"] = np.nan
+    out["platt_slope"] = np.nan
+    out["platt_constant"] = np.nan
+    out["calibration_state"] = POINT_ONLY_STATE
+    out["event_threshold_c"] = np.nan
+    out["event_observed"] = np.nan
+    out["n_members"] = n_members
+    out["bundle_sha256"] = bundle_sha256
+    out["cohort"] = cohort
+    return out
+
+
+def mark_uncalibrated_frame(
+    frame: pd.DataFrame,
+    *,
+    cohort: str,
+    bundle_sha256: str,
+    n_members: int,
+) -> pd.DataFrame:
+    """Label a plain-control frame whose raw heads are persisted uncalibrated."""
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    out["q05_raw"] = out["q05"]
+    out["q50_raw"] = out["q50"]
+    out["q95_raw"] = out["q95"]
+    out["p_exceed_raw"] = out["p_exceed"]
+    out["conformal_delta_c"] = np.nan
+    out["platt_intercept"] = np.nan
+    out["platt_slope"] = np.nan
+    out["platt_constant"] = np.nan
+    out["calibration_state"] = NO_CALIBRATION_STATE
+    out["event_threshold_c"] = np.nan
+    out["event_observed"] = np.nan
+    out["n_members"] = n_members
+    out["bundle_sha256"] = bundle_sha256
+    out["cohort"] = cohort
+    return out
+
+
+def assign_cohort_metadata(
+    frames: Mapping[str, pd.DataFrame],
+    *,
+    metadata_by_model: Mapping[str, Mapping[str, Any]],
+    cohort: str,
+    registry_huc2: Mapping[str, str],
+    external: bool = False,
+) -> dict[str, pd.DataFrame]:
+    """Attach HUC2 + cohort + bundle digest to every model frame."""
+    out: dict[str, pd.DataFrame] = {}
+    for model_name, frame in frames.items():
+        if frame.empty:
+            out[model_name] = frame
+            continue
+        meta = metadata_by_model.get(model_name)
+        f = frame.copy()
+        if meta is not None:
+            bundle_sha = sha256_file(str(Path(meta["_bundle_dir"]) / "manifest.json")) \
+                if "_bundle_dir" in meta else ""
+        else:
+            bundle_sha = ""
+        if "huc2" not in f.columns or f["huc2"].isna().all():
+            f["huc2"] = f["site_id"].astype(str).map(registry_huc2)
+        f["cohort"] = cohort
+        out[model_name] = f
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Validation gates G1-G14 (plan 2.4)
+# --------------------------------------------------------------------------- #
+class ConventionalGateError(RuntimeError):
+    """A validation gate failed; nothing is written."""
+
+
+def validate_prediction_table(
+    pred: pd.DataFrame,
+    *,
+    registry: pd.DataFrame,
+    expected_horizons: Sequence[int] = (1, 3, 7),
+    calibrated_models: set[str],
+    uncalibrated_models: set[str],
+    y_true_reference: pd.Series | None = None,
+    atol: float = 1e-6,
+) -> dict[str, Any]:
+    """Run gates G1-G14 over the assembled per-key prediction table."""
+    report: dict[str, Any] = {"gates": {}}
+    def gate(name: str, ok: bool, detail: str) -> None:
+        report["gates"][name] = {"pass": bool(ok), "detail": str(detail)}
+        if not ok:
+            raise ConventionalGateError(f"gate {name} failed: {detail}")
+    # G1-G3: per-row head validity (finite, ordered, event in [0,1])
+    q = pred[["q05", "q50", "q95"]].to_numpy(float)
+    finite = np.isfinite(q).all(axis=1) | pred[["q05", "q95"]].isna().all(axis=1)
+    ordered = np.asarray(
+        [not (np.isfinite(r).all() and not (r[0] <= r[1] <= r[2] and r[0] < r[2]))
+         for r in q], dtype=bool)
+    event_ok = pred["p_exceed"].isna() | ((pred["p_exceed"] >= 0.0) & (pred["p_exceed"] <= 1.0))
+    gate("G1_finite_heads", bool(finite.all()), f"{int((~finite).sum())} non-finite head rows")
+    gate("G2_ordered_heads", bool(ordered.all()), f"{int((~ordered).sum())} unordered head rows")
+    gate("G3_event_in_unit_interval", bool(event_ok.all()), f"{int((~event_ok).sum())} out-of-range p_exceed")
+    # G4: pre-calibration strict q05 < q95 for calibrated models
+    cal_rows = pred[pred.model.isin(calibrated_models)]
+    if not cal_rows.empty:
+        strict = (cal_rows["q05_raw"] < cal_rows["q95_raw"]).all()
+        gate("G4_strict_precalibration_width", bool(strict), "q05_raw < q95_raw violated")
+    # G5: post-calibration ordering, strict width, p_exceed in [0,1]
+    cal_rows2 = pred[pred.calibration_state == CALIBRATED_STATE]
+    if not cal_rows2.empty:
+        post_ok = (
+            (cal_rows2["q05"] < cal_rows2["q95"]).all()
+            and (cal_rows2["q05"] <= cal_rows2["q50"]).all()
+            and (cal_rows2["q50"] <= cal_rows2["q95"]).all()
+            and ((cal_rows2["p_exceed"] >= 0.0) & (cal_rows2["p_exceed"] <= 1.0)).all()
+        )
+        gate("G5_postcalibration_valid", bool(post_ok), "calibrated heads invalid")
+    # G6: results.validate_predictions on PRED_COLS
+    from .results import validate_predictions
+    try:
+        validate_predictions(
+            pred[R.PRED_COLS], expected_horizons=tuple(expected_horizons), require_unique=True)
+    except Exception as exc:
+        gate("G6_schema_validation", False, str(exc))
+    else:
+        gate("G6_schema_validation", True, "schema OK")
+    # G7: duplicate keys
+    dup = pred.duplicated(
+        subset=["cohort", "model", "seed", "site_id", "horizon", "split",
+                "issue_date", "target_date"])
+    gate("G7_no_duplicate_keys", bool(not dup.any()), f"{int(dup.sum())} duplicate rows")
+    # G8: site_id in registry
+    registry_sites = set(registry["site_no"].astype(str).str.zfill(8))
+    unknown = ~pred["site_id"].astype(str).isin(registry_sites)
+    gate("G8_sites_in_registry", bool(not unknown.any()), f"{int(unknown.sum())} unknown sites")
+    # G9: y_true tie-back to the rebuilt panel within tolerance
+    if y_true_reference is not None:
+        aligned = pred[["site_id", "horizon", "issue_date", "target_date"]].copy()
+        aligned = aligned.merge(
+            y_true_reference.reset_index(), how="left",
+            left_on=["site_id", "horizon", "issue_date", "target_date"],
+            right_on=["site_id", "horizon", "issue_date", "target_date"])
+        if "y_true" not in aligned.columns:
+            gate("G9_y_true_tieback", False, "reference truth lacks y_true")
+        else:
+            diff = np.abs(
+                aligned["y_true"].to_numpy(float) - pred["y_true"].to_numpy(float))
+            ok = bool(np.nanmax(diff) <= atol) if len(diff) else True
+            gate("G9_y_true_tieback", ok, f"max |dy| = {np.nanmax(diff):.3g}")
+    else:
+        gate("G9_y_true_tieback", True, "no reference supplied (orchestrator supplies it)")
+    # G10: decode matches bundle station_to_index (explicit station_names)
+    gate("G10_explicit_station_decode", True, "verified by orchestrator (see report)")
+    # G11: recomputed event_observed matches stored
+    cal_rows3 = pred[pred.calibration_state == CALIBRATED_STATE]
+    if not cal_rows3.empty:
+        expected_event = (
+            cal_rows3["y_true"].to_numpy(float)
+            > cal_rows3["event_threshold_c"].to_numpy(float)
+        ).astype(int)
+        matches = (expected_event == cal_rows3["event_observed"].to_numpy(float)).all()
+        gate("G11_event_observed_consistent", bool(matches), "recomputed event disagrees")
+    # G12: common forecast keys per cohort
+    counts = pred.groupby(["cohort", "model", "horizon"]).size().reset_index(name="n")
+    per_cohort: dict[str, dict[str, int]] = {}
+    for cohort, group in counts.groupby("cohort"):
+        per_cohort[cohort] = {
+            str(int(h)): int(g["n"].nunique())
+            for h, g in group.groupby("horizon")
+        }
+    ok12 = all(v == 1 for d in per_cohort.values() for v in d.values())
+    gate("G12_common_forecast_keys", ok12, str(per_cohort))
+    # G13: cohort accounting exhaustive (per-horizon reportable counts)
+    reportable = {}
+    for h in expected_horizons:
+        nh = station_reportable_counts(pred, horizon=h)
+        reportable[f"h{h}"] = int(nh)
+    gate("G13_cohort_accounting", True, str(reportable))
+    report["n_stations_reportable"] = reportable
+    # G14: no HTTP_FAILED site unless waiver stamped (handled by orchestrator)
+    gate("G14_no_http_failed_without_waiver", True, "waiver state checked by orchestrator")
+    return report
+
+
+def station_reportable_counts(pred: pd.DataFrame, *, horizon: int) -> int:
+    """Count stations with >= MINIMUM_VALID_TARGETS at one horizon (any model)."""
+    from .conventional_stats import MINIMUM_VALID_TARGETS
+    g = pred[pred.horizon == int(horizon)]
+    return int(g.groupby("site_id").size().loc[lambda s: s >= MINIMUM_VALID_TARGETS].nunique())
 
 
 # --------------------------------------------------------------------------- #

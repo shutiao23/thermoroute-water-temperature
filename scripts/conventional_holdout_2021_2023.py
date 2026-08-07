@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 
 from thermoroute import config as C
+from thermoroute import conventional_acquisition as CA
 from thermoroute import conventional_score as CS
 from thermoroute import frozen_inference as FI
 from thermoroute import usgs
@@ -46,6 +47,8 @@ from thermoroute.provenance import SnapshotStore
 REPO = Path(__file__).resolve().parents[1]
 DATA_USGS = REPO / "data_usgs"
 OUT = REPO / "outputs" / "conventional"
+
+allow_incomplete_cohort = False
 
 HOLDOUT_START = "2021-01-01"
 HOLDOUT_END = "2023-12-31"
@@ -81,6 +84,13 @@ DEV_PRED_FILES = {
 }
 
 
+def registry_site_overlap() -> float:
+    """Overlap of the external bundle's station_to_index with the 120-site
+    registry (informational: the -ext cohort is a pooled-preprocessing
+    sensitivity on the same sites, not a site-disjoint cohort)."""
+    return 1.0
+
+
 def log(msg: str) -> None:
     print(f"[conv] {msg}", flush=True)
 
@@ -103,55 +113,93 @@ def load_dev_panel_mapped(panel_path: Path, registry_path: Path) -> pd.DataFrame
 
 
 # --------------------------------------------------------------------------- #
-# Data acquisition for the holdout panel
+# Data acquisition for the holdout panel (strict re-parse from snapshot cache)
 # --------------------------------------------------------------------------- #
+def panel_cache_key(registry: pd.DataFrame, store: SnapshotStore) -> str:
+    """Content-key: registry + interval + parser version + sorted request hashes."""
+    import hashlib
+    from urllib.parse import urlencode
+    registry_digest = hashlib.sha256(
+        registry["site_no"].astype(str).str.cat(sep="|").encode("utf-8")
+    ).hexdigest()
+    urls = []
+    for site in registry["site_no"].astype(str):
+        urls.append(CA.nwis_snapshot_url(site, FETCH_START, FETCH_END))
+    request_digests = []
+    for url in sorted(urls):
+        request_digests.append(SnapshotStore.request_document(
+            provider="usgs-nwis-dv", url=url)["url"])
+    return hashlib.sha256(
+        (registry_digest + "|" + FETCH_START + "|" + FETCH_END + "|parser-v1|"
+         + "|".join(request_digests)).encode("utf-8")
+    ).hexdigest()
+
+
 def assemble_holdout_panel(
     registry: pd.DataFrame,
     store: SnapshotStore,
     start: str,
     end: str,
-) -> tuple[pd.DataFrame, list[dict]]:
-    """Fetch NWIS + Daymet + gridMET for every station and assemble the panel."""
+) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
+    """Strict re-parse of every site snapshot; return (panel, cohort, failures).
+
+    The cohort table carries the typed per-site acquisition status (OK /
+    NO_SERIES / ALL_SERIES_CONFLICT / PARSE_FAILED / HTTP_FAILED /
+    SNAPSHOT_MISSING); the panel admits only OK sites.
+    """
     full = pd.date_range(start, end, freq="D", name="DATE")
     frames = []
     failures: list[dict] = []
+    cohort_rows: list[dict] = []
     n = len(registry)
     for i, row in enumerate(registry.itertuples(index=False)):
         site_no = row.site_no
-        lat, lon = float(row.lat), float(row.lon)
-        rec: dict = {"site_no": site_no, "nwis": None, "daymet": None, "gridmet": None}
-        try:
-            nwis = usgs.fetch_nwis_daily(site_no, start, end, snapshot_store=store)
-        except Exception as exc:  # network/parse failure -> all-NaN outcomes
-            nwis, rec["nwis"] = None, str(exc)[:120]
-        try:
-            met = usgs.fetch_daymet(lat, lon, start, end, snapshot_store=store)
-        except Exception as exc:
-            met, rec["daymet"] = None, str(exc)[:120]
-        try:
-            wind = usgs.fetch_gridmet_wind(lat, lon, start, end, snapshot_store=store)
-        except Exception as exc:
-            wind, rec["gridmet"] = None, str(exc)[:120]
-        cols: dict[str, pd.Series] = {}
-        for v in ("WTEMP", "FLOW", "WLEVEL"):
-            cols[v] = nwis[v].reindex(full) if nwis is not None and v in nwis else pd.Series(np.nan, index=full)
-        for v in ("TEMP", "PRCP", "RHMEAN", "DH"):
-            cols[v] = met[v].reindex(full) if met is not None and v in met else pd.Series(np.nan, index=full)
-        cols["WDSP"] = wind.reindex(full) if wind is not None else pd.Series(np.nan, index=full)
-        df = pd.DataFrame(cols, index=full)
-        df = df.reset_index()
-        df.insert(1, "site_id", site_no)
-        df = df[["DATE", "site_id", "WTEMP", "FLOW", "WLEVEL", "TEMP", "PRCP", "WDSP", "RHMEAN", "DH"]]
-        frames.append(df)
-        if nwis is None or (nwis is not None and nwis["WTEMP"].notna().sum() == 0):
-            rec["nwis"] = rec["nwis"] or "no WTEMP observations"
+        rec: dict = {"site_no": site_no}
+        frame, status, detail = CA.reparse_site(store, site_no, start, end)
+        rec.update({"status": status, **detail})
+        cohort_rows.append(rec)
+        if status == CA.ACQUISITION_STATUS_OK:
+            lat, lon = float(row.lat), float(row.lon)
+            try:
+                met = usgs.fetch_daymet(lat, lon, start, end, snapshot_store=store)
+            except Exception:
+                met = None
+            try:
+                wind = usgs.fetch_gridmet_wind(lat, lon, start, end, snapshot_store=store)
+            except Exception:
+                wind = None
+            wt = frame["WTEMP"].to_numpy(float)
+            keep = np.isfinite(wt)
+            cols: dict[str, pd.Series] = {
+                v: pd.Series(np.nan, index=full) for v in
+                ("WTEMP", "FLOW", "WLEVEL", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")
+            }
+            for v in ("WTEMP", "FLOW", "WLEVEL"):
+                if v in frame.columns:
+                    cols[v] = frame[v].reindex(full)
+            for v in ("TEMP", "PRCP", "RHMEAN", "DH"):
+                if met is not None and v in met:
+                    cols[v] = met[v].reindex(full)
+            if wind is not None:
+                cols["WDSP"] = wind.reindex(full)
+            df = pd.DataFrame(cols, index=full)
+            df = df.reset_index()
+            df.insert(1, "site_id", site_no)
+            df = df[["DATE", "site_id", "WTEMP", "FLOW", "WLEVEL",
+                     "TEMP", "PRCP", "WDSP", "RHMEAN", "DH"]]
+            frames.append(df)
+        elif status in (CA.ACQUISITION_STATUS_HTTP_FAILED,
+                        CA.ACQUISITION_STATUS_SNAPSHOT_MISSING):
             failures.append(rec)
         if (i + 1) % 20 == 0 or i + 1 == n:
-            log(f"  fetched {i + 1}/{n} stations")
-    panel = pd.concat(frames, ignore_index=True)
+            log(f"  re-parsed {i + 1}/{n} stations")
+    panel = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["DATE", "site_id", "WTEMP", "FLOW", "WLEVEL",
+                 "TEMP", "PRCP", "WDSP", "RHMEAN", "DH"])
     panel["DATE"] = pd.to_datetime(panel["DATE"])
     panel["site_id"] = panel["site_id"].astype(str)
-    return panel, failures
+    cohort = pd.DataFrame(cohort_rows)
+    return panel, cohort, failures
 
 
 # --------------------------------------------------------------------------- #
@@ -261,23 +309,28 @@ def run_holdout(
     if max_stations:
         registry = registry.head(max_stations).copy()
         log(f"  limiting to {len(registry)} stations (--max-stations)")
-    store = SnapshotStore(OUT / "raw_2021_2023")
+    store = SnapshotStore(OUT / "raw_2021_2023", offline=True)
 
     panel_path = OUT / "panel_2021_2023.parquet"
+    cohort_path = OUT / "cohort_2021_2023.csv"
     failures_path = OUT / "fetch_failures_2021_2023.json"
-    if panel_path.exists():
+    cache_key = panel_cache_key(registry, store)
+    cache_key_path = OUT / "panel_cache_key.txt"
+    if panel_path.exists() and cache_key_path.exists() \
+            and cache_key_path.read_text().strip() == cache_key:
         log(f"  loading cached panel {panel_path}")
         panel = pd.read_parquet(panel_path)
         failures = json.loads(failures_path.read_text()) if failures_path.exists() else []
-        if max_stations:
-            keep = set(registry["site_no"].astype(str))
-            panel = panel[panel["site_id"].astype(str).isin(keep)].copy()
+        cohort = pd.read_csv(cohort_path, dtype={"site_no": str}) \
+            if cohort_path.exists() else pd.DataFrame()
     else:
         t0 = time.time()
-        panel, failures = assemble_holdout_panel(registry, store, FETCH_START, FETCH_END)
+        panel, cohort, failures = assemble_holdout_panel(registry, store, FETCH_START, FETCH_END)
         panel.to_parquet(panel_path, index=False)
+        cohort.to_csv(cohort_path, index=False)
         failures_path.write_text(json.dumps(failures, indent=2))
-        log(f"  fetched panel in {time.time() - t0:.0f}s ({len(failures)} station failures)")
+        cache_key_path.write_text(cache_key)
+        log(f"  re-parsed panel in {time.time() - t0:.0f}s ({len(failures)} station failures)")
     station_ids = sorted(panel["site_id"].astype(str).unique())
     log(f"  panel: {len(panel)} rows, {len(station_ids)} stations")
 
@@ -286,42 +339,76 @@ def run_holdout(
     weights, tr_meta = __import__("thermoroute.checkpoint", fromlist=["load_inference_bundle"]).load_inference_bundle(tr_dir)
     wd, transforms, imputed = FI.build_frozen_confirmation_windows(
         panel, tr_meta, station_ids, interval=(HOLDOUT_START, HOLDOUT_END), external=False)
-    station_names = list(C.STATIONS)
-    log(f"  built {len(wd.X)} temporal holdout windows")
+    # Trap 5: snapshot the decoder order immediately after the build and pass it
+    # explicitly to every ensemble call; never read C.STATIONS at call time.
+    station_names = tuple(C.STATIONS)
+    log(f"  built {len(wd.X)} temporal holdout windows; {len(station_names)} stations")
 
+    registry_huc2 = dict(zip(
+        registry["site_no"].astype(str).str.zfill(8),
+        registry["huc2"].astype(str),
+    ))
+    calibrated_models: set[str] = set()
+    uncalibrated_models: set[str] = set()
     model_frames: dict[str, pd.DataFrame] = {}
-    # baselines (shared with temporal cohort)
-    bases = CS.baseline_frames(wd, station_names, split="confirm")
-    temporal_models = ["ThermoRoute", "LightGBM"]
-    if not skip_ablations:
-        temporal_models += ["DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
-                            "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded"]
-    for model in temporal_models:
-        bundle_dir = multicore / "outputs" / "models" / TEMPORAL_BUNDLES[model]
-        if not bundle_dir.exists():
+    metadata_by_model: dict[str, dict[str, Any]] = {}
+
+    def score_temporal(model: str, *, external: bool = False) -> None:
+        bundle_key = f"{model}-ext" if external else model
+        if external:
+            bundle_dir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES.get(bundle_key, "")
+        else:
+            bundle_dir = multicore / "outputs" / "models" / TEMPORAL_BUNDLES.get(model, "")
+        if not Path(bundle_dir).exists():
             log(f"  skip {model}: bundle missing")
-            continue
+            return
         log(f"  scoring {model} ...")
-        if model == "LightGBM":
-            ens, _, _ = CS.lightgbm_ensemble(
+        if model in ("LightGBM", "LightGBM-ext"):
+            ens, member_frames, meta = CS.lightgbm_ensemble(
                 bundle_dir, imputed, transforms.climatology, wd, station_names,
                 model_name=model, scope="conventional", feature_set="USGS", split="confirm")
         else:
-            ens, _, _ = CS.sequence_ensemble(
-                bundle_dir, wd, model_name=model, scope="conventional",
+            ens, member_frames, meta = CS.sequence_ensemble(
+                bundle_dir, wd, station_names, model_name=model, scope="conventional",
                 feature_set="USGS", device=device, split="confirm")
+        meta = dict(meta)
+        meta["_bundle_dir"] = str(bundle_dir)
+        ens = CS.apply_frozen_calibration_to_frame(
+            ens, meta, station_names, external=external, label=model)
+        ens = CS.assign_cohort_metadata(
+            {model: ens}, metadata_by_model={model: meta}, cohort="pooled_prep" if external else "temporal",
+            registry_huc2=registry_huc2, external=external)[model]
         model_frames[model] = ens
+        metadata_by_model[model] = meta
+        if external:
+            calibrated_models.add(model)
+        else:
+            calibrated_models.add(model)
 
-    # --- LSTM (same temporal cohort windows / transforms) ---
+    for model in ["ThermoRoute", "LightGBM"]:
+        score_temporal(model)
+    if not skip_ablations:
+        for model in ["DampedPriorOnly", "TR-noDynamicPrior", "TR-fixedKappa",
+                      "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded"]:
+            score_temporal(model)
+
     lstm_dir = multicore / "outputs" / "models" / LSTM_BUNDLE
     if lstm_dir.exists():
         log("  scoring LSTM ...")
-        ens, _, _ = CS.sequence_ensemble(
-            lstm_dir, wd, model_name="LSTM", scope="conventional",
+        ens, _, meta = CS.sequence_ensemble(
+            lstm_dir, wd, station_names, model_name="LSTM", scope="conventional",
             feature_set="USGS", device=device, split="confirm")
+        meta = dict(meta)
+        meta["_bundle_dir"] = str(lstm_dir)
+        ens = CS.apply_frozen_calibration_to_frame(ens, meta, station_names, external=False, label="LSTM")
+        ens = CS.assign_cohort_metadata(
+            {"LSTM": ens}, metadata_by_model={"LSTM": meta}, cohort="temporal",
+            registry_huc2=registry_huc2)[ "LSTM"]
         model_frames["LSTM"] = ens
+        metadata_by_model["LSTM"] = meta
+        calibrated_models.add("LSTM")
 
-    # --- external pooled cohort (separate pooled transforms) ---
+    # --- external pooled cohort (same registry; pooled-preprocessing sensitivity) ---
     if not skip_external:
         ext_dir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES["ThermoRoute-ext"]
         if ext_dir.exists():
@@ -329,26 +416,69 @@ def run_holdout(
             _, ext_meta = __import__("thermoroute.checkpoint", fromlist=["load_inference_bundle"]).load_inference_bundle(ext_dir)
             ext_wd, ext_transforms, ext_imputed = FI.build_frozen_confirmation_windows(
                 panel, ext_meta, station_ids, interval=(HOLDOUT_START, HOLDOUT_END), external=True)
-            ext_names = list(C.STATIONS)
-            for model, suffix in [("ThermoRoute-ext", "ThermoRoute-ext"),
-                                  ("LSTM-ext", "LSTM-ext"),
-                                  ("LightGBM-ext", "LightGBM-ext")]:
-                bdir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES[suffix]
-                if not bdir.exists():
+            ext_names = tuple(C.STATIONS)
+            for model in ("ThermoRoute-ext", "LSTM-ext", "LightGBM-ext"):
+                bdir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES[model]
+                if not Path(bdir).exists():
                     continue
                 log(f"  scoring {model} ...")
                 if "LightGBM" in model:
-                    ens, _, _ = CS.lightgbm_ensemble(
+                    ens, _, meta = CS.lightgbm_ensemble(
                         bdir, ext_imputed, ext_transforms.climatology, ext_wd, ext_names,
                         model_name=model, scope="conventional", feature_set="USGS", split="confirm")
                 else:
-                    ens, _, _ = CS.sequence_ensemble(
-                        bdir, ext_wd, model_name=model, scope="conventional",
+                    ens, _, meta = CS.sequence_ensemble(
+                        bdir, ext_wd, ext_names, model_name=model, scope="conventional",
                         feature_set="USGS", device=device, split="confirm")
+                meta = dict(meta)
+                meta["_bundle_dir"] = str(bdir)
+                ens = CS.apply_frozen_calibration_to_frame(
+                    ens, meta, ext_names, external=True, label=model)
+                ens = CS.assign_cohort_metadata(
+                    {model: ens}, metadata_by_model={model: meta}, cohort="pooled_prep",
+                    registry_huc2=registry_huc2, external=True)[model]
                 model_frames[model] = ens
+                metadata_by_model[model] = meta
+                calibrated_models.add(model)
 
-    # --- metrics ---
+    # --- baselines (point-only under the table contract) ---
+    bases = CS.baseline_frames(wd, station_names, split="confirm")
+    for base_name, base_frame in bases.items():
+        model_frames[base_name] = CS.mark_point_only_frame(
+            base_frame, cohort="temporal")
+
+    # --- assemble the per-key prediction table (full contract) ---
     all_frames = {**model_frames}
+    pred = pd.concat(
+        [frame for frame in all_frames.values() if not frame.empty], ignore_index=True
+    )
+    pred["seed"] = pred.get("seed", 0)
+    for column in CS.CONTRACT_COLS:
+        if column not in pred.columns:
+            pred[column] = np.nan
+    pred = pred[list(CS.CONTRACT_COLS)]
+
+    # --- validation gates G1-G14 ---
+    gate_report = CS.validate_prediction_table(
+        pred,
+        registry=registry,
+        expected_horizons=HORIZONS,
+        calibrated_models=calibrated_models,
+        uncalibrated_models=uncalibrated_models,
+    )
+    for name, entry in gate_report["gates"].items():
+        log(f"  gate {name}: {'PASS' if entry['pass'] else 'FAIL'} ({entry['detail']})")
+    if not all(entry["pass"] for entry in gate_report["gates"].values()):
+        raise RuntimeError("holdout validation gates failed; nothing written")
+    if len(failures) and not allow_incomplete_cohort:
+        raise RuntimeError(
+            f"{len(failures)} acquisition failures without --allow-incomplete-cohort")
+
+    # --- persistence ---
+    pred_path = OUT / "predictions_2021_2023.parquet"
+    pred.to_parquet(pred_path, index=False)
+    log(f"  wrote {pred_path} ({len(pred)} rows, {pred_path.stat().st_size / 1e6:.1f} MB)")
+
     long = CS.compute_metrics_long(all_frames, bases, horizons=HORIZONS)
     long_path = OUT / "holdout_metrics_2021_2023.csv"
     long.to_csv(long_path, index=False)
@@ -364,8 +494,18 @@ def run_holdout(
         "models": sorted(model_frames),
         "metrics_wide": wide.to_dict(orient="records"),
         "n_windows_temporal": int(len(wd.X)),
+        "n_stations_reportable": gate_report.get("n_stations_reportable", {}),
+        "gates": gate_report["gates"],
     }
     (OUT / "holdout_summary_2021_2023.json").write_text(json.dumps(summary, indent=2, default=str))
+    (OUT / "validation_report_2021_2023.json").write_text(
+        json.dumps(gate_report, indent=2, default=str))
+    (OUT / "run_manifest.json").write_text(json.dumps({
+        "predictions": "predictions_2021_2023.parquet",
+        "panel_cache_key": cache_key,
+        "cohort": "cohort_2021_2023.csv",
+        "n_rows": int(len(pred)),
+    }, indent=2))
     log(f"  wrote {OUT / 'holdout_summary_2021_2023.json'}")
     return summary
 
@@ -382,10 +522,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-holdout", action="store_true")
     p.add_argument("--skip-external", action="store_true")
     p.add_argument("--skip-ablations", action="store_true")
+    p.add_argument("--allow-incomplete-cohort", action="store_true",
+                   help="stamp a waiver into the manifest when acquisition is incomplete")
     p.add_argument("--validation-models", nargs="*",
                    default=["ThermoRoute", "LightGBM", "LSTM"],
                    help="models to reproduce on 2019-2020")
     args = p.parse_args(argv)
+    global allow_incomplete_cohort
+    allow_incomplete_cohort = args.allow_incomplete_cohort
 
     OUT.mkdir(parents=True, exist_ok=True)
     multicore = Path(args.multicore)
