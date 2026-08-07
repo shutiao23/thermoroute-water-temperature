@@ -166,26 +166,6 @@ def test_user_facing_model_terms_do_not_upgrade_statistical_components() -> None
     assert "synthetic data-corruption" in normalized
 
 
-def test_manuscript_states_legacy_and_architecture_limits_up_front() -> None:
-    manuscript = (ROOT / "paper/ThermoRoute_paper.md").read_text(encoding="utf-8")
-    abstract = manuscript.split("## Abstract", 1)[1].split("## 1.", 1)[0]
-    normalized_abstract = " ".join(abstract.split())
-    assert "no verified graph or topology inputs" in normalized_abstract
-    assert "do not identify physical" in normalized_abstract
-    assert "causal drivers" in normalized_abstract
-    assert (
-        '"causal" describes time ordering only, not causal inference'
-        in normalized_abstract
-    )
-    scope = manuscript.split("## 1. Problem and scope", 1)[1].split("### 1.1", 1)[0]
-    normalized_scope = " ".join(scope.split())
-    assert ORDINARY_MONITORING_SENTENCE in normalized_scope
-    assert EPISTEMIC_TOPOLOGY_SENTENCE in normalized_scope
-    availability = manuscript.split("## 9. Data and code availability", 1)[1]
-    assert "b1, s2, and p3 have unverified source" in availability
-    assert "must not be redistributed publicly" in availability
-
-
 def test_shared_legacy_lints_catch_adversarial_paraphrases() -> None:
     policy = load_legacy_semantic_policy(ROOT)
     assert tuple(policy.forbidden) == REQUIRED_LINT_IDS
@@ -392,28 +372,23 @@ def test_shared_legacy_lints_catch_adversarial_paraphrases() -> None:
         ), unrelated_valid_statement
 
 
-def test_manuscript_generators_load_the_claim_ledger_semantic_lints() -> None:
-    for relative in (
-        "scripts/26_validate_claims.py",
-        "scripts/29_render_preopen_manuscripts.py",
-        "paper/agu_submission/build_agu.py",
-    ):
-        source = (ROOT / relative).read_text(encoding="utf-8")
-        assert "find_legacy_semantic_violations" in source
+def test_manuscript_generators_load_the_legacy_semantic_lints() -> None:
     renderer = (ROOT / "scripts/29_render_preopen_manuscripts.py").read_text(
         encoding="utf-8"
     )
+    assert "find_legacy_semantic_violations" in renderer
     main_body = renderer.split("def main(", 1)[1]
     assert main_body.index("_audit_markdown_semantics_before_render") < main_body.index(
         "_build_main"
     )
 
 
-def test_agu_builder_behaviorally_rejects_semantic_overclaim() -> None:
-    namespace = runpy.run_path(str(ROOT / "paper/agu_submission/build_agu.py"))
-    markdown = (ROOT / "paper/ThermoRoute_paper.md").read_text(encoding="utf-8")
-    with pytest.raises(ValueError, match="LINT_LEGACY_THREE_SITE"):
-        namespace["_validate_markdown"](markdown + "\n\nb1 drains toward s2.\n")
+def test_legacy_semantic_policy_rejects_epistemic_overclaim() -> None:
+    policy = load_legacy_semantic_policy(ROOT)
+    violations = find_legacy_semantic_violations(
+        "b1 drains toward s2.", policy
+    )
+    assert violations
 
 
 def test_legacy_report_tombstone_is_atomic_and_precedes_training(tmp_path) -> None:

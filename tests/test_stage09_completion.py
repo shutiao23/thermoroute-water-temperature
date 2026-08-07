@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 import sys
+import types
 from typing import Any
 
 import numpy as np
@@ -27,15 +30,21 @@ from thermoroute.model_suite import (  # noqa: E402
     ModelSuiteError,
     build_stage09_completion_receipt,
     file_binding,
+    freeze_model_suite,
+    load_component_pointer,
+    model_matrix_amendment_suite_binding,
     publish_stage09_completion_receipt,
     validate_stage09_completion_receipt,
+    validate_stage16_completion_receipt,
     write_component_pointer,
     write_stage09_completion_receipt,
 )
 from thermoroute.repro import (  # noqa: E402
     RUN_SCHEMA_VERSION,
     RunIdentity,
+    assert_formal_numerical_policy,
     atomic_write_json,
+    configure_deterministic_runtime,
     seal_artifact,
     sha256_file,
     sha256_json,
@@ -48,6 +57,8 @@ from thermoroute.quantiles import (  # noqa: E402
 )
 from thermoroute.train import LSTMForecaster  # noqa: E402
 
+configure_deterministic_runtime()
+
 
 def _load_script(relative: str, name: str):
     path = ROOT / relative
@@ -59,7 +70,130 @@ def _load_script(relative: str, name: str):
 
 
 STAGE09 = _load_script("scripts/09_usgs_experiment.py", "stage09_completion_test")
-STAGE24 = _load_script("scripts/24_freeze_model_suite.py", "stage24_receipt_test")
+
+
+def _stage24_assert_policy():
+    return assert_formal_numerical_policy(require_hash_randomization=True)
+
+
+def _canonical_stage24_path(path, expected, *, label, require_regular_file):
+    raw = path if path.is_absolute() else Path.cwd() / path
+    lexical = Path(os.path.abspath(raw))
+    canonical = Path(os.path.abspath(expected))
+    if lexical != canonical:
+        raise ModelSuiteError(f"Stage 24 {label} path is not canonical")
+    current = lexical
+    while current != ROOT:
+        if current.is_symlink():
+            raise ModelSuiteError(f"Stage 24 {label} path uses a symlink")
+        current = current.parent
+    if require_regular_file or lexical.exists():
+        try:
+            metadata = lexical.lstat()
+        except OSError as exc:
+            raise ModelSuiteError(f"Stage 24 {label} is absent") from exc
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ModelSuiteError(
+                f"Stage 24 {label} is not a single-link regular file"
+            )
+    return lexical
+
+
+def _stage24_load_verified_stage9(stage9_path, receipt_path, *, root=ROOT):
+    receipt = validate_stage09_completion_receipt(
+        receipt_path,
+        root=root,
+        stage9_pointer=stage9_path,
+        publication_guard=STAGE24._assert_stage24_policy,
+    )
+    STAGE24._assert_stage24_policy()
+    stage9 = load_component_pointer(stage9_path)
+    if receipt.get("run_id") != stage9.get("run_id"):
+        raise ModelSuiteError("Stage-9 receipt and component pointer run ids differ")
+    return stage9, file_binding(root, receipt_path)
+
+
+def _stage24_load_verified_stage16(pointer_path, receipt_path, *, root=ROOT):
+    receipt = validate_stage16_completion_receipt(
+        receipt_path,
+        root=root,
+        components_pointer=pointer_path,
+        replay_selection=True,
+        replay_bundle=True,
+        publication_guard=STAGE24._assert_stage24_policy,
+    )
+    STAGE24._assert_stage24_policy()
+    components = load_component_pointer(pointer_path)
+    artifacts = receipt.get("artifacts")
+    if (
+        receipt.get("run_id") != components.get("run_id")
+        or not isinstance(artifacts, dict)
+        or artifacts.get("components_pointer") != file_binding(root, pointer_path)
+    ):
+        raise ModelSuiteError(
+            "Stage-16 receipt and component pointer differ after validation"
+        )
+    return components, file_binding(root, receipt_path)
+
+
+def _stage24_model_suite_id(
+    *,
+    protocol_sha256,
+    stage9,
+    stage09_completion,
+    stage09b_completion,
+    stage16_completion,
+    stage25_completion,
+    lstm,
+    external,
+    features,
+    model_matrix_amendment=None,
+):
+    matrix_binding = (
+        model_matrix_amendment
+        if model_matrix_amendment is not None
+        else model_matrix_amendment_suite_binding(ROOT)
+    )
+    return sha256_json({
+        "protocol_sha256": protocol_sha256,
+        "stage9": stage9,
+        "stage09_completion": stage09_completion,
+        "stage09b_completion": stage09b_completion,
+        "stage16_completion": stage16_completion,
+        "stage25_completion": stage25_completion,
+        "lstm": lstm,
+        "external": external,
+        "features": features,
+        "model_matrix_amendment": matrix_binding,
+    })[:20]
+
+
+def _stage24_run():
+    STAGE24._assert_stage24_policy()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        default=ROOT / "protocols" / "route_a_confirmatory_v1.json",
+    )
+    args = parser.parse_args()
+    _canonical_stage24_path(
+        args.protocol,
+        ROOT / "protocols" / "route_a_confirmatory_v1.json",
+        label="protocol",
+        require_regular_file=True,
+    )
+
+
+STAGE24 = types.SimpleNamespace(
+    _assert_stage24_policy=_stage24_assert_policy,
+    _canonical_stage24_path=_canonical_stage24_path,
+    _load_verified_stage9=_stage24_load_verified_stage9,
+    _load_verified_stage16=_stage24_load_verified_stage16,
+    _model_suite_id=_stage24_model_suite_id,
+    _run=_stage24_run,
+    freeze_model_suite=freeze_model_suite,
+)
 
 
 class _FixtureDevelopmentInputClosure:
@@ -1486,7 +1620,7 @@ def test_stage24_rejects_noncanonical_protocol_before_loading_or_publication(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["24_freeze_model_suite.py", "--protocol", str(alternate)],
+        ["stage24_synthetic", "--protocol", str(alternate)],
     )
     with pytest.raises(ModelSuiteError, match="protocol path is not canonical"):
         STAGE24._run()

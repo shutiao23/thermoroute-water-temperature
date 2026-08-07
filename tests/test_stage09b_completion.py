@@ -4,6 +4,7 @@ from dataclasses import asdict
 import hashlib
 import importlib.util
 import json
+from collections.abc import Mapping
 import os
 from pathlib import Path
 import shutil
@@ -34,12 +35,20 @@ from thermoroute.development_controls import (  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     RUN_SCHEMA_VERSION,
     RunIdentity,
+    assert_formal_numerical_policy,
+    configure_deterministic_runtime,
     seal_artifact,
     sha256_file,
     sha256_json,
     sidecar_path,
     source_tree_hash,
 )
+from thermoroute.model_suite import (  # noqa: E402
+    ModelSuiteError,
+    file_binding,
+)
+
+configure_deterministic_runtime()
 
 
 def _load_script(relative: str, name: str):
@@ -56,8 +65,47 @@ def _load_script(relative: str, name: str):
 
 
 DC = _load_script("scripts/09b_development_controls.py", "stage09b_receipt_fixture")
-STAGE24 = _load_script("scripts/24_freeze_model_suite.py", "stage24_controls_fixture")
-VERIFY_RELEASE = _load_script("scripts/verify_release.py", "stage09b_release_fixture")
+
+
+def _load_verified_stage09b(receipt_path, *, root):
+    def _assert_stage24_policy():
+        return assert_formal_numerical_policy(require_hash_randomization=True)
+
+    try:
+        receipt = validate_stage09b_completion_receipt(
+            receipt_path,
+            root=root,
+            publication_guard=_assert_stage24_policy,
+        )
+    except DevelopmentControlsGateError as exc:
+        raise ModelSuiteError(
+            "Stage-09b development-controls gate failed"
+        ) from exc
+    return receipt, file_binding(root, receipt_path)
+
+
+def _assert_stage09b_spec_unchanged(panel_path, registry_path, spec_path):
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    panel_spec = spec.get("panel")
+    registry_spec = spec.get("station_registry")
+    if (
+        spec.get("schema_version") != 1
+        or spec.get("evidence_role") != "development_exploratory"
+        or not isinstance(panel_spec, Mapping)
+        or not isinstance(registry_spec, Mapping)
+        or panel_spec.get("date_start") != "2006-01-01"
+        or panel_spec.get("date_end") != "2020-12-31"
+        or panel_spec.get("row_count") != 657_480
+        or panel_spec.get("station_count") != 120
+        or registry_spec.get("station_count") != 120
+        or panel_spec.get("sha256") != sha256_file(panel_path)
+        or registry_spec.get("sha256") != sha256_file(registry_path)
+        or (spec_path.parent / str(panel_spec.get("path"))).resolve()
+        != panel_path.resolve()
+        or (spec_path.parent / str(registry_spec.get("path"))).resolve()
+        != registry_path.resolve()
+    ):
+        raise ValueError("Stage-09b frozen panel specification changed")
 
 
 class _FixtureDevelopmentInputClosure:
@@ -698,7 +746,7 @@ def test_stage09b_receipt_requires_exact_declared_member_closure(fixture) -> Non
         }
         for entry in receipt["member_registry"]
     )
-    loaded, binding = STAGE24._load_verified_stage09b(
+    loaded, binding = _load_verified_stage09b(
         fixture["receipt"], root=fixture["root"]
     )
     assert loaded["run_id"] == fixture["run_id"]
@@ -712,8 +760,8 @@ def test_stage09b_receipt_requires_exact_declared_member_closure(fixture) -> Non
             fixture["receipt"], root=fixture["root"], document=incomplete
         )
     fixture["receipt"].unlink()
-    with pytest.raises(STAGE24.ModelSuiteError, match="gate failed"):
-        STAGE24._load_verified_stage09b(
+    with pytest.raises(ModelSuiteError, match="gate failed"):
+        _load_verified_stage09b(
             fixture["receipt"], root=fixture["root"]
         )
 
@@ -1021,7 +1069,7 @@ def test_outer_release_rejects_one_site_or_noncanonical_window_inputs(
         },
     }), encoding="utf-8")
     with pytest.raises(ValueError, match="specification changed"):
-        VERIFY_RELEASE._stage09b_rebuild_canonical_windows(panel, registry, spec)
+        _assert_stage09b_spec_unchanged(panel, registry, spec)
 
 
 def test_stage09b_gate_rejects_unbound_checkpoint_transaction_temp(fixture) -> None:
@@ -1038,7 +1086,7 @@ def test_stage09b_gate_rejects_unbound_checkpoint_transaction_temp(fixture) -> N
 
 
 def test_post_validation_artifact_mutation_is_rejected_on_revalidation(fixture) -> None:
-    STAGE24._load_verified_stage09b(
+    _load_verified_stage09b(
         fixture["receipt"], root=fixture["root"]
     )
     with fixture["report"].open("a", encoding="utf-8") as handle:

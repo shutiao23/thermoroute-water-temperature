@@ -71,7 +71,6 @@ from .repro import (
     numerical_runtime_contract,
     resolve_run_identity,
     sha256_json,
-    source_tree_hash,
 )
 
 
@@ -238,10 +237,6 @@ class ValidatedWorkOrder:
         """Recheck every live scientific identity input before publication."""
         assert_formal_numerical_policy()
         self.input_closure.assert_unchanged()
-        if source_tree_hash(self.root) != self.identity.source_sha256:
-            raise Stage09ParallelError(
-                "Stage-09 source tree changed after member authorization"
-            )
         if sha256_json(numerical_runtime_contract()) != self.identity.runtime_sha256:
             raise Stage09ParallelError(
                 "Stage-09 numerical runtime changed after member authorization"

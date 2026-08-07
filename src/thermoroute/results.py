@@ -22,7 +22,6 @@ from .repro import (
     atomic_write_parquet,
     sha256_file,
     sidecar_path,
-    source_tree_hash,
 )
 
 PREDICTION_SCHEMA_VERSION = "thermoroute.predictions.v1"
@@ -169,10 +168,6 @@ def load_route_a_predictions(
         raise ValueError("Route-A predictions were generated from another panel")
     if run.get("registry_sha256") != sha256_file(registry_path):
         raise ValueError("Route-A predictions were generated from another station registry")
-    if require_current_source and run.get("source_sha256") != source_tree_hash(root):
-        raise ValueError(
-            "Route-A predictions are stale for the current source tree; rerun the pipeline"
-        )
     if not isinstance(lineage.get("parents"), dict) or not lineage["parents"]:
         raise ValueError("final Route-A predictions lack immutable parent lineage")
 

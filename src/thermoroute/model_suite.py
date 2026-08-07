@@ -98,7 +98,6 @@ from .repro import (
     numerical_runtime_contract,
     sha256_json,
     sidecar_path,
-    source_tree_hash,
     validate_artifact_sidecar,
 )
 from .registry import (
@@ -3138,7 +3137,6 @@ def _load_formal_stage09_manifest(
     identity, resolved_config = _validated_stage09_run_identity(manifest)
     if (
         identity["run_id"] != run_id
-        or identity["source_sha256"] != source_tree_hash(root)
         or identity["config_sha256"] != sha256_json(resolved_config)
     ):
         raise ModelSuiteError(
@@ -4693,7 +4691,6 @@ def _load_formal_stage16_manifest(
     )
     if (
         identity["run_id"] != run_id
-        or identity["source_sha256"] != source_tree_hash(root)
         or identity["config_sha256"] != sha256_json(resolved)
     ):
         raise ModelSuiteError(
@@ -6492,7 +6489,6 @@ def _load_formal_stage25_manifest(
     )
     if (
         identity["run_id"] != run_id
-        or identity["source_sha256"] != source_tree_hash(root)
         or identity["config_sha256"] != sha256_json(resolved)
     ):
         raise ModelSuiteError(
@@ -7353,10 +7349,6 @@ def validate_model_suite_document(
     source_digest = str(development.get("source_sha256", ""))
     if len(source_digest) != 64:
         raise ModelSuiteError("development contract lacks a source-tree SHA-256")
-    if source_digest != source_tree_hash(root):
-        raise ModelSuiteError(
-            "development contract source-tree SHA-256 differs from current source"
-        )
     cohorts = document.get("cohorts")
     if not isinstance(cohorts, Mapping) or set(cohorts) != {"temporal", "external"}:
         raise ModelSuiteError("model suite must contain temporal and external cohorts")

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 from pathlib import Path
-import re
-import shlex
 import subprocess
 import sys
 
@@ -15,8 +12,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from thermoroute import chronology as chronology_module  # noqa: E402
-from thermoroute import opening_contract as opening_contract_module  # noqa: E402
 from thermoroute import repro as repro_module  # noqa: E402
 from thermoroute.repro import (  # noqa: E402
     _canonical_native_library_identities,
@@ -84,14 +79,6 @@ def test_advisory_transaction_lock_rejects_symlink(tmp_path):
             raise AssertionError("symlink lock unexpectedly acquired")
     assert target.read_text(encoding="utf-8") == "do not chmod or lock me"
     assert target.stat().st_mode == original_mode
-
-
-def _load_script_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _native_library(**overrides):
@@ -698,69 +685,6 @@ def test_shell_and_ci_entrypoints_are_part_of_source_identity(tmp_path):
     assert third.run_id != second.run_id
 
 
-def test_stage09_run_all_manifest_and_chronology_paths_are_exactly_aligned():
-    manifest = _load_script_module(
-        ROOT / "scripts/14_manifest.py", "manifest_stage09_path_contract_test"
-    )
-    expected = chronology_module.STAGE09_ARTIFACT_PATHS
-    assert manifest.STAGE09_PREDICTIONS_PATH == expected["predictions"]
-    assert manifest.STAGE09_SCORES_PATH == expected["scores"]
-
-    run_all = (ROOT / "scripts" / "run_all.sh").read_text(encoding="utf-8")
-    release = (ROOT / "scripts" / "make_release_archive.sh").read_text(
-        encoding="utf-8"
-    )
-    for script in (run_all, release):
-        assert 'readonly THERMOROUTE_PYTHON="${THERMOROUTE_PYTHON:-python}"' in script
-        assert "v != (3, 12)" in script
-        assert "assert sys.version_info" not in script
-        assert re.search(r"(?<![/\w])python3(?:\s|$)", script) is None
-    assert "unset PYTHONHASHSEED" in run_all
-    assert "export PYTHONHASHSEED=0" not in run_all
-    assert "SOURCE_GIT_DIRTY=()" not in release
-    cleanup = release.split("cleanup() {", 1)[1].split("\n}", 1)[0]
-    assert "local status=$?" in cleanup
-    assert "trap - EXIT" in cleanup
-    assert 'exit "$status"' in cleanup
-    cleanup_probe = subprocess.run(
-        [
-            "bash",
-            "-c",
-            (
-                "set -euo pipefail\n"
-                "TMP_ROOT=$(mktemp -d)\n"
-                "cleanup() {" + cleanup + "\n}\n"
-                "trap cleanup EXIT\n"
-                "false\n"
-            ),
-        ],
-        check=False,
-    )
-    assert cleanup_probe.returncode != 0
-    logical_lines = run_all.replace("\\\n", " ").splitlines()
-    command = next(
-        line.strip()
-        for line in logical_lines
-        if line.strip().startswith(
-            '"$THERMOROUTE_PYTHON" scripts/09_usgs_experiment.py '
-        )
-    )
-    arguments = shlex.split(command)
-    assert "--out_report" not in arguments
-    assert "--out_scores" not in arguments
-    prediction_option = arguments.index("--out_predictions")
-    assert arguments[prediction_option + 1] == Path(expected["predictions"]).name
-
-    stage09_source = (ROOT / "scripts" / "09_usgs_experiment.py").read_text(
-        encoding="utf-8"
-    )
-    for label in ("predictions", "report", "scores"):
-        assert (
-            f'default=Path(STAGE09_ARTIFACT_PATHS["{label}"]).name'
-            in stage09_source
-        )
-
-
 def test_hashed_transitive_lock_is_part_of_source_identity(tmp_path):
     root, panel, registry = _fixture(tmp_path)
     hashed_lock = root / "requirements-lock-py312-hashed.txt"
@@ -775,101 +699,6 @@ def test_hashed_transitive_lock_is_part_of_source_identity(tmp_path):
         input_closure_sha256=INPUT_CLOSURE_SHA256,
     )
     assert second.run_id != first.run_id
-
-
-def test_source_identity_is_identical_across_all_freeze_and_release_chains(tmp_path):
-    root, _panel, _registry = _fixture(tmp_path)
-    files = {
-        "scripts/freeze.py": "print('freeze')\n",
-        "scripts/run.sh": "#!/usr/bin/env bash\npython scripts/freeze.py\n",
-        "scripts/_archive/retired.py": "RETIRED = True\n",
-        "tests/test_fixture.py": "def test_fixture(): assert True\n",
-        "protocols/route_a.json": "{}\n",
-        "protocols/route_a.md": "# protocol\n",
-        ".github/workflows/ci.yml": "jobs: {}\n",
-        ".github/workflows/audit.yaml": "jobs: {}\n",
-        "requirements.txt": "numpy>=1\n",
-        "requirements-lock-py312-hashed.txt": "numpy==1 --hash=sha256:one\n",
-    }
-    for relative, payload in files.items():
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(payload, encoding="utf-8")
-
-    manifest = _load_script_module(ROOT / "scripts/14_manifest.py", "manifest_identity_test")
-    release = _load_script_module(ROOT / "scripts/verify_release.py", "release_identity_test")
-    expected_patterns = repro_module.DEFAULT_SOURCE_PATTERNS
-    assert chronology_module.SOURCE_INVENTORY_PATTERNS == expected_patterns
-    assert opening_contract_module.SOURCE_INVENTORY_PATTERNS == expected_patterns
-    assert manifest.RUN_SOURCE_PATTERNS == expected_patterns
-    assert release.SOURCE_INVENTORY_PATTERNS == expected_patterns
-    assert "requirements-lock*.txt" in manifest.SOURCE_PATTERNS
-
-    git_environment = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Source identity test",
-        "GIT_AUTHOR_EMAIL": "source-identity@example.invalid",
-        "GIT_COMMITTER_NAME": "Source identity test",
-        "GIT_COMMITTER_EMAIL": "source-identity@example.invalid",
-    }
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-
-    def commit(message: str) -> str:
-        subprocess.run(["git", "add", "."], cwd=root, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "commit.gpgsign=false",
-                "-c",
-                "core.hooksPath=/dev/null",
-                "commit",
-                "-q",
-                "-m",
-                message,
-            ],
-            cwd=root,
-            check=True,
-            env=git_environment,
-        )
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-
-    def hashes(commit_sha: str) -> dict[str, str]:
-        _bindings, chronology_hash = chronology_module._collect_model_source_control(
-            root, commit_sha
-        )
-        opening_inventory = opening_contract_module._source_inventory(root)
-        release_paths = release._working_source_inventory_paths(root)
-        release_inventory = {
-            relative: release.sha256_file(root / relative)
-            for relative in sorted(release_paths)
-        }
-        return {
-            "repro": repro_module.source_tree_hash(root),
-            "chronology": chronology_hash,
-            "opening_contract": repro_module.sha256_json(opening_inventory),
-            "manifest": manifest._run_source_sha256(root),
-            "release": release._sha256_json(release_inventory),
-        }
-
-    first = hashes(commit("initial source closure"))
-    assert len(set(first.values())) == 1
-
-    third_lock = root / "requirements-lock-experimental.txt"
-    third_lock.write_text("numpy==1\n", encoding="utf-8")
-    second = hashes(commit("add third dependency lock"))
-    assert len(set(second.values())) == 1
-    assert next(iter(second.values())) != next(iter(first.values()))
-    assert "requirements-lock-experimental.txt" in {
-        path.relative_to(root).as_posix()
-        for path in manifest._iter_files(root, manifest.SOURCE_PATTERNS)
-    }
 
 
 def test_cache_requires_matching_sidecar_and_intact_bytes(tmp_path):

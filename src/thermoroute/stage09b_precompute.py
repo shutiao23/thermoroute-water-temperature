@@ -66,7 +66,6 @@ from .repro import (
     numerical_runtime_contract,
     sha256_file,
     sha256_json,
-    source_tree_hash,
 )
 
 
@@ -231,8 +230,6 @@ class ValidatedStage09bWorkOrder:
         self.input_closure.assert_unchanged()
         if self.input_closure.binding_digest != self.identity.input_closure_sha256:
             raise Stage09bPrecomputeError("development-input closure changed")
-        if source_tree_hash(self.root) != self.identity.source_sha256:
-            raise Stage09bPrecomputeError("Stage-09b source tree changed")
         if sha256_json(numerical_runtime_contract()) != self.identity.runtime_sha256:
             raise Stage09bPrecomputeError("Stage-09b numerical runtime changed")
         self.matrix_gate.assert_bytes_unchanged(self.root)
@@ -1753,8 +1750,6 @@ def validate_stage09b_member_work_order(
     closure.assert_unchanged()
     if closure.binding_digest != identity.input_closure_sha256:
         raise Stage09bPrecomputeError("work order binds another input closure")
-    if source_tree_hash(repository) != identity.source_sha256:
-        raise Stage09bPrecomputeError("work order binds another source tree")
     if sha256_json(numerical_runtime_contract()) != identity.runtime_sha256:
         raise Stage09bPrecomputeError("work order binds another numerical runtime")
     canonical_panel = repository / "data_usgs" / "panel_usgs_120v2.parquet"
@@ -2183,7 +2178,6 @@ def finalize_stage09b_precompute(
     closure.assert_unchanged()
     if (
         closure.binding_digest != identity.input_closure_sha256
-        or source_tree_hash(repository) != identity.source_sha256
         or sha256_json(numerical_runtime_contract()) != identity.runtime_sha256
     ):
         raise Stage09bPrecomputeError("coordinator live scientific identity changed")

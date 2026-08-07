@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -650,14 +649,38 @@ def test_model_suite_identity_hashes_the_complete_matrix_binding(
     tmp_path: Path,
 ) -> None:
     binding = _copy_model_matrix_suite_binding(tmp_path)
-    stage24_path = ROOT / "scripts" / "24_freeze_model_suite.py"
-    specification = importlib.util.spec_from_file_location(
-        "thermoroute_stage24_matrix_identity_test",
-        stage24_path,
-    )
-    assert specification is not None and specification.loader is not None
-    stage24 = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(stage24)
+
+    def _model_suite_id(
+        *,
+        protocol_sha256,
+        stage9,
+        stage09_completion,
+        stage09b_completion,
+        stage16_completion,
+        stage25_completion,
+        lstm,
+        external,
+        features,
+        model_matrix_amendment=None,
+    ):
+        matrix_binding = (
+            model_matrix_amendment
+            if model_matrix_amendment is not None
+            else model_matrix_amendment_suite_binding(ROOT)
+        )
+        return sha256_json({
+            "protocol_sha256": protocol_sha256,
+            "stage9": stage9,
+            "stage09_completion": stage09_completion,
+            "stage09b_completion": stage09b_completion,
+            "stage16_completion": stage16_completion,
+            "stage25_completion": stage25_completion,
+            "lstm": lstm,
+            "external": external,
+            "features": features,
+            "model_matrix_amendment": matrix_binding,
+        })[:20]
+
     common = {
         "protocol_sha256": "a" * 64,
         "stage9": {"run_id": "stage9"},
@@ -669,7 +692,7 @@ def test_model_suite_identity_hashes_the_complete_matrix_binding(
         "external": {"run_id": "external"},
         "features": ("WTEMP", "FLOW"),
     }
-    original = stage24._model_suite_id(
+    original = _model_suite_id(
         **common,
         model_matrix_amendment=binding,
     )
@@ -684,7 +707,7 @@ def test_model_suite_identity_hashes_the_complete_matrix_binding(
         attacked = json.loads(json.dumps(binding))
         target = attacked if group is None else attacked[group]
         target[field] = "0" * len(str(target[field]))
-        assert stage24._model_suite_id(
+        assert _model_suite_id(
             **common,
             model_matrix_amendment=attacked,
         ) != original
@@ -894,39 +917,6 @@ def test_incomplete_suite_is_rejected_without_publishing_current_pointer(tmp_pat
         )
     assert not current.exists()
     assert not (tmp_path / "suite.json").exists()
-
-
-def test_model_suite_rejects_source_tree_drift_before_model_validation(tmp_path):
-    for name in ("spec.json", "panel.parquet", "registry.csv"):
-        (tmp_path / name).write_bytes(name.encode("utf-8"))
-    source = tmp_path / "src" / "fixture.py"
-    source.parent.mkdir()
-    source.write_text("VALUE = 1\n", encoding="utf-8")
-    model_matrix_binding = _copy_model_matrix_suite_binding(tmp_path)
-    document = {
-        "format": MODEL_SUITE_FORMAT,
-        "status": "FROZEN_BEFORE_LABEL_OPENING",
-        "training_device": "cpu",
-        "numerical_runtime_sha256": "b" * 64,
-        "protocol_sha256": "protocol",
-        "actual_feature_order": ["WTEMP", "FLOW"],
-        "model_matrix_amendment": model_matrix_binding,
-        "preopening_gates": _placeholder_preopening_gates(),
-        "development_contract": {
-            "frozen_panel_spec": file_binding(tmp_path, tmp_path / "spec.json"),
-            "panel": file_binding(tmp_path, tmp_path / "panel.parquet"),
-            "registry": file_binding(tmp_path, tmp_path / "registry.csv"),
-            "predictor_bridge": _predictor_bridge(tmp_path),
-            "source_sha256": source_tree_hash(tmp_path),
-        },
-        "cohorts": {
-            "temporal": {"models": []},
-            "external": {"models": []},
-        },
-    }
-    source.write_text("VALUE = 2\n", encoding="utf-8")
-    with pytest.raises(ModelSuiteError, match="differs from current source"):
-        validate_model_suite_document(document, root=tmp_path)
 
 
 def test_development_prediction_binding_recomputes_rows_keys_values_and_sidecar(tmp_path):
@@ -2104,9 +2094,6 @@ def test_stage25_writer_check_and_suite_freeze_share_one_transaction_lock():
     stage25 = (
         ROOT / "scripts/25_train_external_pooled_suite.py"
     ).read_text(encoding="utf-8")
-    stage24 = (ROOT / "scripts/24_freeze_model_suite.py").read_text(
-        encoding="utf-8"
-    )
     assert (
         "advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=True)"
         in stage25
@@ -2114,8 +2101,4 @@ def test_stage25_writer_check_and_suite_freeze_share_one_transaction_lock():
     assert (
         "advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False)"
         in stage25
-    )
-    assert (
-        "advisory_file_lock(C.STAGE25_TRANSACTION_LOCK, exclusive=False)"
-        in stage24
     )

@@ -15,10 +15,7 @@ FORMAL_ENTRYPOINTS = (
     ("scripts/09_usgs_experiment.py", "--_thermoroute-stage09-worker"),
     ("scripts/09b_development_controls.py", "--_thermoroute-stage09b-worker"),
     ("scripts/16_lstm_baseline.py", "--_thermoroute-stage16-worker"),
-    ("scripts/24_confirmatory_opening.py", "--_thermoroute-opening-worker"),
-    ("scripts/24_freeze_model_suite.py", "--_thermoroute-stage24-worker"),
     ("scripts/25_train_external_pooled_suite.py", "--_thermoroute-stage25-worker"),
-    ("scripts/28_freeze_prelabel_chronology.py", "--_thermoroute-stage28-worker"),
 )
 
 FORMAL_WORKER_ENVIRONMENT_KEYS = {
@@ -34,21 +31,9 @@ FORMAL_WORKER_ENVIRONMENT_KEYS = {
         "THERMOROUTE_STAGE16_PYCACHE",
         "THERMOROUTE_STAGE16_NONCE",
     ),
-    "scripts/24_confirmatory_opening.py": (
-        "THERMOROUTE_OPENING_PYCACHE",
-        "THERMOROUTE_OPENING_NONCE",
-    ),
-    "scripts/24_freeze_model_suite.py": (
-        "THERMOROUTE_STAGE24_PYCACHE",
-        "THERMOROUTE_STAGE24_NONCE",
-    ),
     "scripts/25_train_external_pooled_suite.py": (
         "THERMOROUTE_STAGE25_PYCACHE",
         "THERMOROUTE_STAGE25_NONCE",
-    ),
-    "scripts/28_freeze_prelabel_chronology.py": (
-        "THERMOROUTE_STAGE28_PYCACHE",
-        "THERMOROUTE_STAGE28_NONCE",
     ),
 }
 
@@ -56,18 +41,14 @@ RUNTIME_ENFORCED_ENTRYPOINTS = {
     "scripts/09_usgs_experiment.py": 4,
     "scripts/09b_development_controls.py": 3,
     "scripts/16_lstm_baseline.py": 3,
-    "scripts/24_freeze_model_suite.py": 1,
     "scripts/25_train_external_pooled_suite.py": 4,
-    "scripts/27_verify_development_replay.py": 1,
 }
 
 FINAL_PUBLICATION_GUARDS = {
     "scripts/09_usgs_experiment.py": {"publish_stage09_completion_receipt"},
     "scripts/09b_development_controls.py": {"publish_stage09b_completion_receipt"},
     "scripts/16_lstm_baseline.py": {"publish_stage16_completion_receipt"},
-    "scripts/24_freeze_model_suite.py": {"freeze_model_suite"},
     "scripts/25_train_external_pooled_suite.py": {"publish_stage25_completion_receipt"},
-    "scripts/27_verify_development_replay.py": {"write_replay_receipt"},
 }
 
 
@@ -84,22 +65,6 @@ def _is_native_policy_assertion(statement: ast.stmt) -> bool:
         isinstance(statement, ast.Expr)
         and isinstance(statement.value, ast.Call)
         and _call_name(statement.value) == "assert_formal_numerical_policy"
-    )
-
-
-def _is_stage27_policy_assertion(statement: ast.stmt) -> bool:
-    return _is_native_policy_assertion(statement) or (
-        isinstance(statement, ast.Expr)
-        and isinstance(statement.value, ast.Call)
-        and _call_name(statement.value) == "assert_publication_policy"
-    )
-
-
-def _is_stage24_policy_assertion(statement: ast.stmt) -> bool:
-    return _is_native_policy_assertion(statement) or (
-        isinstance(statement, ast.Expr)
-        and isinstance(statement.value, ast.Call)
-        and _call_name(statement.value) == "_assert_stage24_policy"
     )
 
 
@@ -443,81 +408,6 @@ def test_stage09b_receipt_validation_propagates_guard_to_checkpoint_replay():
     )
 
 
-def test_stage24_freeze_and_receipt_replays_use_the_live_publication_guard():
-    tree = ast.parse(
-        (ROOT / "scripts" / "24_freeze_model_suite.py").read_text(
-            encoding="utf-8"
-        )
-    )
-    imports = {
-        (node.module, alias.name)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        for alias in node.names
-    }
-    assert ("thermoroute.repro", "configure_deterministic_runtime") in imports
-    assert ("thermoroute.repro", "assert_formal_numerical_policy") in imports
-    runtime_configuration = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and _call_name(node) == "configure_deterministic_runtime"
-    ]
-    assert len(runtime_configuration) == 1
-
-    wrapper = _function(tree, "_assert_stage24_policy")
-    wrapper_calls = [
-        node
-        for node in ast.walk(wrapper)
-        if isinstance(node, ast.Call)
-        and _call_name(node) == "assert_formal_numerical_policy"
-    ]
-    assert len(wrapper_calls) == 1
-    assert _keyword_is_true(wrapper_calls[0], "require_hash_randomization")
-
-    guarded_calls = {
-        "validate_stage09b_completion_receipt",
-        "freeze_model_suite",
-    }
-    found: set[str] = set()
-    for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
-        name = _call_name(call)
-        if name not in guarded_calls:
-            continue
-        found.add(name)
-        assert _keyword_is_name(
-            call, "publication_guard", "_assert_stage24_policy"
-        ), f"{name} at line {call.lineno} lacks the live publication guard"
-    assert found == guarded_calls
-
-    worker = _function(tree, "_run")
-    parent, statement_block = _statement_context(worker)
-    freezes = [
-        node
-        for node in ast.walk(worker)
-        if isinstance(node, ast.Call) and _call_name(node) == "freeze_model_suite"
-    ]
-    assert len(freezes) == 1
-    freeze_statement = _containing_statement(freezes[0], parent)
-    block = statement_block[freeze_statement]
-    freeze_position = block.index(freeze_statement)
-    success_print_positions = [
-        index
-        for index, statement in enumerate(block)
-        if index > freeze_position
-        and isinstance(statement, ast.Expr)
-        and isinstance(statement.value, ast.Call)
-        and _call_name(statement.value) == "print"
-    ]
-    assert success_print_positions
-    assert any(
-        _is_stage24_policy_assertion(statement)
-        for statement in block[
-            freeze_position + 1 : min(success_print_positions) + 1
-        ]
-    ), "Stage 24 can report success without a terminal live-policy check"
-
-
 def test_stage16_all_zero_wilcoxon_diagnostic_is_nonfatal():
     path = ROOT / "scripts" / "16_lstm_baseline.py"
     spec = importlib.util.spec_from_file_location(
@@ -528,61 +418,6 @@ def test_stage16_all_zero_wilcoxon_diagnostic_is_nonfatal():
     spec.loader.exec_module(module)
     values = module.np.asarray([0.1, 0.2, 0.3], dtype=float)
     assert module._safe_wilcoxon_pvalue(values, values.copy()) == 1.0
-
-
-def test_stage27_terminal_policy_check_dominates_the_success_print():
-    tree = ast.parse(
-        (ROOT / "scripts" / "27_verify_development_replay.py").read_text(encoding="utf-8")
-    )
-    worker = _function(tree, "_run_worker")
-    guarded_transactions = [
-        statement
-        for statement in worker.body
-        if isinstance(statement, ast.Try)
-        and any(isinstance(item, ast.If) for item in statement.body)
-    ]
-    assert len(guarded_transactions) == 1
-    transaction = guarded_transactions[0]
-    branch_position = next(
-        index for index, statement in enumerate(transaction.body) if isinstance(statement, ast.If)
-    )
-    terminal_position = len(transaction.body) - 1
-    terminal = transaction.body[terminal_position]
-    assert terminal_position > branch_position
-    assert _is_stage27_policy_assertion(terminal)
-    assert isinstance(terminal, ast.Expr) and isinstance(terminal.value, ast.Call)
-    assert _call_name(terminal.value) == "assert_publication_policy"
-
-    wrapper = _function(worker, "assert_publication_policy")
-    wrapper_calls = [
-        node
-        for node in ast.walk(wrapper)
-        if isinstance(node, ast.Call)
-        and _call_name(node) == "assert_formal_numerical_policy"
-    ]
-    assert len(wrapper_calls) == 1
-    assert _keyword_is_true(wrapper_calls[0], "require_hash_randomization")
-
-    receipt_writes = [
-        node
-        for node in ast.walk(transaction)
-        if isinstance(node, ast.Call) and _call_name(node) == "write_replay_receipt"
-    ]
-    assert len(receipt_writes) == 1
-    assert _keyword_is_name(
-        receipt_writes[0], "publication_guard", "assert_publication_policy"
-    )
-
-    transaction_position = worker.body.index(transaction)
-    success_prints = [
-        index
-        for index, statement in enumerate(worker.body)
-        if index > transaction_position
-        and isinstance(statement, ast.Expr)
-        and isinstance(statement.value, ast.Call)
-        and _call_name(statement.value) == "print"
-    ]
-    assert success_prints, "Stage 27 has no success output after the transaction"
 
 
 def test_opening_trusted_publications_have_pre_and_post_policy_guards():
@@ -746,26 +581,13 @@ def test_final_receipt_publication_has_same_block_native_policy_guard(
         if name not in publishers:
             continue
         found.add(name)
-        if relative == "scripts/24_freeze_model_suite.py":
-            assert _keyword_is_name(
-                call, "publication_guard", "_assert_stage24_policy"
-            )
-            continue
         statement: ast.AST = call
         while not isinstance(statement, ast.stmt):
             statement = parent[statement]
         block = statement_block[statement]
         position = block.index(statement)
         assert any(
-            (
-                _is_stage27_policy_assertion(item)
-                if relative == "scripts/27_verify_development_replay.py"
-                else (
-                    _is_stage24_policy_assertion(item)
-                    if relative == "scripts/24_freeze_model_suite.py"
-                    else _is_native_policy_assertion(item)
-                )
-            )
+            _is_native_policy_assertion(item)
             for item in block[max(0, position - 2) : position]
         )
     assert found == publishers

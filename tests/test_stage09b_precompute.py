@@ -183,7 +183,6 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     })
     monkeypatch.setattr(P, "assert_formal_numerical_policy", lambda **_kwargs: {})
     monkeypatch.setattr(P, "resolve_development_input_closure", lambda _root: closure)
-    monkeypatch.setattr(P, "source_tree_hash", lambda _root: identity.source_sha256)
     monkeypatch.setattr(P, "numerical_runtime_contract", lambda: {"fixture": "runtime"})
     monkeypatch.setattr(P, "validate_stage09b_model_matrix_gate", lambda _root: gate)
     authorization, work_orders = P.freeze_stage09b_precompute_plan(
@@ -813,7 +812,6 @@ def test_tuple_shaped_descriptor_rejected_by_plan_freeze(
     })
     monkeypatch.setattr(P, "assert_formal_numerical_policy", lambda **_kwargs: {})
     monkeypatch.setattr(P, "resolve_development_input_closure", lambda _root: closure)
-    monkeypatch.setattr(P, "source_tree_hash", lambda _root: identity.source_sha256)
     monkeypatch.setattr(P, "numerical_runtime_contract", lambda: {"fixture": "runtime"})
     monkeypatch.setattr(P, "validate_stage09b_model_matrix_gate", lambda _root: gate)
     with pytest.raises(P.Stage09bPrecomputeError, match="arm/seed contract"):
