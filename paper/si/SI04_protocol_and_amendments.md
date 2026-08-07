@@ -1,6 +1,6 @@
 # SI04 — protocol, amendments and chronology
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This is a navigation layer for frozen protocol sources. It does not reseal,
 amend, authorize or execute any stage. Any claimed completion state is

@@ -1,6 +1,6 @@
 # SI07 — all-model exact-common-key scores
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 Rows are generated only from receipt-bound predictions after the renderer proves
 one exact common key set for every compared model. Development scores are not

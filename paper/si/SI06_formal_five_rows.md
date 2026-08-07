@@ -1,6 +1,6 @@
 # SI06 — five-row result projection
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This file fixes the result-table geometry only. It is not evidence that an
 evaluation has run. Every result-bearing cell remains `[pending computation]`

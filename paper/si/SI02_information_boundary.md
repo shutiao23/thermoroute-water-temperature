@@ -1,6 +1,6 @@
 # SI02 — issue-time information boundary, replay isolation, and acquisition durability
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This document specifies a date-indexed retrospective hindcast boundary, the
 isolation model of the pre-acquisition replay, and the transport, publication,

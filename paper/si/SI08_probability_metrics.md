@@ -1,6 +1,6 @@
 # SI08 — probability metrics and reliability bins
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This is an empty projection for nominal member-averaged quantiles, deployed CQR
 intervals and post-Platt event probabilities. It does not call three-quantile

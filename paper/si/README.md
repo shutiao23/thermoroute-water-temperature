@@ -1,6 +1,6 @@
 # ThermoRoute supporting-information scaffold
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This directory is the supporting-information (SI) scaffold for the conventional
 comparative-holdout manuscript `paper/ThermoRoute_paper.md`. It reports no
@@ -38,16 +38,16 @@ All other quantities remain `[pending computation]`.
 | `SI03_model_equations.md` | identities, units and non-identifiability limits | frozen model suite |
 | `SI04_protocol_and_amendments.md` | analysis protocol and model-suite registry | bound model-suite registry |
 | `SI05_comparison_family.md` | five-row comparison geometry, estimands and fill schema | held-out-window statistics |
-| `SI06_formal_five_rows_RECEIPT.md` | empty five-row result projection | held-out-window statistics |
-| `SI07_all_model_scores_RECEIPT.md` | empty all-model exact-common-key score projection | held-out-window predictions |
-| `SI08_probability_metrics_RECEIPT.md` | empty held-out-window probability/reliability projection, plus the development-period non-reporting disposition | held-out-window probability evaluation |
-| `SI09_development_controls_RECEIPT.md` | Stage09/09b control geometry and provenance routing | frozen suite and development receipts |
-| `SI10_temporal_coverage_RECEIPT.md` | empty availability and temporal sensitivity projection | temporal-coverage audit |
-| `SI11_spatial_sensitivity_RECEIPT.md` | empty HUC/leave-cluster sensitivity projection | spatial-sensitivity receipt and registry binding |
-| `SI12_qc_qualifiers_RECEIPT.md` | empty outcome-QC, qualifier and exact-A projection | raw-evidence and QC-cluster-geometry bindings |
-| `SI13_external_history_arm_RECEIPT.md` | external history-dependent arm, explicitly not ungauged | external-suite receipt |
-| `SI14_missingness_failures_RECEIPT.md` | empty missingness, attrition and failure-case projection | bound attrition/failure-case evidence |
-| `SI15_reproduction_hashes_RECEIPT.md` | commands, environment and immutable binding projection | replay and reproduction receipts |
+| `SI06_formal_five_rows.md` | five-row result projection (result cells pending) | held-out-window statistics |
+| `SI07_all_model_scores.md` | all-model exact-common-key score projection (result cells pending) | held-out-window predictions |
+| `SI08_probability_metrics.md` | held-out-window probability/reliability projection (result cells pending), plus the development-period non-reporting disposition | held-out-window probability evaluation |
+| `SI09_development_controls.md` | Stage09/09b control geometry and provenance routing | frozen suite and development receipts |
+| `SI10_temporal_coverage.md` | availability and temporal sensitivity projection (result cells pending) | temporal-coverage audit |
+| `SI11_spatial_sensitivity.md` | HUC/leave-cluster sensitivity projection (result cells pending) | spatial-sensitivity receipt and registry binding |
+| `SI12_qc_qualifiers.md` | outcome-QC, qualifier and exact-A projection (result cells pending) | raw-evidence and QC-cluster-geometry bindings |
+| `SI13_external_history_arm.md` | external history-dependent arm, explicitly not ungauged | external-suite receipt |
+| `SI14_missingness_failures.md` | missingness, attrition and failure-case projection (result cells pending) | bound attrition/failure-case evidence |
+| `SI15_reproduction_hashes.md` | commands, environment and immutable binding projection | replay and reproduction receipts |
 | `SI16_rights_data_dictionary.md` | rights-decision and machine-readable data-dictionary routing | qualified rights decisions and release manifest |
 
 ## Evidence boundary

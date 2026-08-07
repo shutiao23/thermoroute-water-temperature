@@ -1,6 +1,6 @@
 # SI01 — frozen cohort and registry projection
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 No registry bytes or outcomes are reproduced in this document. Any redraw value
 or target-period count is `[pending computation]` until it is bound

@@ -1,6 +1,6 @@
 # SI11 — spatial and leave-cluster sensitivity
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 | Cluster definition | omitted unit | reportable clusters | effective fraction | largest share | effect (°C) | interval/status | binder row ID |
 |---|---|---|---|---|---|---|---|

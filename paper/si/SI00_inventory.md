@@ -1,6 +1,6 @@
 # SI00 — inventory and evidence map
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This is an inventory of static SI design items, not an evidence receipt. Any
 unbound result cell is `[pending computation]`.

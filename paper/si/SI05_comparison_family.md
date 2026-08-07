@@ -1,6 +1,6 @@
 # SI05 — comparison family and fill schema
 
-**Status:** DRAFT.
+**Status:** scaffold finalized; empirical values `[pending computation]`.
 
 This document fixes display geometry for the study's five-row comparison family.
 It reports no effect, performance number, interval, p-value, Holm value or

@@ -1,6 +1,6 @@
 # SI16 — rights matrix and data dictionary
 
-**Status:** DRAFT / DRAFT / NOT RIGHTS APPROVAL.
+**Status:** scaffold finalized; not a rights approval.
 
 This file is a projection schema, not a redistribution decision, DOI record or
 FAIR completion claim.
