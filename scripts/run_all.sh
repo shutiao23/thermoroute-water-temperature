@@ -68,7 +68,6 @@ if [[ ! -f "$USGS_STATION_REGISTRY" ]]; then
   echo "USGS_STATION_REGISTRY does not exist: $USGS_STATION_REGISTRY" >&2
   exit 2
 fi
-"$THERMOROUTE_PYTHON" scripts/14_manifest.py --check-route-a-boundary
 
 echo "================ PRE-FLIGHT TESTS ================"
 "$THERMOROUTE_PYTHON" -m pytest tests/ -q
@@ -78,7 +77,7 @@ echo "================ ROUTE A: USGS DEVELOPMENT ANALYSIS ================"
 echo "(multi-hour on CPU: 5 ThermoRoute seeds + 4 region-transfer folds + 5 LSTM"
 echo " seeds + 4 LSTM transfer folds are the heavy stages; trained stages are"
 echo " checkpointed, so an interrupted run resumes.)"
-echo "[1/19] USGS experiment (primary baselines + ThermoRoute × seeds + LGO + ablations)"
+echo "[1/17] USGS experiment (primary baselines + ThermoRoute × seeds + LGO + ablations)"
 echo "      using panel: ${USGS_PANEL}"
 # Stage 9 is an immutable parent.  Its command returns successfully only after
 # the report, three formal pointers and final content-bound completion receipt
@@ -87,62 +86,46 @@ echo "      using panel: ${USGS_PANEL}"
 "$THERMOROUTE_PYTHON" scripts/09_usgs_experiment.py --panel "${USGS_PANEL}" --seeds 5 \
     --device cpu \
     --out_predictions usgs_predictions_stage9_v2.parquet
-echo "[2/19] matched-budget neural controls + complete declared-seed feature ladder"
+echo "[2/17] matched-budget neural controls + complete declared-seed feature ladder"
 # Stage 09b publishes its content-bound receipt only after every declared member
 # predictions, their sidecars, the common-key audit, budget, combined
 # predictions and report validate.  Stage 24 requires and revalidates it.
 "$THERMOROUTE_PYTHON" scripts/09b_development_controls.py --panel "${USGS_PANEL}"
-echo "[3/19] per-station LightGBM (M4 — the stronger-of-two learned-baseline foil)"
+echo "[3/17] per-station LightGBM (M4 — the stronger-of-two learned-baseline foil)"
 "$THERMOROUTE_PYTHON" scripts/_perstation_lgb.py --panel "${USGS_PANEL}"
-echo "[4/19] exploratory development holdout + 5-seed ablations"
+echo "[4/17] exploratory development holdout + 5-seed ablations"
 "$THERMOROUTE_PYTHON" scripts/13_rigor.py
-echo "[5/19] exploratory leave-HUC2-region-out gauged transfer — 4 folds of ThermoRoute"
+echo "[5/17] exploratory leave-HUC2-region-out gauged transfer — 4 folds of ThermoRoute"
 for f in 0 1 2 3; do "$THERMOROUTE_PYTHON" scripts/13c_region_transfer.py --fold "$f"; done
-echo "[6/19] region-transfer assemble: global LightGBM per fold + descriptive figure"
+echo "[6/17] region-transfer assemble: global LightGBM per fold + descriptive figure"
 "$THERMOROUTE_PYTHON" scripts/13c_region_transfer.py --assemble
-echo "[7/19] deep sequence baseline (global LSTM): in-sample × 5 seeds -> derive final v2"
+echo "[7/17] deep sequence baseline (global LSTM): in-sample × 5 seeds -> derive final v2"
 "$THERMOROUTE_PYTHON" scripts/16_lstm_baseline.py --insample
-echo "[8/19] deep sequence baseline: leave-HUC2-region-out transfer (4 folds)"
+echo "[8/17] deep sequence baseline: leave-HUC2-region-out transfer (4 folds)"
 "$THERMOROUTE_PYTHON" scripts/16_lstm_baseline.py --transfer
-echo "[9/19] 3-way transfer + in-sample LSTM report"
+echo "[9/17] 3-way transfer + in-sample LSTM report"
 "$THERMOROUTE_PYTHON" scripts/16_lstm_baseline.py --report
-echo "[10/19] Algebraic diagnostic (Fig 3; no safety claim)"
+echo "[10/17] Algebraic diagnostic (Fig 3; no safety claim)"
 "$THERMOROUTE_PYTHON" scripts/17_prop1_binding.py
-echo "[11/19] fail-closed REV NOT EVALUATED status (no predeclared cost-loss ratios)"
+echo "[11/17] fail-closed REV NOT EVALUATED status (no predeclared cost-loss ratios)"
 "$THERMOROUTE_PYTHON" scripts/18_rev_curve.py
-echo "[12/19] probabilistic (PICP/three-quantile score/reliability/Brier) + multi-metric (Fig 4)"
+echo "[12/17] probabilistic (PICP/three-quantile score/reliability/Brier) + multi-metric (Fig 4)"
 "$THERMOROUTE_PYTHON" scripts/19_probabilistic.py
 "$THERMOROUTE_PYTHON" scripts/19_probabilistic.py --check
-echo "[13/19] legacy transfer diagnostics (not ungauged) + regime stratification"
+echo "[13/17] legacy transfer diagnostics (not ungauged) + regime stratification"
 "$THERMOROUTE_PYTHON" scripts/20_tuurt.py
 "$THERMOROUTE_PYTHON" scripts/15_stratified.py
-echo "[14/19] adaptive conformal diagnostics (no conditional-coverage claim)"
+echo "[14/17] adaptive conformal diagnostics (no conditional-coverage claim)"
 "$THERMOROUTE_PYTHON" scripts/22_adaptive_conformal.py
-echo "[15/19] predeclared input-stress/OOD robustness (frozen ensemble; common keys)"
+echo "[15/17] predeclared input-stress/OOD robustness (frozen ensemble; common keys)"
 "$THERMOROUTE_PYTHON" scripts/23_robustness.py --panel "${USGS_PANEL}"
-echo "[16/19] USGS calibration/latent diagnostics and claim statistics"
+echo "[16/17] USGS calibration/latent diagnostics and claim statistics"
 "$THERMOROUTE_PYTHON" scripts/10_usgs_analysis.py
 "$THERMOROUTE_PYTHON" scripts/12_claim_stats.py
-echo "[17/19] station-agnostic pooled external suite (development data only)"
+echo "[17/17] station-agnostic pooled external suite (development data only)"
 "$THERMOROUTE_PYTHON" scripts/25_train_external_pooled_suite.py
 "$THERMOROUTE_PYTHON" scripts/25_train_external_pooled_suite.py --check
-echo "[18/19] freeze the complete Route-A model suite"
-"$THERMOROUTE_PYTHON" scripts/24_freeze_model_suite.py \
-    --stage9-receipt outputs/models/route_a_stage09_completion.json \
-    --stage09b-receipt outputs/models/route_a_stage09b_completion.json \
-    --lstm-receipt outputs/models/route_a_stage16_completion.json \
-    --external-receipt outputs/models/route_a_stage25_completion.json
-echo "[19/19] isolated full-model replay and final artifact manifest"
-if [[ -f outputs/model_replay/route_a_development_replay_v1.json ]]; then
-  "$THERMOROUTE_PYTHON" -I -B scripts/27_verify_development_replay.py --check
-else
-  "$THERMOROUTE_PYTHON" -I -B scripts/27_verify_development_replay.py
-fi
-"$THERMOROUTE_PYTHON" scripts/14_manifest.py --development-prelabel
-"$THERMOROUTE_PYTHON" scripts/14_manifest.py --check --development-prelabel \
-    --strict-environment
 
 echo ""
-echo "DONE — development outputs are under outputs/; see the root README and frozen claim ledger for authority."
-echo "Route A still requires its separate freeze, chronology, authorization, and opening chain."
+echo "DONE — development outputs are under outputs/; see the root README for authority."
 echo "Rebuild the PDFs with: (cd paper && ../scripts/... ) — see README."

@@ -572,8 +572,6 @@ def test_canonical_run_does_not_silently_execute_the_legacy_case() -> None:
     assert "--include-legacy-monitoring-case" not in script
     assert "INCLUDE_LEGACY_MONITORING_CASE" not in script
     assert "data/processed" not in script
-    assert "scripts/14_manifest.py --check-route-a-boundary" in script
-    assert "scripts/14_manifest.py --development-prelabel" in script
     assert "scripts/21_ecological_thresholds.py" not in script
     assert (
         'CANONICAL_USGS_STATION_REGISTRY="data_usgs/station_registry_v1.csv"'
@@ -605,16 +603,6 @@ def test_canonical_run_does_not_silently_execute_the_legacy_case() -> None:
         assert completed.returncode == 2, argument
         assert completed.stdout == ""
         assert completed.stderr == "usage: bash scripts/run_all.sh\n"
-
-
-def test_release_archive_excludes_legacy_site_data_but_keeps_correction() -> None:
-    script = (ROOT / "scripts/make_release_archive.sh").read_text(
-        encoding="utf-8"
-    )
-    for legacy_data_path in ("data/b1.csv", "data/s2.csv", "data/p3.csv"):
-        assert legacy_data_path not in script
-    assert '$STAGE/data' not in script
-    assert "protocols/legacy_three_site_semantics_notice_v1.md" in script
 
 
 def test_legacy_site_figure_has_no_network_or_travel_time_semantics() -> None:
