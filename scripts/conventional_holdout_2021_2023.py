@@ -93,7 +93,7 @@ G15_REPORT = "plain_controls_g15.json"
 
 
 def plain_control_run_dir(multicore: Path) -> Path:
-    return multicore / "outputs" / "runs" / "09b_development_controls" / PLAIN_CONTROL_RUN_ID
+    return multicore / "plain_control_run"
 
 
 def registry_site_overlap() -> float:
@@ -170,7 +170,13 @@ def assemble_holdout_panel(
         frame, status, detail = CA.reparse_site(store, site_no, start, end)
         rec.update({"status": status, **detail})
         cohort_rows.append(rec)
-        if status == CA.ACQUISITION_STATUS_OK:
+        if status in (CA.ACQUISITION_STATUS_OK,
+                      CA.ACQUISITION_STATUS_NO_SERIES,
+                      CA.ACQUISITION_STATUS_ALL_SERIES_CONFLICT,
+                      CA.ACQUISITION_STATUS_PARSE_FAILED):
+            # Every site with a snapshot stays in the panel (all-NaN rows for
+            # dry/conflicted sites) so the panel's station set matches the
+            # frozen bundle registry; observed-target windows filter them out.
             lat, lon = float(row.lat), float(row.lon)
             try:
                 met = usgs.fetch_daymet(lat, lon, start, end, snapshot_store=store)
@@ -265,7 +271,7 @@ def run_validation(
     panel = load_dev_panel_mapped(panel_path, registry_path)
     station_ids = sorted(panel["site_id"].astype(str).unique())
     # Use the ThermoRoute bundle to build the frozen confirmation windows for 2019-2020.
-    tr_dir = multicore / "outputs" / "models" / TEMPORAL_BUNDLES["ThermoRoute"]
+    tr_dir = multicore / TEMPORAL_BUNDLES["ThermoRoute"]
     weights, tr_meta = __import__("thermoroute.checkpoint", fromlist=["load_inference_bundle"]).load_inference_bundle(tr_dir)
     wd, transforms, imputed = FI.build_frozen_confirmation_windows(
         panel, tr_meta, station_ids, interval=("2019-01-01", "2020-12-31"), external=False)
@@ -276,10 +282,10 @@ def run_validation(
     diagnostics: dict = {"interval": "2019-01-01..2020-12-31", "models": {}}
     for model in models:
         if model == "LSTM":
-            bundle_dir = multicore / "outputs" / "models" / LSTM_BUNDLE
+            bundle_dir = multicore / LSTM_BUNDLE
             dev_model = "LSTM"
         else:
-            bundle_dir = multicore / "outputs" / "models" / TEMPORAL_BUNDLES[model]
+            bundle_dir = multicore / TEMPORAL_BUNDLES[model]
             dev_model = model
         if not bundle_dir.exists():
             log(f"  skip {model}: bundle missing")
@@ -415,7 +421,7 @@ def run_holdout(
     log(f"  panel: {len(panel)} rows, {len(station_ids)} stations")
 
     # --- temporal cohort (ThermoRoute + LightGBM + ablations) ---
-    tr_dir = multicore / "outputs" / "models" / TEMPORAL_BUNDLES["ThermoRoute"]
+    tr_dir = multicore / TEMPORAL_BUNDLES["ThermoRoute"]
     weights, tr_meta = __import__("thermoroute.checkpoint", fromlist=["load_inference_bundle"]).load_inference_bundle(tr_dir)
     wd, transforms, imputed = FI.build_frozen_confirmation_windows(
         panel, tr_meta, station_ids, interval=(HOLDOUT_START, HOLDOUT_END), external=False)
@@ -436,9 +442,9 @@ def run_holdout(
     def score_temporal(model: str, *, external: bool = False) -> None:
         bundle_key = f"{model}-ext" if external else model
         if external:
-            bundle_dir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES.get(bundle_key, "")
+            bundle_dir = multicore / EXTERNAL_BUNDLES.get(bundle_key, "")
         else:
-            bundle_dir = multicore / "outputs" / "models" / TEMPORAL_BUNDLES.get(model, "")
+            bundle_dir = multicore / TEMPORAL_BUNDLES.get(model, "")
         if not Path(bundle_dir).exists():
             log(f"  skip {model}: bundle missing")
             return
@@ -472,7 +478,7 @@ def run_holdout(
                       "TR-noRouter", "TR-noMoE", "TR-noTCN", "TR-unbounded"]:
             score_temporal(model)
 
-    lstm_dir = multicore / "outputs" / "models" / LSTM_BUNDLE
+    lstm_dir = multicore / LSTM_BUNDLE
     if lstm_dir.exists():
         log("  scoring LSTM ...")
         ens, _, meta = CS.sequence_ensemble(
@@ -520,7 +526,7 @@ def run_holdout(
 
     # --- external pooled cohort (same registry; pooled-preprocessing sensitivity) ---
     if not skip_external:
-        ext_dir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES["ThermoRoute-ext"]
+        ext_dir = multicore / EXTERNAL_BUNDLES["ThermoRoute-ext"]
         if ext_dir.exists():
             log("  building external pooled windows ...")
             _, ext_meta = __import__("thermoroute.checkpoint", fromlist=["load_inference_bundle"]).load_inference_bundle(ext_dir)
@@ -528,7 +534,7 @@ def run_holdout(
                 panel, ext_meta, station_ids, interval=(HOLDOUT_START, HOLDOUT_END), external=True)
             ext_names = tuple(C.STATIONS)
             for model in ("ThermoRoute-ext", "LSTM-ext", "LightGBM-ext"):
-                bdir = multicore / "outputs" / "models" / EXTERNAL_BUNDLES[model]
+                bdir = multicore / EXTERNAL_BUNDLES[model]
                 if not Path(bdir).exists():
                     continue
                 log(f"  scoring {model} ...")
@@ -652,14 +658,18 @@ def main(argv: list[str] | None = None) -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     if args.multicore is not None:
         multicore = Path(args.multicore)
+        if not (multicore / TEMPORAL_BUNDLES["ThermoRoute"]).exists():
+            raise FileNotFoundError(
+                f"ThermoRoute bundle not found under {multicore}/outputs/models; "
+                "point --multicore at the worktree that holds the frozen bundles")
+        multicore = multicore / "outputs" / "models"
     else:
         multicore = Path(args.bundle_root)
-    if not (multicore / "outputs" / "models" / TEMPORAL_BUNDLES["ThermoRoute"]).exists():
+    if not (multicore / TEMPORAL_BUNDLES["ThermoRoute"]).exists():
         raise FileNotFoundError(
-            f"ThermoRoute bundle not found under {multicore}/outputs/models; "
-            "run scripts/verify_model_bundles.py or point --multicore at the "
-            "worktree that holds the frozen bundles (or --bundle-root at a "
-            "local outputs/models directory)")
+            f"ThermoRoute bundle not found under {multicore}; "
+            "run scripts/verify_model_bundles.py or point --bundle-root at the "
+            "local outputs/models directory")
     panel_path, registry_path = Path(args.panel), Path(args.registry)
 
     plain_admission: dict | None = None
