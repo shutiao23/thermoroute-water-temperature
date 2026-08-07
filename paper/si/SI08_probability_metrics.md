@@ -1,6 +1,6 @@
 # SI08 — probability metrics and reliability bins
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** coverage, width and Brier filled from `outputs/conventional/probability_metrics_2021_2023.csv`; interval score, pinball, log score, discrimination, ECE and calibration slope/intercept are not computed on the held-out window (the probability-metrics pipeline was only partly re-run).
 
 This is an empty projection for nominal member-averaged quantiles, deployed CQR
 intervals and post-Platt event probabilities. It does not call three-quantile
@@ -18,7 +18,6 @@ producers.
 
 | Model | Horizon | n | marginal coverage | width (°C) | interval score | pinball | Brier score | Brier skill | log score | discrimination | ECE | calibration slope | calibration intercept | binder row ID |
 |---|---:|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| *(receipt model)* | *(1/3/7)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 ## 2. Reliability bins (target period)
 
@@ -28,7 +27,6 @@ or merged bins remain explicit; they are never silently removed.
 
 | Model | Horizon | bin ID/bounds | denominator | mean forecast probability | observed frequency | calibration residual | binder row ID |
 |---|---:|---|---|---|---|---|---|
-| *(receipt model)* | *(1/3/7)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 Any metric not defined by the frozen probability contract must be explicitly
 `NOT_REGISTERED`, not silently omitted or substituted. Brier skill requires a
@@ -51,6 +49,15 @@ measurement of the full member-level prediction table
 
 | Quantity | Measured value |
 |---|---|
+| LightGBM | 1 | 120466 | 0.907 | 1.905 | not computed | not computed | 0.020 | not computed | not computed | not computed | not computed | not computed | not computed |
+| LightGBM | 3 | 119654 | 0.904 | 4.142 | not computed | not computed | 0.039 | not computed | not computed | not computed | not computed | not computed | not computed |
+| LightGBM | 7 | 118687 | 0.903 | 5.318 | not computed | not computed | 0.049 | not computed | not computed | not computed | not computed | not computed | not computed |
+| LSTM | 1 | 120466 | 0.931 | 2.337 | not computed | not computed | 0.036 | not computed | not computed | not computed | not computed | not computed | not computed |
+| LSTM | 3 | 119654 | 0.926 | 4.744 | not computed | not computed | 0.046 | not computed | not computed | not computed | not computed | not computed | not computed |
+| LSTM | 7 | 118687 | 0.919 | 5.833 | not computed | not computed | 0.056 | not computed | not computed | not computed | not computed | not computed | not computed |
+| ThermoRoute | 1 | 120466 | 0.932 | 2.186 | not computed | not computed | 0.025 | not computed | not computed | not computed | not computed | not computed | not computed |
+| ThermoRoute | 3 | 119654 | 0.925 | 4.465 | not computed | not computed | 0.042 | not computed | not computed | not computed | not computed | not computed | not computed |
+| ThermoRoute | 7 | 118687 | 0.919 | 5.652 | not computed | not computed | 0.051 | not computed | not computed | not computed | not computed | not computed | not computed |
 | Member-level rows carrying complete quantile heads | 26,993,675 |
 | **Strict quantile-ordering violations** (`q05 > q50` ∨ `q50 > q95` ∨ `q05 > q95`) | **0** |
 | Rows tripping the frozen contract | **135** |

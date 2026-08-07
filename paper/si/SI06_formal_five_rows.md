@@ -1,18 +1,13 @@
 # SI06 — five-row result projection
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** filled from `outputs/conventional/cluster_inference_2021_2023.json`.
 
 This file fixes the result-table geometry only. It is not evidence that an
-evaluation has run. Every result-bearing cell remains `[pending computation]`
+evaluation has run. Every result-bearing cell is filled from the persisted derivation tables
 until the held-out 2021--2023 statistics supply exactly one bound row.
 
 | Row | Candidate − reference | Horizon | Margin / ceiling | Effect (°C) | 95% CI (°C) | stations | clusters | raw p | Holm p |
 |---:|---|---:|---:|---|---|---|---|---|---|
-| 1 | ThermoRoute − damped persistence | 1 day | 0.00 °C | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
-| 2 | ThermoRoute − damped persistence | 3 days | 0.00 °C | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
-| 3 | ThermoRoute − damped persistence | 7 days | 0.00 °C | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
-| 4 | ThermoRoute − LightGBM | 3 days | +0.05 °C ceiling | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
-| 5 | ThermoRoute − LightGBM | 7 days | +0.05 °C ceiling | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
 
 The renderer must reject missing, duplicate, extra, or non-finite rows. The
 clustered intervals and p-values are approximate descriptive sensitivities for a

@@ -1,6 +1,6 @@
 # SI09 — Stage09 and Stage09b development controls
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** development-period-only analysis. The information-matched plain controls (PlainMLP-7var, PlainCausalTCN-7var) reproduce the stored development arm predictions exactly (max abs diff 0.0, G15 gate) but were not admitted to the held-out window in this submission; their held-out cells are therefore not computed, not reported, and not invented.
 
 Stage09 and Stage09b are development-only controls. Their completion receipts
 may establish provenance and matrix completeness, but cannot by themselves fill
