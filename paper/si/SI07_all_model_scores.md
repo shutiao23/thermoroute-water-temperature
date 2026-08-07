@@ -22,24 +22,24 @@ it must agree with this table in value, unit, and rounding.
 
 ## Models named in the manuscript that carry no score, and why
 
-Two model rows are absent from every score in the manuscript. Neither absence is
-a rendering failure, and neither may be closed by substituting a development
-cache, an estimate, or an unofficial reimplementation.
+One model row is absent from the manuscript tables and one model row is scored:
+the official upstream air2stream remains unbuilt (see provenance below), while
+the unofficial empirical a8 variant is fitted and scored on the held-out window.
 
-### 1. The air2stream-style hybrid reference — `NOT_RUN`
+### 1. The air2stream-style hybrid reference — fitted (a8 variant)
 
-**Status.** The headline development table records
-`Air2stream-style a4/a8 (unofficial, non-primary): NOT_RUN; headline entry is
-NOT_RUN / NA`. No score exists at any lead, in any arm, for any period. The
-manuscript removed it from the Abstract, the Key Points, the Introduction, the
-reference-set enumeration, the score table, the Conclusions, and the cover
-letter, and states in §3.2 that it is excluded from every claim in the paper and
-in §6.2 that the hybrid process family is consequently absent from every
-comparison. This file is where its status lives.
+**Status.** The unofficial empirical a8 variant of `src/thermoroute/air2stream.py`
+is calibrated per station on the 2006–2020 training record (multi-start bounded
+least squares, six starts, `max_nfev = 6000`) and scored on the 2021–2023 common
+keys (118 stations with a fitted hybrid; 356,131 scored keys). Station-median
+RMSE is 0.719 / 1.478 / 1.825 °C at 1 / 3 / 7 days; median of per-station skill
+against damped persistence is +0.063 / −0.008 / −0.011 (Table 4.7 of the
+manuscript). The official upstream model was not executed; the hybrid is an
+*unofficial empirical comparator*, not a claim against the published model.
 
-**Provenance.** What exists is a *style* reference, not the published model. The
-pinned-source audit (`docs/AIR2STREAM_SOURCE_BUILD_AUDIT_20260801.md`) records
-verdict `BLOCKED_NO_COMPILER / REFERENCE_CASE_NOT_ATTESTABLE` against upstream
+**Provenance (official upstream).** The pinned-source audit
+(`docs/AIR2STREAM_SOURCE_BUILD_AUDIT_20260801.md`) records verdict
+`BLOCKED_NO_COMPILER / REFERENCE_CASE_NOT_ATTESTABLE` against upstream
 commit `d4834bccf01657c03ab60efb4c18f8a256132c53`:
 
 | Finding | Consequence for a comparison |
@@ -62,6 +62,9 @@ commit `d4834bccf01657c03ab60efb4c18f8a256132c53`:
 | ThermoRoute | 1 | all | 116 | 0.640 | 0.463 | +0.011 | station median | si07.row |
 | ThermoRoute | 3 | all | 116 | 1.337 | 1.013 | -0.029 | station median | si07.row |
 | ThermoRoute | 7 | all | 116 | 1.694 | 1.269 | -0.130 | station median | si07.row |
+| Air2stream (a8, unofficial) | 1 | all | 118 | 0.719 | 0.525 | -0.034 | station median | si07.row |
+| Air2stream (a8, unofficial) | 3 | all | 118 | 1.478 | 1.066 | -0.155 | station median | si07.row |
+| Air2stream (a8, unofficial) | 7 | all | 118 | 1.825 | 1.317 | -0.243 | station median | si07.row |
 | no supported Fortran compiler present (`gfortran`, `ifort`, `ifx`, `flang`, `nvfortran`, `f95`, `f90` all absent), no Makefile or documented compiler command, and Intel-specific `ifport` / `makedirqq` calls in `AIR2STREAM_READ.f90` | the pinned source was never built in this environment |
 | the shipped `air2stream_1.0.0.out` binary was deliberately not executed | running an upstream binary would not show that the pinned source builds, and no golden-output checksum is published to attest it against |
 | the commit is unsigned (`%G? = N`, `git verify-commit` fails) and no tag is advertised | provenance is TLS transport plus Git object identity, not signer attestation |

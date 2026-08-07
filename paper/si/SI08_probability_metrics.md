@@ -16,8 +16,21 @@ producers.
 
 ## 1. Metric projection (target period)
 
-| Model | Horizon | n | marginal coverage | width (°C) | interval score | pinball | Brier score | Brier skill | log score | discrimination | ECE | calibration slope | calibration intercept | binder row ID |
-|---|---:|---|---|---|---|---|---|---|---|---|---|---|---|---|
+Filled from `outputs/conventional/probability_metrics_2021_2023.csv` (frozen
+CQR + Platt calibration applied identically to the held-out predictions).
+Metrics not computed on the held-out window are `NOT_REGISTERED`.
+
+| Model | Horizon | n | marginal coverage | width (°C) | interval score | pinball | Brier score | Brier skill | log score | discrimination | ECE | calibration slope | calibration intercept |
+|---|---:|---|---|---|---|---|---|---|---|---|---|---|
+| LightGBM | 1 | 120,466 | 0.907 | 1.905 | NOT_REGISTERED | NOT_REGISTERED | 0.020 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| LightGBM | 3 | 119,654 | 0.904 | 4.142 | NOT_REGISTERED | NOT_REGISTERED | 0.039 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| LightGBM | 7 | 118,687 | 0.903 | 5.318 | NOT_REGISTERED | NOT_REGISTERED | 0.049 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| LSTM | 1 | 120,466 | 0.931 | 2.337 | NOT_REGISTERED | NOT_REGISTERED | 0.036 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| LSTM | 3 | 119,654 | 0.926 | 4.744 | NOT_REGISTERED | NOT_REGISTERED | 0.046 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| LSTM | 7 | 118,687 | 0.919 | 5.833 | NOT_REGISTERED | NOT_REGISTERED | 0.056 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| ThermoRoute | 1 | 120,466 | 0.932 | 2.186 | NOT_REGISTERED | NOT_REGISTERED | 0.025 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| ThermoRoute | 3 | 119,654 | 0.925 | 4.465 | NOT_REGISTERED | NOT_REGISTERED | 0.042 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
+| ThermoRoute | 7 | 118,687 | 0.919 | 5.652 | NOT_REGISTERED | NOT_REGISTERED | 0.051 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
 
 ## 2. Reliability bins (target period)
 

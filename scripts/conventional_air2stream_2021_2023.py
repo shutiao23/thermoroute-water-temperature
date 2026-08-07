@@ -16,6 +16,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from thermoroute import config as C  # noqa: E402
 from thermoroute import air2stream as A2S  # noqa: E402
 from thermoroute import features as F  # noqa: E402
 
@@ -48,6 +49,7 @@ def main() -> None:
     train_panel = train_panel.sort_values(["site_id", "DATE"]).reset_index(drop=True)
 
     stations = sorted(test_panel.site_id.unique())
+    C.STATIONS = tuple(stations)
     print(f"fitting {len(stations)} stations", flush=True)
 
     import multiprocessing as mp

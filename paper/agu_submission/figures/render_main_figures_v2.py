@@ -218,7 +218,8 @@ def fig3(registry, sm, skill, paired, mech, *rest):
     gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 0.9], hspace=0.4, wspace=0.2)
 
     ax_a = fig.add_subplot(gs[0, 0])
-    models = ["Persistence", "DampedPersistence", "LightGBM", "LSTM", "ThermoRoute"]
+    models = ["Persistence", "DampedPersistence", "LightGBM", "LSTM",
+              "ThermoRoute"]
     for model in models:
         g = sm[sm.model == model]
         ys = [g[g.horizon == h].rmse.median() for h in (1, 3, 7)]
@@ -227,8 +228,18 @@ def fig3(registry, sm, skill, paired, mech, *rest):
                   markeredgecolor="white", markeredgewidth=0.4)
         ax_a.annotate(model, xy=(7, ys[-1]), xytext=(7.6, ys[-1]),
                       fontsize=7.5, va="center", color=colour)
+    a2s = pd.read_parquet(CONV / "air2stream_2021_2023.parquet")
+    a2s["site_id"] = a2s["site_id"].astype(str).str.zfill(8)
+    a2s_rmse = a2s.groupby("horizon").apply(
+        lambda g: np.sqrt(np.mean((g.y_pred - g.y_true) ** 2)),
+        include_groups=False)
+    ax_a.plot((1, 3, 7), [a2s_rmse[h] for h in (1, 3, 7)], marker="P", ms=3.5,
+              lw=1.1, color=figstyle.WONG["purple"],
+              markeredgecolor="white", markeredgewidth=0.4)
+    ax_a.annotate("Air2stream", xy=(7, a2s_rmse[7]), xytext=(7.6, a2s_rmse[7]),
+                  fontsize=7.5, va="center", color=figstyle.WONG["purple"])
     ax_a.set_xticks((1, 3, 7))
-    ax_a.set_xlim(0.5, 10.5)
+    ax_a.set_xlim(0.5, 11.2)
     ax_a.set_ylim(0.4, 2.4)
     ax_a.set_xlabel("horizon (d)")
     ax_a.set_ylabel("station-median RMSE (\u00b0C)")
