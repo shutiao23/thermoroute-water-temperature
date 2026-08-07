@@ -101,17 +101,42 @@ def _station_median_rmse(station: pd.DataFrame) -> dict[tuple[str, int], float]:
     return out
 
 
+def _station_median_skill(
+    station: pd.DataFrame, model: str, baseline: str, horizon: int,
+) -> float:
+    """Median over stations of the per-station skill 1 - RMSE_m/RMSE_b.
+
+    The comparison uses the intersection of reportable stations that have
+    finite RMSE for both models at this horizon, so model and baseline are
+    scored on the same station set.
+    """
+    a = station[(station.model == model) & (station.horizon == horizon)].set_index(
+        "site_id")["rmse"]
+    b = station[(station.model == baseline) & (station.horizon == horizon)].set_index(
+        "site_id")["rmse"]
+    both = a.index.intersection(b.index)
+    a, b = a.loc[both], b.loc[both]
+    if a.empty:
+        return float("nan")
+    return float((1.0 - a / b).median())
+
+
 def skill_table(
     station: pd.DataFrame,
     pooled: pd.DataFrame,
     *,
     baselines: Sequence[str] = SKILL_BASELINES,
 ) -> pd.DataFrame:
-    """Skill = 1 - RMSE_model/RMSE_baseline, on the station-median RMSE.
+    """Skill = median over reportable stations of per-station
+    1 - RMSE_model/RMSE_baseline.
 
-    Computed on the common station set at each model x horizon (intersection
-    of reportable stations), matching the development convention.  Baselines
-    are present in ``station``/``pooled`` and yield skill rows of zero.
+    Per-station skill is computed on the common station set at each
+    model x horizon (intersection of reportable stations), and the reported
+    value is the unweighted median of those station values -- the same
+    station-level estimand as the paired DeltaRMSE of equation (9).  A ratio
+    of station-median RMSEs is a different quantity and is deliberately not
+    used (Section 3.6).  Baselines are present in ``station``/``pooled`` and
+    yield skill rows of zero.
     """
     station_med = _station_median_rmse(station)
     rows = []
@@ -120,7 +145,7 @@ def skill_table(
             base_key = (base, horizon)
             if base_key not in station_med or base == model:
                 continue
-            skill = 1.0 - value / station_med[base_key]
+            skill = _station_median_skill(station, model, base, horizon)
             rows.append({
                 "model": model,
                 "horizon": horizon,

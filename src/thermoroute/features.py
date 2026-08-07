@@ -106,7 +106,7 @@ class HarmonicClimatology:
         pooled_beta = regress(tr, station_balanced=pooled)
         if pooled_beta is None:
             raise ValueError("not enough finite train-station data to fit climatology")
-        for st in C.STATIONS:
+        for st in fitted:
             sub = tr[tr.site_id == st]
             station_beta = None if pooled or st not in fitted else regress(sub)
             coef[st] = pooled_beta.copy() if station_beta is None else station_beta

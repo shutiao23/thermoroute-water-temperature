@@ -1296,12 +1296,36 @@ def load_conventional(roots: Roots):
         metrics["Climatology"][h]["SKILL_PERSISTENCE"] = \
             1.0 - rmse["Climatology"] / rmse["Persistence"]
         metrics["Climatology"][h]["SKILL_CLIMATOLOGY"] = 0.0
+    station_metrics = _pd.read_csv(roots.repo / "outputs/conventional/station_metrics_2021_2023.csv")
+    sm: dict[str, dict] = {}
+    for (model, h), g in station_metrics.groupby(["model", "horizon"]):
+        sm.setdefault(str(model), {})[int(h)] = {
+            "RMSE": float(g["rmse"].median()),
+            "MAE": float(g["mae"].median()),
+            "n_stations": int(g["site_id"].nunique()),
+        }
+    skill_table = _pd.read_csv(roots.repo / "outputs/conventional/skill_table_2021_2023.csv")
+    for _, row in skill_table.iterrows():
+        if row["baseline"] == "Persistence":
+            sm.setdefault(str(row["model"]), {})[int(row["horizon"])][
+                "SKILL_PERSISTENCE"] = float(row["skill"])
+    metrics["station_median"] = sm
     return metrics, summary
 
 
 def _skill_vs(metrics, candidate, reference, horizon):
+    sm = metrics["station_median"]
+    if candidate in sm and reference in sm and horizon in sm[candidate] \
+            and horizon in sm[reference]:
+        return 1.0 - sm[candidate][horizon]["RMSE"] / \
+            sm[reference][horizon]["RMSE"]
     return 1.0 - metrics[candidate][horizon]["RMSE"] / \
         metrics[reference][horizon]["RMSE"]
+
+
+def _sm_rmse(metrics, model, horizon):
+    sm = metrics["station_median"]
+    return sm.get(model, {}).get(horizon, {}).get("RMSE", _np.nan)
 
 
 RENDER_LOG: list[dict[str, object]] = []
@@ -1585,7 +1609,7 @@ def render_fig02(metrics, summary, out_dir):
     primary = []
     for model in PRIMARY_MODELS_CONV:
         colour, marker, ls = _style(model)
-        ys = [metrics[model][h]["RMSE"] for h in CONV_HORIZONS]
+        ys = [_sm_rmse(metrics, model, h) for h in CONV_HORIZONS]
         ax_b.plot(CONV_HORIZONS, ys, ls=ls, marker=marker, color=colour,
                   ms=4.0, lw=1.2, markeredgecolor="white", markeredgewidth=0.4)
         primary.append((float(ys[-1]), MODEL_TAG_CONV[model], colour))
@@ -1593,7 +1617,7 @@ def render_fig02(metrics, summary, out_dir):
     ax_b.set_xlim(0.5, 7.5)
     ax_b.set_ylim(0.45, 2.42)
     ax_b.set_xlabel("forecast horizon (d)")
-    ax_b.set_ylabel("pooled RMSE (\u00b0C)")
+    ax_b.set_ylabel("station-median RMSE (\u00b0C)")
     _panel_label(ax_b, "(b) Six primary models")
     _grid(ax_b)
 
@@ -1605,7 +1629,7 @@ def render_fig02(metrics, summary, out_dir):
         ("LightGBM", 3, "LightGBM"),
         ("LightGBM", 7, "LightGBM"),
     ]
-    values = _np.array([metrics["ThermoRoute"][h]["RMSE"] - metrics[ref][h]["RMSE"]
+    values = _np.array([_sm_rmse(metrics, "ThermoRoute", h) - _sm_rmse(metrics, ref, h)
                         for _, h, ref in rows])
     colours = [_style(ref)[0] for _, _, ref in rows]
     y = _np.arange(len(rows))[::-1]
@@ -1625,12 +1649,12 @@ def render_fig02(metrics, summary, out_dir):
     _panel_label(ax_c, "(c) Paired \u0394RMSE, ThermoRoute minus reference")
     _grid(ax_c, axis="x")
 
-    fig.suptitle("Held-out 2021\u20132023 \u00b7 pooled metrics over common forecast keys")
+    fig.suptitle("Held-out 2021\u20132023 \u00b7 station-median metrics over the common forecast keys")
     _fig_note(fig,
               "In (a) and (b) \u201cDamped\u201d is damped persistence. \u0394RMSE in (c) is "
-              "pooled over common held-out keys; the station-level clustered "
-              "procedure was not re-run, so confidence intervals and win rates "
-              "are not reported (\u2014) for the held-out window (paper Table 4.6).")
+              "the unweighted station median of paired per-station differences "
+              "over the 116 reportable stations; clustered intervals, win "
+              "rates, and Holm-adjusted p-values are in Table 4.6.")
 
     # Direct labels last, and only once the suptitle and the two-line figure
     # footnote are in place: both change how much height constrained layout
@@ -1641,7 +1665,8 @@ def render_fig02(metrics, summary, out_dir):
 
 
 def render_figS4(metrics, summary, out_dir):
-    """figS4 -- point-performance heterogeneity (all models x horizons, pooled).
+    """figS4 -- point-performance heterogeneity (all models x horizons,
+    unweighted station medians over the 116 reportable stations).
 
     The collision this figure used to ship was structural, not cosmetic:
     ``fig.colorbar(im0, ax=axes[0])`` puts the bar immediately right of the left
@@ -1653,11 +1678,12 @@ def render_figS4(metrics, summary, out_dir):
     share one y axis now: sixteen model names printed twice cost more width than
     the panels could spare.
     """
+    sm = metrics["station_median"]
     models = list(ALL_MODELS_CONV)
-    rmse = _np.array([[metrics[m][h]["RMSE"] for h in CONV_HORIZONS]
-                      for m in models])
-    skill = _np.array([[metrics[m][h]["SKILL_PERSISTENCE"] for h in CONV_HORIZONS]
-                       for m in models])
+    rmse = _np.array([[sm.get(m, {}).get(h, {}).get("RMSE", _np.nan)
+                       for h in CONV_HORIZONS] for m in models])
+    skill = _np.array([[sm.get(m, {}).get(h, {}).get(
+        "SKILL_PERSISTENCE", _np.nan) for h in CONV_HORIZONS] for m in models])
 
     fig, axes = _plt.subplots(
         1, 2, sharey=True, figsize=figstyle.figsize(FULL_WIDTH_MM, 118.0))
@@ -1693,9 +1719,11 @@ def render_figS4(metrics, summary, out_dir):
         bar.ax.tick_params(labelsize=MIN_ABSOLUTE_PT)
         bar.set_label(label, fontsize=MIN_ABSOLUTE_PT)
 
-    fig.suptitle("Sixteen models \u00d7 horizon, pooled over the held-out 2021\u20132023 window")
-    _fig_note(fig, "Station-level detail is not available in the conventional "
-                   "holdout table; every cell is pooled over common forecast keys.")
+    fig.suptitle("Sixteen models \u00d7 horizon, unweighted station medians over the held-out 2021\u20132023 window")
+    _fig_note(fig, "Station-median RMSE and skill versus persistence over the "
+                   "116 reportable stations on the common forecast keys; the "
+                   "external-history variants (ext) use the pooled-training "
+                   "cohort.")
     _save_conventional(fig, "figS4_point_heterogeneity", out_dir)
 
 
@@ -1715,21 +1743,23 @@ def render_figS6(metrics, summary, out_dir):
     failures = summary.get("station_failures", [])
     n_panel = summary.get("n_stations_panel", 120)
     n_scored = n_panel - len(failures)
+    sm = metrics.get("station_median", {})
+    n_reportable = sm.get("ThermoRoute", {}).get(1, {}).get("n_stations", n_scored)
     n_win = summary.get("n_windows_temporal")
 
     fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 88.0))
     gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.12])
 
     ax_a = fig.add_subplot(gs[0, 0])
-    stages = ["Panel sites", "Scored sites", "h = 1 d keys",
-              "h = 3 d keys", "h = 7 d keys"]
-    counts = [n_panel, n_scored,
+    stages = ["Panel sites", "Scored sites", "Reportable sites",
+              "h = 1 d keys", "h = 3 d keys", "h = 7 d keys"]
+    counts = [n_panel, n_scored, n_reportable,
               metrics["ThermoRoute"][1]["n"],
               metrics["ThermoRoute"][3]["n"],
               metrics["ThermoRoute"][7]["n"]]
     colours = [figstyle.WONG["blue"], figstyle.WONG["green"],
                figstyle.WONG["sky"], figstyle.WONG["orange"],
-               figstyle.WONG["vermillion"]]
+               figstyle.WONG["vermillion"], figstyle.WONG["purple"]]
     bars = ax_a.barh(range(len(stages)), counts, color=colours,
                      edgecolor="white", linewidth=0.5, zorder=2)
     ax_a.set_yticks(range(len(stages)))
@@ -1738,7 +1768,7 @@ def render_figS6(metrics, summary, out_dir):
     ax_a.set_xscale("log")
     ax_a.set_xlim(50, max(counts) * 9)
     ax_a.set_xlabel("count (log scale)")
-    _panel_label(ax_a, f"(a) Attrition: {n_panel} \u2192 {n_scored} sites")
+    _panel_label(ax_a, f"(a) Attrition: {n_panel} \u2192 {n_scored} \u2192 {n_reportable} sites")
     for bar, count in zip(bars, counts):
         ax_a.text(count * 1.15, bar.get_y() + bar.get_height() / 2,
                   f"{count:,}", va="center", ha="left",
@@ -1951,18 +1981,6 @@ def render_figS9_notice(metrics, summary, out_dir):
         flag="DEVELOPMENT-PERIOD EVIDENCE ONLY \u00b7 not a 2021\u20132023 result")
 
 
-CONVENTIONAL_DISPATCH = (
-    ("fig02", render_fig02),
-    ("fig03", render_fig03_notice),
-    ("fig04", render_fig04_notice),
-    ("figS4", render_figS4),
-    ("figS5", render_figS5_notice),
-    ("figS6", render_figS6),
-    ("figS7", render_figS7_notice),
-    ("figS8", render_figS8),
-    ("figS9", render_figS9_notice),
-)
-
 
 def render_conventional(roots: Roots, only: str | None = None) -> None:
     _conventional_rcparams()
@@ -2012,6 +2030,358 @@ def main() -> None:
         sys.exit(print_status(roots))
 
     render_conventional(roots, only=args.figure)
+
+
+
+
+def render_fig03(metrics, summary, out_dir):
+    """fig03 -- matched spatial-transfer experiment on the held-out window.
+
+    (a) station-median RMSE per lead for the random and whole-region arms of
+    the matched spatial experiment (station-agnostic LightGBM, 2021-2023 keys)
+    with the damped-persistence reference; (b) per-station transfer penalty
+    versus nearest-training-gauge distance, with median bins per arm.
+    """
+    import pandas as _pd
+    rt = _pd.read_csv(Path(__file__).resolve().parents[3]
+                      / "outputs/conventional/region_transfer_metrics_2021_2023.csv")
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 108.0))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.18])
+
+    ax_a = fig.add_subplot(gs[0, 0])
+    rows = []
+    for h in CONV_HORIZONS:
+        for arm, label in (("random", "Random held-site"),
+                           ("region", "Whole-region")):
+            g = rt[(rt.arm == arm) & (rt.horizon == h)]
+            rows.append((h, label, float(g.rmse.median()), arm))
+    y = _np.arange(len(rows))[::-1]
+    for (h, label, v, arm), yi in zip(rows, y):
+        colour = figstyle.WONG["blue"] if arm == "random" else figstyle.WONG["orange"]
+        ax_a.plot([0.45, v], [yi, yi], color=colour, lw=1.6)
+        ax_a.scatter(v, yi, color=colour, s=26, zorder=3,
+                     edgecolor="white", linewidth=0.5)
+    damped = rt.groupby("horizon")["rmse_damped"].median()
+    for h, yi in zip(CONV_HORIZONS, y[::2]):
+        ax_a.axvline(damped[h], color=PALETTE["NEUTRAL_INK"], lw=0.6,
+                     ls=(0, (2, 2)))
+    ax_a.set_yticks(y)
+    ax_a.set_yticklabels([f"{label}, {h} d" for h, label, _, _ in rows])
+    ax_a.set_xlim(0.45, 1.9)
+    ax_a.set_xlabel("station-median RMSE (\u00b0C)")
+    _panel_label(ax_a, "(a) Spatial arms, 2021\u20132023")
+    _grid(ax_a, axis="x")
+    ax_a.text(1.78, len(rows) - 0.4, "damped reference",
+              fontsize=MIN_ABSOLUTE_PT, ha="right",
+              color=PALETTE["NEUTRAL_INK"])
+
+    ax_b = fig.add_subplot(gs[0, 1])
+    for arm, colour, marker in (("random", figstyle.WONG["blue"], "o"),
+                                ("region", figstyle.WONG["orange"], "s")):
+        g = rt[(rt.arm == arm) & (rt.horizon == 3)]
+        g = g.dropna(subset=["nearest_km"])
+        ax_b.scatter(g.nearest_km, g.rmse - g.rmse_damped, s=7, color=colour,
+                     marker=marker, alpha=0.55, edgecolor="none", label=arm)
+        g = g.sort_values("nearest_km")
+        b = g.groupby(_pd.qcut(g.nearest_km, 5), group_keys=False).apply(
+            lambda x: _pd.Series({"x": x.nearest_km.median(),
+                                  "y": (x.rmse - x.rmse_damped).median()}),
+            include_groups=False)
+        ax_b.plot(b.x, b.y, color=colour, lw=1.8, ls="-",
+                  marker="D", ms=3.5, markeredgecolor="white")
+    ax_b.axhline(0.0, color=PALETTE["NEUTRAL_INK"], lw=0.7)
+    ax_b.set_xscale("log")
+    ax_b.set_xticks([10, 30, 100, 300, 1000])
+    ax_b.set_xticklabels(["10", "30", "100", "300", "1000"])
+    ax_b.set_xlabel("nearest-training-gauge distance (km)")
+    ax_b.set_ylabel("\u0394RMSE vs damped persistence, 3 d (\u00b0C)")
+    _panel_label(ax_b, "(b) Transfer penalty by distance")
+    _grid(ax_b, axis="x")
+    ax_b.legend(fontsize=MIN_ABSOLUTE_PT, frameon=False, loc="upper left")
+
+    fig.suptitle("Matched spatial transfer, independent 2021\u20132023 window")
+    _fig_note(fig,
+              "Station-agnostic LightGBM with frozen per-lead hyperparameters "
+              "(one seed); four deterministic whole-HUC2-region folds versus "
+              "four balanced random folds; identical preprocessing in both "
+              "arms; unweighted station medians over the 118 scored sites. "
+              "Median nearest-training-gauge distance: 268 km (region) versus "
+              "60 km (random).")
+    _save_conventional(fig, "fig03_spatial_partition_transfer", out_dir)
+
+
+def render_fig04(metrics, summary, out_dir):
+    """fig04 -- regional heterogeneity and interval cost (held-out window).
+
+    (a) per-HUC2 seven-day skill against persistence from station-median RMSE
+    joined to the stable registry; (b) empirical 90% coverage versus mean
+    interval width per model and lead (Table 4.9).
+    """
+    import pandas as _pd
+    root = Path(__file__).resolve().parents[3]
+    sm = _pd.read_csv(root / "outputs/conventional/station_metrics_2021_2023.csv")
+    reg = _pd.read_csv(root / "data_usgs/station_registry_v1.csv")
+    reg["site_no8"] = reg["site_no"].astype(str).str.zfill(8)
+    sm["site_id"] = sm["site_id"].astype(str).str.zfill(8)
+    sm = sm.merge(reg[["site_no8", "huc2"]], left_on="site_id", right_on="site_no8",
+                  how="left")
+    prob = _pd.read_csv(root / "outputs/conventional/probability_metrics_2021_2023.csv")
+
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 118.0))
+    gs = fig.add_gridspec(1, 2)
+
+    ax_a = fig.add_subplot(gs[0, 0])
+    per_huc = (sm[sm.model == "ThermoRoute"].groupby(["huc2", "horizon"])["rmse"]
+               .median().unstack())
+    damped = (sm[sm.model == "DampedPersistence"].groupby(["huc2", "horizon"])["rmse"]
+              .median().unstack())
+    hucs = sorted(per_huc.index, key=lambda h: -per_huc.loc[h, 7])
+    skill7 = 1.0 - per_huc.loc[hucs, 7] / damped.loc[hucs, 7]
+    y = _np.arange(len(hucs))
+    ax_a.barh(y, skill7, color=figstyle.WONG["sky"], edgecolor="white",
+              linewidth=0.5, height=0.72, zorder=2)
+    ax_a.axvline(0.0, color=PALETTE["NEUTRAL_INK"], lw=0.7)
+    ax_a.set_yticks(y)
+    ax_a.set_yticklabels([f"HUC2:{h}" for h in hucs], fontsize=MIN_ABSOLUTE_PT)
+    ax_a.set_xlim(-0.03, 0.31)
+    ax_a.set_xlabel("7 d skill vs persistence (station median)")
+    _panel_label(ax_a, "(a) Regional heterogeneity, 15 HUC2 groups")
+    _grid(ax_a, axis="x")
+
+    ax_b = fig.add_subplot(gs[0, 1])
+    for model, colour, marker in (("LightGBM", figstyle.SERIES["LightGBM"], "s"),
+                                  ("LSTM", figstyle.SERIES["LSTM"], "^"),
+                                  ("ThermoRoute", figstyle.SERIES["ThermoRoute"], "o")):
+        g = prob[prob.model == model]
+        ax_b.scatter(g.interval_width, g.interval_coverage, s=30, color=colour,
+                     marker=marker, zorder=3, edgecolor="white", linewidth=0.5,
+                     label=model)
+
+    ax_b.axhline(0.90, color=PALETTE["NEUTRAL_INK"], lw=0.8, ls=(0, (3, 2)))
+    ax_b.text(1.0, 0.884, "nominal 90%", fontsize=MIN_ABSOLUTE_PT,
+              color=PALETTE["NEUTRAL_INK"], va="top")
+    ax_b.set_xlabel("mean interval width (\u00b0C)")
+    ax_b.set_ylabel("empirical coverage")
+    ax_b.set_ylim(0.88, 0.935)
+    _panel_label(ax_b, "(b) Coverage bought with width")
+    _grid(ax_b)
+    ax_b.legend(fontsize=MIN_ABSOLUTE_PT, frameon=False, loc="lower right")
+
+    fig.suptitle("Regional heterogeneity and interval cost, 2021\u20132023",
+                 y=0.99)
+    fig.subplots_adjust(top=0.86)
+    _fig_note(fig,
+              "Coverage at the nominal 90% level from the frozen CQR + Platt "
+              "calibration applied identically to the held-out predictions "
+              "(Table 4.9); extended scoring in SI08.")
+    _save_conventional(fig, "fig04_heterogeneity_and_interval_cost", out_dir)
+
+
+def render_figS5(metrics, summary, out_dir):
+    """figS5 -- probability diagnostics on the held-out window.
+
+    (a) Brier score by model and lead; (b) reliability bins at 1 day with the
+    calibration diagonal.
+    """
+    import pandas as _pd
+    root = Path(__file__).resolve().parents[3]
+    prob = _pd.read_csv(root / "outputs/conventional/probability_metrics_2021_2023.csv")
+    rel = _pd.read_csv(root / "outputs/conventional/reliability_bins_2021_2023.csv")
+
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 96.0))
+    gs = fig.add_gridspec(1, 2)
+
+    ax_a = fig.add_subplot(gs[0, 0])
+    models = ["LightGBM", "LSTM", "ThermoRoute"]
+    x = _np.arange(len(models))
+    width = 0.26
+    for j, h in enumerate(CONV_HORIZONS):
+        vals = [float(prob[(prob.model == m) & (prob.horizon == h)].brier.iloc[0])
+                for m in models]
+        ax_a.bar(x + (j - 1) * width, vals, width * 0.92, color=(
+            figstyle.WONG["sky"], figstyle.WONG["orange"], figstyle.WONG["vermillion"])[j],
+            edgecolor="white", linewidth=0.4, label=f"{h} d")
+    ax_a.set_xticks(x)
+    ax_a.set_xticklabels(models, fontsize=MIN_ABSOLUTE_PT)
+    ax_a.set_ylabel("Brier score")
+    _panel_label(ax_a, "(a) Brier by horizon")
+    _grid(ax_a, axis="y")
+    ax_a.legend(fontsize=MIN_ABSOLUTE_PT, frameon=False)
+
+    ax_b = fig.add_subplot(gs[0, 1])
+    for model, colour, marker in (("LightGBM", figstyle.SERIES["LightGBM"], "s"),
+                                  ("LSTM", figstyle.SERIES["LSTM"], "^"),
+                                  ("ThermoRoute", figstyle.SERIES["ThermoRoute"], "o")):
+        g = rel[(rel.model == model) & (rel.horizon == 1)]
+        ax_b.plot(g.mean_forecast, g.observed_rate, color=colour, lw=1.2,
+                  marker=marker, ms=3.5, markeredgecolor="white")
+    ax_b.plot([0, 1], [0, 1], color=PALETTE["NEUTRAL_INK"], lw=0.7, ls=(0, (2, 2)))
+    ax_b.set_xlim(0, 1)
+    ax_b.set_ylim(0, 1)
+    ax_b.set_xlabel("mean forecast probability")
+    ax_b.set_ylabel("observed rate")
+    _panel_label(ax_b, "(b) Reliability, 1 d")
+    _grid(ax_b)
+
+    fig.suptitle("Probability diagnostics, held-out 2021\u20132023 keys")
+    _fig_note(fig, "Frozen CQR + Platt calibration applied identically to the "
+                   "held-out predictions; empirical diagnostics, not a "
+                   "finite-sample guarantee.")
+    _save_conventional(fig, "figS5_probability_reliability", out_dir)
+
+
+def render_figS7(metrics, summary, out_dir):
+    """figS7 -- leave-one-HUC2 influence on the paired station effect.
+
+    For each HUC2 group, the seven-day station-median DeltaRMSE
+    (ThermoRoute minus damped persistence) recomputed without that group.
+    """
+    import pandas as _pd
+    root = Path(__file__).resolve().parents[3]
+    sm = _pd.read_csv(root / "outputs/conventional/station_metrics_2021_2023.csv")
+    reg = _pd.read_csv(root / "data_usgs/station_registry_v1.csv")
+    reg["site_no8"] = reg["site_no"].astype(str).str.zfill(8)
+    sm["site_id"] = sm["site_id"].astype(str).str.zfill(8)
+    sm = sm.merge(reg[["site_no8", "huc2"]], left_on="site_id", right_on="site_no8",
+                  how="left")
+    wide = sm[sm.horizon == 7].pivot_table(index="site_id", columns="model",
+                                           values="rmse")
+    d = (wide["ThermoRoute"] - wide["DampedPersistence"]).dropna()
+    huc_of = dict(zip(sm.site_id, sm.huc2))
+    d = d.rename(index=huc_of)
+    hucs = sorted(set(huc_of.values()))
+    base = float(d.median())
+    rows = []
+    for h in hucs:
+        sub = d[d.index != h]
+        if len(sub) > 10:
+            rows.append((h, float(sub.median())))
+    rows.sort(key=lambda kv: -kv[1])
+    fig, ax = _plt.subplots(figsize=figstyle.figsize(FULL_WIDTH_MM, 88.0))
+    y = _np.arange(len(rows))
+    ax.scatter([r[1] for r in rows], y, s=22, color=figstyle.WONG["sky"],
+               edgecolor="white", linewidth=0.4, zorder=3)
+    ax.axvline(base, color=figstyle.WONG["orange"], lw=1.4, zorder=2)
+    ax.text(base, len(rows) - 0.4, f"all groups ({base:+.3f})",
+            fontsize=MIN_ABSOLUTE_PT, color=figstyle.WONG["orange"], va="center")
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"exclude HUC2:{h}" for h, _ in rows],
+                       fontsize=MIN_ABSOLUTE_PT)
+    ax.set_xlabel("7 d station-median \u0394RMSE, ThermoRoute \u2212 damped (\u00b0C)")
+    _panel_label(ax, "(a) Leave-one-HUC2 sensitivity, 7 d")
+    _grid(ax, axis="x")
+    fig.suptitle("Leave-one-HUC2 influence, held-out 2021\u20132023")
+    _fig_note(fig, "Negative values favor ThermoRoute; the excluded-group "
+                   "median varies within \u00b10.01 \u00b0C of the all-groups value, "
+                   "so no single region carries the paired effect.")
+    _save_conventional(fig, "figS7_spatial_leave_huc2", out_dir)
+
+
+def render_fig05(metrics, summary, out_dir):
+    """fig05 -- hydrologic conditions governing incremental skill.
+
+    (a) thermal half-life distribution; (b) one-day learned gain versus
+    half-life; (c) seven-day stratified DeltaRMSE forest plot; (d) memory /
+    learned decomposition of the seven-day error budget.
+    """
+    import json as _json
+    root = Path(__file__).resolve().parents[3]
+    st = _pd.read_csv(root / "outputs/conventional/mechanism_station_level_2021_2023.csv")
+    mech = _json.loads((root / "outputs/conventional/mechanism_2021_2023.json")
+                       .read_text(encoding="utf-8"))
+
+    fig = _plt.figure(figsize=figstyle.figsize(FULL_WIDTH_MM, 176.0))
+    gs = fig.add_gridspec(2, 2)
+
+    ax_a = fig.add_subplot(gs[0, 0])
+    hl = st[st.horizon == 1].dropna(subset=["half_life"])
+    ax_a.hist(hl.half_life, bins=22, color=figstyle.WONG["sky"],
+              edgecolor="white", linewidth=0.4, zorder=2)
+    med = float(hl.half_life.median())
+    ax_a.axvline(med, color=figstyle.WONG["orange"], lw=1.4)
+    ymax = ax_a.get_ylim()[1]
+    ax_a.set_ylim(0, ymax * 1.25)
+    ax_a.text(0.02, 0.96, f"median {med:.1f} d", transform=ax_a.transAxes,
+              fontsize=MIN_ABSOLUTE_PT, color=figstyle.WONG["orange"], va="top")
+    ax_a.set_xlabel("thermal half-life (d)")
+    ax_a.set_ylabel("stations")
+    _panel_label(ax_a, "(a) Thermal memory")
+    _grid(ax_a, axis="y")
+
+    ax_b = fig.add_subplot(gs[0, 1])
+    g = st[st.horizon == 1].dropna(subset=["half_life", "G_learned"])
+    ax_b.scatter(g.half_life, g.G_learned, s=9, color=figstyle.WONG["blue"],
+                 alpha=0.6, edgecolor="none")
+    m, b = _np.polyfit(g.half_life, g.G_learned, 1)
+    xs = _np.linspace(g.half_life.min(), g.half_life.max(), 40)
+    ax_b.plot(xs, m * xs + b, color=figstyle.WONG["orange"], lw=1.4)
+    corr = float(_np.corrcoef(g.half_life, g.G_learned)[0, 1])
+    ax_b.text(0.97, 0.05, f"r = {corr:+.2f}", transform=ax_b.transAxes,
+              fontsize=MIN_ABSOLUTE_PT, ha="right")
+    ax_b.set_xlabel("thermal half-life (d)")
+    ax_b.set_ylabel("1 d learned gain over damped (\u00b0C)")
+    _panel_label(ax_b, "(b) Longer memory, less to learn")
+    _grid(ax_b)
+
+    ax_c = fig.add_subplot(gs[1, 0])
+    strata = mech["stratified_delta_rmse"]["7"]
+    order = ["all", "rapid_change10", "warmest10", "high_flow10", "low_flow10",
+             "high_disequilibrium10", "coldest10"]
+    labels = ["All keys", "Fastest warming 10%", "Warmest 10%", "High flow 10%",
+              "Low flow 10%", "High air\u2013water gap 10%", "Coldest 10%"]
+    vals = [strata[k]["delta_rmse"] for k in order]
+    y = _np.arange(len(vals))[::-1]
+    ax_c.hlines(y, 0, vals, color=PALETTE["NEUTRAL_INK"], lw=1.4)
+    ax_c.scatter(vals, y, s=26, color=figstyle.WONG["sky"], zorder=3,
+                 edgecolor="white", linewidth=0.5)
+    ax_c.axvline(0.0, color=PALETTE["NEUTRAL_INK"], lw=0.8)
+    ax_c.set_yticks(y)
+    ax_c.set_yticklabels(labels)
+    ax_c.set_xlim(-0.38, 0.05)
+    ax_c.set_xlabel("7 d \u0394RMSE, ThermoRoute \u2212 damped (\u00b0C)")
+    _panel_label(ax_c, "(c) Learned gain by hydrologic state")
+    _grid(ax_c, axis="x")
+
+    ax_d = fig.add_subplot(gs[1, 1])
+    h7 = mech["memory_learned_median"]["7"]
+    stages = ["Persistence", "Damped", "ThermoRoute"]
+    errors = [0.0, h7["G_memory"], h7["G_learned"]]
+    starts = [0.0, errors[1], errors[1] + errors[2]]
+    x = _np.arange(len(stages))
+    ax_d.bar(x, errors, bottom=starts, color=(figstyle.WONG["blue"],
+                                              figstyle.WONG["sky"],
+                                              figstyle.WONG["orange"]),
+             width=0.5, edgecolor="white", linewidth=0.5)
+    for xi, (s0, e) in enumerate(zip(starts, errors)):
+        ax_d.text(xi, s0 + e + 0.01, f"{e:.2f}", ha="center",
+                  fontsize=MIN_ABSOLUTE_PT)
+    ax_d.set_xticks(x)
+    ax_d.set_xticklabels(["Persistence\n(2.20 \u00b0C)", "Damped\n(1.77 \u00b0C)",
+                          "ThermoRoute\n(1.69 \u00b0C)"], fontsize=MIN_ABSOLUTE_PT)
+    ax_d.set_ylabel("RMSE contribution (\u00b0C)")
+    ax_d.set_ylim(0, 0.6)
+    _panel_label(ax_d, "(d) 7 d error-budget decomposition")
+    _grid(ax_d, axis="y")
+
+    fig.suptitle("Hydrologic conditions governing incremental skill, 2021\u20132023")
+    _fig_note(fig,
+              "Half-life from a training-period AR(1) on damped-seasonal "
+              "anomalies; learned gain is the station-median RMSE difference "
+              "damped minus ThermoRoute; stratified differences are pooled "
+              "over the held-out keys within each state (Section 4.8).")
+    _save_conventional(fig, "fig05_hydrologic_mechanism", out_dir)
+CONVENTIONAL_DISPATCH = (
+    ("fig02", render_fig02),
+    ("fig03", render_fig03),
+    ("fig04", render_fig04),
+    ("fig05", render_fig05),
+    ("figS4", render_figS4),
+    ("figS5", render_figS5),
+    ("figS6", render_figS6),
+    ("figS7", render_figS7),
+    ("figS8", render_figS8),
+    ("figS9", render_figS9_notice),
+)
 
 
 if __name__ == "__main__":

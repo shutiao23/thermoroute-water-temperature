@@ -576,6 +576,23 @@ def _render(markdown: str) -> str:
 \providecommand{{\ph}}[1]{{\texttt{{\textless{{}}\textless{{}}#1\textgreater{{}}\textgreater{{}}}}}}
 \providecommand{{\pandocbounded}}[1]{{#1}}
 \setlength{{\emergencystretch}}{{3em}}
+% Float policy (reviewer-layout pass): keep figures on the same page as
+% text; a figure is never alone on a page unless it fills most of it.
+\setcounter{{topnumber}}{{2}}
+\setcounter{{bottomnumber}}{{1}}
+\setcounter{{totalnumber}}{{3}}
+\renewcommand{{\topfraction}}{{0.90}}
+\renewcommand{{\bottomfraction}}{{0.75}}
+\renewcommand{{\textfraction}}{{0.08}}
+\renewcommand{{\floatpagefraction}}{{0.88}}
+\setlength{{\textfloatsep}}{{10pt plus 2pt minus 2pt}}
+\setlength{{\floatsep}}{{8pt plus 2pt minus 2pt}}
+\setlength{{\intextsep}}{{10pt plus 2pt minus 2pt}}
+\makeatletter
+\setlength{{\@fptop}}{{0pt}}
+\setlength{{\@fpsep}}{{12pt}}
+\setlength{{\@fpbot}}{{0pt plus 1fil}}
+\makeatother
 % Still required under agujournal2025.cls: removing \sloppy reintroduces four
 % overfull \hbox warnings in the body text.
 \sloppy
@@ -659,6 +676,14 @@ institution, street, city, state, postcode, country
 
 \end{{document}}
 """
+    # Reviewer-layout pass: cap main-text figures so they can share a page
+    # with prose (0.46 textheight) and keep their natural aspect ratio.
+    rendered = re.sub(
+        r"(\\pandocbounded\{\\includegraphics\[)(keepaspectratio,alt=)",
+        r"\1width=\\linewidth,height=0.46\\textheight,\2",
+        rendered,
+    )
+    rendered = rendered.replace("\\begin{figure}", "\\begin{figure}[!t]")
     _assert_unicode_is_declared(rendered)
     return rendered
 
