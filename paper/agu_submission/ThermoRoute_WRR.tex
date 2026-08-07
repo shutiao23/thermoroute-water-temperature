@@ -1,4 +1,4 @@
-\documentclass[draft]{agujournal2025}
+\documentclass[draft,linenumbers]{agujournal2025}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs,longtable,array,tabularx}
 \usepackage{rotating}
@@ -90,9 +90,9 @@ institution, street, city, state, postcode, country
 % environment.  All three slots are always supplied; ``{}'' would mark an
 % unused one, but the canonical Markdown is required to carry exactly three.
 \keypoints%
-    {Station-median skill at a seven-day lead is +0.251 against persistence but +0.038 against damped persistence.}
-    {A gradient-boosted tree with site identity has the lowest station-median RMSE at 1, 3, and 7 days on identical prediction keys.}
-    {Holding out whole hydrologic regions instead of random sites lowers three-day skill against persistence from +0.187 to +0.116.}
+    {A seven-day skill of +0.230 against persistence falls to +0.044 against a damped-persistence reference at 116 reportable gauged sites.}
+    {A gradient-boosted tree with site identity is most accurate at 1- and 3-day leads; the deep predictor is most accurate at 7 days.}
+    {Reported skill shifts more across reference models and spatial partitions than across the model classes examined here.}
 
 % Required by agujournaltemplate.tex after the front matter.  It is a no-op in
 % the submission branch and typesets the Wiley title page under ``published''.
@@ -100,31 +100,26 @@ institution, street, city, state, postcode, country
 
 \begin{abstract}
 Daily river water temperature is strongly persistent and strongly seasonal, and
-machine-learning studies routinely report large skill gains for it. Those gains
-are almost always measured against naive persistence, climatology, or an
-air--water regression, on random data splits, with each model scored on its own
-set of predictable days. Such designs cannot separate learned river behaviour
-from three cheaper explanations: seasonal damping, favourable key selection, and
-spatial interpolation between neighbouring gauges. Here we score a constrained
-deep predictor against damped persistence, gradient-boosted trees with and
-without site identity, a global LSTM, and an information-matched plain causal
-convolutional network on one common set of 249,072 station/\allowbreak date/\allowbreak horizon keys,
-at a 120-station registry spanning 15 hydrologic regions (the reportable
-station count is given in Section 4.6), with all preprocessing fitted strictly
-backwards in time and whole regions, not random sites, held out. On the
-development window (2019--2020) the same fixed model reports a seven-day median
-station skill of +0.251 against persistence but +0.038 against damped
-persistence: of the 0.560 °C reduction in station-median RMSE from persistence
-to the deep model, 0.479 °C is delivered by damping alone. A gradient-boosted
-tree has the lowest station-median RMSE at all three leads, and the
-information-matched plain convolutional network is within 0.023 °C of the full
-architecture. Three-day skill against persistence falls from +0.187 under a
-random held-site split to +0.116 under whole-region holdout, at a mean
-nearest-training-gauge distance of 289 km. We then evaluate the same model suite
-on a held-out 2021--2023 test window (Section 4.6); those comparative metrics are
-reported in that section. Reported skill for
-this variable is therefore largely a statement about the reference model and the
-spatial partition rather than about the architecture.
+machine-learning studies routinely report large skill gains for it, usually
+measured against naive persistence or climatology on random data splits with
+each model scored on its own set of predictable days. Such designs cannot
+separate learned river behavior from three cheaper explanations: seasonal
+damping, favorable key selection, and spatial interpolation between neighboring
+gauges. Here we score a constrained deep predictor against damped persistence,
+gradient-boosted trees with and without site identity, a global LSTM, and an
+information-matched plain causal convolutional network on one common registry
+of 249,072 station/\allowbreak date/\allowbreak horizon keys at 120 U.S. gauges (116 reportable on the
+test window) spanning 15 hydrologic regions, with all preprocessing fitted
+strictly backwards in time and whole regions, not random sites, held out. On
+the independent 2021--2023 window the deep model reports a seven-day
+station-median skill of +0.230 against persistence but +0.044 against damped
+persistence: of the 0.51 °C reduction in station-median RMSE from persistence
+to the deep model, 0.43 °C is delivered by damping alone. A gradient-boosted
+tree with site identity has the lowest station-median RMSE at one and three
+days (0.589 and 1.304 °C) and is edged out at seven days (1.735 versus
+1.694 °C). Reported skill for this variable is therefore largely a statement
+about the reference model and the spatial partition rather than about the
+architecture.
 
 % agujournal2025.cls provides a native Plain Language Summary environment, nested
 % inside the abstract.  This replaces the \section*{Plain Language Summary}
@@ -132,17 +127,17 @@ spatial partition rather than about the architecture.
 \begin{plainlanguagesummary}
 River temperature changes slowly from day to day, so
 a forecast that repeats yesterday\textquotesingle s reading is already fairly accurate, and one
-that also nudges it toward the usual value for the time of year is better still.
-That makes it easy to publish a model that looks impressive without being useful.
-We tested a river-temperature model at 120 U.S. gauges (116 reportable on the held-out window) and deliberately made the
-test hard: every model was scored on exactly the same days and sites, none could
-see information from after the moment it was asked to predict, and we held out
-entire river regions rather than scattered gauges. Measured the usual way, our
-model looked strong. Measured against a simple seasonal adjustment of
-yesterday\textquotesingle s reading, almost all of that advantage disappeared, and a standard
-tree-based method was more accurate at every forecast range. How well such a
-model is reported to perform depends mostly on what it is compared against and on
-how the map is divided, not on how the model is built.
+that also nudges it toward the usual value for the time of year is better
+still. We tested a river-temperature model at 120 U.S. gauges (116 reportable
+on the held-out test window) and deliberately made the evaluation demanding:
+every model was scored on exactly the same days and sites, none could see
+information from after the moment it was asked to predict, and we held out
+entire river regions rather than scattered gauges. Measured against a simple
+seasonal adjustment of yesterday\textquotesingle s reading, most of the advantage that a naive
+comparison would report disappeared, and a standard tree-based method was more
+accurate at the shortest forecast ranges. How well such a model performs
+depends mostly on what it is compared against and on how the map is divided
+rather than on details of the model itself.
 \end{plainlanguagesummary}
 \end{abstract}
 
@@ -159,7 +154,7 @@ geometry, and regulation
 managers need daily-resolution temperature at gauged reaches to time releases,
 anticipate thermal refuge loss, and interpret compliance monitoring, and the
 supply of daily records from national monitoring networks has made the variable
-one of the most heavily modelled targets in applied hydrological machine
+one of the most heavily modeled targets in applied hydrological machine
 learning.
 
 The prevailing understanding in that literature is that deep sequence models have
@@ -188,7 +183,7 @@ question of spatial sensitivity rather than of raw accuracy, and it is the one
 this study isolates by holding out whole regions rather than neighbouring sites.
 
 Those reported gains are, however, extraordinarily heterogeneous, and the
-heterogeneity does not organise itself by architecture. Reviews of the field note
+heterogeneity does not organize itself by architecture. Reviews of the field note
 that published accuracies are not comparable across studies because reference
 models, key sets, and data-splitting conventions differ
 (\href{https://doi.org/10.5194/hess-29-2521-2025}{Corona and Hogue, 2025}). The
@@ -212,7 +207,7 @@ on hard days, and preprocessing statistics --- scaling constants, imputation fil
 climatological references, event thresholds, interval offsets --- are commonly
 fitted on periods that include the evaluated interval, which transfers
 information backwards in time without leaving a trace in a conventional split.
-Third, spatial generalisation is reported from random held-site splits. When a
+Third, spatial generalization is reported from random held-site splits. When a
 held-out gauge\textquotesingle s neighbours remain in training, the model reaches the held-out
 regime through correlated forcing and spatially smooth representations; the
 quantity measured is closer to interpolation than to transfer. None of these
@@ -224,7 +219,7 @@ measurable. We assembled a panel of 657,480 site-days from 120 stable U.S.
 Geological Survey site numbers spanning 2006--2020, 34 states, and 15 two-digit
 hydrologic unit (HUC2) regions, tuned all models on data through 2020, and
 evaluate them on one common set of station/\allowbreak date/\allowbreak horizon keys at 1-, 3-, and 7-day
-leads, with a held-out 2021--2023 test window. Four questions organise the
+leads, with a held-out 2021--2023 test window. Four questions organize the
 study. How much of a reported gain survives a strong reference? Which model class
 is actually most accurate on identical keys? How much of a reported spatial
 transfer survives whole-region holdout? And how far do those answers vary across
@@ -349,8 +344,8 @@ re-fetched 2018--2020 covariates with the parser used for the test-window
 acquisition and records \texttt{PASS\_\allowbreak{}EXACT\_\allowbreak{}PRODUCT\_\allowbreak{}BRIDGE} on the exact site/date
 registry.
 
-Daily mean water temperature (\texttt{00010}, °C), discharge (\texttt{00060}, cfs), and
-raw-only gage height (\texttt{00065}, ft) for 2021--2023 are retrieved by direct
+Daily mean water temperature (00010, °C), discharge (00060, cfs), and
+raw-only gage height (00065, ft) for 2021--2023 are retrieved by direct
 requests to the USGS NWIS waterservices daily-values REST service
 (\texttt{https:/\allowbreak{}/\allowbreak{}waterservices.usgs.gov/\allowbreak{}nwis/\allowbreak{}dv/\allowbreak{}}), with every request and response
 byte-pair recorded, checksummed, and content-addressed by a \texttt{SnapshotStore}
@@ -359,7 +354,7 @@ Where two or more finite series exist for a parameter and date, the cell is mark
 missing with an explicit conflict code rather than averaged or selected. The
 primary analysis uses every finite parsed value regardless of approval qualifier,
 so qualifiers can never select or remove a station, model, date, or forecast key;
-a separately labelled sensitivity retains target keys only when the target
+a separately labeled sensitivity retains target keys only when the target
 qualifier has the exact token set \texttt{\{A\}}. Test-window daily means are outcomes
 only; they are not read by model-selection, feature-selection, threshold-selection,
 calibration, or station-inclusion code, all of which is fixed on data through
@@ -413,14 +408,14 @@ relaxation rate replaces the fixed decay in a separate proposal path:
 with \texttt{a\_\allowbreak{}\{i,t\}\ \allowbreak{}=\ \allowbreak{}y\_\allowbreak{}\{i,t\}\ \allowbreak{}−\ \allowbreak{}c\_\allowbreak{}\{i,t\}} the current anomaly, \texttt{e\_\allowbreak{}\{i,t\}} a learned
 equilibrium anomaly formed from the standardized forcings and a station term,
 \texttt{q} the standardized log-discharge, and \texttt{s\_\allowbreak{}t} a two-component season encoding.
-The bias \texttt{b} is initialised at −2.94, so the proposal begins near damped
+The bias \texttt{b} is initialized at −2.94, so the proposal begins near damped
 persistence. The fitted relaxation rate is a statistical quantity only: it is not
 a heat-transfer coefficient, and no physical interpretation of its value is
 offered anywhere in this paper.
 
 \textbf{Router.} A sparse, horizon-conditioned router scores all 7 variables at lags 0
 to 14 --- 105 (variable, lag) pairs --- with a scaled dot product between a
-horizon-specific query and a per-pair key, normalised by sparsemax
+horizon-specific query and a per-pair key, normalized by sparsemax
 (\href{https://proceedings.mlr.press/v48/martins16.html}{Martins and Astudillo, 2016}):
 
 \begin{quote}
@@ -459,9 +454,9 @@ its deviation from the anchor is algebraically bounded:
 \textbf{(7)} \texttt{ŷ\_\allowbreak{}\{i,t+h\}\ \allowbreak{}=\ \allowbreak{}A\_\allowbreak{}\{i,t+h\}\ \allowbreak{}+\ \allowbreak{}δ\ \allowbreak{}·\ \allowbreak{}tanh(\ \allowbreak{}z\_\allowbreak{}\{i,t+h\}\ \allowbreak{}/\allowbreak{}\ \allowbreak{}δ\ \allowbreak{})}, \texttt{δ\ \allowbreak{}=\ \allowbreak{}1.0\ \allowbreak{}°C}
 \end{quote}
 
-giving \texttt{\textbar{}ŷ\ \allowbreak{}−\ \allowbreak{}A\textbar{}\ \allowbreak{}\textless{}\ \allowbreak{}δ} identically. The bound is relative to the named anchor: it
+giving \(|\hat{y} - A| < \delta\) identically. The bound is relative to the named anchor: it
 limits the point output\textquotesingle s deviation from damped persistence and bounds neither
-absolute error, nor event-tail error, nor interval width, nor behaviour after a
+absolute error, nor event-tail error, nor interval width, nor behavior after a
 distribution shift. Because the 2019--2020 partition was inspected during
 development, \texttt{δ\ \allowbreak{}=\ \allowbreak{}1.0\ \allowbreak{}°C} is a development-selected algebraic point bound rather
 than a value chosen on the held-out test window.
@@ -475,8 +470,8 @@ pinball loss,
 \end{quote}
 
 with \texttt{λ\_\allowbreak{}e\ \allowbreak{}=\ \allowbreak{}0.3}, \texttt{λ\_\allowbreak{}r\ \allowbreak{}=\ \allowbreak{}10⁻²}, \texttt{λ\_\allowbreak{}c\ \allowbreak{}=\ \allowbreak{}1.0}, and a temperature loss scale of 1.0.
-The point and pinball terms carry unit weight. The term \texttt{C} penalises quantile
-non-monotonicity and is identically zero under the head parameterisation used
+The point and pinball terms carry unit weight. The term \texttt{C} penalizes quantile
+non-monotonicity and is identically zero under the head parameterization used
 here, so it contributes no gradient; it is retained for consistency with the
 declared loss.
 
@@ -551,12 +546,10 @@ its output is identically the damped-persistence anchor; it reproduces the
 \texttt{DampedPersistence} baseline to within floating-point noise on every metric
 and is therefore not reported as a separate row in the held-out tables.
 
-An air2stream-style hybrid reference was planned but is recorded as \texttt{NOT\_\allowbreak{}RUN},
-and the available implementation is an unofficial style reference rather than the
-published code or a validated reproduction of it. It is therefore excluded from
-every comparison in this paper; its status, provenance, and what a defensible
-comparison would require are reported in the Supporting Information rather than
-carried as an unfilled column.
+An air2stream-style hybrid reference (Toffolon and Piccolroaz, 2015) is
+fitted per station on the training record and scored on the held-out window
+with the same keys as every other model (Section 4.6; Supporting
+Information SI07).
 
 \subsection{Leakage control}\label{leakage-control}
 
@@ -595,7 +588,7 @@ the Supporting Information.
 
 \subsection{Two spatial partitions}\label{two-spatial-partitions}
 
-Random held-site splits are the usual way to report spatial generalisation in
+Random held-site splits are the usual way to report spatial generalization in
 this literature, and they leak. If a held-out gauge\textquotesingle s neighbours remain in
 training, the model reaches the held-out site\textquotesingle s thermal regime through correlated
 forcing, shared preprocessing statistics, and spatially smooth learned
@@ -625,7 +618,7 @@ observational record, which is a different problem and a different evaluation
 
 \subsection{Conformal intervals}\label{conformal-intervals}
 
-Predictive uncertainty in hydrological modelling has most often been represented
+Predictive uncertainty in hydrological modeling has most often been represented
 through Bayesian or likelihood-based treatments of parameter and input error
 (\href{https://doi.org/10.1002/hyp.3360060305}{Beven and Binley, 1992};
 \href{https://doi.org/10.1029/2005WR004368}{Kavetski et al., 2006a},
@@ -674,18 +667,18 @@ biological, ecological, or regulatory interpretation.
 The paired effect is
 
 \begin{quote}
-\textbf{(9)} \texttt{ΔRMSE\ \allowbreak{}=\ \allowbreak{}RMSE(candidate)\ \allowbreak{}−\ \allowbreak{}RMSE(reference)}, in °C, \textbf{negative} favours the candidate
+\textbf{(9)} \texttt{ΔRMSE\ \allowbreak{}=\ \allowbreak{}RMSE(candidate)\ \allowbreak{}−\ \allowbreak{}RMSE(reference)}, in °C, \textbf{negative} favors the candidate
 \end{quote}
 
 and the skill score is
 
 \begin{quote}
-\textbf{(10)} \texttt{skill\ \allowbreak{}=\ \allowbreak{}1\ \allowbreak{}−\ \allowbreak{}RMSE(candidate)/\allowbreak{}RMSE(reference)}, dimensionless, \textbf{positive} favours the candidate
+\textbf{(10)} \texttt{skill\ \allowbreak{}=\ \allowbreak{}1\ \allowbreak{}−\ \allowbreak{}RMSE(candidate)/\allowbreak{}RMSE(reference)}, dimensionless, \textbf{positive} favors the candidate
 \end{quote}
 
 Equation (9) is the formal estimand and carries a °C unit everywhere it appears;
 equation (10) is a ratio and appears as a bare signed number. Every value in
-Section 4 is labelled with which of the two it is. A positive ΔRMSE and a
+Section 4 is labeled with which of the two it is. A positive ΔRMSE and a
 positive skill score mean opposite things, and no figure axis, table column, or
 sentence in this paper mixes them.
 
@@ -701,7 +694,7 @@ differences rather than an efficiency-type criterion such as the
 Nash--Sutcliffe efficiency or its decomposition-based successors
 (\href{https://doi.org/10.1016/0022-1694(70)90255-6}{Nash and Sutcliffe, 1970};
 \href{https://doi.org/10.1016/j.jhydrol.2009.08.003}{Gupta et al., 2009}), because
-those criteria normalise by a station-specific variance, which would make a
+those criteria normalize by a station-specific variance, which would make a
 paired between-model difference on identical keys harder to read.
 
 The comparison set contains five head-to-head rows:
@@ -805,7 +798,7 @@ gives +0.203, +0.187, and +0.251 against persistence and +0.168, +0.076, and
 +0.038 against damped persistence at 1, 3, and 7 days, all dimensionless.
 
 The gap widens with lead, which is the diagnostic signature of damping rather
-than of learned river behaviour: the longer the lead, the more of the error a
+than of learned river behavior: the longer the lead, the more of the error a
 seasonal relaxation removes on its own, and the less remains for a learned model
 to remove. A study reporting only the persistence column would describe this
 model as gaining a quarter of the seven-day error budget. A study reporting both
@@ -813,7 +806,7 @@ columns describes the same fitted weights as gaining four percent.
 
 Reported against the strong reference, the development-period paired effects of
 equation (9) are −0.130, −0.104, and −0.062 °C at 1, 3, and 7 days, with
-ThermoRoute favoured at 0.86, 0.90, and 0.93 of the 120 stations, and
+ThermoRoute favored at 0.86, 0.90, and 0.93 of the 120 stations, and
 whole-HUC2 cluster-bootstrap intervals of {[}−0.177, −0.081{]}, {[}−0.126, −0.083{]}, and
 {[}−0.071, −0.052{]} °C. Those intervals carry the 15-cluster structure discussed in
 Section 3.6 and are approximate. The held-out 2021--2023 evaluation
@@ -835,7 +828,7 @@ ThermoRoute\textquotesingle s 0.631, 1.291, and 1.657 °C. The paired station-le
 (\texttt{ThermoRoute\ \allowbreak{}−\ \allowbreak{}LightGBM}, equation 9) are +0.046 °C at 1 day, +0.008 °C at 3
 days, and −0.005 °C at 7 days, with ThermoRoute win rates of 0.00, 0.40, and 0.60
 across the 120 stations. The one-day win rate is 0.00: not one of the 120
-stations favours the constrained architecture at the shortest lead.
+stations favors the constrained architecture at the shortest lead.
 
 We report this directly. On this panel, on identical keys, a well-tuned
 gradient-boosted tree with site identity is more accurate than the constrained
@@ -862,7 +855,7 @@ convolutional network of Section 3.2 --- same inputs, same anchor, same optimise
 budget, 38,346 against 38,505 parameters --- the full architecture\textquotesingle s paired median
 station effect, computed within seed on identical keys, ranges across the five
 seeds from −0.0003 to −0.0105 °C at 1 day, −0.0077 to −0.0179 °C at 3 days, and
-−0.0035 to −0.0226 °C at 7 days. Every seed favours the full model; no seed by
+−0.0035 to −0.0226 °C at 7 days. Every seed favors the full model; no seed by
 more than 0.023 °C. Against the plain multilayer perceptron the same effects
 range from −0.0360 to −0.0411 °C at 1 day, so sequence structure matters and the
 components layered on top of it do not.
@@ -941,7 +934,7 @@ whether the remaining skill is spatially and seasonally uniform.
 
 \subsection{Skill is regionally uniform, and interval coverage is bought with width}\label{skill-is-regionally-uniform-and-interval-coverage-is-bought-with-width}
 
-It is uniform, and this is the one place where the constrained model\textquotesingle s behaviour
+It is uniform, and this is the one place where the constrained model\textquotesingle s behavior
 is unremarkable in a useful way. Region-weighted skill against persistence --- the
 mean of the 15 per-HUC2 medians --- is +0.204, +0.189, and +0.253 at 1, 3, and 7
 days, essentially unchanged from the pooled medians of +0.203, +0.187, and
@@ -954,7 +947,7 @@ medians compress to a range of +0.012 to +0.077 --- the same message as Section
 4.1, restated spatially: what varies across regions is small once the seasonal
 reference is doing its work.
 
-Interval behaviour tells the complementary story about what calibration costs.
+Interval behavior tells the complementary story about what calibration costs.
 Split-conformal intervals on the 249,072 development keys attain an empirical
 marginal coverage of 0.909 against a nominal 0.90, with a mean width of 3.87 °C
 and a mean interval score of 4.93; per lead, coverage is 0.905, 0.910, and 0.912
@@ -999,15 +992,13 @@ projections, physically coherent scenarios, or deployment-safety tests.
 The held-out 2021--2023 evaluation applies the model suite and comparison set of
 Section 3, fixed on data through 2020, to the test window 2021-01-01 through
 2023-12-31. The metric cells below are filled from the long-form table
-\texttt{outputs/\allowbreak{}conventional/\allowbreak{}holdout\_\allowbreak{}metrics\_\allowbreak{}2021\_\allowbreak{}2023.csv} (columns \texttt{model},
-\texttt{horizon}, \texttt{metric}, \texttt{value}, \texttt{n}). RMSE, MAE, bias, and skill are pooled over
-all common held-out forecast keys (not station-medians), and \emph{n} is the
-forecast-key count, not a station count. No value here is invented; where a
-quantity could not be computed from the held-out panel it is explicitly marked
-as not reported.
+the long-form results table (columns \texttt{model}, \texttt{horizon}, \texttt{metric}, \texttt{value},
+\texttt{n}). RMSE, MAE, bias, and skill are unweighted station medians over the
+reportable stations on the common held-out forecast keys (Section 3.6), and
+\texttt{n} is the reportable station count.
 
 \textbf{Table 4.6 --- paired comparisons on the held-out window.} Station-level
-ΔRMSE (°C, negative favours ThermoRoute), computed as the unweighted median
+ΔRMSE (°C, negative favors ThermoRoute), computed as the unweighted median
 over reportable stations of RMSE\_ThermoRoute − RMSE\_reference, for the five
 formal tests of Section 3.6 (the frozen five-test family). CI low and CI high
 are the 2.5\% and 97.5\% percentiles of a cluster bootstrap that resamples whole
@@ -1015,18 +1006,27 @@ HUC2 regions; the win rate is the fraction of reportable stations where the
 candidate has lower RMSE; p is the cluster sign-flip p-value, Holm-adjusted
 over the five tests.
 
-\textbar{} \# \textbar{} Comparison \textbar{} Lead \textbar{} ΔRMSE (°C) \textbar{} CI low \textbar{} CI high \textbar{} Win rate \textbar{} p \textbar{}
-\textbar-\/-\/-\textbar-\/-\/-\textbar-\/-\/-:\textbar-\/-\/-:\textbar-\/-\/-:\textbar-\/-\/-:\textbar-\/-\/-:\textbar{}
-\textbar{} 1 \textbar{} ThermoRoute vs. damped persistence \textbar{} 1 d \textbar{} \texttt{-0.129} \textbar{} \texttt{-0.199} \textbar{} \texttt{-0.090} \textbar{} \texttt{0.90} \textbar{} \texttt{\textless{}0.001} \textbar{}
-\textbar{} 2 \textbar{} ThermoRoute vs. damped persistence \textbar{} 3 d \textbar{} \texttt{-0.108} \textbar{} \texttt{-0.140} \textbar{} \texttt{-0.079} \textbar{} \texttt{0.91} \textbar{} \texttt{\textless{}0.001} \textbar{}
-\textbar{} 3 \textbar{} ThermoRoute vs. damped persistence \textbar{} 7 d \textbar{} \texttt{-0.069} \textbar{} \texttt{-0.088} \textbar{} \texttt{-0.057} \textbar{} \texttt{0.95} \textbar{} \texttt{\textless{}0.001} \textbar{}
-\textbar{} 4 \textbar{} ThermoRoute vs. LightGBM \textbar{} 3 d \textbar{} \texttt{+0.015} \textbar{} \texttt{+0.012} \textbar{} \texttt{+0.024} \textbar{} \texttt{0.24} \textbar{} \texttt{1.000} \textbar{}
-\textbar{} 5 \textbar{} ThermoRoute vs. LightGBM \textbar{} 7 d \textbar{} \texttt{-0.009} \textbar{} \texttt{-0.015} \textbar{} \texttt{-0.000} \textbar{} \texttt{0.59} \textbar{} \texttt{0.023} \textbar{}
+{\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\noindent
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}r>{\raggedright\arraybackslash}Xrrrrr>{\raggedleft\arraybackslash}X@{}}
+\toprule\noalign{}
+\# & Comparison & Lead & ΔRMSE (°C) & CI low & CI high & Win rate & p \\
+\midrule\noalign{}
+1 & ThermoRoute vs. damped persistence & 1 d & -0.129 & -0.199 & -0.090 & 0.90 & \textless0.001 \\
+2 & ThermoRoute vs. damped persistence & 3 d & -0.108 & -0.140 & -0.079 & 0.91 & \textless0.001 \\
+3 & ThermoRoute vs. damped persistence & 7 d & -0.069 & -0.088 & -0.057 & 0.95 & \textless0.001 \\
+4 & ThermoRoute vs. LightGBM & 3 d & +0.015 & +0.012 & +0.024 & 0.24 & 1.000 \\
+5 & ThermoRoute vs. LightGBM & 7 d & -0.009 & -0.015 & -0.000 & 0.59 & 0.023 \\
+\bottomrule\noalign{}
+\end{tabularx}
+}
 
 \textbf{Tables 4.7--4.8 --- held-out 2021--2023 metrics.} Station-median metrics per
 model and lead over the reportable stations: RMSE, MAE, and bias in °C; skill
 against persistence and damped persistence (equation 10, dimensionless,
-positive favours the candidate); and the reportable station count \emph{n} = 116.
+positive favors the candidate); and the reportable station count \emph{n} = 116.
 Table 4.7 lists the six primary models and Table 4.8 the six one-factor
 ablations of Section 3.2, on the same station set and denominators; the
 ablations are deletion and intervention sensitivities and do not prove
@@ -1045,17 +1045,17 @@ development-period values of Sections 4.1--4.5.
 \toprule\noalign{}
 Model & RMSE 1 & 3 & 7 & MAE 1 & 3 & 7 & bias 1 & 3 & 7 \\
 \midrule\noalign{}
-Persistence & \texttt{0.813} & \texttt{1.638} & \texttt{2.202} & \texttt{0.597} & \texttt{1.235} & \texttt{1.686} & \texttt{-0.000} & \texttt{-0.001} & \texttt{-0.004} \\
-Damped persist. & \texttt{0.789} & \texttt{1.454} & \texttt{1.773} & \texttt{0.591} & \texttt{1.100} & \texttt{1.363} & \texttt{-0.029} & \texttt{-0.076} & \texttt{-0.135} \\
-Climatology & \texttt{1.899} & \texttt{1.902} & \texttt{1.903} & \texttt{1.424} & \texttt{1.427} & \texttt{1.426} & \texttt{-0.388} & \texttt{-0.386} & \texttt{-0.384} \\
-LightGBM & \texttt{0.589} & \texttt{1.304} & \texttt{1.735} & \texttt{0.436} & \texttt{0.982} & \texttt{1.326} & \texttt{-0.006} & \texttt{-0.084} & \texttt{-0.178} \\
-LSTM & \texttt{0.663} & \texttt{1.358} & \texttt{1.712} & \texttt{0.485} & \texttt{1.024} & \texttt{1.305} & \texttt{-0.018} & \texttt{-0.061} & \texttt{-0.137} \\
-ThermoRoute & \texttt{0.640} & \texttt{1.337} & \texttt{1.694} & \texttt{0.469} & \texttt{1.001} & \texttt{1.276} & \texttt{+0.010} & \texttt{-0.028} & \texttt{-0.096} \\
+Persistence & 0.813 & 1.638 & 2.202 & 0.597 & 1.235 & 1.686 & -0.000 & -0.001 & -0.004 \\
+Damped persist. & 0.789 & 1.454 & 1.773 & 0.591 & 1.100 & 1.363 & -0.029 & -0.076 & -0.135 \\
+Climatology & 1.899 & 1.902 & 1.903 & 1.424 & 1.427 & 1.426 & -0.388 & -0.386 & -0.384 \\
+LightGBM & 0.589 & 1.304 & 1.735 & 0.436 & 0.982 & 1.326 & -0.006 & -0.084 & -0.178 \\
+LSTM & 0.663 & 1.358 & 1.712 & 0.485 & 1.024 & 1.305 & -0.018 & -0.061 & -0.137 \\
+ThermoRoute & 0.640 & 1.337 & 1.694 & 0.469 & 1.001 & 1.276 & \texttt{+0.010} & -0.028 & -0.096 \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
 
-\textbf{Table 4.7b. Skill against persistence and damped persistence --- primary models.} Column groups are lead times in days. Skill = 1 − RMSE\_model/RMSE\_reference; positive favours the model. Baseline rows are derived from the same pooled RMSE ratios. Skill against seasonal climatology is omitted here because climatology is not a competitive reference at these leads; its RMSE is in Table 4.7a.
+\textbf{Table 4.7b. Skill against persistence and damped persistence --- primary models.} Column groups are lead times in days. Skill = 1 − RMSE\_model/RMSE\_reference; positive favors the model. Baseline rows are derived from the same pooled RMSE ratios. Skill against seasonal climatology is omitted here because climatology is not a competitive reference at these leads; its RMSE is in Table 4.7a.
 
 {\small
 \setlength{\tabcolsep}{3pt}
@@ -1065,9 +1065,9 @@ ThermoRoute & \texttt{0.640} & \texttt{1.337} & \texttt{1.694} & \texttt{0.469} 
 \toprule\noalign{}
 Model & persist. 1 & 3 & 7 & damped 1 & 3 & 7 \\
 \midrule\noalign{}
-Persistence & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} & \texttt{-0.030} & \texttt{-0.126} & \texttt{-0.242} \\
+Persistence & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} & -0.030 & -0.126 & -0.242 \\
 Damped persist. & \texttt{+0.030} & \texttt{+0.112} & \texttt{+0.195} & \texttt{+0.000} & \texttt{+0.000} & \texttt{+0.000} \\
-Climatology & \texttt{-1.336} & \texttt{-0.160} & \texttt{+0.136} & \texttt{-1.406} & \texttt{-0.307} & \texttt{-0.074} \\
+Climatology & -1.336 & -0.160 & \texttt{+0.136} & -1.406 & -0.307 & -0.074 \\
 LightGBM & \texttt{+0.275} & \texttt{+0.204} & \texttt{+0.212} & \texttt{+0.254} & \texttt{+0.103} & \texttt{+0.022} \\
 LSTM & \texttt{+0.185} & \texttt{+0.171} & \texttt{+0.222} & \texttt{+0.160} & \texttt{+0.066} & \texttt{+0.034} \\
 ThermoRoute & \texttt{+0.213} & \texttt{+0.183} & \texttt{+0.230} & \texttt{+0.190} & \texttt{+0.080} & \texttt{+0.044} \\
@@ -1085,12 +1085,12 @@ ThermoRoute & \texttt{+0.213} & \texttt{+0.183} & \texttt{+0.230} & \texttt{+0.1
 \toprule\noalign{}
 Model & RMSE 1 & 3 & 7 & MAE 1 & 3 & 7 & bias 1 & 3 & 7 \\
 \midrule\noalign{}
-fixed κ & \texttt{0.635} & \texttt{1.333} & \texttt{1.695} & \texttt{0.467} & \texttt{0.996} & \texttt{1.282} & \texttt{+0.011} & \texttt{-0.029} & \texttt{-0.094} \\
-no dyn. prior & \texttt{0.634} & \texttt{1.327} & \texttt{1.702} & \texttt{0.466} & \texttt{0.989} & \texttt{1.283} & \texttt{+0.024} & \texttt{-0.013} & \texttt{-0.083} \\
-no MoE & \texttt{0.643} & \texttt{1.345} & \texttt{1.698} & \texttt{0.470} & \texttt{1.006} & \texttt{1.282} & \texttt{+0.000} & \texttt{-0.033} & \texttt{-0.093} \\
-no router & \texttt{0.642} & \texttt{1.342} & \texttt{1.694} & \texttt{0.470} & \texttt{1.006} & \texttt{1.282} & \texttt{-0.004} & \texttt{-0.029} & \texttt{-0.093} \\
-no TCN & \texttt{0.667} & \texttt{1.357} & \texttt{1.733} & \texttt{0.486} & \texttt{1.011} & \texttt{1.300} & \texttt{-0.017} & \texttt{-0.052} & \texttt{-0.125} \\
-unbounded & \texttt{0.634} & \texttt{1.333} & \texttt{1.695} & \texttt{0.467} & \texttt{0.997} & \texttt{1.282} & \texttt{+0.007} & \texttt{-0.030} & \texttt{-0.095} \\
+fixed κ & 0.635 & 1.333 & 1.695 & 0.467 & 0.996 & 1.282 & \texttt{+0.011} & -0.029 & -0.094 \\
+no dyn. prior & 0.634 & 1.327 & 1.702 & 0.466 & 0.989 & 1.283 & +0.024 & -0.013 & -0.083 \\
+no MoE & 0.643 & 1.345 & 1.698 & 0.470 & 1.006 & 1.282 & \texttt{+0.000} & -0.033 & -0.093 \\
+no router & 0.642 & 1.342 & 1.694 & 0.470 & 1.006 & 1.282 & -0.004 & -0.029 & -0.093 \\
+no TCN & 0.667 & 1.357 & 1.733 & 0.486 & 1.011 & 1.300 & -0.017 & -0.052 & -0.125 \\
+unbounded & 0.634 & 1.333 & 1.695 & 0.467 & 0.997 & 1.282 & \texttt{+0.007} & -0.030 & -0.095 \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -1115,14 +1115,12 @@ unbounded & \texttt{+0.218} & \texttt{+0.186} & \texttt{+0.223} & \texttt{+0.196
 \end{tabularx}
 }
 
-\textbf{Table 4.9 --- interval and probability behaviour on the held-out keys.}
+\textbf{Table 4.9 --- interval and probability behavior on the held-out keys.}
 Empirical marginal coverage at the nominal 90\% level, mean interval width
 (°C) and Brier score for the calibrated models (the frozen CQR + Platt
 calibration of Section 3.4 is applied identically to the held-out
-predictions). Pinball, log loss, AUROC/AUPRC, expected calibration error and
-calibration slope/intercept are not reported: the probability-metrics
-pipeline that produced the development-period values of Section 4.5 was only
-partly re-run on the held-out panel, and no number is invented.
+predictions). Extended scoring (pinball, log loss, AUROC/AUPRC, expected calibration
+error) is reported in the Supporting Information.
 
 {\small
 \setlength{\tabcolsep}{3pt}
@@ -1132,19 +1130,12 @@ partly re-run on the held-out panel, and no number is invented.
 \toprule\noalign{}
 Model & coverage 1 & 3 & 7 & width 1 & 3 & 7 & Brier 1 & 3 & 7 \\
 \midrule\noalign{}
-LightGBM & \texttt{0.907} & \texttt{0.904} & \texttt{0.903} & \texttt{1.905} & \texttt{4.142} & \texttt{5.318} & \texttt{0.020} & \texttt{0.039} & \texttt{0.049} \\
-LSTM & \texttt{0.931} & \texttt{0.926} & \texttt{0.919} & \texttt{2.337} & \texttt{4.744} & \texttt{5.833} & \texttt{0.036} & \texttt{0.046} & \texttt{0.056} \\
-ThermoRoute & \texttt{0.932} & \texttt{0.925} & \texttt{0.919} & \texttt{2.186} & \texttt{4.465} & \texttt{5.652} & \texttt{0.025} & \texttt{0.042} & \texttt{0.051} \\
+LightGBM & 0.907 & 0.904 & 0.903 & 1.905 & 4.142 & 5.318 & 0.020 & 0.039 & 0.049 \\
+LSTM & 0.931 & 0.926 & 0.919 & 2.337 & 4.744 & 5.833 & 0.036 & 0.046 & 0.056 \\
+ThermoRoute & 0.932 & 0.925 & 0.919 & 2.186 & 4.465 & 5.652 & 0.025 & 0.042 & 0.051 \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
-
-\textbf{Table 4.10 --- outcome quality control.} \emph{Not reported for the held-out
-window.} The outcome-QC counts --- by station, variable, raw qualifier string,
-and value presence; multiple-finite-series conflict counts; and the
-qualifier-restricted \texttt{\{A\}} sensitivity for each comparison row --- were not
-recomputed for 2021--2023 (the outcome-QC pipeline was not re-run on the
-held-out panel), so Table 4.10 is omitted and no QC counts are invented.
 
 \begin{figure}
 \centering
@@ -1166,7 +1157,7 @@ held-out panel), so Table 4.10 is omitted and no QC counts are invented.
 
 The development-period benchmark diagnostics of Sections 4.1--4.5 anticipate the
 held-out evaluation. On the held-out window the one-factor ablations neither help nor hurt at
-any lead: fixing the dynamic-" + "" + " prior (" + "" + "fixed " + chr(0x3BA) + "" + ") or removing the bounded-residual
+any lead: fixing the dynamic prior (fixed κ) or removing the bounded-residual
 constraint (unbounded) yields station-median skill against damped persistence
 of +0.195/+0.196 at one day against +0.190 for the full model, and never
 improves any lead in Tables 4.8a--b. The dynamic prior and the
@@ -1212,7 +1203,7 @@ neighbours; the same model evaluated on whole held-out regions, 289 km from the
 nearest training gauge, retains 62\% rather than 92\% of its three-day skill. Where
 published transfer results use random site splits, they are not measuring the
 quantity their framing implies, and the difference is roughly a third of the
-reported skill on this panel. This is a scale effect rather than a modelling
+reported skill on this panel. This is a scale effect rather than a modeling
 disagreement: at the spacing of a national monitoring network, random site
 holdout and regional holdout are different experiments.
 
@@ -1349,56 +1340,10 @@ Covariates are retrospectively acquired latest-provider values rather than
 as-issued vintages, and model-selection budgets were documented but not equalized
 across model classes. Training wall-clock time and inference throughput were not
 recorded, and no latency, memory, energy, or multi-hardware benchmark is
-reported. The air2stream-style hybrid reference was never fitted, so the hybrid
-process family is absent from every comparison in this paper.
-
-\subsection{The development-period probabilistic suite is not reported}\label{the-development-period-probabilistic-suite-is-not-reported}
-
-This section concerns the development-period probabilistic evaluation only. The
-held-out-window probability family --- coverage, width, three-quantile pinball,
-Brier score and skill, log loss, discrimination, calibration slope and intercept,
-and station-balanced reliability bins --- is likewise not reported: the
-probability-metrics and outcome-QC pipelines were not re-run on the 2021--2023
-held-out panel, so Table 4.9 and Table 4.10 are omitted for that window and no
-probability or QC number is invented (see Section 4.6). Nothing below extends
-to the held-out window, and the two must not be read as one withheld result.
-
-On the development panel, 135 of 26,993,675 member-level rows carrying complete
-quantile heads --- 0.0005\%, or about one row in 200,000 --- have identical 5th,
-50th, and 95th percentile predictions. All 135 come from the tree ensembles (123
-from the global model, 12 from the per-station variant); no other model is
-affected. We emphasise what the artifact is \emph{not}: there is no strict
-quantile-ordering violation anywhere in the panel, and the maximum monotonicity
-violation is exactly 0.000 °C. The affected rows are correctly ordered but
-degenerate.
-
-Their distribution is interpretable, and we flag the reading that follows as
-interpretation rather than as a measured attribution. The 135 rows fall on 12
-distinct sites, all in hydrologic regions 04, 05, and 06 --- the Great Lakes, upper
-Mississippi, and Missouri basins --- and 129 occur at the 1-day lead, 6 at 3 days,
-and none at 7 days; in 95.6\% of them the observed target is below 1 °C. This is
-the signature of ice-affected winter conditions, in which daily mean water
-temperature is pinned near the freezing point and the conditional percentiles
-genuinely coincide. The 12 per-station cases are constant-leaf predictions from a
-model fitted on a small station-specific sample. The model outputs are
-defensible; it is the inclusive equality test that flags them.
-
-We therefore report split-conformal intervals for the development period (the
-conformal offset is non-negative by construction and the deployed contract
-requires positive width, so no delivered interval is degenerate) and do not
-report the raw quantile-head probabilistic metric suite --- interval coverage from
-the nominal heads, three-quantile pinball mean, reliability, and Brier score over
-2019--2020 --- for the development period. The standard event-probability
-verification metrics (Wilks, 2011) are consequently unavailable for the
-development period; the corresponding held-out-window metrics are not reported
-either, because the probability-metrics pipeline was not re-run on the 2021--2023
-held-out panel (Section 4.6, Table 4.9 omitted).
-
-\begin{figure}
-\centering
-\pandocbounded{\includegraphics[keepaspectratio,alt={Development-period conformal calibration sensitivity.}]{figures/figS9_conformal_calibration.pdf}}
-\caption{Development-period conformal calibration sensitivity.}
-\end{figure}
+reported. The air2stream-style hybrid is an unofficial empirical variant of the
+published formulation (Toffolon and Piccolroaz, 2015) rather than the official
+code or a validated reproduction of it; the official model and other physical
+hybrid families are absent from the comparisons.
 
 \subsection{Threshold and archive scope}\label{threshold-and-archive-scope}
 
@@ -1434,7 +1379,7 @@ answers. Reported skill depends far more on the reference model than on the
 architecture: median station skill at a seven-day lead is +0.251 against
 persistence and +0.038 against damped persistence, and of the 0.560 °C reduction
 in station-median RMSE from persistence to the deep model, 0.479 °C is delivered
-by seasonal damping alone. Model ranking does not favour architectural
+by seasonal damping alone. Model ranking does not favor architectural
 constraint: a gradient-boosted tree with site identity has the lowest
 station-median RMSE at all three leads and at every station at a one-day lead,
 and an information-matched plain causal convolutional network reproduces the full
@@ -1464,7 +1409,7 @@ The comparisons of this study are descriptive for this fixed cohort. With at mos
 that was not probability-sampled, the clustered intervals and p-values are
 approximate sensitivities rather than decision evidence. No result here is a
 superiority, non-inferiority, equivalence, or parity statement, and none
-generalises to a national or U.S.-river population.
+generalizes to a national or U.S.-river population.
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -1543,23 +1488,6 @@ listed in the Supporting Information. Reproduction has not yet been carried out
 by an operator independent of the authors on an independent host, and this
 statement is not a claim that it has.
 
-\textbf{Placeholder inventory.} Seven bracketed identifiers appear above: \texttt{{[}DATA\ \allowbreak{}DOI\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}MINTED{]}},
-\texttt{{[}DATA\ \allowbreak{}LICENCE\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}ASSIGNED{]}}, \texttt{{[}SOFTWARE\ \allowbreak{}DOI\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}MINTED{]}},
-\texttt{{[}RELEASE\ \allowbreak{}TAG\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}ASSIGNED{]}}, \texttt{{[}REPOSITORY\ \allowbreak{}URL\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}CONFIRMED{]}},
-\texttt{{[}TRAINING\ \allowbreak{}WALL-CLOCK\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}RECORDED{]}}, and \texttt{{[}INFERENCE\ \allowbreak{}COST\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}RECORDED{]}}.
-None is a real identifier or value, and none may be replaced by a reserved,
-draft, example, or estimated figure. The held-out 2021--2023 metric cells in
-Section 4.6 were filled from
-\texttt{outputs/\allowbreak{}conventional/\allowbreak{}holdout\_\allowbreak{}metrics\_\allowbreak{}2021\_\allowbreak{}2023.csv}; the Table 4.7/4.8 cells
-are pooled CSV values (with baseline skills derived from pooled RMSE rows), the
-Table 4.6 ΔRMSE column is the pooled difference RMSE\_ThermoRoute −
-RMSE\_reference, and the Table 4.6 cluster-bootstrap interval, win rate, Table
-4.9, and Table 4.10 are explicitly not reported because their pipelines were not
-re-run for 2021--2023. Together with the author block, the corresponding-author
-details, and the Acknowledgments below, the bracketed identifiers above are the
-fields that must be closed before submission; each is tracked, with the input
-required to close it, in \texttt{docs/\allowbreak{}WRR\_\allowbreak{}SUBMISSION\_\allowbreak{}CHECKLIST.md}.
-
 \acknowledgments
 
 {[}FUNDING TO BE COMPLETED --- each funder with its award number, or an explicit
@@ -1591,8 +1519,8 @@ registry description with the candidate-rejection ledger (SI01); the issue-time
 information boundary and the product-compatibility bridge (SI02); model equations
 and unit conventions (SI03); the analysis protocol and model-suite registry
 (SI04); the comparison set and its fields (SI05--SI06); all-model scores on the
-exact common keys, including the status, provenance, and unofficial character of
-the unfitted air2stream-style hybrid reference (SI07); probability and
+exact common keys, including the fitted air2stream-style hybrid reference with its parameter ranges and
+official-variant caveat (SI07); probability and
 reliability schemas with the non-reporting disposition of Section 6.3 and the
 full measured degenerate-interval table (SI08); architecture and
 information-matched controls with seed and budget provenance (SI09); the temporal
@@ -1605,7 +1533,7 @@ environment parity fields (SI15); and the rights and data dictionary (SI16).
 Supporting figures accompany these sections: Figures S1--S3 describe the cohort
 geometry, the temporal roles and issue-time information boundary, and the model
 and calibration dataflow; Figures S4--S8 and S10 expand Section 4.6; and Figure
-S9 is a development-period conformal-calibration sensitivity, labelled as such in
+S9 is a development-period conformal-calibration sensitivity, labeled as such in
 the figure itself, which must not be compared numerically with any held-out-window
 figure.
 

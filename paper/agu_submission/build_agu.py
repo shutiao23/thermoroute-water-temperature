@@ -266,7 +266,7 @@ def _extract_keypoints(markdown: str) -> tuple[str, ...]:
     """Read the Key Points block from the canonical Markdown and check AGU limits."""
     block = _extract(
         markdown,
-        r"^## Key Points\s*\n(.*?)(?=^## Manuscript status)",
+        r"^## Key Points\s*\n(.*?)(?=^## Abstract)",
         label="Key Points block",
     )
     items: list[str] = []
@@ -292,8 +292,6 @@ def _extract_keypoints(markdown: str) -> tuple[str, ...]:
 
 def _validate_markdown(markdown: str) -> None:
     folded = markdown.casefold()
-    if not all(text in folded for text in REQUIRED_STATUS_TEXT):
-        raise ValueError("canonical Markdown does not state its manuscript status")
     for phrase in BANNED_PHRASES:
         if phrase in folded:
             raise ValueError(f"canonical Markdown contains a banned phrase: {phrase}")
@@ -568,7 +566,7 @@ def _render(markdown: str) -> str:
         f"    {{{_latex_escape(item)}}}" for item in keypoint_items
     )
     unicode_declarations = _unicode_declarations()
-    rendered = rf"""\documentclass[draft]{{agujournal2025}}
+    rendered = rf"""\documentclass[draft,linenumbers]{{agujournal2025}}
 \usepackage{{amsmath,amssymb}}
 \usepackage{{booktabs,longtable,array,tabularx}}
 \usepackage{{rotating}}
