@@ -166,7 +166,7 @@ regions, seasons, and the width of a calibrated interval? The predictor whose
 skill we decompose, ThermoRoute, is described in full in Section 3.1; its
 architecture is the object under test rather than the contribution.
 
-![The cohort, and what its geometry can carry.](figures/fig01_preopening_concept.pdf)
+![The cohort, and what its geometry can carry.](figures/fig01_cohort_geometry.pdf)
 
 ---
 
