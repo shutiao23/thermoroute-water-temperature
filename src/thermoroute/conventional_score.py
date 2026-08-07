@@ -134,6 +134,67 @@ def _forward_collect(
     return out_arrays
 
 
+def _calibrate_arrays(
+    arrays: Mapping[str, np.ndarray],
+    metadata: Mapping[str, Any],
+    wd,
+    station_names: Sequence[str],
+    *,
+    external: bool,
+    label: str,
+) -> dict[str, np.ndarray]:
+    """Apply frozen CQR + Platt calibration over ALL window rows (like opening)."""
+    station = np.asarray(
+        [station_names[int(i)] for i in wd.station], dtype=object
+    )
+    sites = set(str(value) for value in station)
+    # The frozen registry covers every candidate site; dry sites that built no
+    # windows carry no predictions and no thresholds to apply, so restrict the
+    # calibration view to the decoded sites (no numeric change).
+    thresholds = metadata.get("event_thresholds", {})
+    if not external and isinstance(thresholds, Mapping) and set(thresholds) != sites:
+        restricted = dict(metadata)
+        restricted["event_thresholds"] = {
+            key: value for key, value in thresholds.items() if str(key) in sites
+        }
+        offsets = metadata.get("conformal_offsets", {})
+        restricted_offsets = {
+            key: value for key, value in offsets.items()
+            if str(key).split("|")[0] in sites
+        }
+        restricted["conformal_offsets"] = restricted_offsets
+        audit = metadata.get("conformal_offset_audit", {})
+        raw = audit.get("raw_signed_offsets")
+        if isinstance(raw, Mapping):
+            from .conformal import _build_cqr_offset_audit
+
+            raw_restricted = {
+                key: value for key, value in raw.items()
+                if str(key).split("|")[0] in sites
+            }
+            restricted["conformal_offset_audit"] = _build_cqr_offset_audit(
+                raw_restricted, restricted_offsets)
+        metadata = restricted
+    q05, q50, q95, prob = apply_frozen_calibration(
+        metadata,
+        station,
+        wd.horizons,
+        arrays["q05"],
+        arrays["q50"],
+        arrays["q95"],
+        arrays["p_exceed"],
+        external=external,
+        label=label,
+    )
+    out = dict(arrays)
+    out["q05_raw"] = np.asarray(arrays["q05"], float).copy()
+    out["q50_raw"] = np.asarray(arrays["q50"], float).copy()
+    out["q95_raw"] = np.asarray(arrays["q95"], float).copy()
+    out["p_exceed_raw"] = np.asarray(arrays["p_exceed"], float).copy()
+    out["q05"], out["q50"], out["q95"], out["p_exceed"] = q05, q50, q95, prob
+    return out
+
+
 def _arrays_to_frame(
     arrays: Mapping[str, np.ndarray],
     idx: np.ndarray,
@@ -148,7 +209,8 @@ def _arrays_to_frame(
     """Build a canonical prediction frame from per-window output arrays.
 
     Replicates ``train.export_predictions``: each horizon is emitted only where
-    ``wd.target_valid`` is true, with ``site_id`` decoded from ``C.STATIONS``.
+    ``wd.target_valid`` is true, with ``site_id`` decoded from the explicit
+    ``station_names`` (never the module-level ``C.STATIONS`` global).
     """
     frames = []
     names = list(station_names)
@@ -159,7 +221,7 @@ def _arrays_to_frame(
         site = np.asarray([names[int(i)] for i in wd.station[idx]], dtype=object)[valid]
         issue = wd.issue_date[idx][valid]
         tdate = wd.target_date[idx][valid, hi]
-        frames.append(R.make_pred_frame(
+        base = dict(
             model=model_name, scope=scope, feature_set=feature_set, seed=seed,
             site_id=site, horizon=np.full(int(valid.sum()), int(h)),
             split=np.full(int(valid.sum()), split),
@@ -170,7 +232,15 @@ def _arrays_to_frame(
             q50=arrays["q50"][valid, hi].astype(np.float64),
             q95=arrays["q95"][valid, hi].astype(np.float64),
             p_exceed=arrays["p_exceed"][valid, hi].astype(np.float64),
-        ))
+        )
+        if "q05_raw" in arrays:
+            base.update(
+                q05_raw=arrays["q05_raw"][valid, hi].astype(np.float64),
+                q50_raw=arrays["q50_raw"][valid, hi].astype(np.float64),
+                q95_raw=arrays["q95_raw"][valid, hi].astype(np.float64),
+                p_exceed_raw=arrays["p_exceed_raw"][valid, hi].astype(np.float64),
+            )
+        frames.append(R.make_pred_frame(**base))
     return pd.concat(frames, ignore_index=True) if frames else R.empty_predictions()
 
 
@@ -185,6 +255,7 @@ def sequence_ensemble(
     device: str | torch.device = "cpu",
     split: str = "confirm",
     batch_size: int = 4096,
+    external: bool = False,
 ) -> tuple[pd.DataFrame, list[pd.DataFrame], dict[str, Any]]:
     """Run every member of a frozen sequence bundle and average them.
 
@@ -212,8 +283,13 @@ def sequence_ensemble(
                 accum[k] += arr[k]
     n_members = len(members)
     ens_arrays = {k: v / n_members for k, v in (accum or {}).items()}
+    ens_arrays = _calibrate_arrays(
+        ens_arrays, metadata, wd, station_names,
+        external=external, label=model_name)
     ens_frame = _arrays_to_frame(
         ens_arrays, idx, wd, station_names, model_name, scope, feature_set, 0, split)
+    ens_frame = stamp_calibration_columns(
+        ens_frame, metadata, external=external, n_members=n_members)
     member_frames = [
         _arrays_to_frame(arr, idx, wd, station_names, model_name, scope, feature_set, i, split)
         for i, arr in enumerate(member_arrays)
@@ -294,6 +370,8 @@ def plain_control_ensemble(
     ens_arrays = {k: v / n_members for k, v in (accum or {}).items()}
     ens_frame = _arrays_to_frame(
         ens_arrays, idx, wd, station_names, model_name, scope, feature_set, 0, split)
+    ens_frame = stamp_calibration_columns(
+        ens_frame, metadata, external=external, n_members=n_members)
     member_frames = [
         _arrays_to_frame(arr, idx, wd, station_names, model_name, scope, feature_set, seed, split)
         for seed, arr in zip(seeds_tuple, member_arrays)
@@ -327,6 +405,7 @@ def lightgbm_ensemble(
     *,
     split: str = "confirm",
     truth_atol: float = 1e-3,
+    external: bool = False,
 ) -> tuple[pd.DataFrame, list[pd.DataFrame], dict[str, Any]]:
     """Run every member of a frozen LightGBM bundle and average them.
 
@@ -397,7 +476,15 @@ def lightgbm_ensemble(
                 q50=("q50", "mean"), q95=("q95", "mean"),
                 p_exceed=("p_exceed", "mean"), y_true=("y_true", "first")))
     ens["seed"] = 0
-    return ens[R.PRED_COLS], member_frames, manifest
+    ens = apply_frozen_calibration_to_frame(
+        ens, manifest, list(ens["site_id"].astype(str).unique()),
+        external=external, label=model_name)
+    ens = stamp_calibration_columns(
+        ens, manifest, external=external, n_members=len(members))
+    for column in CONTRACT_COLS:
+        if column not in ens.columns:
+            ens[column] = np.nan
+    return ens[list(CONTRACT_COLS)], member_frames, manifest
 
 
 # --------------------------------------------------------------------------- #
@@ -557,6 +644,48 @@ def pivot_metrics(long_metrics: pd.DataFrame) -> pd.DataFrame:
     return wide
 
 
+def stamp_calibration_columns(
+    frame: pd.DataFrame,
+    metadata: Mapping[str, Any],
+    *,
+    external: bool,
+    n_members: int,
+) -> pd.DataFrame:
+    """Fill the calibration-state/event/threshold/delta columns per row."""
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    offsets = metadata.get("conformal_offsets", {})
+    calibrators = metadata.get("event_calibrators", {})
+    thresholds = metadata.get("event_thresholds", {})
+    out["calibration_state"] = CALIBRATED_STATE
+    out["n_members"] = n_members
+    out["bundle_sha256"] = str(metadata.get("weights_sha256", ""))
+    horizon_values = sorted(set(int(v) for v in out["horizon"]))
+    for site in set(out["site_id"].astype(str)):
+        mask = out["site_id"].astype(str) == site
+        for h in horizon_values:
+            hmask = mask & (out["horizon"].to_numpy(int) == h)
+            if not hmask.any():
+                continue
+            if external:
+                key = f"__pooled__|{h}"
+            else:
+                key = f"{site}|{h}"
+            out.loc[hmask, "conformal_delta_c"] = float(offsets.get(key, np.nan))
+            platts = calibrators.get(str(h), {})
+            out.loc[hmask, "platt_intercept"] = float(platts.get("intercept", np.nan))
+            out.loc[hmask, "platt_slope"] = float(platts.get("slope", np.nan))
+            constant = platts.get("constant")
+            out.loc[hmask, "platt_constant"] = np.nan if constant is None else float(constant)
+        threshold = thresholds.get("__pooled__" if external else str(site), np.nan)
+        out.loc[mask, "event_threshold_c"] = float(threshold)
+        y = out.loc[mask, "y_true"].to_numpy(float)
+        observed = np.where(np.isfinite(y), (y > float(threshold)).astype(int), np.nan)
+        out.loc[mask, "event_observed"] = observed
+    return out
+
+
 def apply_frozen_calibration_to_frame(
     frame: pd.DataFrame,
     metadata: Mapping[str, Any],
@@ -700,8 +829,10 @@ def assign_cohort_metadata(
         meta = metadata_by_model.get(model_name)
         f = frame.copy()
         if meta is not None:
-            bundle_sha = sha256_file(str(Path(meta["_bundle_dir"]) / "manifest.json")) \
-                if "_bundle_dir" in meta else ""
+            bundle_sha = str(meta.get("weights_sha256", ""))
+            if not bundle_sha and "_bundle_dir" in meta:
+                manifest = Path(meta["_bundle_dir"]) / "manifest.json"
+                bundle_sha = sha256_file(str(manifest)) if manifest.exists() else ""
         else:
             bundle_sha = ""
         if "huc2" not in f.columns or f["huc2"].isna().all():

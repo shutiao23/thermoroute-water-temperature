@@ -194,7 +194,7 @@ def assemble_holdout_panel(
             }
             for v in ("WTEMP", "FLOW", "WLEVEL"):
                 if v in frame.columns:
-                    cols[v] = frame[v].reindex(full)
+                    cols[v] = frame.set_index("DATE")[v].reindex(full)
             for v in ("TEMP", "PRCP", "RHMEAN", "DH"):
                 if met is not None and v in met:
                     cols[v] = met[v].reindex(full)
@@ -449,27 +449,23 @@ def run_holdout(
             log(f"  skip {model}: bundle missing")
             return
         log(f"  scoring {model} ...")
-        if model in ("LightGBM", "LightGBM-ext"):
+        if "LightGBM" in model:
             ens, member_frames, meta = CS.lightgbm_ensemble(
                 bundle_dir, imputed, transforms.climatology, wd, station_names,
-                model_name=model, scope="conventional", feature_set="USGS", split="confirm")
+                model_name=model, scope="conventional", feature_set="USGS",
+                split="confirm", external=external)
         else:
             ens, member_frames, meta = CS.sequence_ensemble(
                 bundle_dir, wd, station_names, model_name=model, scope="conventional",
-                feature_set="USGS", device=device, split="confirm")
+                feature_set="USGS", device=device, split="confirm", external=external)
         meta = dict(meta)
         meta["_bundle_dir"] = str(bundle_dir)
-        ens = CS.apply_frozen_calibration_to_frame(
-            ens, meta, station_names, external=external, label=model)
         ens = CS.assign_cohort_metadata(
             {model: ens}, metadata_by_model={model: meta}, cohort="pooled_prep" if external else "temporal",
             registry_huc2=registry_huc2, external=external)[model]
         model_frames[model] = ens
         metadata_by_model[model] = meta
-        if external:
-            calibrated_models.add(model)
-        else:
-            calibrated_models.add(model)
+        calibrated_models.add(model)
 
     for model in ["ThermoRoute", "LightGBM"]:
         score_temporal(model)
@@ -486,7 +482,6 @@ def run_holdout(
             feature_set="USGS", device=device, split="confirm")
         meta = dict(meta)
         meta["_bundle_dir"] = str(lstm_dir)
-        ens = CS.apply_frozen_calibration_to_frame(ens, meta, station_names, external=False, label="LSTM")
         ens = CS.assign_cohort_metadata(
             {"LSTM": ens}, metadata_by_model={"LSTM": meta}, cohort="temporal",
             registry_huc2=registry_huc2)[ "LSTM"]
@@ -541,15 +536,14 @@ def run_holdout(
                 if "LightGBM" in model:
                     ens, _, meta = CS.lightgbm_ensemble(
                         bdir, ext_imputed, ext_transforms.climatology, ext_wd, ext_names,
-                        model_name=model, scope="conventional", feature_set="USGS", split="confirm")
+                        model_name=model, scope="conventional", feature_set="USGS",
+                        split="confirm", external=True)
                 else:
                     ens, _, meta = CS.sequence_ensemble(
                         bdir, ext_wd, ext_names, model_name=model, scope="conventional",
-                        feature_set="USGS", device=device, split="confirm")
+                        feature_set="USGS", device=device, split="confirm", external=True)
                 meta = dict(meta)
                 meta["_bundle_dir"] = str(bdir)
-                ens = CS.apply_frozen_calibration_to_frame(
-                    ens, meta, ext_names, external=True, label=model)
                 ens = CS.assign_cohort_metadata(
                     {model: ens}, metadata_by_model={model: meta}, cohort="pooled_prep",
                     registry_huc2=registry_huc2, external=True)[model]
