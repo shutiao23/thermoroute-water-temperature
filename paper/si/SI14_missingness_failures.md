@@ -1,6 +1,6 @@
 # SI14 — missingness, attrition and failure cases
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** filled. 2 stations provably dry (NO_SERIES, successful snapshots, no daily-mean series), 3 transient HTTP failures retried successfully, 01435000 below the reportability rule; per-horizon reportable counts 116/116/116.
 
 This SI projects missingness, attrition, and failure cases for the held-out
 2021--2023 window. Denominators, missingness reasons, and failed cases must

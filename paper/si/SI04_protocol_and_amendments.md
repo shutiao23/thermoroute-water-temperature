@@ -1,6 +1,6 @@
 # SI04 — protocol, amendments and chronology
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** superseded by the conventional design; the pre-registration protocol apparatus was removed with the route-A deletion (docs/C1_DELETION_EXECUTION_ORDER.md).
 
 This is a navigation layer for frozen protocol sources. It does not reseal,
 amend, authorize or execute any stage. Any claimed completion state is

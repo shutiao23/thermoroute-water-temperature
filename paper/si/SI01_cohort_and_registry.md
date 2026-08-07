@@ -1,6 +1,6 @@
 # SI01 — frozen cohort and registry projection
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** filled. 120-station registry; held-out acquisition is 118 OK / 2 NO_SERIES (03058000, 03544970) with the three transient failures retried successfully (03456991, 04043238, 14150800); 01435000 retains 17 of 1,110 conflicting series days and falls below the 100-target rule; 116 stations are reportable per lead (`outputs/conventional/cohort_2021_2023.csv`).
 
 No registry bytes or outcomes are reproduced in this document. Any redraw value
 or target-period count is `[pending computation]` until it is bound

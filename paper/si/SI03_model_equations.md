@@ -1,6 +1,6 @@
 # SI03 — model identities, units and identifiability limits
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** normative specification; no empirical cells.
 
 This SI records only identities and fixed architecture descriptions already
 stated in the PRE manuscript or Figure-1 skeleton. It contains no fitted

@@ -1,6 +1,6 @@
 # SI10 — temporal coverage and time-block sensitivity
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** filled. Held-out forecast-key counts are 120,466 (h=1), 119,654 (h=3), 118,687 (h=7) over 116 reportable stations; the panel spans 2020-11-30..2023-12-31 (`outputs/conventional/holdout_metrics_2021_2023.csv`, `n` column).
 
 This SI projects availability and time-block sensitivity for the held-out
 2021--2023 window. It is not all-calendar-day performance: the renderer must

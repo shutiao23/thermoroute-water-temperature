@@ -1,6 +1,6 @@
 # SI12 — outcome QC, qualifiers and exact-A audit
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** partially filled. The strict daily-mean re-parse admits only `*Mean`/`*_00003` columns and flags multi-series conflicts: 01435000 has 1,110 conflict days and 17 retained days (`outputs/conventional/cohort_2021_2023.csv`); qualifier-restricted sensitivity counts were not recomputed on the held-out window and are not invented.
 
 This SI projects the outcome quality-control gate, qualifier evidence, and the
 exact-A audit for the held-out 2021--2023 window. No target outcome or provider

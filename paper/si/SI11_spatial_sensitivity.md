@@ -1,6 +1,6 @@
 # SI11 — spatial and leave-cluster sensitivity
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** development-period analysis; the whole-region holdout has no held-out counterpart (fold weights do not exist) and is reported as development-period-only in Section 4.4.
 
 | Cluster definition | omitted unit | reportable clusters | effective fraction | largest share | effect (°C) | interval/status | binder row ID |
 |---|---|---|---|---|---|---|---|

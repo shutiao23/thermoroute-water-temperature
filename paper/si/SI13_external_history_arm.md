@@ -1,6 +1,6 @@
 # SI13 — external history-dependent cohort
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** filled. The pooled-training sensitivity arms (ThermoRoute-ext, LSTM-ext, LightGBM-ext) are scored on the same 120-site registry (site overlap fraction 1.0) and are labelled `pooled_prep` in the prediction table; their station-median metrics are in `outputs/conventional/station_metrics_2021_2023.csv`.
 
 This arm is site-ID-disjoint but consumes target-site WTEMP history. It is a
 known-gauge external arm, not ungauged prediction, river-network transfer,

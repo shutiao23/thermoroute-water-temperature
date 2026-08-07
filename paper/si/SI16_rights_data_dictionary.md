@@ -1,6 +1,6 @@
 # SI16 — rights matrix and data dictionary
 
-**Status:** scaffold finalized; not a rights approval.
+**Status:** normative specification; not a rights approval. The data and software deposits are planned and their DOIs are pending minting (manuscript Section 8); no redistribution decision is asserted here.
 
 This file is a projection schema, not a redistribution decision, DOI record or
 FAIR completion claim.
