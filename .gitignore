@@ -69,5 +69,7 @@ outputs/runs/**/.stage09-control-member-locks/*.lock
 # Zenodo release archive (regenerable via scripts/make_release_archive.sh)
 dist/
 
-# Local Phase-2 watcher binding (machine-specific)
-ops/stage09/phase2_watch.env
+# Conventional holdout: the panel and raw snapshot cache are regenerable
+# (the persisted tables, metrics and validation report are committed instead).
+outputs/conventional/panel_2021_2023.parquet
+outputs/conventional/raw_2021_2023/

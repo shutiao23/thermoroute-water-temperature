@@ -1,0 +1,32 @@
+[
+  {
+    "site_no": "03058000",
+    "nwis": "no WTEMP observations",
+    "daymet": null,
+    "gridmet": null
+  },
+  {
+    "site_no": "03456991",
+    "nwis": "failed to acquire usgs-nwis-dv after 3 attempts: https://waterservices.usgs.gov/nwis/dv/?format=rdb&sites=03456991&start",
+    "daymet": null,
+    "gridmet": null
+  },
+  {
+    "site_no": "03544970",
+    "nwis": "no WTEMP observations",
+    "daymet": null,
+    "gridmet": null
+  },
+  {
+    "site_no": "04043238",
+    "nwis": "failed to acquire usgs-nwis-dv after 3 attempts: https://waterservices.usgs.gov/nwis/dv/?format=rdb&sites=04043238&start",
+    "daymet": null,
+    "gridmet": null
+  },
+  {
+    "site_no": "14150800",
+    "nwis": "failed to acquire usgs-nwis-dv after 3 attempts: https://waterservices.usgs.gov/nwis/dv/?format=rdb&sites=14150800&start",
+    "daymet": null,
+    "gridmet": null
+  }
+]
