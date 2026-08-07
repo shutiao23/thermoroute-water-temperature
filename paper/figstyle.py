@@ -39,6 +39,23 @@ from matplotlib.colors import LinearSegmentedColormap
 
 MM = 1.0 / 25.4
 
+
+def _titles(ax):
+    """Every title artist on an axes, including the left- and right-aligned ones.
+
+    ``ax.set_title(..., loc="left")`` does not write to ``ax.title`` — that is
+    the centre title — but to a separate artist.  A checker that looks only at
+    ``ax.title`` is therefore blind to exactly the labels :func:`panel_label`
+    produces, which is how a panel title clipped by the canvas edge passed both
+    gates.
+    """
+    out = [ax.title]
+    for attr in ("_left_title", "_right_title"):
+        t = getattr(ax, attr, None)
+        if t is not None:
+            out.append(t)
+    return out
+
 # AGU/WRR widths in mm.  SINGLE and FULL are what this manuscript uses.
 #
 # FULL is 139.7, not 140.  The AGU class sets \textwidth to 5.5 in = 397.48 TeX
@@ -282,7 +299,7 @@ def check_overlaps(fig, *, tolerance: float = 1.0) -> list[tuple[str, str]]:
         items.extend(t for t in ax.texts if t.get_visible() and t.get_text().strip())
         items.extend(t for t in ax.get_xticklabels() + ax.get_yticklabels()
                      if t.get_visible() and t.get_text().strip())
-        for holder in (ax.title, ax.xaxis.label, ax.yaxis.label):
+        for holder in (*_titles(ax), ax.xaxis.label, ax.yaxis.label):
             if holder.get_visible() and holder.get_text().strip():
                 items.append(holder)
     items.extend(t for t in fig.texts if t.get_visible() and t.get_text().strip())
@@ -329,7 +346,7 @@ def check_out_of_bounds(fig, *, margin: float = 0.5) -> list[str]:
                 if lo <= loc <= hi:
                     items.append(lab)
         items.extend(ax.texts)
-        for holder in (ax.title, ax.xaxis.label, ax.yaxis.label):
+        for holder in (*_titles(ax), ax.xaxis.label, ax.yaxis.label):
             items.append(holder)
     items.extend(fig.texts)
 

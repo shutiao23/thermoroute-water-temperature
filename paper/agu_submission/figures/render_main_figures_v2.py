@@ -69,7 +69,7 @@ ABLATION_LABEL = {
     "ThermoRoute": "full model",
     "TR-noTCN": "no TCN",
     "TR-noRouter": "no router",
-    "TR-noMoE": "no mixture of experts",
+    "TR-noMoE": "no expert mixture",
     "TR-noDynamicPrior": "no dynamic prior",
     "TR-fixedKappa": "fixed κ (not learned)",
     "TR-unbounded": "correction unbounded",
@@ -384,7 +384,7 @@ def fig3(registry, sm, skill, paired, mech, *rest):
 
 
 def fig4(registry, sm, skill, paired, mech, *rest):
-    fig, axes = plt.subplots(1, 2, figsize=(W_IN, 2.95), width_ratios=[1.05, 1.0])
+    fig, axes = plt.subplots(1, 2, figsize=(W_IN, 2.95), width_ratios=[0.92, 1.0])
     rows = [("ThermoRoute", "DampedPersistence"), ("LightGBM", "DampedPersistence"),
             ("LSTM", "DampedPersistence")]
     # LightGBM and the LSTM both land near -0.053 at seven days, so their end
@@ -404,7 +404,7 @@ def fig4(registry, sm, skill, paired, mech, *rest):
     axes[0].set_xticks((1, 3, 7))
     axes[0].set_xlim(0.5, 11.5)
     axes[0].set_xlabel("horizon (d)")
-    axes[0].set_ylabel("median \u0394RMSE vs damped (\u00b0C)")
+    axes[0].set_ylabel("median \u0394RMSE, model \u2212 damped (\u00b0C)")
     figstyle.panel_label(axes[0], "(a) Learned models")
     axes[0].grid(axis="y", color="#DDDDDD", lw=0.4)
     figstyle.spread_labels(axes[0], ends, x_data=7, x_text=7.6)
@@ -425,7 +425,7 @@ def fig4(registry, sm, skill, paired, mech, *rest):
     axes[1].set_yticks(y2)
     axes[1].set_yticklabels(labels, fontsize=7.5)
     axes[1].set_xlim(-0.20, 0.06)
-    axes[1].set_xlabel("1 d median \u0394RMSE vs damped (\u00b0C)")
+    axes[1].set_xlabel("\u0394RMSE, variant \u2212 damped (\u00b0C)")
     figstyle.panel_label(axes[1], "(b) Architecture controls, 1 d")
     axes[1].grid(axis="x", color="#DDDDDD", lw=0.4)
     save(fig, "fig04_model_class_effects")
@@ -460,12 +460,17 @@ def fig5(registry, sm, skill, paired, mech, st, rt, geo):
             ax_b.scatter(h, v, s=22, color=ARM_COLOUR[arm],
                          marker="o" if arm == "random" else "s",
                          edgecolor="white", linewidth=0.4, zorder=3)
-    ax_b.plot([1, 3, 7],
-              [float(rt[(rt.arm == "random") & (rt.horizon == h)].rmse.median())
-               for h in (1, 3, 7)], color=ARM_COLOUR["random"], lw=1.1)
-    ax_b.plot([1, 3, 7],
-              [float(rt[(rt.arm == "region") & (rt.horizon == h)].rmse.median())
-               for h in (1, 3, 7)], color=ARM_COLOUR["region"], lw=1.1)
+    med = {a: [float(rt[(rt.arm == a) & (rt.horizon == h)].rmse.median())
+               for h in (1, 3, 7)] for a in ("random", "region")}
+    for arm, name in (("random", "Random held-site"), ("region", "Whole-region")):
+        ax_b.plot([1, 3, 7], med[arm], color=ARM_COLOUR[arm], lw=1.1, label=name)
+    ax_b.legend(loc="upper left", fontsize=7.5, frameon=False,
+                handlelength=1.4, borderaxespad=0.1)
+    # The two arms differ by hundredths of a degree on an axis spanning 1.4 degC,
+    # so the panel would otherwise read as "no effect" while the text claims one.
+    gap = " / ".join(f"{med['region'][i] - med['random'][i]:+.02f}" for i in range(3))
+    ax_b.text(0.98, 0.03, f"region − random: {gap} °C", transform=ax_b.transAxes,
+              ha="right", va="bottom", fontsize=7.5, color=figstyle.MUTED)
     ax_b.set_xticks((1, 3, 7))
     ax_b.set_xlim(0.5, 7.5)
     ax_b.set_ylim(0.5, 1.9)
@@ -485,14 +490,16 @@ def fig5(registry, sm, skill, paired, mech, st, rt, geo):
                                  "y": (x.rmse - x.rmse_damped).median()}),
             include_groups=False)
         ax_c.plot(b.x, b.y, color=colour, lw=1.6, marker="D", ms=3,
-                  markeredgecolor="white")
+                  markeredgecolor="white",
+                  label="Random held-site" if arm == "random" else "Whole-region")
     ax_c.axhline(0.0, color="black", lw=0.6)
     ax_c.set_xscale("log")
     ax_c.set_xticks([10, 30, 100, 300, 1000])
     ax_c.set_xticklabels(["10", "30", "100", "300", "1000"])
     ax_c.set_xlabel("nearest-training-gauge distance (km)")
-    ax_c.set_ylabel("3 d \u0394RMSE vs damped (\u00b0C)")
+    ax_c.set_ylabel("3 d \u0394RMSE, ThermoRoute \u2212 damped (\u00b0C)")
     figstyle.panel_label(ax_c, "(c) Transfer penalty by distance")
+    ax_c.legend(loc="lower left", fontsize=7.5, frameon=False, handlelength=1.4)
     ax_c.grid(axis="x", color="#DDDDDD", lw=0.4)
 
     save(fig, "fig05_spatial_transfer")
@@ -513,8 +520,8 @@ def fig6_main(registry, sm, skill, paired, mech, st, rt, geo):
     ax_a.axvline(med, color=figstyle.WONG["orange"], lw=1.2)
     ymax = ax_a.get_ylim()[1]
     ax_a.set_ylim(0, ymax * 1.22)
-    ax_a.text(0.02, 0.94, f"median {med:.1f} d", transform=ax_a.transAxes,
-              fontsize=7.5, color=figstyle.WONG["orange"], va="top")
+    ax_a.text(med * 1.10, ymax * 1.14, f"median {med:.1f} d", fontsize=7.5,
+              color=figstyle.WONG["orange"], va="center", ha="left")
     ax_a.set_xlabel("thermal half-life (d)")
     ax_a.set_ylabel("stations")
     figstyle.panel_label(ax_a, "(a) Thermal memory")
@@ -532,7 +539,7 @@ def fig6_main(registry, sm, skill, paired, mech, st, rt, geo):
               fontsize=7.5, ha="right")
     ax_b.set_xlabel("thermal half-life (d)")
     ax_b.set_ylabel("1 d learned gain over damped (\u00b0C)")
-    figstyle.panel_label(ax_b, "(b) Longer memory, less to learn")
+    figstyle.panel_label(ax_b, "(b) Memory vs learned gain")
     ax_b.grid(color="#DDDDDD", lw=0.4)
 
     ax_c = fig.add_subplot(gs[1, 0])
@@ -558,23 +565,29 @@ def fig6_main(registry, sm, skill, paired, mech, st, rt, geo):
     season = {h: {s: strata_all[s]["delta_rmse"] for s in
                   ("season_DJF", "season_MAM", "season_JJA", "season_SON")}
               for h, strata_all in mech["stratified_delta_rmse"].items()}
+    # Labelled at the line ends rather than with a legend: an unframed legend in
+    # the lower left sat directly on the 1 d series, which is lowest there --
+    # text over a line, which the collision gate cannot see.
     xs = np.arange(4)
     for j, h in enumerate((1, 3, 7)):
         vals = [season[str(h)][s] for s in
                 ("season_DJF", "season_MAM", "season_JJA", "season_SON")]
+        colour = (figstyle.WONG["sky"], figstyle.WONG["orange"],
+                  figstyle.WONG["vermillion"])[j]
+        x_end = 3 + (j - 1) * 0.24
         ax_d.plot(xs + (j - 1) * 0.24, vals, marker="o", ms=3,
-                  lw=1.1, color=(figstyle.WONG["sky"], figstyle.WONG["orange"],
-                                 figstyle.WONG["vermillion"])[j],
+                  lw=1.1, color=colour,
                   markeredgecolor="white", markeredgewidth=0.4)
+        ax_d.text(x_end + 0.13, vals[-1], f"{h} d", fontsize=7.5, color=colour,
+                  va="center", ha="left")
     ax_d.axhline(0.0, color="black", lw=0.6)
     ax_d.set_xticks(xs)
     ax_d.set_xticklabels(["DJF", "MAM", "JJA", "SON"], fontsize=7.5)
-    ax_d.set_xlim(-0.5, 3.5)
-    ax_d.set_ylabel("\u0394RMSE vs damped (\u00b0C)")
+    ax_d.set_xlim(-0.5, 4.05)
+    ax_d.set_ylabel("\u0394RMSE, ThermoRoute \u2212 damped (\u00b0C)")
     figstyle.panel_label(ax_d, "(d) Learned gain by season")
     ax_d.grid(axis="y", color="#DDDDDD", lw=0.4)
-    ax_d.legend([f"{h} d" for h in (1, 3, 7)], fontsize=7.5, frameon=False,
-                loc="lower left")
+
 
     save(fig, "fig06_hydrologic_mechanism")
 
