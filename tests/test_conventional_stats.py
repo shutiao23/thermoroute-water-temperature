@@ -128,9 +128,9 @@ def test_load_registry_preserves_huc2():
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "registry.csv"
-        path.write_text("site_no,lat,lon,huc2\n01073319,43.0,-71.0,1\n", encoding="utf-8")
+        path.write_text("site_no,lat,lon,huc2,huc_metadata_status\n01073319,43.0,-71.0,1,USGS_SNAPSHOT_SITE_NO_MATCH\n", encoding="utf-8")
         registry = load_registry(path)
-    assert list(registry.columns) == ["site_no", "lat", "lon", "huc2"]
+    assert list(registry.columns) == ["site_no", "lat", "lon", "huc2", "huc_metadata_status"]
     assert registry.huc2.iloc[0] == 1
 
 

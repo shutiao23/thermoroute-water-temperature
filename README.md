@@ -117,7 +117,7 @@ probability map. Each model class uses the same five seeds (0–4) and is
 compared on identical forecast keys and exact target bytes after ensemble
 averaging; the one-factor ablations (no-dynamic-prior, fixed-kappa, no-router,
 no-MoE, no-TCN, unbounded) are deletion/intervention sensitivities and do not
-prove necessity or a causal mechanism.
+prove component necessity or identify a mechanism.
 
 Temporal learned models receive stable site identity, while the pooled-training
 arms do not. History cells may be filled by train-only seasonal medians while
@@ -327,3 +327,5 @@ terms must be reviewed separately before any public release; the redistribution
 terms of the bundled third-party AGU LaTeX class must likewise be verified and
 recorded in a third-party notice, or that class must be excluded from any
 public code archive.
+
+See the [legacy three-site semantics notice](protocols/legacy_three_site_semantics_notice_v1.md) for the historical three-site material and its withdrawal status.
