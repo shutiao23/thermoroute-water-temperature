@@ -512,8 +512,13 @@ def run_holdout(
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--multicore", default=str(REPO.parent / "thermoroute-water-temperature-multicore"),
-                   help="sibling multicore worktree root (read-only frozen bundles)")
+    p.add_argument("--bundle-root",
+                   default=Path("outputs/models"),
+                   help="bundle root (default: <repo>/outputs/models; "
+                        "overrides the legacy sibling-worktree --multicore layout)")
+    p.add_argument("--multicore", default=None,
+                   help="deprecated alias: sibling multicore worktree root "
+                        "(bundles live under its outputs/models)")
     p.add_argument("--panel", default=str(DATA_USGS / "panel_usgs_120v2.parquet"))
     p.add_argument("--registry", default=str(DATA_USGS / "station_registry_v1.csv"))
     p.add_argument("--device", default="cpu")
@@ -532,7 +537,16 @@ def main(argv: list[str] | None = None) -> int:
     allow_incomplete_cohort = args.allow_incomplete_cohort
 
     OUT.mkdir(parents=True, exist_ok=True)
-    multicore = Path(args.multicore)
+    if args.multicore is not None:
+        multicore = Path(args.multicore)
+    else:
+        multicore = Path(args.bundle_root)
+    if not (multicore / TEMPORAL_BUNDLES["ThermoRoute"]).exists():
+        raise FileNotFoundError(
+            f"ThermoRoute bundle not found under {multicore}; "
+            "run scripts/verify_model_bundles.py or point --bundle-root at the "
+            "worktree that holds the frozen bundles"
+        )
     panel_path, registry_path = Path(args.panel), Path(args.registry)
 
     if not args.skip_validation:
