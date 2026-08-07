@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Route B: suspended for this submission
 
 **Date:** 2026-08-05

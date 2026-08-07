@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Stage-19 disposition: degenerate (zero-width) nominal intervals
 
 **Date:** 2026-08-05

@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Stage09b config-shape failure — evidence and recovery boundary
 
 | Field | Value |

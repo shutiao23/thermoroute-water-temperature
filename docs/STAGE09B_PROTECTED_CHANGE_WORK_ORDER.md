@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Stage09b protected change work order
 
 ## 1. Purpose, scope, and current state

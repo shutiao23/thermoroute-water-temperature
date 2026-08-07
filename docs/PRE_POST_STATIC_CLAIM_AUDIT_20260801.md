@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Route-A PRE/POST static claim audit
 
 | Field | Value |

@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Stage-24 failure: the replay ran outside the declared numerical runtime
 
 **Date:** 2026-08-05

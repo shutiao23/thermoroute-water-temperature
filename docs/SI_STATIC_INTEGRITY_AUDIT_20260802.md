@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # SI00–SI16 static integrity audit
 
 | Field | Value |

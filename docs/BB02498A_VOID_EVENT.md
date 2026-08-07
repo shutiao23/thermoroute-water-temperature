@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # bb02498a8396ea7c6110 void 事件记录
 
 更新日期：2026-08-02  

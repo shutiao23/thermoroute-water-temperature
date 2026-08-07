@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Stage-24 worker thread cap: the fifth hardcoded "1", and why the freeze cannot hold
 
 **Date:** 2026-08-05

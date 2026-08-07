@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Air2stream pinned-source build and reference-case audit
 
 | Field | Value |

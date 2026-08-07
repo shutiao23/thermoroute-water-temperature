@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # MULTICORE V2 LINEAGE — 实验状态记录（2026-08-03 11:15 UTC）
 
 状态：**进行中（Stage-09 已完成并出正式 receipt；Stage-09b 正在运行）**

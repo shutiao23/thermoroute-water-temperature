@@ -1,3 +1,5 @@
+> Historical record (superseded by the conventional design).
+
 # Route-A workflow audit: why the development chain cost days instead of hours
 
 **Date:** 2026-08-05
