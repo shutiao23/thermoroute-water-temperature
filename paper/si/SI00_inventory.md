@@ -1,9 +1,22 @@
 # SI00 — inventory and evidence map
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** scaffold finalized; empirical values are filled from the results
+authority (`outputs/final/`, protocol v1) where the corresponding experiment
+has run; cells without a bound authority value remain `[pending computation]`.
 
 This is an inventory of static SI design items, not an evidence receipt. Any
 unbound result cell is `[pending computation]`.
+
+## Redesign inventory deltas (2026-08-08)
+
+| SI | Change |
+|---|---|
+| SI04 | redesign chronology table added (protocol v1, decision log) |
+| SI07 | station-median grid sourced from `outputs/final/station_metrics.parquet`; air2stream row on the common 116-station set; plain controls admitted |
+| SI09 | information-matched controls re-scored on the 2021–2023 window (no calibration); status no longer development-only |
+| SI11 | independent-window 2×2 spatial factorial (geometry × adaptation), repeated random splits, distance/hydroclimatic novelty |
+| SI14 | key-registry history-completeness strata (Major Comment 12 sensitivity) |
+| SI15 | results-authority commands and manifest added |
 
 ## Inventory
 

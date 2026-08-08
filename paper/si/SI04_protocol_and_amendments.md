@@ -1,11 +1,29 @@
 # SI04 — protocol, amendments and chronology
 
-**Status:** superseded by the conventional design; the pre-registration protocol apparatus was removed with the route-A deletion (docs/C1_DELETION_EXECUTION_ORDER.md).
+**Status:** superseded by the conventional design; the pre-registration protocol apparatus was removed with the route-A deletion (docs/C1_DELETION_EXECUTION_ORDER.md). The strong-accept redesign stream is governed by `protocols/wrr_strong_accept_protocol_v1.yaml`, whose decisions are recorded in `docs/strong_accept_decision_log.md` (append-only, written before implementation).
 
-This is a navigation layer for frozen protocol sources. It does not reseal,
-amend, authorize or execute any stage. Any claimed completion state is
-`[pending computation]` unless separately verified by its canonical
-receipt.
+## Protocol chronology of the redesign stream (Major Comment 9)
+
+The held-out 2021–2023 window was scored once for the original model suite with
+the original estimands, and those numbers are untouched. The redesign added
+post hoc secondary analyses after the holdout was already in hand; the
+following table records which objects were frozen when, so an independent
+reader can separate the two:
+
+| Date | Frozen objects | Still open objects | Holdout read? |
+|---|---|---|---|
+| 2026-08-08 (DLOG-001) | protocol v1; estimands; station-first rules; decision rules R1–R7; pre-redesign tag `wrr-pre-strong-accept-4c282e9` | mechanism states, spatial factorial, matched-architecture re-test | yes (already in hand) |
+| 2026-08-08 (DLOG-002) | results authority schema; ledger; macro system | none | yes |
+| 2026-08-08 (DLOG-003) | scorer rerun with plain controls on the same frozen bundles | none (inference-only) | yes |
+| 2026-08-08 (DLOG-005) | spatial 2×2 factorial design; five random-split seeds; pooled/local adaptation policy | none | yes |
+| 2026-08-08 (DLOG-007) | 2024–2025 audit window and no-flow cohort declared P2, not run; freeze commit will be recorded before any such audit opens | audit | no |
+
+The 2021–2023 outcomes were read before the redesign's secondary analyses were
+specified; those analyses are therefore confirmatory-in-spirit but post hoc in
+chronology. No claim in the redesign was selected from a sweep of alternative
+state definitions; the state list, thresholds (training-period, station-specific)
+and decision rules were written into protocol v1 before any mechanism statistic
+was computed (DLOG-001/004).
 
 ## Protocol map
 

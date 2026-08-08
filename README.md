@@ -16,26 +16,66 @@ split-conformal calibration of the nominal 90% interval.
 
 ## Held-out results (2021–2023)
 
-Held-out RMSE in °C by horizon, from
-`outputs/conventional/holdout_metrics_2021_2023.csv` (≈118,275 / 117,476 /
-116,524 common forecast keys at h = 1 / 3 / 7):
+Held-out station-median RMSE in °C by horizon (116 reportable stations on the
+common key registry at every lead), from `outputs/final/station_metrics.parquet`
+(see the results authority below):
 
 | Model | 1 d | 3 d | 7 d |
 |---|---:|---:|---:|
-| ThermoRoute | 0.658 | 1.342 | 1.686 |
-| LightGBM | 0.605 | 1.334 | 1.708 |
-| LSTM | 0.688 | 1.369 | 1.708 |
-| Damped persistence | 0.799 | 1.457 | 1.759 |
-| Persistence | 0.829 | 1.645 | 2.237 |
-| Climatology | 1.948 | 1.948 | 1.950 |
+| ThermoRoute | 0.640 | 1.337 | 1.694 |
+| LightGBM | 0.589 | 1.304 | 1.735 |
+| LSTM | 0.663 | 1.358 | 1.712 |
+| Plain causal TCN (info-matched) | [PENDING] | [PENDING] | [PENDING] |
+| Air2stream (unofficial variant) | 0.719 | 1.478 | 1.825 |
+| Damped persistence | 0.789 | 1.454 | 1.773 |
+| Persistence | 0.813 | 1.638 | 2.202 |
+| Climatology | 1.899 | 1.902 | 1.903 |
 
-ThermoRoute's skill over persistence on the held-out window is +0.207 / +0.184 /
-+0.246 at 1 / 3 / 7 d and +0.177 / +0.079 / +0.041 over damped persistence. The
-core development finding — that skill over the strong damped-persistence
-reference collapses with lead time — replicates on the independent window.
-LightGBM leads at 1 d and 3 d; ThermoRoute leads at 7 d (ΔRMSE −0.021). All
-tables in the manuscript regenerate from the persisted prediction table with
-`scripts/conventional_derive_statistics.py`.
+ThermoRoute's station-median skill over persistence on the held-out window is
++0.207 / +0.186 / +0.250 and +0.173 / +0.077 / +0.038 over damped persistence at
+1 / 3 / 7 d; the median station-level memory gain at 7 d is 0.49 °C and the
+median learned gain 0.07 °C (median memory fraction 0.875). The core development
+finding — that skill over the strong damped-persistence reference collapses with
+lead time — replicates on the independent window. LightGBM leads at 1 d and 3 d;
+ThermoRoute leads at 7 d (ΔRMSE −0.009). All tables in the manuscript regenerate
+from the persisted prediction table with `scripts/final/` (results authority).
+
+## Results authority (`outputs/final/`)
+
+Every headline number in the manuscript traces to one row of one table under
+`outputs/final/` (protocol v1, `protocols/wrr_strong_accept_protocol_v1.yaml`):
+
+```text
+forecast_keys.parquet         common-key registry + per-key history completeness
+predictions.parquet           per-key ensemble predictions (regenerated)
+station_metrics.parquet       station-first RMSE/MAE/bias/n per model x horizon
+paired_effects.parquet        station-level DeltaRMSE and skill per contrast
+decomposition_effects.parquet station-level exact G_total = G_memory + G_learned
+pooled_metrics.parquet        pooled sensitivity (SI only)
+hydrologic_state_effects.parquet  station-first state metrics (issue-time +
+                                 outcome-conditioned, 30-key minimum)
+basin_attributes.parquet      half-life from the official anchor + registry
+spatial_effects.parquet       2x2 spatial factorial cells (geometry x adaptation)
+flow_ablation_effects.parquet with-flow vs no-flow LightGBM retraining
+paper_values.tex              \\newcommand macros bound to the claim ledger
+claim_ledger_resolved.csv     claim-by-claim resolution
+result_manifest.json          git SHA, protocol hash, output digests
+```
+
+Regeneration (no training, no network):
+
+```bash
+python scripts/final/build_results_authority.py     # outputs/final/* + paper_values.tex
+python scripts/final/run_mechanism_analysis.py      # states + basin attributes
+python scripts/final/run_missingness_sensitivity.py # key-history strata
+python scripts/final/generate_manuscript_tables.py  # Section 4.6/4.8 table blocks
+python scripts/final/check_manuscript_consistency.py
+```
+
+The experimental scripts that produce the spatial and flow tables are
+`scripts/final/run_spatial_factorial.py` (LightGBM, 2×2 factorial, five random
+split seeds) and `scripts/final/run_flow_ablation.py`; both are CPU-light and
+reproducible from the committed panels.
 
 ## Study design
 

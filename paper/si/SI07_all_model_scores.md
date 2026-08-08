@@ -1,6 +1,9 @@
 # SI07 — all-model exact-common-key scores
 
-**Status:** filled from `outputs/conventional/station_metrics_2021_2023.csv` (unweighted station medians over the 116 reportable stations).
+**Status:** filled from `outputs/final/station_metrics.parquet` (unweighted
+station medians over the 116 reportable stations on the common held-out key
+registry; pooled RMSE from `outputs/final/pooled_metrics.parquet` is reported
+here as a sensitivity only and is never a station median).
 
 Rows are generated only from receipt-bound predictions after the renderer proves
 one exact common key set for every compared model. Development scores are not
@@ -29,13 +32,18 @@ the unofficial empirical a8 variant is fitted and scored on the held-out window.
 ### 1. The air2stream-style hybrid reference — fitted (a8 variant)
 
 **Status.** The unofficial empirical a8 variant of `src/thermoroute/air2stream.py`
-is calibrated per station on the 2006–2020 training record (multi-start bounded
-least squares, six starts, `max_nfev = 6000`) and scored on the 2021–2023 common
-keys (118 stations with a fitted hybrid; 356,131 scored keys). Station-median
+is calibrated per station on the 2006–2015 training record (multi-start bounded
+least squares, six starts, `max_nfev = 6000`) and scored on the 2021–2023
+**common-key registry** of the results authority (`outputs/final/forecast_keys.parquet`):
+only stations with at least 100 paired common keys are reportable, so the
+hybrid row uses the identical 116-station set as every other model (118 stations
+carry a fitted hybrid, but the table reports the common 116; a station-count
+sensitivity for all 118 is available in the reproduction artifacts). Station-median
 RMSE is 0.719 / 1.478 / 1.825 °C at 1 / 3 / 7 days; median of per-station skill
-against damped persistence is +0.063 / −0.008 / −0.011 (Table 4.7 of the
-manuscript). The official upstream model was not executed; the hybrid is an
-*unofficial empirical comparator*, not a claim against the published model.
+against damped persistence is +0.063 / −0.008 / −0.011. The official upstream
+model was not executed; the hybrid is an *unofficial empirical comparator*, not
+a claim against the published model and not a process-based result (manuscript
+Section 6.2).
 
 **Provenance (official upstream).** The pinned-source audit
 (`docs/AIR2STREAM_SOURCE_BUILD_AUDIT_20260801.md`) records verdict

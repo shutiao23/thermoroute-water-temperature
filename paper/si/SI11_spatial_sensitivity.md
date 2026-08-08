@@ -1,6 +1,55 @@
-# SI11 — spatial and leave-cluster sensitivity
+# SI11 — spatial, local-adaptation, and leave-cluster sensitivity
 
-**Status:** development-period analysis; the whole-region holdout has no held-out counterpart (fold weights do not exist) and is reported as development-period-only in Section 4.4.
+**Status:** the matched spatial-transfer experiment on the independent
+2021–2023 window (manuscript Section 4.7) is a 2×2 factorial — geometry
+{random-site, whole-region} × adaptation {target-local, training-pooled} —
+computed by `scripts/final/run_spatial_factorial.py` from `outputs/final/spatial_effects.parquet`
+(station-first metrics; identical keys and preprocessing policy within each
+cell). The development-period analysis of manuscript Section 4.4 remains a
+separate diagnostic and is not folded into the independent-window numbers.
+
+## Factorial design (protocol v1)
+
+| Geometry | Adaptation | Local history in preprocessing | Task label |
+|---|---|---|---|
+| Random site | target-local | yes (per-station 2006–2015) | Random-local |
+| Whole region | target-local | yes (per-station 2006–2015) | Region-local |
+| Random site | training-pooled | no (in-fold pooled stats) | Random-pooled |
+| Whole region | training-pooled | no (in-fold pooled stats) | Region-pooled |
+
+Every cell: station-agnostic LightGBM (raw target and damped-anchor residual),
+frozen main-design per-lead hyperparameters, four folds, five random-split
+seeds for the random arm, deterministic leave-HUC2 folds for the region arm,
+held-out 2021–2023 common keys. Per-fold hyperparameter re-tuning is not
+performed; the frozen main-design selections (2016–2017 validation) are reused
+and this is a documented limitation.
+
+| Cell | 1 d RMSE | 3 d RMSE | 7 d RMSE | stations | nearest gauge, median km |
+|---|---:|---:|---:|---:|---:|
+| *(generated from outputs/final/spatial_effects.parquet)* | | | | | |
+
+## Repeated-split paired penalty (region minus random, °C)
+
+Per station the region-cell RMSE is paired with the random-cell RMSE (mean over
+the five split seeds), and the median over stations is reported with the IQR
+and the per-seed medians:
+
+| Horizon | median penalty | IQR | random win fraction | per-seed medians |
+|---|---:|---:|---:|---|
+| *(generated)* | | | | |
+
+## Distance and hydroclimatic novelty
+
+For each held station the nearest-training-gauge great-circle distance (km) and
+a standardized hydroclimatic novelty (Euclidean distance in z-scores of mean
+annual air temperature, log drainage area, and |latitude|, fitted on training
+stations only) are correlated with the station penalty (descriptive).
+
+| Horizon | corr(penalty, log distance) | corr(penalty, hydro novelty) |
+|---|---:|---:|
+| *(generated)* | | |
+
+## Leave-cluster geometry at HUC2, HUC4, HUC6, and HUC8
 
 | Cluster definition | omitted unit | reportable clusters | effective fraction | largest share | effect (°C) | interval/status | binder row ID |
 |---|---|---|---|---|---|---|---|

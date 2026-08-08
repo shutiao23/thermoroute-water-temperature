@@ -129,6 +129,13 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             f"predictions table lacks primary models: {sorted(missing)}; "
             "the holdout scorer must be re-run with plain controls enabled")
+    # the authority's station-level tables additionally carry the one-factor
+    # ablations (SI07) and the plain controls, but never the pooled-preprocessing
+    # (-ext) sensitivity arms, whose cohort semantics differ.
+    metrics_models = [
+        m for m in predictions.model.unique()
+        if not str(m).endswith("-ext") and str(m) != "DampedPriorOnly"]
+    primary = predictions[predictions.model.isin(metrics_models)].copy()
 
     keys = FR.build_key_registry(primary)
     print(f"common forecast keys: {len(keys)} across "
@@ -153,7 +160,20 @@ def main(argv: list[str] | None = None) -> int:
     pooled = FR.pooled_metrics(primary)
     pooled.to_parquet(args.out / "pooled_metrics.parquet", index=False)
 
-    effects = FR.paired_effects(station)
+    # contrasts: every non-baseline model vs the two baselines at every lead,
+    # plus the frozen five-test family and the matched TCN contrasts.
+    contrasts = []
+    for model in sorted(set(station.model) - set(FR.SKILL_BASELINES)):
+        for base in FR.SKILL_BASELINES:
+            for horizon in (1, 3, 7):
+                contrasts.append((model, base, horizon))
+    for extra in (("ThermoRoute", "LightGBM", 3), ("ThermoRoute", "LightGBM", 7),
+                  ("PlainCausalTCN-7var", "ThermoRoute", 1),
+                  ("PlainCausalTCN-7var", "ThermoRoute", 3),
+                  ("PlainCausalTCN-7var", "ThermoRoute", 7)):
+        if extra not in contrasts:
+            contrasts.append(extra)
+    effects = FR.paired_effects(station, contrasts=contrasts)
     registry = load_registry(args.registry)
     effects = effects.merge(
         registry[["site_no", "huc2"]].rename(columns={"site_no": "site_id"}),

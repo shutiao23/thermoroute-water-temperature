@@ -359,6 +359,7 @@ def plain_control_ensemble(
     seeds: Sequence[int] = (0, 1, 2, 3, 4),
     cohort: str = "temporal",
     expected_run_id: str | None = None,
+    external: bool = False,
 ) -> tuple[pd.DataFrame, list[pd.DataFrame], dict[str, Any]]:
     """Run every plain-control seed checkpoint and average them.
 

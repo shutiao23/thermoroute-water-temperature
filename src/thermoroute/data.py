@@ -185,21 +185,47 @@ class Imputer:
     pooled: bool = False
 
     @classmethod
-    def fit(cls, panel: pd.DataFrame, train_mask: np.ndarray) -> "Imputer":
-        tr = panel.loc[train_mask].copy()
+    def fit(cls, panel: pd.DataFrame, train_mask: np.ndarray,
+            *, fit_stations: tuple[str, ...] | None = None,
+            pooled: bool = False) -> "Imputer":
+        """Fit day-of-year seasonal-median fills on the training fold only.
+
+        Default behaviour is unchanged: per-station medians for every station
+        in ``C.STATIONS``.  For a pooled spatial-transfer arm, pass the
+        in-fold ``fit_stations`` and ``pooled=True``: a single (variable,
+        day-of-year) median is then computed over the in-fold stations and
+        applied to every station in ``transform``, so held-region long
+        histories never enter the fill statistics.
+        """
+        fitted = tuple(C.STATIONS if fit_stations is None else fit_stations)
+        if not fitted or len(set(fitted)) != len(set(fitted)):
+            raise ValueError("imputer fit-station registry must be non-empty and unique")
+        allowed = np.asarray(train_mask, dtype=bool) & panel["site_id"].isin(fitted).to_numpy()
+        tr = panel.loc[allowed].copy()
         tr["doy"] = pd.to_datetime(tr["DATE"]).dt.dayofyear
         medians: dict[tuple[str, str], pd.Series] = {}
         gmed: dict[tuple[str, str], float] = {}
-        for st in C.STATIONS:
+        for st in fitted:
             sub = tr[tr.site_id == st]
             for var in C.ALL_VARS:
                 medians[(st, var)] = sub.groupby("doy")[var].median()
                 gmed[(st, var)] = float(sub[var].median())
+        if pooled:
+            # one pooled fill per (var, doy) over the in-fold stations
+            pooled_median: dict[tuple[str, str], pd.Series] = {}
+            pooled_global: dict[tuple[str, str], float] = {}
+            for var in C.ALL_VARS:
+                pooled_median[("__pooled__", var)] = (
+                    tr.groupby("doy")[var].median()
+                )
+                pooled_global[("__pooled__", var)] = float(tr[var].median())
+            medians.update(pooled_median)
+            gmed.update(pooled_global)
         return cls(
             medians=medians,
             global_median=gmed,
-            fit_stations=tuple(C.STATIONS),
-            pooled=False,
+            fit_stations=fitted,
+            pooled=pooled,
         )
 
     def transform(self, panel: pd.DataFrame) -> pd.DataFrame:
@@ -214,9 +240,12 @@ class Imputer:
                 miss = sel & np.isnan(col)
                 if not miss.any():
                     continue
-                med = self.medians[(st, var)]
+                key = (st, var)
+                if key not in self.medians and self.pooled:
+                    key = ("__pooled__", var)
+                med = self.medians[key]
                 fill = pd.Series(doy[miss]).map(med).to_numpy()
-                fill = np.where(np.isnan(fill), self.global_median[(st, var)], fill)
+                fill = np.where(np.isnan(fill), self.global_median[key], fill)
                 col[miss] = fill
                 out[var] = col
         return out

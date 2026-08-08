@@ -151,7 +151,8 @@
   filter:
     period: 2021-2023
     horizon: 3
-    model: ResidualLightGBM
+    model: LightGBM
+    adaptation: local
   estimator: median_station_region_minus_random_rmse
   latex_macro: ThreeDayRegionPenalty
 

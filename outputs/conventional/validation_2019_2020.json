@@ -177,11 +177,11 @@
     "arms": {
       "PlainMLP-7var": {
         "status": "EXCLUDED_PREPROCESSING_MISMATCH",
-        "error": "cannot access local variable 'metadata' where it is not associated with a value"
+        "error": "name 'external' is not defined"
       },
       "PlainCausalTCN-7var": {
         "status": "EXCLUDED_PREPROCESSING_MISMATCH",
-        "error": "cannot access local variable 'metadata' where it is not associated with a value"
+        "error": "name 'external' is not defined"
       }
     },
     "admitted": [],

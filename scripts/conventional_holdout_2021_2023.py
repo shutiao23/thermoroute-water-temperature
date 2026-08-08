@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -105,6 +106,24 @@ def registry_site_overlap() -> float:
 
 def log(msg: str) -> None:
     print(f"[conv] {msg}", flush=True)
+
+
+def _git_sha() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+            cwd=REPO).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _git_dirty() -> bool:
+    try:
+        return bool(subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True,
+            cwd=REPO).stdout.strip())
+    except Exception:
+        return True
 
 
 def load_registry(registry_path: Path) -> pd.DataFrame:
@@ -614,6 +633,10 @@ def run_holdout(
     (OUT / "validation_report_2021_2023.json").write_text(
         json.dumps(gate_report, indent=2, default=str))
     (OUT / "run_manifest.json").write_text(json.dumps({
+        "format": "thermoroute.conventional-run-manifest.v2",
+        "git_sha": _git_sha(),
+        "dirty": _git_dirty(),
+        "command": " ".join(sys.argv),
         "predictions": "predictions_2021_2023.parquet",
         "panel_cache_key": cache_key,
         "cohort": "cohort_2021_2023.csv",

@@ -1,12 +1,31 @@
 # SI15 — reproduction hashes, commands and parity
 
-**Status:** filled from the persisted conventional-holdout artifacts; source-tree and protocol bindings are not applicable in the conventional design (the pre-registration apparatus was removed).
+**Status:** filled from the persisted conventional-holdout artifacts and the
+results authority; source-tree and protocol bindings are not applicable in the
+conventional design (the pre-registration apparatus was removed).
 
 This SI projects the reproduction bindings — source tree, protocol/model suite,
 input closure, runtime/container, and replay/render receipts — for the held-out
 2021--2023 window. A local successful run is not an independent clean-room
 replay, and every binding below must carry a literal command and a declared
 numerical tolerance once filled.
+
+## Results authority commands
+
+Every headline number in the manuscript regenerates from committed inputs with
+four commands (no model training, no network):
+
+```bash
+python scripts/final/build_results_authority.py        # outputs/final/* + paper_values.tex
+python scripts/final/run_mechanism_analysis.py         # hydrologic states + basin attributes
+python scripts/final/run_missingness_sensitivity.py    # key-history strata
+python scripts/final/generate_manuscript_tables.py     # Section 4.6/4.8 table blocks
+python scripts/final/check_manuscript_consistency.py   # ledger + table + macro checks
+```
+
+`outputs/final/result_manifest.json` records the git SHA, dirty state, protocol
+hash, and SHA-256 digests of every authority table for the run that produced
+this manuscript version.
 
 ## Reproduction binding projection
 

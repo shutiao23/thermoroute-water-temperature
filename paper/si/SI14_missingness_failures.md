@@ -7,6 +7,30 @@ This SI projects missingness, attrition, and failure cases for the held-out
 remain visible: outcome-dependent threshold changes, station replacement,
 subgroup rescue, and omission of unfavourable rows are prohibited.
 
+## Key-registry history completeness (Major Comment 12 sensitivity)
+
+Every forecast key in `outputs/final/forecast_keys.parquet` carries the observed
+fraction of water temperature in the 7-, 14-, and 32-day windows ending at the
+issue date (computed from the raw panels before imputation; the panels have one
+row per calendar day, so row-rolling counts equal calendar-window counts). The
+stratified station-first paired ΔRMSE (ThermoRoute − damped persistence) from
+`scripts/final/run_missingness_sensitivity.py`:
+
+| Window | observed fraction | keys | reportable stations | median ΔRMSE (°C) |
+|---|---:|---:|---:|---:|
+| 7 d | ≥ 0.95 | 348,238 | 116 | −0.092 |
+| 7 d | 0.75–0.95 | 5,001 | 3 | −0.150 |
+| 7 d | < 0.75 | 5,568 | 0 | — |
+| 14 d | ≥ 0.95 | 337,730 | 116 | −0.093 |
+| 14 d | 0.75–0.95 | 15,327 | 15 | −0.052 |
+| 32 d | ≥ 0.95 | 329,386 | 116 | −0.091 |
+| 32 d | 0.75–0.95 | 22,859 | 22 | −0.096 |
+
+97% of the seven-day common keys have at least 95% of their 7-day history
+genuinely observed, and the learned-gain conclusion is present (indeed larger)
+on the well-observed stratum, so the relative model-vs-anchor result is not
+carried by heavily imputed keys.
+
 ## Missingness and failure projection (target period)
 
 | Stage/reason/stratum | eligible before | retained after | attrition | history completeness | effect/score | failure disposition | binder row ID |
