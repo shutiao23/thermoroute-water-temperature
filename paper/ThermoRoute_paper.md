@@ -172,7 +172,7 @@ a 24-hour mean; `RHMEAN` is a reproducible vapour-pressure proxy evaluated at th
 tmax/tmin midpoint, not a direct daily-mean humidity observation. Gage height
 (`WLEVEL`) is retained as raw evidence but is not a model input. Water
 temperature and discharge come from USGS NWIS daily values
-([U.S. Geological Survey, 2024](https://doi.org/10.5066/F7P55KJN)),
+([U.S. Geological Survey, 1994](https://doi.org/10.5066/F7P55KJN)),
 meteorological fields from Daymet V4
 ([Thornton et al., 2022](https://doi.org/10.3334/ORNLDAAC/2129)), and wind from
 gridMET ([Abatzoglou, 2013](https://doi.org/10.1002/joc.3413)).
@@ -1295,7 +1295,7 @@ deposit is described here as planned and specified, not as existing.
 **Primary observational sources.** All observations are obtained from public providers and none is the property of
 the authors. Daily-value water temperature and discharge come from the U.S.
 Geological Survey National Water Information System
-([U.S. Geological Survey, 2024](https://doi.org/10.5066/F7P55KJN); parameter
+([U.S. Geological Survey, 1994](https://doi.org/10.5066/F7P55KJN); parameter
 codes 00010, 00060, and 00065 with statistic code 00003). Air temperature,
 precipitation, the relative-humidity proxy, and daylight-period mean incoming
 shortwave radiation come from Daymet V4 R1 at ORNL DAAC
