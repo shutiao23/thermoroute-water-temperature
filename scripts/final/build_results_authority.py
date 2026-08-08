@@ -214,12 +214,16 @@ def main(argv: list[str] | None = None) -> int:
     import yaml
     with open(args.claim_ledger, encoding="utf-8") as fh:
         ledger = yaml.safe_load(fh)
-    resolved = FR.resolve_claim_ledger(ledger, {
-        path.name: pd.read_parquet(path)
-        for path in args.out.glob("*.parquet")})
-    unresolved = resolved[resolved.status != "RESOLVED"]
+    tables: dict[str, pd.DataFrame] = {}
+    for path in sorted(args.out.glob("*.parquet")):
+        try:
+            tables[path.name] = pd.read_parquet(path)
+        except Exception as exc:  # in-progress or partial table: claims go PENDING
+            print(f"note: skipping unreadable table {path.name}: {exc}")
+    resolved = FR.resolve_claim_ledger(ledger, tables)
     resolved.to_csv(args.out / "claim_ledger_resolved.csv", index=False)
     FR.write_paper_values(resolved, args.out / "paper_values.tex")
+    unresolved = resolved[resolved.status != "RESOLVED"]
     if not unresolved.empty:
         print(f"WARNING: {len(unresolved)} unresolved claims:")
         for row in unresolved.itertuples(index=False):

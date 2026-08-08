@@ -176,20 +176,186 @@
   "plain_controls": {
     "arms": {
       "PlainMLP-7var": {
-        "status": "EXCLUDED_PREPROCESSING_MISMATCH",
-        "error": "name 'external' is not defined"
+        "status": "PASS",
+        "trainable_parameters": 38860,
+        "n_members": 5,
+        "per_seed": [
+          {
+            "seed": 0,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 1,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 2,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 3,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 4,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          }
+        ]
       },
       "PlainCausalTCN-7var": {
-        "status": "EXCLUDED_PREPROCESSING_MISMATCH",
-        "error": "name 'external' is not defined"
+        "status": "PASS",
+        "trainable_parameters": 38346,
+        "n_members": 5,
+        "per_seed": [
+          {
+            "seed": 0,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 1,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 2,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 3,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          },
+          {
+            "seed": 4,
+            "n_frozen": 253350,
+            "n_dev": 249072,
+            "n_common": 249072,
+            "max_abs_diff": {
+              "y_pred": 0.0,
+              "q05": 0.0,
+              "q50": 0.0,
+              "q95": 0.0,
+              "p_exceed": 0.0
+            },
+            "overall_max_abs_diff": 0.0,
+            "within_atol": true,
+            "all_keys_reproduced": true
+          }
+        ]
       }
     },
-    "admitted": [],
-    "excluded": [
+    "admitted": [
       "PlainMLP-7var",
       "PlainCausalTCN-7var"
     ],
+    "excluded": [],
     "skipped": false,
-    "overall_status": "EXCLUDED_PREPROCESSING_MISMATCH"
+    "overall_status": "PASS"
   }
 }

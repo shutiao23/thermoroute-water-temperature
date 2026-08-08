@@ -25,7 +25,7 @@ common key registry at every lead), from `outputs/final/station_metrics.parquet`
 | ThermoRoute | 0.640 | 1.337 | 1.694 |
 | LightGBM | 0.589 | 1.304 | 1.735 |
 | LSTM | 0.663 | 1.358 | 1.712 |
-| Plain causal TCN (info-matched) | [PENDING] | [PENDING] | [PENDING] |
+| Plain causal TCN (info-matched) | 0.646 | 1.330 | 1.710 |
 | Air2stream (unofficial variant) | 0.719 | 1.478 | 1.825 |
 | Damped persistence | 0.789 | 1.454 | 1.773 |
 | Persistence | 0.813 | 1.638 | 2.202 |

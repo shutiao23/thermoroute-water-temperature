@@ -1,19 +1,21 @@
 {
  "format": "thermoroute.final-results-manifest.v1",
- "git_sha": "965e7ef9b447f37e86783991ae329bf8f1d111b5",
+ "git_sha": "be54fac7969b21a38457ea395586af083827f633",
  "dirty": true,
- "command": "scripts/final/build_results_authority.py --allow-incomplete-primary",
+ "command": "scripts/final/build_results_authority.py",
  "protocol_sha256": "5b56144089aceb9a124af06fc0cf75d5031e9ebdd66e88ee9a9a359ddbb8f79b",
- "started_at": "2026-08-08T00:57:15+00:00",
- "completed_at": "2026-08-08T00:57:46+00:00",
+ "started_at": "2026-08-08T02:05:03+00:00",
+ "completed_at": "2026-08-08T02:06:30+00:00",
  "outputs": {
   "basin_attributes.parquet": "5a95b719ccb46a062db5d40cf35e688efc097363161c51a415b7f858487be39b",
-  "decomposition_effects.parquet": "6a4afe8294759da38ef9b68a7b6112e97e318f70f2f195c64a7505d2d7eb29e4",
+  "decomposition_effects.parquet": "c07fcc84d4609c79c14e23f3b4404ffd9c454b3efdad2b33a6a691b0a0fbc7e0",
+  "flow_ablation_effects.parquet": "8c7c369ea40e16c324e894e9fe3ba004c12b3691d2b85fbd5c5d60e30a1227fa",
   "forecast_keys.parquet": "c89e0697aca48f045347bf400d513e774468c0cb280d6e5d4e0ce70767a7c400",
   "hydrologic_state_effects.parquet": "4add5618df38df68b23f029817b3e8bb6b2bd00c49d3665695b625afdfbe475f",
-  "paired_effects.parquet": "880ab91c3c1cbd45368c2931fb5854af92374aa4f77f4b91793499d4fd029fba",
-  "pooled_metrics.parquet": "180bf84648451a44c1eb7c44e186eb40a8125db7cb14ae2ad7fef1b358eb7cc9",
-  "predictions.parquet": "b4b91725f17137ca1698f476536d01134df4a331c9e56e9974505a5f2f939793",
-  "station_metrics.parquet": "84ddbb61b0b03a82f0d63936a4b4a7c478e4e806d8ffd3d38b4bd0bb523f0900"
+  "paired_effects.parquet": "0c0fe2d3c02148e8e0a8cada1c92d9bd29c01055578a3afb7ffd19ec0140e70a",
+  "pooled_metrics.parquet": "049f242ba35eb0037403b4b60764351b7548f4d2efa833a41cceea5e1c91e1be",
+  "predictions.parquet": "678d5dc306a69e078c08a33876cb4e2f0412c8831aac38d02e9a9c0cdbd94e31",
+  "spatial_effects.parquet": "b11cc85bb13a660fdc039aa0c8ac4e70a36ec007da3a4cb740dd1eb80da493ca",
+  "station_metrics.parquet": "366d56bcac9cdb69e440a4f8e381d00020f62e035993748c1094a59053b14907"
  }
 }

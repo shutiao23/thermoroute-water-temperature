@@ -12,24 +12,24 @@
  "learned_gain_correlations": {
   "1": {
    "n": 116,
-   "pearson_log_half_life": -0.4013085713376032,
-   "pearson_log_drain_area": 2.2503539836222814e-05,
+   "pearson_log_half_life": -0.4013085712725715,
+   "pearson_log_drain_area": 2.2503535589549593e-05,
    "n_drain_area": 112,
-   "pearson_latitude": -0.4122436728910278
+   "pearson_latitude": -0.41224367283002933
   },
   "3": {
    "n": 116,
-   "pearson_log_half_life": -0.1427932535768849,
-   "pearson_log_drain_area": 0.18684213186616225,
+   "pearson_log_half_life": -0.14279325358892286,
+   "pearson_log_drain_area": 0.1868421318650828,
    "n_drain_area": 112,
-   "pearson_latitude": -0.3820808865279238
+   "pearson_latitude": -0.38208088658892003
   },
   "7": {
    "n": 116,
-   "pearson_log_half_life": 0.20976213547437986,
-   "pearson_log_drain_area": 0.32768706156067146,
+   "pearson_log_half_life": 0.20976213548673675,
+   "pearson_log_drain_area": 0.32768706151075533,
    "n_drain_area": 112,
-   "pearson_latitude": -0.2100848978616411
+   "pearson_latitude": -0.2100848977728584
   }
  },
  "state_summaries": {
@@ -67,12 +67,12 @@
     },
     "issue_normal_flow": {
      "n_stations": 116,
-     "median_delta_rmse": -0.13020498006888165,
+     "median_delta_rmse": -0.1302049799591033,
      "median_n_keys": 812
     },
     "issue_rapid_flow_recession": {
      "n_stations": 116,
-     "median_delta_rmse": -0.1309880889486553,
+     "median_delta_rmse": -0.1309880897581562,
      "median_n_keys": 102
     },
     "issue_rapid_flow_rise": {
@@ -149,7 +149,7 @@
     },
     "issue_rapid_flow_recession": {
      "n_stations": 116,
-     "median_delta_rmse": -0.10697973484746381,
+     "median_delta_rmse": -0.10697973485717782,
      "median_n_keys": 100
     },
     "issue_rapid_flow_rise": {
@@ -169,7 +169,7 @@
     },
     "issue_stable_flow": {
      "n_stations": 116,
-     "median_delta_rmse": -0.10730245551670603,
+     "median_delta_rmse": -0.1073024553864319,
      "median_n_keys": 853
     },
     "issue_stable_trend": {

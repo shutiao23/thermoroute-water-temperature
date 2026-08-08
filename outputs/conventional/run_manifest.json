@@ -1,6 +1,10 @@
 {
+  "format": "thermoroute.conventional-run-manifest.v2",
+  "git_sha": "be54fac7969b21a38457ea395586af083827f633",
+  "dirty": true,
+  "command": "python scripts/conventional_holdout_2021_2023.py --bundle-root outputs/models --device cpu",
   "predictions": "predictions_2021_2023.parquet",
   "panel_cache_key": "611cb4651c870ea6473fae8d9b25936616b800dda0901a1cab64e0fa2fb565d7",
   "cohort": "cohort_2021_2023.csv",
-  "n_rows": 5740912
+  "n_rows": 6458526
 }

@@ -14,11 +14,11 @@
     },
     "G4_strict_precalibration_width": {
       "pass": true,
-      "detail": "q05_raw < q95_raw violated"
+      "detail": "0 pre-calibration q05_raw >= q95_raw rows"
     },
     "G5_postcalibration_valid": {
       "pass": true,
-      "detail": "calibrated heads invalid"
+      "detail": "0 invalid post-calibration rows (ordering/width/p_exceed)"
     },
     "G6_schema_validation": {
       "pass": true,
@@ -42,7 +42,7 @@
     },
     "G11_event_observed_consistent": {
       "pass": true,
-      "detail": "recomputed event disagrees"
+      "detail": "0 recomputed event_observed mismatches"
     },
     "G12_common_forecast_keys": {
       "pass": true,
@@ -50,7 +50,7 @@
     },
     "G13_cohort_accounting": {
       "pass": true,
-      "detail": "{'h1': 61, 'h3': 65, 'h7': 67}"
+      "detail": "{'h1': 116, 'h3': 116, 'h7': 116}"
     },
     "G14_no_http_failed_without_waiver": {
       "pass": true,
@@ -58,8 +58,8 @@
     }
   },
   "n_stations_reportable": {
-    "h1": 61,
-    "h3": 65,
-    "h7": 67
+    "h1": 116,
+    "h3": 116,
+    "h7": 116
   }
 }
