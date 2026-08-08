@@ -1,0 +1,154 @@
+# WRR Strong-Accept redesign protocol v1
+#
+# Frozen 2026-08-08 after the external review of `feat/conventional` at
+# 4c282e9 (tag `wrr-pre-strong-accept-4c282e9`).  This protocol governs the
+# redesign work stream.  Any change to a primary estimand, cohort membership,
+# state threshold, or headline claim requires a protocol version bump and a
+# decision-log entry BEFORE the change is implemented (docs/strong_accept_decision_log.md).
+
+study_id: thermoroute_wrr_sa_v1
+
+scientific_scope:
+  task: history-dependent retrospective daily stream-temperature prediction
+  site_status: gauged
+  horizons_days: [1, 3, 7]
+  primary_target: daily_mean_water_temperature_c
+  operational_replay: false
+  ungauged_prediction: false
+  river_network_routing: false
+
+periods:
+  training: [2006-01-01, 2015-12-31]
+  validation: [2016-01-01, 2017-12-31]
+  calibration: [2018-01-01, 2018-12-31]
+  development: [2019-01-01, 2020-12-31]
+  independent_test: [2021-01-01, 2023-12-31]
+  new_audit: [2024-01-01, 2025-12-31]   # not yet acquired; protocol-ready only
+
+primary_unit: station
+
+primary_estimand:
+  name: median_station_paired_delta_rmse
+  formula: rmse_candidate_i_h_minus_rmse_reference_i_h
+  direction: negative_favors_candidate
+  reportability: min 100 paired targets per station-horizon
+
+secondary_estimands:
+  - median_station_skill                 # median_i(1 - RMSE_model,i / RMSE_ref,i)
+  - equal_region_mean_effect
+  - station_win_fraction
+  - pooled_rmse_sensitivity              # SI only, never a headline
+  - memory_fraction                      # per-station G_memory/G_total, G_total > 0
+
+prohibited_estimators:
+  - ratio_of_station_medians_labelled_station_skill
+  - median(G_memory) + median(G_learned) labelled an additive total
+
+primary_models:
+  - Persistence
+  - DampedPersistence
+  - Climatology
+  - ResidualLightGBM
+  - ResidualTCN
+  - ResidualLSTM          # deferred: existing global LSTM is joint-horizon, non-residual; see decision log
+  - ThermoRoute
+
+primary_references:
+  - Persistence
+  - DampedPersistence
+
+primary_research_questions:
+  - RQ1_memory_vs_learning
+  - RQ2_matched_model_class
+  - RQ3_spatial_transfer
+  - RQ4_hydrologic_states
+
+benchmark_factor_factorial:
+  factors:
+    reference: [persistence, damped_persistence]
+    keys: [model_specific_negative_control, common_intersection]
+    preprocessing: [strict_backward, leaky_negative_control]
+    spatial_geometry: [random_site, whole_region]
+    local_adaptation: [target_site_local, training_pooled]
+  primary_design: strict_backward + common_intersection + damped_persistence + known_site
+
+spatial_factorial:
+  cells:
+    - geometry=random,  adaptation=local
+    - geometry=region,  adaptation=local
+    - geometry=random,  adaptation=pooled
+    - geometry=region,  adaptation=pooled
+  random_split_seeds: [0, 1, 2, 3, 4]
+  region_folds: 4 deterministic leave-HUC2 folds
+  minimum_train_rows_per_cell: 500
+
+hydrologic_states:
+  threshold_fit_period: training only (2006-2015)
+  threshold_definition: station-specific or station-month-specific empirical quantiles
+  primary_states: issue-time identifiable (anomaly, 7d trend, air-water disequilibrium,
+                  station-relative flow percentile, flow change, season)
+  secondary_states: retrospective outcome-conditioned diagnostics (actual rapid warming,
+                    actual rapid cooling, actual warmest/coldest decile, actual high/low flow)
+  minimum_keys_per_station_state_cell: 30
+
+decision_rules:
+  - id: R1_spatial
+    text: If the multi-model matched region penalty is unstable, smaller than ~0.02 C,
+          or driven by few regions, spatial partition leaves the title and Key Points.
+  - id: R2_architecture
+    text: If held-out residual TCN and ThermoRoute differ by less than ~0.02 C median
+          station DeltaRMSE with unstable win fractions, the plain residual TCN becomes
+          the primary learned model and ThermoRoute is presented as a complexity audit.
+  - id: R3_common_keys
+    text: If own-key vs common-key differences are small, key policy is reported as a
+          protocol recommendation, not a headline empirical finding.
+  - id: R4_preprocessing
+    text: If leaky-vs-strict differences are small, preprocessing is described as
+          closing a possible information channel, not as an inflation source.
+  - id: R5_mechanism
+    text: If station-relative issue-time states show no stable learned gain, the
+          target-conditioned results are exploratory only and no predictive-state
+          claim is made.
+  - id: R6_flow
+    text: If flow adds no average gain, the no-flow cohort becomes primary and
+          flow-complete is a state-level sensitivity (P2 scope, not yet run).
+  - id: R7_air2stream
+    text: Air2stream row stays in the main table only as the unofficial empirical
+          thermal-recurrence comparator with its variant caveat, or is moved to SI.
+
+reportability:
+  minimum_paired_targets_per_station_horizon: 100
+  minimum_keys_per_station_state_cell: 30
+
+neural_final_seeds: [0, 1, 2, 3, 4]
+
+results_authority:
+  directory: outputs/final/
+  single_source_of_truth: true
+  files:
+    - forecast_keys.parquet
+    - predictions.parquet
+    - station_metrics.parquet
+    - paired_effects.parquet
+    - decomposition_effects.parquet
+    - benchmark_factor_effects.parquet
+    - spatial_effects.parquet
+    - hydrologic_state_effects.parquet
+    - paper_values.tex
+    - result_manifest.json
+    - claim_ledger_resolved.csv
+  build_failure_on:
+    - duplicate forecast keys
+    - target_date != issue_date + horizon
+    - candidate/reference key or station-set mismatch
+    - pooled metrics labelled station medians
+    - ratio of medians labelled median station skill
+    - ambiguous station counts
+    - manuscript numbers without a ledger entry
+
+prohibited_after_audit_open:
+  - changing_model_architecture
+  - changing_primary_estimand
+  - changing_state_thresholds
+  - changing_cohort_membership
+  - changing_primary_figures

@@ -1,0 +1,207 @@
+# Claim ledger — WRR strong-accept redesign
+
+Every headline number in the manuscript must resolve to exactly one row in
+this ledger, and the row must resolve to one filter/estimand over an
+authoritative table under `outputs/final/`.  The build
+(`scripts/final/build_results_authority.py`) writes `claim_ledger_resolved.csv`
+and fails if any claim is unresolved, duplicated, or contradicts its source.
+
+Claim IDs follow `RQ<1-4>_<kind>_<horizon>_<suffix>`.  `used_in` uses the
+manuscript section names; `latex_macro` is the macro emitted into
+`outputs/final/paper_values.tex`.
+
+---
+
+- claim_id: RQ1_SKILL_7D_PERSISTENCE
+  used_in: [abstract, key_point_1, section_4_6, conclusions]
+  source_table: outputs/final/paired_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: ThermoRoute
+    reference: Persistence
+  estimator: median_station_skill
+  latex_macro: SevenDaySkillPersistence
+
+- claim_id: RQ1_SKILL_7D_DAMPED
+  used_in: [abstract, key_point_1, section_4_6, conclusions]
+  source_table: outputs/final/paired_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: ThermoRoute
+    reference: DampedPersistence
+  estimator: median_station_skill
+  latex_macro: SevenDaySkillDamped
+
+- claim_id: RQ1_MEMORY_GAIN_7D
+  used_in: [abstract, section_4_8, figure_3]
+  source_table: outputs/final/decomposition_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: ThermoRoute
+    reference: Persistence
+  estimator: median_station_g_memory
+  latex_macro: SevenDayMemoryGain
+
+- claim_id: RQ1_LEARNED_GAIN_7D
+  used_in: [abstract, section_4_8, figure_3]
+  source_table: outputs/final/decomposition_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: ThermoRoute
+    reference: DampedPersistence
+  estimator: median_station_g_learned
+  latex_macro: SevenDayLearnedGain
+
+- claim_id: RQ1_MEMORY_FRACTION_7D
+  used_in: [section_4_8, figure_3]
+  source_table: outputs/final/decomposition_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: ThermoRoute
+    g_total: gt_0
+  estimator: median_station_memory_fraction
+  latex_macro: SevenDayMemoryFraction
+
+- claim_id: RQ1_STATION_COUNT_7D
+  used_in: [abstract, section_4_6, figure_3]
+  source_table: outputs/final/station_metrics.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    model: ThermoRoute
+  estimator: reportable_station_count
+  latex_macro: NHeldoutStationsSevenDay
+
+- claim_id: RQ1_STATION_COUNT_1D
+  used_in: [abstract, section_4_6]
+  source_table: outputs/final/station_metrics.parquet
+  filter:
+    period: 2021-2023
+    horizon: 1
+    model: ThermoRoute
+  estimator: reportable_station_count
+  latex_macro: NHeldoutStationsOneDay
+
+- claim_id: RQ1_STATION_COUNT_3D
+  used_in: [abstract, section_4_6]
+  source_table: outputs/final/station_metrics.parquet
+  filter:
+    period: 2021-2023
+    horizon: 3
+    model: ThermoRoute
+  estimator: reportable_station_count
+  latex_macro: NHeldoutStationsThreeDay
+
+- claim_id: RQ1_TR_7D_RMSE
+  used_in: [abstract, section_4_6]
+  source_table: outputs/final/station_metrics.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    model: ThermoRoute
+  estimator: median_station_rmse
+  latex_macro: SevenDayThermoRouteRMSE
+
+- claim_id: RQ2_TCN_7D_DELTA
+  used_in: [section_4_6, section_4_3, figure_4]
+  source_table: outputs/final/paired_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: PlainCausalTCN-7var
+    reference: ThermoRoute
+  estimator: median_station_paired_delta_rmse
+  latex_macro: SevenDayTCNMinusThermoRouteDelta
+
+- claim_id: RQ2_LGBM_1D_RMSE
+  used_in: [abstract, section_4_6]
+  source_table: outputs/final/station_metrics.parquet
+  filter:
+    period: 2021-2023
+    horizon: 1
+    model: LightGBM
+  estimator: median_station_rmse
+  latex_macro: OneDayLightGBMRMSE
+
+- claim_id: RQ2_LGBM_3D_RMSE
+  used_in: [abstract, section_4_6]
+  source_table: outputs/final/station_metrics.parquet
+  filter:
+    period: 2021-2023
+    horizon: 3
+    model: LightGBM
+  estimator: median_station_rmse
+  latex_macro: ThreeDayLightGBMRMSE
+
+- claim_id: RQ2_TR_7D_VS_LGBM
+  used_in: [section_4_6, table_4_6]
+  source_table: outputs/final/paired_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    candidate: ThermoRoute
+    reference: LightGBM
+  estimator: median_station_paired_delta_rmse
+  latex_macro: SevenDayThermoRouteMinusLightGBM
+
+- claim_id: RQ3_REGION_PENALTY_3D
+  used_in: [section_4_7, figure_5]
+  source_table: outputs/final/spatial_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 3
+    model: ResidualLightGBM
+  estimator: median_station_region_minus_random_rmse
+  latex_macro: ThreeDayRegionPenalty
+
+- claim_id: RQ3_DISTANCE_RANDOM_KM
+  used_in: [section_4_7, figure_5]
+  source_table: outputs/final/spatial_effects.parquet
+  filter:
+    period: 2021-2023
+    geometry: random
+  estimator: median_nearest_km
+  latex_macro: RandomNearestGaugeKm
+
+- claim_id: RQ3_DISTANCE_REGION_KM
+  used_in: [section_4_7, figure_5]
+  source_table: outputs/final/spatial_effects.parquet
+  filter:
+    period: 2021-2023
+    geometry: region
+  estimator: median_nearest_km
+  latex_macro: RegionNearestGaugeKm
+
+- claim_id: RQ4_HALFLIFE_MEDIAN
+  used_in: [section_4_8, figure_6]
+  source_table: outputs/final/hydrologic_state_effects.parquet
+  filter:
+    period: 2021-2023
+    stat: half_life
+  estimator: median
+  latex_macro: HalfLifeMedianDays
+
+- claim_id: RQ4_RAPID_WARMING_7D_DELTA
+  used_in: [section_4_8, figure_6]
+  source_table: outputs/final/hydrologic_state_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    state: actual_rapid_warming
+  estimator: median_station_state_delta_rmse
+  latex_macro: SevenDayRapidWarmingDelta
+
+- claim_id: RQ4_ISSUE_TREND_7D_DELTA
+  used_in: [section_4_8, figure_6]
+  source_table: outputs/final/hydrologic_state_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+    state: issue_rapid_recent_warming
+  estimator: median_station_state_delta_rmse
+  latex_macro: SevenDayIssueTrendDelta

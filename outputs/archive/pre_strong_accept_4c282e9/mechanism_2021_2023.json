@@ -1,0 +1,213 @@
+{
+ "memory_learned_median": {
+  "1": {
+   "G_memory": 0.028415583956012458,
+   "G_learned": 0.12854901842531802
+  },
+  "3": {
+   "G_memory": 0.17043766649565795,
+   "G_learned": 0.10559722519819181
+  },
+  "7": {
+   "G_memory": 0.4910231375530185,
+   "G_learned": 0.06882021862046972
+  }
+ },
+ "corr_half_life_learned": {
+  "1": -0.49382989962883356,
+  "3": -0.29835986961180927,
+  "7": 0.05586106049178566
+ },
+ "half_life_median": 7.157029775493265,
+ "half_life_iqr": [
+  5.185832673090121,
+  11.184599180612052
+ ],
+ "stratified_delta_rmse": {
+  "1": {
+   "all": {
+    "n_keys": 120444,
+    "n_stations": 116,
+    "delta_rmse": -0.14245779186256047
+   },
+   "season_DJF": {
+    "n_keys": 29575,
+    "n_stations": 116,
+    "delta_rmse": -0.15779810585348752
+   },
+   "season_MAM": {
+    "n_keys": 30824,
+    "n_stations": 116,
+    "delta_rmse": -0.15938343483192452
+   },
+   "season_JJA": {
+    "n_keys": 30146,
+    "n_stations": 116,
+    "delta_rmse": -0.09491337098968733
+   },
+   "season_SON": {
+    "n_keys": 29899,
+    "n_stations": 116,
+    "delta_rmse": -0.154948969267927
+   },
+   "warmest10": {
+    "n_keys": 12228,
+    "n_stations": 76,
+    "delta_rmse": -0.12027614229204464
+   },
+   "coldest10": {
+    "n_keys": 12311,
+    "n_stations": 92,
+    "delta_rmse": -0.05770393355055037
+   },
+   "rapid_change10": {
+    "n_keys": 13187,
+    "n_stations": 113,
+    "delta_rmse": -0.40808836632334566
+   },
+   "low_flow10": {
+    "n_keys": 12041,
+    "n_stations": 25,
+    "delta_rmse": -0.13300659003641402
+   },
+   "high_flow10": {
+    "n_keys": 12037,
+    "n_stations": 53,
+    "delta_rmse": -0.12043830606602701
+   },
+   "high_disequilibrium10": {
+    "n_keys": 12045,
+    "n_stations": 112,
+    "delta_rmse": -0.08558149238511659
+   }
+  },
+  "3": {
+   "all": {
+    "n_keys": 119639,
+    "n_stations": 116,
+    "delta_rmse": -0.1154810115902214
+   },
+   "season_DJF": {
+    "n_keys": 29189,
+    "n_stations": 116,
+    "delta_rmse": -0.1200176684112797
+   },
+   "season_MAM": {
+    "n_keys": 30691,
+    "n_stations": 116,
+    "delta_rmse": -0.12970138776247686
+   },
+   "season_JJA": {
+    "n_keys": 29988,
+    "n_stations": 116,
+    "delta_rmse": -0.08125826385351975
+   },
+   "season_SON": {
+    "n_keys": 29771,
+    "n_stations": 116,
+    "delta_rmse": -0.12756240677938835
+   },
+   "warmest10": {
+    "n_keys": 12136,
+    "n_stations": 76,
+    "delta_rmse": -0.08996938831267176
+   },
+   "coldest10": {
+    "n_keys": 12169,
+    "n_stations": 92,
+    "delta_rmse": -0.0033739002393609052
+   },
+   "rapid_change10": {
+    "n_keys": 12074,
+    "n_stations": 108,
+    "delta_rmse": -0.41172102544170874
+   },
+   "low_flow10": {
+    "n_keys": 11960,
+    "n_stations": 25,
+    "delta_rmse": -0.09329142353176123
+   },
+   "high_flow10": {
+    "n_keys": 11957,
+    "n_stations": 53,
+    "delta_rmse": -0.12887471218101632
+   },
+   "high_disequilibrium10": {
+    "n_keys": 11975,
+    "n_stations": 112,
+    "delta_rmse": -0.03292330097985152
+   }
+  },
+  "7": {
+   "all": {
+    "n_keys": 118682,
+    "n_stations": 116,
+    "delta_rmse": -0.07306441020568033
+   },
+   "season_DJF": {
+    "n_keys": 28586,
+    "n_stations": 116,
+    "delta_rmse": -0.05409521409002771
+   },
+   "season_MAM": {
+    "n_keys": 30589,
+    "n_stations": 116,
+    "delta_rmse": -0.08946156263606664
+   },
+   "season_JJA": {
+    "n_keys": 29846,
+    "n_stations": 116,
+    "delta_rmse": -0.08342605559196281
+   },
+   "season_SON": {
+    "n_keys": 29661,
+    "n_stations": 116,
+    "delta_rmse": -0.06415795921551282
+   },
+   "warmest10": {
+    "n_keys": 12038,
+    "n_stations": 76,
+    "delta_rmse": -0.08445936812345933
+   },
+   "coldest10": {
+    "n_keys": 11952,
+    "n_stations": 92,
+    "delta_rmse": 0.014082963865900133
+   },
+   "rapid_change10": {
+    "n_keys": 11871,
+    "n_stations": 111,
+    "delta_rmse": -0.3307693665044291
+   },
+   "low_flow10": {
+    "n_keys": 11864,
+    "n_stations": 25,
+    "delta_rmse": -0.061684693309236316
+   },
+   "high_flow10": {
+    "n_keys": 11856,
+    "n_stations": 53,
+    "delta_rmse": -0.0944615935651556
+   },
+   "high_disequilibrium10": {
+    "n_keys": 11869,
+    "n_stations": 112,
+    "delta_rmse": -0.03572156865875464
+   }
+  }
+ },
+ "tr_win_frac_by_lead": {
+  "1": {
+   "win_frac": 0.896551724137931,
+   "n": 116
+  },
+  "3": {
+   "win_frac": 0.9137931034482759,
+   "n": 116
+  },
+  "7": {
+   "win_frac": 0.9482758620689655,
+   "n": 116
+  }
+ }
+}
