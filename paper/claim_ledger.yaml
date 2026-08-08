@@ -201,3 +201,21 @@
     state: issue_rapid_recent_warming
   estimator: median_station_state_delta_rmse
   latex_macro: SevenDayIssueTrendDelta
+
+- claim_id: RQ2_FLOW_REMOVAL_1D_DELTA
+  used_in: [section_4_5]
+  source_table: outputs/final/flow_ablation_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 1
+  estimator: median_station_flow_removal_delta
+  latex_macro: OneDayFlowRemovalDelta
+
+- claim_id: RQ2_FLOW_REMOVAL_7D_DELTA
+  used_in: [section_4_5]
+  source_table: outputs/final/flow_ablation_effects.parquet
+  filter:
+    period: 2021-2023
+    horizon: 7
+  estimator: median_station_flow_removal_delta
+  latex_macro: SevenDayFlowRemovalDelta

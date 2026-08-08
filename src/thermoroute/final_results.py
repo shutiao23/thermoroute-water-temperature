@@ -522,6 +522,10 @@ def _resolve_estimator(table: pd.DataFrame, claim: Mapping[str, Any]) -> Any:
         if pivot.empty:
             raise ValueError("no paired region/random cells")
         return float((pivot["region"] - pivot["random"]).median())
+    if estimator == "median_station_flow_removal_delta":
+        if frame.empty:
+            raise ValueError("empty after filter")
+        return float(frame["delta_rmse_noflow_minus_flow"].median())
     if estimator == "median_nearest_km":
         if frame.empty:
             raise ValueError("empty after filter")

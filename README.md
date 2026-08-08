@@ -37,8 +37,10 @@ ThermoRoute's station-median skill over persistence on the held-out window is
 median learned gain 0.07 °C (median memory fraction 0.875). The core development
 finding — that skill over the strong damped-persistence reference collapses with
 lead time — replicates on the independent window. LightGBM leads at 1 d and 3 d;
-ThermoRoute leads at 7 d (ΔRMSE −0.009). All tables in the manuscript regenerate
-from the persisted prediction table with `scripts/final/` (results authority).
+at 7 d the ThermoRoute point estimate is lower (ΔRMSE −0.009) but not
+distinguishable from the tree at the whole-HUC2 cluster level. All tables in the
+manuscript regenerate from the persisted prediction table with `scripts/final/`
+(results authority).
 
 ## Results authority (`outputs/final/`)
 

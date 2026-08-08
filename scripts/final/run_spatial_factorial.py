@@ -162,11 +162,12 @@ def main() -> None:
     done: set[tuple[str, str, str, int, int, int]] = set()
     if out_path.exists():
         existing = pd.read_parquet(out_path)
-        for _, r in existing[["geometry", "adaptation", "model", "seed", "fold",
-                              "horizon"]].drop_duplicates().iterrows():
-            done.add((str(r.geometry), str(r.adaptation), str(r.model),
-                      int(r.seed), int(r.fold), int(r.horizon)))
-        print(f"resume: {len(done)} cells cached", flush=True)
+        if "fold" in existing.columns and "rmse" not in existing.columns:
+            for _, r in existing[["geometry", "adaptation", "model", "seed", "fold",
+                                  "horizon"]].drop_duplicates().iterrows():
+                done.add((str(r.geometry), str(r.adaptation), str(r.model),
+                          int(r.seed), int(r.fold), int(r.horizon)))
+            print(f"resume: {len(done)} cells cached", flush=True)
 
     for geometry, seed_folds in folds_by_arm.items():
         for seed, folds in seed_folds:
@@ -231,7 +232,6 @@ def main() -> None:
                             if len(tr) < MIN_TRAIN_ROWS:
                                 print(f"    h{h}: skip, only {len(tr)} train rows")
                                 continue
-                            phi_h = tab["site_id"].map(phi).to_numpy(float) ** h
                             if model == "ResidualLightGBM":
                                 ytr = tr["y"].to_numpy(float) - (
                                     tr["clim_target"].to_numpy(float)
@@ -283,7 +283,9 @@ def main() -> None:
 
     if not rows:
         print("no new predictions produced (all cached)")
-        return
+    else:
+        pred = pd.concat(rows, ignore_index=True)
+        pred.to_parquet(out_path)
 
     pred = pd.read_parquet(out_path)
     metric_rows = []
@@ -308,39 +310,52 @@ def main() -> None:
     for model in ("LightGBM", "ResidualLightGBM"):
         summary[model] = {}
         for h in HORIZONS:
-            sub = metrics[(metrics.model == model) & (metrics.horizon == h)]
-            block = {}
-            for geometry in ("region", "random"):
-                g = sub[sub.geometry == geometry]
-                block[f"{geometry}_n_stations"] = int(g.site_id.nunique())
-                block[f"{geometry}_rmse_median"] = float(g.rmse.median())
-                block[f"{geometry}_rmse_damped_median"] = float(g.rmse_damped.median())
-                block[f"{geometry}_nearest_km_median"] = float(g.nearest_km.median())
-            # paired region-minus-random per station x seed
-            pivot = sub[sub.geometry.isin(["region", "random"])].pivot_table(
-                index=["site_id", "seed"], columns="geometry", values="rmse")
-            pivot = pivot.dropna()
-            if not pivot.empty:
-                pen = pivot["region"] - pivot["random"]
-                block["paired_region_minus_random_median"] = float(pen.median())
-                block["paired_region_minus_random_iqr"] = list(
-                    np.percentile(pen, [25, 75]))
-                block["paired_random_win_frac"] = float((pivot["random"] < pivot["region"]).mean())
-                block["paired_n_site_seed"] = int(len(pen))
-                by_seed = pen.groupby("seed").median()
-                block["paired_median_by_seed"] = {
-                    str(int(s)): float(v) for s, v in by_seed.items()}
-            # descriptive penalty vs novelty (all arm cells)
-            g = sub[sub.geometry == "region"].copy()
-            block["region_penalty_median"] = float(
-                (g.rmse - g.rmse_damped).median())
-            corr = sub.dropna(subset=["hydro_novelty"])
-            if len(corr) > 10:
-                block["corr_penalty_log_distance"] = float(np.corrcoef(
-                    np.log(corr.nearest_km + 1), corr.rmse - corr.rmse_damped)[0, 1])
-                block["corr_penalty_hydro_novelty"] = float(np.corrcoef(
-                    corr.hydro_novelty, corr.rmse - corr.rmse_damped)[0, 1])
-            summary[model][str(h)] = block
+            for adaptation in ("local", "pooled"):
+                sub = metrics[(metrics.model == model) & (metrics.horizon == h)
+                              & (metrics.adaptation == adaptation)]
+                block: dict = {}
+                for geometry in ("region", "random"):
+                    g = sub[sub.geometry == geometry]
+                    block[f"{geometry}_n_stations"] = int(g.site_id.nunique())
+                    block[f"{geometry}_rmse_median"] = float(g.rmse.median())
+                    block[f"{geometry}_rmse_damped_median"] = float(g.rmse_damped.median())
+                    block[f"{geometry}_nearest_km_median"] = float(g.nearest_km.median())
+                # per-site penalty: region cell (seed 0) minus the mean of the
+                # five random-split cells; the random-split spread is the
+                # per-site sd across the five seeds.
+                reg = sub[sub.geometry == "region"].set_index("site_id")["rmse"]
+                rnd = sub[sub.geometry == "random"].groupby("site_id")["rmse"]
+                rnd_mean = rnd.mean()
+                rnd_sd = rnd.std()
+                sites = reg.index.intersection(rnd_mean.index)
+                if len(sites):
+                    penalty = reg.loc[sites] - rnd_mean.loc[sites]
+                    block["paired_region_minus_random_median"] = float(penalty.median())
+                    block["paired_region_minus_random_iqr"] = list(
+                        np.percentile(penalty, [25, 75]))
+                    block["paired_random_win_frac"] = float(
+                        (penalty > 0).mean())
+                    block["paired_n_sites"] = int(len(sites))
+                    block["random_split_spread_median"] = float(rnd_sd.loc[sites].median())
+                    # per-seed penalties: region (seed 0) vs each random seed,
+                    # so the seed-0 penalty is read against the seed spread.
+                    by_seed: dict[str, float] = {}
+                    for seed in RANDOM_SEEDS:
+                        r = sub[(sub.geometry == "random")
+                                & (sub.seed == seed)].set_index("site_id")["rmse"]
+                        common = reg.index.intersection(r.index)
+                        if len(common):
+                            by_seed[str(seed)] = float(
+                                (reg.loc[common] - r.loc[common]).median())
+                    block["paired_median_by_seed"] = by_seed
+                    corr = sub.dropna(subset=["hydro_novelty"]).copy()
+                    corr["penalty"] = corr["rmse"] - corr["rmse_damped"]
+                    if len(corr) > 10:
+                        block["corr_penalty_log_distance"] = float(np.corrcoef(
+                            np.log(corr.nearest_km + 1), corr.penalty)[0, 1])
+                        block["corr_penalty_hydro_novelty"] = float(np.corrcoef(
+                            corr.hydro_novelty, corr.penalty)[0, 1])
+                summary[model].setdefault(str(h), {})[adaptation] = block
     (FINAL / "spatial_summary.json").write_text(
         json.dumps(summary, indent=1, default=str), encoding="utf-8")
     print(json.dumps(summary, indent=1)[:3000])

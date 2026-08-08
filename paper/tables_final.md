@@ -4,11 +4,11 @@
 
 | # | Comparison | Lead | ΔRMSE (°C) | CI low | CI high | Win rate | Stations |
 | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | ThermoRoute vs. DampedPersistence | 1 d | -0.129 | -0.199 | -0.090 | 0.90 | 116 |
-| 2 | ThermoRoute vs. DampedPersistence | 3 d | -0.108 | -0.140 | -0.079 | 0.91 | 116 |
-| 3 | ThermoRoute vs. DampedPersistence | 7 d | -0.069 | -0.088 | -0.057 | 0.95 | 116 |
-| 4 | ThermoRoute vs. LightGBM | 3 d | 0.015 | 0.012 | 0.024 | 0.24 | 116 |
-| 5 | ThermoRoute vs. LightGBM | 7 d | -0.009 | -0.015 | -0.000 | 0.59 | 116 |
+| 1 | ThermoRoute vs. DampedPersistence | 1 d | -0.129 | -0.199 | -0.076 | 0.90 | 116 |
+| 2 | ThermoRoute vs. DampedPersistence | 3 d | -0.108 | -0.143 | -0.073 | 0.91 | 116 |
+| 3 | ThermoRoute vs. DampedPersistence | 7 d | -0.069 | -0.086 | -0.057 | 0.95 | 116 |
+| 4 | ThermoRoute vs. LightGBM | 3 d | 0.015 | 0.010 | 0.025 | 0.24 | 116 |
+| 5 | ThermoRoute vs. LightGBM | 7 d | -0.009 | -0.017 | 0.002 | 0.59 | 116 |
 
 ### Table 4.7a — Accuracy (RMSE, MAE, bias)
 

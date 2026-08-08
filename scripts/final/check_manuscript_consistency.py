@@ -20,7 +20,6 @@ Usage::
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -53,8 +52,6 @@ def check_manuscript_numbers(manuscript: str, resolved: pd.DataFrame) -> list[st
         if not str(row.value):
             continue
         macro = str(row.latex_macro)
-        # expected printed value: the macro value itself appears in paper_values
-        value = str(row.value)
         # find the corresponding claim's used_in sections in the manuscript
         # and verify at least one printed occurrence of the value
         for section in str(row.used_in).split(";"):

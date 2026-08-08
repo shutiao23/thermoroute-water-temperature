@@ -207,3 +207,103 @@ Data periods already inspected: none beyond 2023.
 Changes a primary hypothesis? no
 Requires a protocol version bump? no
 Commit(s): none (documented only)
+
+---
+
+## 2026-08-08 — DLOG-008: spatial decision rule R1 applied
+
+Decision: The independent-window matched spatial penalty is +0.006 / +0.009 /
++0.007 °C at 1 / 3 / 7 d (LightGBM, local adaptation; +0.006 / +0.007 / +0.004
+for the residual-target tree), consistently signed across five split seeds and
+two model targets but below the 0.02 °C threshold of decision rule R1.  The
+spatial partition is therefore reported as a secondary finding: it is removed
+from the Key Points, the abstract states it as "a small, consistently signed
+additional error of about 0.01 °C — an order of magnitude smaller than the
+reference-model effect", and the development-period "removes a third" framing
+is kept only as a development-period descriptive result.
+
+Why: The pre-registered decision rule was triggered; the alternative (keeping
+spatial as a headline) would have contradicted the protocol.
+
+Evidence available before the decision: `outputs/final/spatial_summary.json`
+(computed after the factorial completed; the protocol was written before the
+factorial ran).
+
+Data periods already inspected: 2021-2023 (the factorial scoring window).
+
+Changes a primary hypothesis? no
+Requires a protocol version bump? no
+Commit(s): (spatial-factorial commit)
+
+---
+
+## 2026-08-08 — DLOG-009: HUC2 cluster-map bug fix
+
+Decision: `spatial.huc2_cluster_map` now zero-pads the registry's `huc2`
+codes, restoring the true 15 whole-HUC2 clusters (the previous code matched
+only the two-digit codes 10-18 and silently treated the nine single-digit
+codes as per-site clusters, yielding 71 clusters).  All cluster inference was
+regenerated; the five-test family p-values and intervals changed accordingly
+(e.g., ThermoRoute−LightGBM at 7 d: CI now includes zero, Holm p = 0.148).
+
+Why: The cluster structure is a protocol-level scientific fact; the bug
+inflated the effective cluster count and could have changed conclusions.
+
+Evidence available before the decision: the registry's `huc2` column stores
+integers 1-18; the regex `\d{2}` only matched two-digit strings.
+
+Data periods already inspected: none (structural fix, no outcomes re-read).
+
+Changes a primary hypothesis? no (inference sensitivity only)
+Requires a protocol version bump? no
+Commit(s): (spatial-factorial commit)
+
+---
+
+## 2026-08-08 — DLOG-010: plain controls admitted to the holdout
+
+Decision: Following the G15 preprocessing-borrow gate passing with
+`max_abs_diff = 0` for both information-matched plain controls, the two arms
+(PlainMLP-7var, PlainCausalTCN-7var) were scored on the 2021-2023 window with
+their frozen weights.  The held-out result: the full architecture retains a
+small, consistent edge (median paired ΔRMSE +0.010 / +0.011 / +0.015 °C at
+1 / 3 / 7 d; plain-TCN win fractions 0.30 / 0.30 / 0.16).  This is below the
+0.02 °C threshold of decision rule R2 but the direction is stable, so the
+manuscript reports the full architecture as primary with the plain TCN as the
+parsimonious description, and does not claim a material architecture
+advantage.
+
+Why: Major Comment 5 of the review asked for the independent-window re-test;
+the frozen checkpoints and gate machinery made it an inference-only cost.
+
+Evidence available before the decision: `plain_controls_g15.json` (dev
+reproduction) and the scorer's G15 admission for the rerun.
+
+Data periods already inspected: 2021-2023 (the scoring window).
+
+Changes a primary hypothesis? no
+Requires a protocol version bump? no
+Commit(s): (results commit)
+
+---
+
+## 2026-08-08 — DLOG-011: flow retraining ablation result
+
+Decision: Retraining the global LightGBM without the FLOW channel costs
++0.042 / +0.034 / +0.009 °C station-median RMSE at 1 / 3 / 7 d (no-flow win
+fractions 0.03 / 0.14 / 0.37).  The manuscript now reports discharge as
+carrying small but systematic information at the shortest lead, replacing the
+earlier "nearly insensitive to discharge" reading of the scale-perturbation
+probes; the cohort trade-off is quantified only when a no-flow core cohort is
+re-derived (P2).
+
+Why: Major Comment 7 of the review required a retraining test, not only
+synthetic perturbations.
+
+Evidence available before the decision: `outputs/final/flow_ablation_effects.parquet`.
+
+Data periods already inspected: 2021-2023 (scoring window).
+
+Changes a primary hypothesis? no
+Requires a protocol version bump? no
+Commit(s): (flow-ablation commit)

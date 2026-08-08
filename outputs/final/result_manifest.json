@@ -1,21 +1,21 @@
 {
  "format": "thermoroute.final-results-manifest.v1",
- "git_sha": "be54fac7969b21a38457ea395586af083827f633",
+ "git_sha": "ecd91938389b06018f9c2a351577b9cc2359530c",
  "dirty": true,
  "command": "scripts/final/build_results_authority.py",
  "protocol_sha256": "5b56144089aceb9a124af06fc0cf75d5031e9ebdd66e88ee9a9a359ddbb8f79b",
- "started_at": "2026-08-08T02:05:03+00:00",
- "completed_at": "2026-08-08T02:06:30+00:00",
+ "started_at": "2026-08-08T05:34:32+00:00",
+ "completed_at": "2026-08-08T05:35:37+00:00",
  "outputs": {
   "basin_attributes.parquet": "5a95b719ccb46a062db5d40cf35e688efc097363161c51a415b7f858487be39b",
   "decomposition_effects.parquet": "c07fcc84d4609c79c14e23f3b4404ffd9c454b3efdad2b33a6a691b0a0fbc7e0",
   "flow_ablation_effects.parquet": "8c7c369ea40e16c324e894e9fe3ba004c12b3691d2b85fbd5c5d60e30a1227fa",
   "forecast_keys.parquet": "c89e0697aca48f045347bf400d513e774468c0cb280d6e5d4e0ce70767a7c400",
-  "hydrologic_state_effects.parquet": "4add5618df38df68b23f029817b3e8bb6b2bd00c49d3665695b625afdfbe475f",
+  "hydrologic_state_effects.parquet": "616afe6e36384ea18f743209b598524de54b8b95d2a9a3283cee237e89d6ee7f",
   "paired_effects.parquet": "0c0fe2d3c02148e8e0a8cada1c92d9bd29c01055578a3afb7ffd19ec0140e70a",
   "pooled_metrics.parquet": "049f242ba35eb0037403b4b60764351b7548f4d2efa833a41cceea5e1c91e1be",
   "predictions.parquet": "678d5dc306a69e078c08a33876cb4e2f0412c8831aac38d02e9a9c0cdbd94e31",
-  "spatial_effects.parquet": "b11cc85bb13a660fdc039aa0c8ac4e70a36ec007da3a4cb740dd1eb80da493ca",
+  "spatial_effects.parquet": "92f2a1f6b063a0f232b870d386593483c82beeb837c051a5f3500efa34bacf83",
   "station_metrics.parquet": "366d56bcac9cdb69e440a4f8e381d00020f62e035993748c1094a59053b14907"
  }
 }

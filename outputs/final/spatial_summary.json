@@ -1,0 +1,342 @@
+{
+ "LightGBM": {
+  "1": {
+   "local": {
+    "region_n_stations": 90,
+    "region_rmse_median": 0.6351715838361711,
+    "region_rmse_damped_median": 0.7604893940980721,
+    "region_nearest_km_median": 264.9267266184169,
+    "random_n_stations": 120,
+    "random_rmse_median": 0.6414634923912936,
+    "random_rmse_damped_median": 0.7692021248590757,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.00597103136260424,
+    "paired_region_minus_random_iqr": [
+     -0.0003122522462220001,
+     0.01426177149260574
+    ],
+    "paired_random_win_frac": 0.7222222222222222,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.003494246957651376,
+    "paired_median_by_seed": {
+     "0": 0.00790230448465784,
+     "1": 0.0043480732474860395,
+     "2": 0.006656043059636491,
+     "3": 0.005285079291785677,
+     "4": 0.00737213926782937
+    },
+    "corr_penalty_log_distance": -0.0681969406842539,
+    "corr_penalty_hydro_novelty": 0.1563288923341386
+   },
+   "pooled": {
+    "region_n_stations": 120,
+    "region_rmse_median": 0.6923114352150825,
+    "region_rmse_damped_median": 0.811590921657052,
+    "region_nearest_km_median": 265.1562950814897,
+    "random_n_stations": 120,
+    "random_rmse_median": 0.6674616276566241,
+    "random_rmse_damped_median": 0.8023118324277145,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.009012568959359424,
+    "paired_region_minus_random_iqr": [
+     -0.002270947160743303,
+     0.03315548180902042
+    ],
+    "paired_random_win_frac": 0.7083333333333334,
+    "paired_n_sites": 120,
+    "random_split_spread_median": 0.012091362901395612,
+    "paired_median_by_seed": {
+     "0": 0.009116486076086588,
+     "1": 0.01058087293941501,
+     "2": 0.01144248079197377,
+     "3": 0.011106833450789888,
+     "4": 0.011105776044505022
+    },
+    "corr_penalty_log_distance": -0.050234081390606866,
+    "corr_penalty_hydro_novelty": 0.13613505420678046
+   }
+  },
+  "3": {
+   "local": {
+    "region_n_stations": 90,
+    "region_rmse_median": 1.3240344524463072,
+    "region_rmse_damped_median": 1.3875228710599545,
+    "region_nearest_km_median": 264.9267266184169,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.3441246972379686,
+    "random_rmse_damped_median": 1.4300600619112693,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.009001190747113919,
+    "paired_region_minus_random_iqr": [
+     0.0009728905459430448,
+     0.026111446308463154
+    ],
+    "paired_random_win_frac": 0.7777777777777778,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.006552899407576891,
+    "paired_median_by_seed": {
+     "0": 0.010300629433473985,
+     "1": 0.006748143564878628,
+     "2": 0.009182433774389875,
+     "3": 0.0057466043374727604,
+     "4": 0.009782360314045113
+    },
+    "corr_penalty_log_distance": -0.05051805817316518,
+    "corr_penalty_hydro_novelty": 0.14120016629331963
+   },
+   "pooled": {
+    "region_n_stations": 90,
+    "region_rmse_median": 1.551210671342275,
+    "region_rmse_damped_median": 1.6977277574478538,
+    "region_nearest_km_median": 258.60854785608535,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.3734866802419525,
+    "random_rmse_damped_median": 1.5276817344171436,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.001790351396020462,
+    "paired_region_minus_random_iqr": [
+     -0.023299085426717103,
+     0.026445213703620185
+    ],
+    "paired_random_win_frac": 0.5111111111111111,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.04129942486645618,
+    "paired_median_by_seed": {
+     "0": 0.0032097770818817484,
+     "1": 0.013572142590105474,
+     "2": 0.017148758031209632,
+     "3": 0.005597711801921923,
+     "4": 0.011359435794210282
+    },
+    "corr_penalty_log_distance": 0.0023952948645125506,
+    "corr_penalty_hydro_novelty": 0.06518124208409276
+   }
+  },
+  "7": {
+   "local": {
+    "region_n_stations": 120,
+    "region_rmse_median": 1.725276952311729,
+    "region_rmse_damped_median": 1.7243152287010968,
+    "region_nearest_km_median": 265.1562950814897,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.7001790605103795,
+    "random_rmse_damped_median": 1.7243152287010968,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.007322852001184432,
+    "paired_region_minus_random_iqr": [
+     0.0007444981091606628,
+     0.030229538200921724
+    ],
+    "paired_random_win_frac": 0.7583333333333333,
+    "paired_n_sites": 120,
+    "random_split_spread_median": 0.006897088932247405,
+    "paired_median_by_seed": {
+     "0": 0.009455929064854707,
+     "1": 0.007719828871051826,
+     "2": 0.009088494178999151,
+     "3": 0.009801844472284993,
+     "4": 0.008134702586667375
+    },
+    "corr_penalty_log_distance": -0.04860646117684617,
+    "corr_penalty_hydro_novelty": 0.17001450107109295
+   },
+   "pooled": {
+    "region_n_stations": 90,
+    "region_rmse_median": 2.051124045226949,
+    "region_rmse_damped_median": 2.1833005972342763,
+    "region_nearest_km_median": 258.60854785608535,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.8241852464924,
+    "random_rmse_damped_median": 1.9657699896465752,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": -0.0036355127213656413,
+    "paired_region_minus_random_iqr": [
+     -0.049810110884786596,
+     0.2563312481479569
+    ],
+    "paired_random_win_frac": 0.4666666666666667,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.09677853928333868,
+    "paired_median_by_seed": {
+     "0": 0.018914727695465205,
+     "1": 0.022426644370492577,
+     "2": 0.022178976809997808,
+     "3": 0.011710455278034826,
+     "4": 0.018572712211294973
+    },
+    "corr_penalty_log_distance": 0.11295036506964802,
+    "corr_penalty_hydro_novelty": 0.1626864306639518
+   }
+  }
+ },
+ "ResidualLightGBM": {
+  "1": {
+   "local": {
+    "region_n_stations": 120,
+    "region_rmse_median": 0.6466536660729967,
+    "region_rmse_damped_median": 0.7692021248590757,
+    "region_nearest_km_median": 265.1562950814897,
+    "random_n_stations": 120,
+    "random_rmse_median": 0.6362944860573208,
+    "random_rmse_damped_median": 0.7692021248590757,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.005833543477379549,
+    "paired_region_minus_random_iqr": [
+     0.0008950409784185126,
+     0.012864185953242596
+    ],
+    "paired_random_win_frac": 0.8,
+    "paired_n_sites": 120,
+    "random_split_spread_median": 0.003067239799637143,
+    "paired_median_by_seed": {
+     "0": 0.00504192235932327,
+     "1": 0.004563854287363306,
+     "2": 0.006920458670025109,
+     "3": 0.005928490789185642,
+     "4": 0.006298745485553203
+    },
+    "corr_penalty_log_distance": -0.10874402339197085,
+    "corr_penalty_hydro_novelty": 0.09725982804274826
+   },
+   "pooled": {
+    "region_n_stations": 90,
+    "region_rmse_median": 0.6953116191299615,
+    "region_rmse_damped_median": 0.8584790018346405,
+    "region_nearest_km_median": 258.60854785608535,
+    "random_n_stations": 120,
+    "random_rmse_median": 0.6665067110002441,
+    "random_rmse_damped_median": 0.8023118324277145,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.00436120916145577,
+    "paired_region_minus_random_iqr": [
+     -0.0033863638133900392,
+     0.011089269841928567
+    ],
+    "paired_random_win_frac": 0.6222222222222222,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.009309156751419856,
+    "paired_median_by_seed": {
+     "0": 0.007630488292165449,
+     "1": 0.005438309032245903,
+     "2": 0.006082610086246498,
+     "3": 0.006386491492794702,
+     "4": 0.005498513130185623
+    },
+    "corr_penalty_log_distance": -0.09834166464796736,
+    "corr_penalty_hydro_novelty": 0.127284730527636
+   }
+  },
+  "3": {
+   "local": {
+    "region_n_stations": 120,
+    "region_rmse_median": 1.3340171690083276,
+    "region_rmse_damped_median": 1.4300600619112693,
+    "region_nearest_km_median": 265.1562950814897,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.3040167015522162,
+    "random_rmse_damped_median": 1.4300600619112693,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.0074141574170403235,
+    "paired_region_minus_random_iqr": [
+     -0.0003131802512280346,
+     0.018611526733767758
+    ],
+    "paired_random_win_frac": 0.7416666666666667,
+    "paired_n_sites": 120,
+    "random_split_spread_median": 0.005421159981887492,
+    "paired_median_by_seed": {
+     "0": 0.007889494797802543,
+     "1": 0.007416939454153226,
+     "2": 0.009446860728744094,
+     "3": 0.006468264808654645,
+     "4": 0.007817411562168752
+    },
+    "corr_penalty_log_distance": -0.1428403001652245,
+    "corr_penalty_hydro_novelty": 0.11294370951386837
+   },
+   "pooled": {
+    "region_n_stations": 90,
+    "region_rmse_median": 1.5502550887379154,
+    "region_rmse_damped_median": 1.6977277574478538,
+    "region_nearest_km_median": 258.60854785608535,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.3584807809306452,
+    "random_rmse_damped_median": 1.5276817344171436,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.010908007068499814,
+    "paired_region_minus_random_iqr": [
+     -0.00015389273430346795,
+     0.029512715256180433
+    ],
+    "paired_random_win_frac": 0.7444444444444445,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.013637370790037297,
+    "paired_median_by_seed": {
+     "0": 0.013284273127625701,
+     "1": 0.010601891026308263,
+     "2": 0.011760084297946949,
+     "3": 0.010408392420013346,
+     "4": 0.011818292738810077
+    },
+    "corr_penalty_log_distance": -0.022694245346876793,
+    "corr_penalty_hydro_novelty": 0.11691994562268226
+   }
+  },
+  "7": {
+   "local": {
+    "region_n_stations": 120,
+    "region_rmse_median": 1.6928818997184063,
+    "region_rmse_damped_median": 1.7243152287010968,
+    "region_nearest_km_median": 265.1562950814897,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.68896512946759,
+    "random_rmse_damped_median": 1.7243152287010968,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.004340536151599683,
+    "paired_region_minus_random_iqr": [
+     -0.0005030512920486396,
+     0.012547349115011652
+    ],
+    "paired_random_win_frac": 0.7333333333333333,
+    "paired_n_sites": 120,
+    "random_split_spread_median": 0.004211379122203167,
+    "paired_median_by_seed": {
+     "0": 0.004585096988109882,
+     "1": 0.004987182589276329,
+     "2": 0.005249989633928975,
+     "3": 0.004002650780032702,
+     "4": 0.004816188867109328
+    },
+    "corr_penalty_log_distance": -0.1785407474110264,
+    "corr_penalty_hydro_novelty": 0.14788505801557542
+   },
+   "pooled": {
+    "region_n_stations": 90,
+    "region_rmse_median": 1.9917590551979583,
+    "region_rmse_damped_median": 2.1833005972342763,
+    "region_nearest_km_median": 258.60854785608535,
+    "random_n_stations": 120,
+    "random_rmse_median": 1.7631700423164247,
+    "random_rmse_damped_median": 1.9657699896465752,
+    "random_nearest_km_median": 59.92976224081903,
+    "paired_region_minus_random_median": 0.01761624207526058,
+    "paired_region_minus_random_iqr": [
+     0.0011388015035728172,
+     0.051001209143353377
+    ],
+    "paired_random_win_frac": 0.7777777777777778,
+    "paired_n_sites": 90,
+    "random_split_spread_median": 0.014836211438277255,
+    "paired_median_by_seed": {
+     "0": 0.02216337026818127,
+     "1": 0.020082274077465767,
+     "2": 0.01909096676186306,
+     "3": 0.02281390174580855,
+     "4": 0.01858118124286323
+    },
+    "corr_penalty_log_distance": -0.08581259731661364,
+    "corr_penalty_hydro_novelty": -0.020229144710696718
+   }
+  }
+ }
+}

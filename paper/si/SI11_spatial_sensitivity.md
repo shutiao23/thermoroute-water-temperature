@@ -26,28 +26,43 @@ and this is a documented limitation.
 
 | Cell | 1 d RMSE | 3 d RMSE | 7 d RMSE | stations | nearest gauge, median km |
 |---|---:|---:|---:|---:|---:|
-| *(generated from outputs/final/spatial_effects.parquet)* | | | | | |
+| Random-local (LightGBM) | 0.641 | 1.344 | 1.700 | 120 | 60 |
+| Region-local (LightGBM) | 0.635 | 1.324 | 1.725 | 120 | 263 |
+| Random-pooled (LightGBM) | 0.665 | 1.392 | 1.815 | 120 | 60 |
+| Region-pooled (LightGBM) | 0.677 | 1.401 | 1.804 | 120 | 263 |
+| Random-local (ResidualLightGBM) | 0.636 | 1.304 | 1.689 | 120 | 60 |
+| Region-local (ResidualLightGBM) | 0.647 | 1.334 | 1.693 | 120 | 263 |
 
 ## Repeated-split paired penalty (region minus random, °C)
 
-Per station the region-cell RMSE is paired with the random-cell RMSE (mean over
-the five split seeds), and the median over stations is reported with the IQR
-and the per-seed medians:
+Per station the region-cell RMSE is paired with the mean of the five random-split
+cells, and the median over stations is reported with the IQR, the random win
+fraction, the per-seed medians, and the median per-site split spread:
 
-| Horizon | median penalty | IQR | random win fraction | per-seed medians |
-|---|---:|---:|---:|---|
-| *(generated)* | | | | |
+| Horizon | median penalty | IQR | random win fraction | per-seed medians | split spread |
+|---|---:|---:|---:|---|---:|
+| 1 d | +0.006 | [−0.000, +0.014] | 0.72 | 0.008/0.004/0.007/0.005/0.007 | 0.004 |
+| 3 d | +0.009 | [+0.001, +0.026] | 0.78 | 0.010/0.007/0.009/0.006/0.010 | 0.007 |
+| 7 d | +0.007 | [+0.001, +0.030] | 0.76 | 0.010/0.008/0.009/0.010/0.008 | 0.007 |
+
+(LightGBM, local adaptation.) The residual-target tree gives +0.006 / +0.007 /
++0.004 °C at 1 / 3 / 7 d with the same sign pattern. The penalty is small and
+consistently signed; per decision rule R1 of the protocol the spatial partition
+is reported as a secondary finding, not a headline.
 
 ## Distance and hydroclimatic novelty
 
 For each held station the nearest-training-gauge great-circle distance (km) and
 a standardized hydroclimatic novelty (Euclidean distance in z-scores of mean
 annual air temperature, log drainage area, and |latitude|, fitted on training
-stations only) are correlated with the station penalty (descriptive).
+stations only) are correlated with the station penalty (descriptive). No strong
+gradient is found (LightGBM, local adaptation):
 
 | Horizon | corr(penalty, log distance) | corr(penalty, hydro novelty) |
 |---|---:|---:|
-| *(generated)* | | |
+| 1 d | −0.07 | +0.16 |
+| 3 d | −0.05 | +0.14 |
+| 7 d | −0.05 | +0.17 |
 
 ## Leave-cluster geometry at HUC2, HUC4, HUC6, and HUC8
 

@@ -69,7 +69,12 @@ def load_station_registry(path: str | Path = DEFAULT_STATION_REGISTRY) -> pd.Dat
 
 
 def huc2_cluster_map(registry: pd.DataFrame) -> dict[str, str]:
-    """Return verified HUC2 clusters; unresolved sites remain separate."""
+    """Return verified HUC2 clusters; unresolved sites remain separate.
+
+    ``huc2`` codes are zero-padded to two digits before validation, so the
+    single-digit codes 1-9 in the registry form their real HUC2 clusters
+    instead of being treated as unmapped per-site clusters.
+    """
     required = {"site_no", "huc2", "huc_metadata_status"}
     missing = required - set(registry)
     if missing:
@@ -77,7 +82,7 @@ def huc2_cluster_map(registry: pd.DataFrame) -> dict[str, str]:
     result: dict[str, str] = {}
     for row in registry.itertuples(index=False):
         site = str(row.site_no).zfill(8)
-        huc2 = str(row.huc2)
+        huc2 = str(row.huc2).zfill(2)
         verified = str(row.huc_metadata_status) == "USGS_SNAPSHOT_SITE_NO_MATCH"
         result[site] = f"HUC2:{huc2}" if verified and re.fullmatch(r"\d{2}", huc2) \
             else f"UNMAPPED:{site}"
