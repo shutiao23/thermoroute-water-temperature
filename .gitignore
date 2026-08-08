@@ -77,3 +77,7 @@ outputs/conventional/panel_2021_2023.parquet
 outputs/conventional/raw_2021_2023/
 paper/agu_submission/ThermoRoute_WRR.fdb_latexmk
 paper/agu_submission/ThermoRoute_WRR.fls
+
+# Final results authority: per-key prediction table regenerates from the
+# gitignored conventional scorer output via scripts/final/build_results_authority.py.
+outputs/final/predictions.parquet

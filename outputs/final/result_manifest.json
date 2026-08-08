@@ -1,0 +1,19 @@
+{
+ "format": "thermoroute.final-results-manifest.v1",
+ "git_sha": "965e7ef9b447f37e86783991ae329bf8f1d111b5",
+ "dirty": true,
+ "command": "scripts/final/build_results_authority.py --allow-incomplete-primary",
+ "protocol_sha256": "5b56144089aceb9a124af06fc0cf75d5031e9ebdd66e88ee9a9a359ddbb8f79b",
+ "started_at": "2026-08-08T00:57:15+00:00",
+ "completed_at": "2026-08-08T00:57:46+00:00",
+ "outputs": {
+  "basin_attributes.parquet": "5a95b719ccb46a062db5d40cf35e688efc097363161c51a415b7f858487be39b",
+  "decomposition_effects.parquet": "6a4afe8294759da38ef9b68a7b6112e97e318f70f2f195c64a7505d2d7eb29e4",
+  "forecast_keys.parquet": "c89e0697aca48f045347bf400d513e774468c0cb280d6e5d4e0ce70767a7c400",
+  "hydrologic_state_effects.parquet": "4add5618df38df68b23f029817b3e8bb6b2bd00c49d3665695b625afdfbe475f",
+  "paired_effects.parquet": "880ab91c3c1cbd45368c2931fb5854af92374aa4f77f4b91793499d4fd029fba",
+  "pooled_metrics.parquet": "180bf84648451a44c1eb7c44e186eb40a8125db7cb14ae2ad7fef1b358eb7cc9",
+  "predictions.parquet": "b4b91725f17137ca1698f476536d01134df4a331c9e56e9974505a5f2f939793",
+  "station_metrics.parquet": "84ddbb61b0b03a82f0d63936a4b4a7c478e4e806d8ffd3d38b4bd0bb523f0900"
+ }
+}

@@ -1,16 +1,14 @@
 # Claim ledger — WRR strong-accept redesign
-
-Every headline number in the manuscript must resolve to exactly one row in
-this ledger, and the row must resolve to one filter/estimand over an
-authoritative table under `outputs/final/`.  The build
-(`scripts/final/build_results_authority.py`) writes `claim_ledger_resolved.csv`
-and fails if any claim is unresolved, duplicated, or contradicts its source.
-
-Claim IDs follow `RQ<1-4>_<kind>_<horizon>_<suffix>`.  `used_in` uses the
-manuscript section names; `latex_macro` is the macro emitted into
-`outputs/final/paper_values.tex`.
-
----
+#
+# Every headline number in the manuscript must resolve to exactly one row in
+# this ledger, and the row must resolve to one filter/estimand over an
+# authoritative table under `outputs/final/`.  The build
+# (`scripts/final/build_results_authority.py`) writes `claim_ledger_resolved.csv`
+# and fails if any claim is unresolved, duplicated, or contradicts its source.
+#
+# Claim IDs follow `RQ<1-4>_<kind>_<horizon>_<suffix>`.  `used_in` uses the
+# manuscript section names; `latex_macro` is the macro emitted into
+# `outputs/final/paper_values.tex`.
 
 - claim_id: RQ1_SKILL_7D_PERSISTENCE
   used_in: [abstract, key_point_1, section_4_6, conclusions]
@@ -40,8 +38,7 @@ manuscript section names; `latex_macro` is the macro emitted into
   filter:
     period: 2021-2023
     horizon: 7
-    candidate: ThermoRoute
-    reference: Persistence
+    model: ThermoRoute
   estimator: median_station_g_memory
   latex_macro: SevenDayMemoryGain
 
@@ -51,8 +48,7 @@ manuscript section names; `latex_macro` is the macro emitted into
   filter:
     period: 2021-2023
     horizon: 7
-    candidate: ThermoRoute
-    reference: DampedPersistence
+    model: ThermoRoute
   estimator: median_station_g_learned
   latex_macro: SevenDayLearnedGain
 
@@ -62,7 +58,7 @@ manuscript section names; `latex_macro` is the macro emitted into
   filter:
     period: 2021-2023
     horizon: 7
-    candidate: ThermoRoute
+    model: ThermoRoute
     g_total: gt_0
   estimator: median_station_memory_fraction
   latex_macro: SevenDayMemoryFraction
@@ -179,10 +175,9 @@ manuscript section names; `latex_macro` is the macro emitted into
 
 - claim_id: RQ4_HALFLIFE_MEDIAN
   used_in: [section_4_8, figure_6]
-  source_table: outputs/final/hydrologic_state_effects.parquet
+  source_table: outputs/final/basin_attributes.parquet
   filter:
-    period: 2021-2023
-    stat: half_life
+    stat: half_life_days
   estimator: median
   latex_macro: HalfLifeMedianDays
 

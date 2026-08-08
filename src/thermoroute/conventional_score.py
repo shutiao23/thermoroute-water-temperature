@@ -412,6 +412,15 @@ def plain_control_ensemble(
                 accum[k] += arr[k]
     n_members = len(member_arrays)
     ens_arrays = {k: v / n_members for k, v in (accum or {}).items()}
+    metadata = dict(member_meta or {})
+    metadata.update({
+        "members": [f"seed{seed}" for seed in seeds_tuple],
+        "member_count": n_members,
+        "trainable_parameters": param_count,
+        "calibration_state": NO_CALIBRATION_STATE,
+        "has_bundle": False,
+        "_checkpoint_dir": str(checkpoint_dir),
+    })
     ens_frame = _arrays_to_frame(
         ens_arrays, idx, wd, station_names, model_name, scope, feature_set, 0, split)
     ens_frame = stamp_calibration_columns(
@@ -422,15 +431,6 @@ def plain_control_ensemble(
     ]
     ens_frame = mark_uncalibrated_frame(
         ens_frame, cohort=cohort, bundle_sha256="", n_members=n_members)
-    metadata = dict(member_meta or {})
-    metadata.update({
-        "members": [f"seed{seed}" for seed in seeds_tuple],
-        "member_count": n_members,
-        "trainable_parameters": param_count,
-        "calibration_state": NO_CALIBRATION_STATE,
-        "has_bundle": False,
-        "_checkpoint_dir": str(checkpoint_dir),
-    })
     return ens_frame, member_frames, metadata
 
 
@@ -965,8 +965,9 @@ def validate_prediction_table(
     # G4: pre-calibration strict q05 < q95 for calibrated models
     cal_rows = pred[pred.model.isin(calibrated_models)]
     if not cal_rows.empty:
-        strict = (cal_rows["q05_raw"] < cal_rows["q95_raw"]).all()
-        gate("G4_strict_precalibration_width", bool(strict), "q05_raw < q95_raw violated")
+        violated = int((cal_rows["q05_raw"] >= cal_rows["q95_raw"]).sum())
+        gate("G4_strict_precalibration_width", violated == 0,
+             f"{violated} pre-calibration q05_raw >= q95_raw rows")
     # G5: post-calibration ordering, strict width, p_exceed in [0,1]
     cal_rows2 = pred[pred.calibration_state == CALIBRATED_STATE]
     if not cal_rows2.empty:
@@ -976,7 +977,16 @@ def validate_prediction_table(
             and (cal_rows2["q50"] <= cal_rows2["q95"]).all()
             and ((cal_rows2["p_exceed"] >= 0.0) & (cal_rows2["p_exceed"] <= 1.0)).all()
         )
-        gate("G5_postcalibration_valid", bool(post_ok), "calibrated heads invalid")
+        bad = int((
+            (cal_rows2["q05"] >= cal_rows2["q95"])
+            | (cal_rows2["q05"] > cal_rows2["q50"])
+            | (cal_rows2["q50"] > cal_rows2["q95"])
+            | cal_rows2["p_exceed"].isna()
+            | (cal_rows2["p_exceed"] < 0.0)
+            | (cal_rows2["p_exceed"] > 1.0)
+        ).sum())
+        gate("G5_postcalibration_valid", bool(post_ok),
+             f"{bad} invalid post-calibration rows (ordering/width/p_exceed)")
     # G6: results.validate_predictions on PRED_COLS
     from .results import validate_predictions
     try:
@@ -1021,7 +1031,9 @@ def validate_prediction_table(
             > cal_rows3["event_threshold_c"].to_numpy(float)
         ).astype(int)
         matches = (expected_event == cal_rows3["event_observed"].to_numpy(float)).all()
-        gate("G11_event_observed_consistent", bool(matches), "recomputed event disagrees")
+        n_mismatch = int((expected_event != cal_rows3["event_observed"].to_numpy(float)).sum())
+        gate("G11_event_observed_consistent", bool(matches),
+             f"{n_mismatch} recomputed event_observed mismatches")
     # G12: common forecast keys per cohort
     counts = pred.groupby(["cohort", "model", "horizon"]).size().reset_index(name="n")
     per_cohort: dict[str, dict[str, int]] = {}

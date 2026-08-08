@@ -1,0 +1,421 @@
+{
+ "half_life": {
+  "n_fit": 120,
+  "median_days": 6.922319890364137,
+  "iqr_days": [
+   4.951050105180538,
+   11.909531219593145
+  ],
+  "n_capped": 0,
+  "terminology": "anomaly half-life t_1/2 = ln(0.5)/ln(phi) from the official train-fitted damped-persistence anchor"
+ },
+ "learned_gain_correlations": {
+  "1": {
+   "n": 116,
+   "pearson_log_half_life": -0.4013085713376032,
+   "pearson_log_drain_area": 2.2503539836222814e-05,
+   "n_drain_area": 112,
+   "pearson_latitude": -0.4122436728910278
+  },
+  "3": {
+   "n": 116,
+   "pearson_log_half_life": -0.1427932535768849,
+   "pearson_log_drain_area": 0.18684213186616225,
+   "n_drain_area": 112,
+   "pearson_latitude": -0.3820808865279238
+  },
+  "7": {
+   "n": 116,
+   "pearson_log_half_life": 0.20976213547437986,
+   "pearson_log_drain_area": 0.32768706156067146,
+   "n_drain_area": 112,
+   "pearson_latitude": -0.2100848978616411
+  }
+ },
+ "state_summaries": {
+  "issue_time": {
+   "1": {
+    "issue_high_anomaly": {
+     "n_stations": 114,
+     "median_delta_rmse": -0.16127486897913482,
+     "median_n_keys": 142
+    },
+    "issue_high_flow": {
+     "n_stations": 105,
+     "median_delta_rmse": -0.14176200322763355,
+     "median_n_keys": 90
+    },
+    "issue_low_anomaly": {
+     "n_stations": 106,
+     "median_delta_rmse": -0.1128872060542212,
+     "median_n_keys": 70
+    },
+    "issue_low_flow": {
+     "n_stations": 92,
+     "median_delta_rmse": -0.12617723291921887,
+     "median_n_keys": 144
+    },
+    "issue_near_equilibrium": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.11990099308298119,
+     "median_n_keys": 851
+    },
+    "issue_normal_anomaly": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.12741087242163765,
+     "median_n_keys": 840
+    },
+    "issue_normal_flow": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.13020498006888165,
+     "median_n_keys": 812
+    },
+    "issue_rapid_flow_recession": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.1309880889486553,
+     "median_n_keys": 102
+    },
+    "issue_rapid_flow_rise": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.13939391968038656,
+     "median_n_keys": 105
+    },
+    "issue_rapid_recent_cooling": {
+     "n_stations": 114,
+     "median_delta_rmse": -0.1402615174334541,
+     "median_n_keys": 101
+    },
+    "issue_rapid_recent_warming": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.16169893089515264,
+     "median_n_keys": 109
+    },
+    "issue_stable_flow": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.127011248583784,
+     "median_n_keys": 857
+    },
+    "issue_stable_trend": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.12244687794681633,
+     "median_n_keys": 838
+    },
+    "issue_strong_cooling_pressure": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.1543174506285177,
+     "median_n_keys": 92
+    },
+    "issue_strong_warming_pressure": {
+     "n_stations": 115,
+     "median_delta_rmse": -0.16338195799757982,
+     "median_n_keys": 112
+    }
+   },
+   "3": {
+    "issue_high_anomaly": {
+     "n_stations": 114,
+     "median_delta_rmse": -0.1441445880031882,
+     "median_n_keys": 142
+    },
+    "issue_high_flow": {
+     "n_stations": 105,
+     "median_delta_rmse": -0.11528223838012286,
+     "median_n_keys": 89
+    },
+    "issue_low_anomaly": {
+     "n_stations": 105,
+     "median_delta_rmse": -0.14914094160912428,
+     "median_n_keys": 71
+    },
+    "issue_low_flow": {
+     "n_stations": 92,
+     "median_delta_rmse": -0.11375609545793519,
+     "median_n_keys": 144
+    },
+    "issue_near_equilibrium": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.10130817773829726,
+     "median_n_keys": 845
+    },
+    "issue_normal_anomaly": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.10008257897981487,
+     "median_n_keys": 838
+    },
+    "issue_normal_flow": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.10613700995488912,
+     "median_n_keys": 807
+    },
+    "issue_rapid_flow_recession": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.10697973484746381,
+     "median_n_keys": 100
+    },
+    "issue_rapid_flow_rise": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.1281296430989627,
+     "median_n_keys": 105
+    },
+    "issue_rapid_recent_cooling": {
+     "n_stations": 114,
+     "median_delta_rmse": -0.15388189834548965,
+     "median_n_keys": 101
+    },
+    "issue_rapid_recent_warming": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.1298388488600165,
+     "median_n_keys": 108
+    },
+    "issue_stable_flow": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.10730245551670603,
+     "median_n_keys": 853
+    },
+    "issue_stable_trend": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.0974203994520515,
+     "median_n_keys": 835
+    },
+    "issue_strong_cooling_pressure": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.06173315224693776,
+     "median_n_keys": 91
+    },
+    "issue_strong_warming_pressure": {
+     "n_stations": 115,
+     "median_delta_rmse": -0.1140800736411931,
+     "median_n_keys": 112
+    }
+   },
+   "7": {
+    "issue_high_anomaly": {
+     "n_stations": 114,
+     "median_delta_rmse": -0.08035685800939318,
+     "median_n_keys": 139
+    },
+    "issue_high_flow": {
+     "n_stations": 104,
+     "median_delta_rmse": -0.0599012027280551,
+     "median_n_keys": 89
+    },
+    "issue_low_anomaly": {
+     "n_stations": 105,
+     "median_delta_rmse": -0.2294977163001004,
+     "median_n_keys": 71
+    },
+    "issue_low_flow": {
+     "n_stations": 92,
+     "median_delta_rmse": -0.07155170645043041,
+     "median_n_keys": 143
+    },
+    "issue_near_equilibrium": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.0682794069898851,
+     "median_n_keys": 839
+    },
+    "issue_normal_anomaly": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.04884738837872693,
+     "median_n_keys": 831
+    },
+    "issue_normal_flow": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.06643568882216666,
+     "median_n_keys": 800
+    },
+    "issue_rapid_flow_recession": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.07189502499693001,
+     "median_n_keys": 99
+    },
+    "issue_rapid_flow_rise": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.05383383071455483,
+     "median_n_keys": 103
+    },
+    "issue_rapid_recent_cooling": {
+     "n_stations": 114,
+     "median_delta_rmse": -0.16955808630125535,
+     "median_n_keys": 99
+    },
+    "issue_rapid_recent_warming": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.08780958871362779,
+     "median_n_keys": 107
+    },
+    "issue_stable_flow": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.07052039565913026,
+     "median_n_keys": 846
+    },
+    "issue_stable_trend": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.05333857328890368,
+     "median_n_keys": 829
+    },
+    "issue_strong_cooling_pressure": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.0581587567256967,
+     "median_n_keys": 90
+    },
+    "issue_strong_warming_pressure": {
+     "n_stations": 115,
+     "median_delta_rmse": -0.0719065611225983,
+     "median_n_keys": 111
+    }
+   }
+  },
+  "outcome_conditioned": {
+   "1": {
+    "actual_coldest_decile": {
+     "n_stations": 109,
+     "median_delta_rmse": -0.07147780196004139,
+     "median_n_keys": 81
+    },
+    "actual_high_flow": {
+     "n_stations": 105,
+     "median_delta_rmse": -0.13089418965613142,
+     "median_n_keys": 89
+    },
+    "actual_low_flow": {
+     "n_stations": 92,
+     "median_delta_rmse": -0.12145357209830665,
+     "median_n_keys": 144
+    },
+    "actual_rapid_cooling": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.330298932839,
+     "median_n_keys": 105
+    },
+    "actual_rapid_warming": {
+     "n_stations": 115,
+     "median_delta_rmse": -0.3245794840321993,
+     "median_n_keys": 110
+    },
+    "actual_warmest_decile": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.09107087330153138,
+     "median_n_keys": 141
+    }
+   },
+   "3": {
+    "actual_coldest_decile": {
+     "n_stations": 109,
+     "median_delta_rmse": 0.00321575358278281,
+     "median_n_keys": 80
+    },
+    "actual_high_flow": {
+     "n_stations": 105,
+     "median_delta_rmse": -0.10088904326151926,
+     "median_n_keys": 87
+    },
+    "actual_low_flow": {
+     "n_stations": 92,
+     "median_delta_rmse": -0.11695902483456644,
+     "median_n_keys": 144
+    },
+    "actual_rapid_cooling": {
+     "n_stations": 115,
+     "median_delta_rmse": -0.26894588566743094,
+     "median_n_keys": 101
+    },
+    "actual_rapid_warming": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.36538405710254684,
+     "median_n_keys": 108
+    },
+    "actual_warmest_decile": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.061806787634317295,
+     "median_n_keys": 141
+    }
+   },
+   "7": {
+    "actual_coldest_decile": {
+     "n_stations": 109,
+     "median_delta_rmse": 0.028613512684755316,
+     "median_n_keys": 77
+    },
+    "actual_high_flow": {
+     "n_stations": 107,
+     "median_delta_rmse": -0.07769845129581787,
+     "median_n_keys": 87
+    },
+    "actual_low_flow": {
+     "n_stations": 92,
+     "median_delta_rmse": -0.07811173337314814,
+     "median_n_keys": 147
+    },
+    "actual_rapid_cooling": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.1840360730967796,
+     "median_n_keys": 102
+    },
+    "actual_rapid_warming": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.30049621356747025,
+     "median_n_keys": 109
+    },
+    "actual_warmest_decile": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.0664641481695808,
+     "median_n_keys": 141
+    }
+   }
+  },
+  "season": {
+   "1": {
+    "DJF": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.09475980656322511,
+     "median_n_keys": 266
+    },
+    "JJA": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.08507120443735591,
+     "median_n_keys": 273
+    },
+    "MAM": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.14613759888957162,
+     "median_n_keys": 275
+    }
+   },
+   "3": {
+    "DJF": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.07498683874697776,
+     "median_n_keys": 263
+    },
+    "JJA": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.06728281161240496,
+     "median_n_keys": 272
+    },
+    "MAM": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.12225708016373382,
+     "median_n_keys": 274
+    }
+   },
+   "7": {
+    "DJF": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.03414444521527549,
+     "median_n_keys": 259
+    },
+    "JJA": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.06595954063513099,
+     "median_n_keys": 272
+    },
+    "MAM": {
+     "n_stations": 116,
+     "median_delta_rmse": -0.08846383762471,
+     "median_n_keys": 274
+    }
+   }
+  }
+ }
+}
