@@ -1,0 +1,23 @@
+{
+ "1": {
+  "n_stations": 116,
+  "median_delta_rmse_noflow_minus_flow": 0.04187217639323365,
+  "median_rmse_no_flow": 0.6223575027775572,
+  "median_rmse_with_flow": 0.5891824332504195,
+  "no_flow_win_frac": 0.02586206896551724
+ },
+ "3": {
+  "n_stations": 116,
+  "median_delta_rmse_noflow_minus_flow": 0.033871106706229615,
+  "median_rmse_no_flow": 1.356793549930582,
+  "median_rmse_with_flow": 1.3036261462109158,
+  "no_flow_win_frac": 0.13793103448275862
+ },
+ "7": {
+  "n_stations": 116,
+  "median_delta_rmse_noflow_minus_flow": 0.008860809198603437,
+  "median_rmse_no_flow": 1.738179400289019,
+  "median_rmse_with_flow": 1.7346486173245004,
+  "no_flow_win_frac": 0.3706896551724138
+ }
+}

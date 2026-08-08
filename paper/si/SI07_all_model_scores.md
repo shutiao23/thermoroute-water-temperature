@@ -23,6 +23,27 @@ for each of the thirteen, on one exact common key set, with the controls
 labelled exploratory. Figure S10 is the graphical reading of the control rows;
 it must agree with this table in value, unit, and rounding.
 
+## Discharge-channel ablation (Major Comment 7 retraining test)
+
+`scripts/final/run_flow_ablation.py` retrains the station-agnostic global
+LightGBM per lead on the development train/validation rows with every FLOW
+column removed (28 columns at 1 d; 182 features remain) and scores the
+identical 2021–2023 common keys. Station-first paired ΔRMSE (no-flow minus
+with-flow, °C; positive favours with-flow):
+
+| Horizon | RMSE no-flow | RMSE with-flow | median ΔRMSE | no-flow win fraction | stations |
+|---|---:|---:|---:|---:|---:|
+| 1 d | 0.622 | 0.589 | +0.042 | 0.03 | 116 |
+| 3 d | 1.357 | 1.304 | +0.034 | 0.14 | 116 |
+| 7 d | 1.738 | 1.735 | +0.009 | 0.37 | 116 |
+
+The scale-perturbation probes (flow × 0.5 / × 2) leave 1-day RMSE nearly
+unchanged; the retraining test shows the channel carries small but systematic
+information at the shortest lead. The trade-off against the cohort's spatial
+coverage (950 of 1,465 candidates excluded for missing joint flow) is quantified
+by a no-flow core cohort only when the candidate registry is re-derived
+(protocol P2, not run).
+
 ## Models named in the manuscript that carry no score, and why
 
 One model row is absent from the manuscript tables and one model row is scored:

@@ -516,10 +516,6 @@ def _resolve_estimator(table: pd.DataFrame, claim: Mapping[str, Any]) -> Any:
     if estimator == "median_station_region_minus_random_rmse":
         if frame.empty:
             raise ValueError("empty after filter")
-        return float(frame["region_minus_random_rmse"].median())
-    if estimator == "median_station_region_minus_random_rmse":
-        if frame.empty:
-            raise ValueError("empty after filter")
         pivot = frame.pivot_table(
             index="site_id", columns="geometry", values="rmse", aggfunc="mean")
         pivot = pivot.dropna(subset=["region", "random"])

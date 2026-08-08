@@ -897,10 +897,18 @@ deviations degrades 1-day RMSE from 0.631 to 1.621 and 2.999 °C (+147% and
 +360%); missing-forcing blocks of 3, 7, and 14 days cost about +0.13 °C at 1 day
 and +0.04 °C at 7 days; air-temperature offsets of ±2 training standard
 deviations cost +0.11 to +0.15 °C at 1 day; and multiplying discharge by 0.5 or 2
-changes 1-day RMSE by at most +0.003 °C. On this panel the predictor is dominated
-by the water-temperature and air-temperature channels and is nearly insensitive
-to discharge. These are synthetic data-corruption probes, not climate
-projections, physically coherent scenarios, or deployment-safety tests.
+changes 1-day RMSE by at most +0.003 °C. These are synthetic data-corruption
+probes, not climate projections, physically coherent scenarios, or
+deployment-safety tests. Scale insensitivity is not absence of information:
+retraining the gradient-boosted tree without the discharge channel at all
+degrades station-median RMSE by +0.042 °C at one day (0.622 versus 0.589 °C),
++0.034 °C at three days, and +0.009 °C at seven days, with the no-flow model
+winning at only 3% of stations at one day and 37% at seven days
+(`outputs/final/flow_ablation_effects.parquet`). Discharge therefore carries
+small but systematic information at the shortest lead, so its exclusion from
+the cohort (Section 2.1) trades a real, modest channel against much wider
+spatial coverage; quantifying that trade-off by re-deriving a no-flow core
+cohort from the candidate registry is recorded as future work (protocol P2).
 
 
 

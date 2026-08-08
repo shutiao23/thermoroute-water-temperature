@@ -51,14 +51,21 @@ def table_4_6(station: pd.DataFrame, effects: pd.DataFrame) -> str:
         ("ThermoRoute", "LightGBM", 3, "3 d"),
         ("ThermoRoute", "LightGBM", 7, "7 d"),
     ]
-    rows = [["#", "Comparison", "Lead", "ΔRMSE (°C)", "Win rate", "Stations"]]
+    import json
+    inference = json.loads(
+        (FINAL / "cluster_inference_2021_2023.json").read_text(encoding="utf-8"))
+    rows = [["#", "Comparison", "Lead", "ΔRMSE (°C)", "CI low", "CI high",
+             "Win rate", "Stations"]]
     for i, (cand, ref, h, lead) in enumerate(contrasts, start=1):
         g = effects[(effects.candidate == cand) & (effects.reference == ref)
                     & (effects.horizon == h)]
+        record = inference.get(f"{cand}|{ref}|{h}", {})
         rows.append([str(i), f"{cand} vs. {ref}", lead,
                      f3(g.delta_rmse.median()),
+                     f3(record.get("ci_low", np.nan)),
+                     f3(record.get("ci_high", np.nan)),
                      f"{np.mean(g.delta_rmse < 0):.2f}", str(len(g))])
-    return md_table(rows, ["r", "l", "l", "r", "r", "r"])
+    return md_table(rows, ["r", "l", "l", "r", "r", "r", "r", "r"])
 
 
 def accuracy_rows(station: pd.DataFrame, models: list[str]) -> list[list[str]]:
