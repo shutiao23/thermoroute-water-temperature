@@ -1,0 +1,31 @@
+{
+ "protocol": "wrr_strong_accept_protocol_v2",
+ "sealed_utc": "2026-08-08T12:47:28Z",
+ "git_commit": "c63eef57d46366c0248bcc3e21be995371c32b66",
+ "git_dirty": true,
+ "purpose": "SHA-256 of every file in outputs/final at the moment protocol v2 was frozen, BEFORE any v2 outcome was read. Any post-outcome change to an authority table is detectable against this digest.",
+ "outputs_final_sha256": {
+  "basin_attributes.parquet": "5a95b719ccb46a062db5d40cf35e688efc097363161c51a415b7f858487be39b",
+  "claim_ledger_resolved.csv": "2fe6f1a7bfd6fe094e7b78cc536b8f0c43d4c1d67f127b6261522861e789328f",
+  "cluster_inference_2021_2023.json": "0e11a764eae6afb906cb871a44b821a58bae31a1b07c1a2e2b4a28deb8d2dd2b",
+  "decomposition_effects.parquet": "d9f4bcccf28ce480012ecdf60f33c4ef0706313481ca35a46b77640cb80ee760",
+  "flow_ablation_effects.parquet": "8c7c369ea40e16c324e894e9fe3ba004c12b3691d2b85fbd5c5d60e30a1227fa",
+  "flow_ablation_run.log": "5c74f27a6f54a67320c9f9ab6fa5bd40f20ba97addf846acb6141fc4f325d3e4",
+  "flow_ablation_run2.log": "5c74f27a6f54a67320c9f9ab6fa5bd40f20ba97addf846acb6141fc4f325d3e4",
+  "flow_ablation_summary.json": "a5818ba4403d854c52e50500b397bba5fbe0defa92179fae972dbf2af55b5a79",
+  "forecast_keys.parquet": "56e00e8befe256c9c90a7245cdc892e8d7539982c16fadeadd34d404079a1e0f",
+  "hydrologic_state_effects.parquet": "616afe6e36384ea18f743209b598524de54b8b95d2a9a3283cee237e89d6ee7f",
+  "mechanism_summary.json": "29bfa39b023345ec63c30e32c8cb15f48419deeeb44653509220ea7774a4745c",
+  "missingness_sensitivity.json": "9912317e86612af5fc1aa3420441a343b3f48ee4c78ba42170689a1e8604278d",
+  "paired_effects.parquet": "93cdd78bf184f836d15f44111ce090ea21ab8d57b4a096046eaf4367e08849c2",
+  "paper_values.tex": "2fa8aa959ff0ca818a64dd1f43922fc80a229ca91b23e819e586490804df8c46",
+  "pooled_metrics.parquet": "8f01d1829643fbe06ee8af67ed73d98374a9a5dfbbf143702c36dfed40036f79",
+  "predictions.parquet": "1d0c896c9b33fb8658a5d7dbe12d9d96a042eb0ba5693d04cd04f9326ec58318",
+  "result_manifest.json": "1422a6d0233c2c00cad2d314fe0ade42b762819e09d7234e09e3d7b77af23eb8",
+  "spatial_effects.parquet": "92f2a1f6b063a0f232b870d386593483c82beeb837c051a5f3500efa34bacf83",
+  "spatial_factorial_run.log": "2229f45e5750e92a9e093d194e1afaaa141c4d61dc8165aa63fa5602c0a37981",
+  "spatial_factorial_run2.log": "562145c27e62d1bee39d50df2b1ab78bb749dc518feb62a71610089fc9843b17",
+  "spatial_summary.json": "77834816386c4b80a2288267fa54b6e9ea0c27fe68c221cd88d3faa0a1cf95f3",
+  "station_metrics.parquet": "4997eb6273cd00ba5781398388a6f8094ace5cdf9ef1a8f95f62a440d7acecd5"
+ }
+}

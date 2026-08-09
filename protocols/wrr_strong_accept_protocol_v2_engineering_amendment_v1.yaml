@@ -1,0 +1,64 @@
+# Protocol v2 engineering amendment v1 — reverse-direction assertions
+#
+# Freeze 2026-08-08 (DLOG-014).  This amendment does NOT change any v2
+# estimand, comparison family, prediction, or threshold of
+# wrr_strong_accept_protocol_v2.yaml; it adds one engineering clause and
+# records that the protocol's key_registry_rule is now enforced two-sided by
+# the runner (it was previously one-sided in code, see DLOG-012/DLOG-014).
+# The protocol v2 seal therefore remains valid for the v2 design; this
+# amendment governs how every verification in the v2 pipeline is written.
+
+engineering_clause: |
+  Any verification assertion must state and check its REVERSE direction:
+  not only that what SHOULD exist DOES exist, but that what SHOULD NOT exist
+  DOES NOT.  Concretely:
+    - set comparisons use == (or two-sided difference checks) and never a
+      one-sided difference;
+    - numeric comparisons assert equality (within an explicit tolerance) and
+      never merely that a value "appears";
+    - counting filters must exclude rows by every quantity the count claims
+      to count (labels included), and a NaN must surface, not silently pass
+      a boolean cast;
+    - every generated or scored key set is asserted two-sided against the
+      common forecast-key registry.
+
+recorded_decisions:
+  - id: RD-1
+    title: ladder scoring set is the common registry, two-sided
+    text: >
+      run_information_ladder.py now scores EXACTLY the forecast-key registry
+      subset per held station and horizon (inner join), and asserts
+      two-sided equality per cell (no registry key declined, no outside key
+      admitted).  The 2021-2023 evaluation in the archived 2x2 factorial
+      scored a ~8% superset whose extra keys were mostly issue-dates with
+      unobserved water temperature; those results are superseded for any
+      registry-consistent comparison.  The --legacy-keys mode reproduces the
+      archived key semantics ONLY for the G1 side-effect-free refactor test
+      and its outputs are never compared with the main held-out tables.
+  - id: RD-2
+    title: training admissibility mirrors the registry rule
+    text: >
+      Training rows now require genuinely observed issue-date water
+      temperature (from the unmasked panel), the same admissibility rule the
+      registry encodes for evaluation keys; the admissibility column is
+      excluded from the feature list so it cannot leak.
+  - id: RD-3
+    title: NaN-safe label filtering
+    text: >
+      The y_observed filter uses numeric comparison (fillna(0.0) > 0), never
+      astype(bool) (which maps NaN to True); labels must be finite before
+      training or scoring; metrics count only keys with real labels and use
+      ndarray means so NaN propagates instead of being silently skipped.
+  - id: RD-4
+    title: reportability is explicit
+    text: >
+      ladder_effects carries a reportable column (n >= 100 paired keys,
+      manuscript Section 3.6); non-reportable station-cells are retained and
+      flagged, never silently truncated.
+  - id: RD-5
+    title: gate used_in semantics are all-mode
+    text: >
+      The manuscript gate requires a claim's value in EVERY declared used_in
+      span (prose); used_in_mode: any is an explicit, commented escape hatch.
+      A warning-level contradiction scan flags same-sentence numbers within
+      5% of a claim value as stale-edit suspects.

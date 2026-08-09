@@ -307,3 +307,941 @@ Data periods already inspected: 2021-2023 (scoring window).
 Changes a primary hypothesis? no
 Requires a protocol version bump? no
 Commit(s): (flow-ablation commit)
+
+## 2026-08-08 — DLOG-012: spatial-factorial software defects disclosed and corrected
+
+Decision: Three software defects in `scripts/final/run_spatial_factorial.py` are
+recorded here and corrected by a new runner (`scripts/final/run_information_ladder.py`,
+protocol v2), not by patching the archived script:
+
+1. Resume path data loss: the resume set is built from an existing
+   `spatial_effects.parquet` but cached cells are never re-read into the output;
+   the final `to_parquet` overwrite therefore permanently drops resumed cells.
+   Evidence: `spatial_factorial_run2.log` line 1 ("resume: 7 cells cached"),
+   281 of 288 expected cell lines in the log, and seven region cells reporting
+   90 of 120 stations in `spatial_effects.parquet`.
+2. Pooled-preprocessing cache key omits the fold: `prep_key = (variant[0],
+   variant[1], h)` with `variant[1]` the seed, so all four folds of a pooled
+   cell reuse fold 0's in-fold climatology / damped anchor / imputation. Fold 1-3
+   held-out stations are inside fold 0's training set, so pooled statistics are
+   contaminated (about 33% of stations) and the pooled penalty is a lower bound.
+3. Prediction loss: key-level predictions are written to
+   `spatial_effects.parquet` and then overwritten by site-level metrics at the
+   same path, so per-key diagnostics are unrecoverable from the artifact.
+
+Why: The external review's cell-level audit found station-count mismatches
+across cells; the log and parquet reconstruction above show the cause is data
+loss plus cache leakage, not a reportability threshold.
+
+Evidence available before the decision: the run logs, the parquet columns and
+station counts, and the code itself.
+
+Data periods already inspected: 2021-2023 (independent window) and the
+2006-2015 fit period.
+
+Changes a primary hypothesis? no (the affected quantities — pooled-arm
+penalties and adaptation effects — are recomputed under protocol v2 with
+fold-complete, leak-free preprocessing; the local-arm geometry results are
+unaffected and remain as reported).
+
+Requires a protocol version bump? yes (protocol v2, DLOG-013).
+
+Commit(s): (this worktree)
+
+## 2026-08-08 — DLOG-013: protocol v2 freeze — information ladder, regulation strata, and process classes
+
+Decision: Freeze `protocols/wrr_strong_accept_protocol_v2.yaml` as the governing
+protocol for the rerun of the spatial/information experiment and the
+hydrologic-similarity analysis. It fixes, before any new outcome is read:
+
+(a) a four-level information ladder L0/L1/L2/L3 x geometry {random, region}
+with per-level input masks and a common key registry across all eight cells;
+(b) regulation strata by upstream storage ratio (SR < 0.05 unregulated,
+0.05-0.5 moderate, >= 0.5 strongly regulated) with a pre-fixed merge rule
+(moderate into strong below 15 stations);
+(c) a four-class process classification (regulated, snowmelt, groundwater,
+rain) with a pre-fixed priority order;
+(d) pre-registered model forms for the half-life attribute regression (main
+and parsimonious) with leave-one-HUC2-out cross-validation and no stepwise
+search;
+(e) a new inference family of 15 tests (N1-N15) covering the ladder contrasts,
+Holm-corrected within the family, using the existing HUC2 whole-cluster
+sign-flip and cluster bootstrap;
+(f) four quantitative predictions P-1..P-4 to be tested against the rerun;
+(g) stopping rules and degradation paths (GAGES-II match rate < 70% degrades
+L3 and the attribute regression to exploratory on the matched subset).
+
+The original frozen five-test family of protocol v1 is unchanged. The protocol
+v2 seal records SHA-256 digests of `outputs/final/` taken before any new
+outcome was read; the digest file also serves as the pre-outcome snapshot.
+
+Why: The external review requires the ungauged question to be answered within
+this paper's experiment matrix, and any rerun must be fold-complete and
+leak-free (DLOG-012) with the analysis committed before the outcomes.
+
+Evidence available before the decision: the review report; DLOG-012's evidence;
+the protocol v1 decision set.
+
+Data periods already inspected: 2021-2023 (independent window) and the
+2006-2015 fit period (these were inspected before this entry; no new outcome
+was read for the v2 design after the seal was created).
+
+Changes a primary hypothesis? no primary hypothesis of protocol v1 changes; v2
+adds a new comparison family and four predictions.
+
+Requires a protocol version bump? yes (this is the bump).
+
+Commit(s): (this worktree)
+
+## 2026-08-08 — DLOG-014: protocol v2 engineering amendment + ladder key-semantics fix
+
+Decision: Record the second-round review findings and fixes:
+
+1. The ladder now scores EXACTLY the common forecast-key registry (two-sided
+   assertion; previously the assertion was one-sided and the cell scored a
+   ~8% superset whose extra keys were mostly issue-dates with unobserved
+   water temperature — 1,740 of 2,445 extra keys in the audited cell).  A
+   --legacy-keys mode reproduces the archived key semantics ONLY for the G1
+   side-effect-free refactor test; its outputs are never compared with the
+   main held-out tables.
+2. Training rows obey the same admissibility rule as the registry
+   (issue-date WTEMP genuinely observed, unmasked panel); the admissibility
+   column is excluded from features.
+3. The y_observed filter is NaN-safe (numeric > 0, not astype(bool), which
+   maps NaN to True); metrics count only keys with real labels and use
+   ndarray means so NaN propagates; a reportable flag (n >= 100) is written
+   into ladder_effects rather than silently truncating.
+4. The consistency gate's used_in semantics are now all-mode (every declared
+   span must print the value), enforced with an audited ledger
+   (audit_used_in.py) and a warning-level contradiction scan.
+5. An engineering clause requiring reverse-direction assertions is frozen as
+   protocols/wrr_strong_accept_protocol_v2_engineering_amendment_v1.yaml;
+   the v2 seal remains valid because no estimand, family, or threshold
+   changed.
+6. SI07 air2stream rows are split into the reportable 116-station set and an
+   explicitly labelled 118-station no-reportability-filter sensitivity; the
+   MAE/bias columns are corrected to station medians (they were pooled
+   key-level values).  Six air2stream claims were added to the ledger and
+   SI07 is scanned by the gate.
+7. Markdown table header/alignment mismatches (SI11 x4, SI08 x1) fixed and a
+   table-shape check added to the gate.
+
+Why: second-round external review (registry dilution of C2, single-sided
+assertions, NaN-as-True, presence-not-equality).
+
+Evidence available before the decision: shard-vs-registry key analysis
+(32,850 vs 30,405 keys; 1,740 unobserved-issue-date extra keys; 210 null
+labels), the INJ4 injection result, and the n=1095 constant-count check.
+
+Changes a primary hypothesis? no (the v2 estimates themselves were not yet
+computed; the L0 production cells were re-scored on the registry).
+
+Requires a protocol version bump? no (amendment v1 to protocol v2).
+
+Commit(s): (this worktree)
+
+## 2026-08-09 — DLOG-016: protocol v3 forcing ladder — P-5/P-6 verdicts
+
+Decision: Protocol v3 (DLOG-015) sealed before any F-axis outcome; the
+forcing ladder ran (scripts/final/run_forcing_ladder.py, registry-scored,
+two-sided assertions).  Interim verdicts on the tree models (LightGBM and
+ResidualLightGBM, frozen per-lead hyperparameters, whole-cohort fits):
+
+  lead   F0 rmse   F3 rmse   F3-F0     learned minus damped (F0 -> F3)
+  1 d    0.625     0.479     -0.146    -0.135 -> -0.277
+  3 d    1.372     0.806     -0.566    -0.083 -> -0.584
+  7 d    1.735     1.113     -0.622    -0.039 -> -0.603
+
+P-5 (F3 expands the learned advantage over damped persistence at 7 d to at
+least -0.30 C): CONFIRMED on the interim tree signal (-0.603 C; 7 d RMSE
+1.113 inside the predicted 1.15-1.25 band).  The deep-architecture arm is
+scheduled via its sequence-input channels; the protocol's stopping rule
+explicitly allows the interim evaluation on the best tree model.
+
+P-6 (forcing value grows with lead): CONFIRMED (0.622 > 0.566 > 0.146).
+
+P-7 (F1 recovers a material fraction at 3/7 d): pending the F1 rerun
+(the first F1 run carried a feature-list bug and was discarded).
+
+Interpretation: the advisory review's D1 is quantitatively confirmed - the
+F0 learned-gain null was an information-set consequence.  At 7 days perfect
+forcing is worth ~0.62 C of station-median RMSE (a 36% reduction) while the
+architecture is worth at most 0.023 C: a ~27:1 ratio.  The paper's central
+claim moves from "benchmark design governs reported skill" to "the
+information budget governs predictability: forcing value ~0.62 C, local
+record value ~0.20 C (pooled vs local, protocol v2), geometry value
+~0.005 C, architecture value <=0.023 C".
+
+Why: advisory review D1 (unidentified central attribution without a
+forcing-information arm).
+
+Evidence available before the decision: the sealed protocol v3; the registry
+assertions; forcing_effects.parquet.
+
+Changes a primary hypothesis? yes - the D1 attribution question is answered;
+the F0 framing of Sections 5.1/Conclusions/Abstract/Key Points is superseded.
+
+Requires a protocol version bump? no (v3 governs).
+
+Commit(s): (this worktree)
+
+## 2026-08-09 — DLOG-017: L-axis completed (protocol v2) + full information budget
+
+Decision: The 432-cell information ladder (L0 gauged-local, L1 pooled,
+L2 thermally ungauged; region + random geometries; LightGBM +
+ResidualLightGBM; leads 1/3/7) completed with the fold-complete,
+registry-scored runner.  Seven-day station-median RMSE by level (reportable
+stations, random arm): L0 1.736/1.714, L1 1.897/1.850, L2 2.832/2.784
+(LightGBM/ResidualLightGBM); region arm: L0 1.756/1.725, L1 1.939/1.876,
+L2 3.308/3.260.
+
+Paired station deltas vs L0 at 7 d: L1 +0.16..+0.21 C; L2 +0.99..+1.47 C.
+The geometry effect (region minus random) is +0.005..+0.02 C at L0 and
++0.48 C at L2 — a ~30-fold amplification when local thermal history is
+absent, quantitatively confirming advisory finding D2 (the spatial null was
+constructed, not discovered).
+
+Combined with the forcing ladder (DLOG-016), the paper's information budget
+at 7 days is now: future forcing -0.62 C (F3 vs F0); local thermal history
++1.0..+1.5 C (L2 vs L0); local statistics +0.16..+0.21 C (L1 vs L0);
+geometry +0.005..+0.02 C (at L0) or +0.48 C (at L2); architecture
+<=0.023 C.  This is the positive, quantitative, transferable statement the
+advisory review required (S2).
+
+Why: protocol v2 runner completed; advisory review's S2 acceptance criterion.
+
+Evidence available before the decision: ladder_effects.parquet (12,744
+station-cells), completeness gate 432/432, two-sided registry assertions,
+reportable flags.
+
+Changes a primary hypothesis? yes — the spatial-transfer conclusion is now
+reported as the conditional statement with the L2 geometry amplification
+quantified.
+
+Requires a protocol version bump? no.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-015: protocol v3 freeze record (post-outcome administrative reconstruction)
+
+**Chronology status: administratively reconstructed from existing v3 seal;
+entered after outcome, not new pre-registration.**  This entry is appended out
+of numeric order to preserve the decision log's append-only rule.  It does not
+repair the missing contemporaneous DLOG-015 entry and must never be cited as
+evidence that a new decision was made before outcome access.
+
+Decision: Record the decision that can be reconstructed from the already
+existing `protocols/wrr_strong_accept_protocol_v3.yaml` and
+`protocols/wrr_strong_accept_protocol_v3_seal.json`: protocol v3 introduced the
+F0/F1/F2/F3 forcing axis, its cross-matrix plan, predictions P-5--P-7, and the
+stopping rules later referenced by DLOG-016.  The seal states a freeze time of
+2026-08-09T00:30:18Z at git commit
+`c63eef57d46366c0248bcc3e21be995371c32b66`, with `git_dirty: true`.
+
+This reconstruction records only what those existing objects assert.  The v3
+protocol, seal, and runner were not tracked by the cited commit, and the seal
+hashes the then-current `outputs/final/` files but not the protocol YAML, runner,
+or decision log.  It therefore remains
+`PROVISIONAL_NOT_YET_COMPLETE` chronology evidence rather than an immutable
+pre-outcome registration receipt.
+
+Why: DLOG-016 cites DLOG-015, but no DLOG-015 entry existed in this append-only
+log.  Leaving the gap unexplained would overstate the audit trail; silently
+inserting an apparently contemporaneous entry would be worse.  This explicit
+administrative reconstruction preserves both the recovered intent and the true
+evidence boundary.
+
+Evidence available before this reconstructed entry: protocol v3, its existing
+seal, DLOG-016 and DLOG-017, the current F/L artifacts, and the completed
+evidence-status audit.  F- and L-axis outcomes had already been inspected.
+
+Data periods already inspected: 2006-2017 fitting/validation data and the
+2021-2023 evaluation window, including the reported F- and L-axis outcomes.
+
+Changes a primary hypothesis? no — administrative chronology repair only; it
+introduces no new prediction, threshold, estimand, or verdict.
+
+Requires a protocol version bump? no.  Any future crossed information-regime
+experiment requires its own prospective protocol rather than relying on this
+reconstruction.
+
+Commit(s): (administrative reconstruction in this worktree; to be committed
+with DLOG-018 and `docs/SCIENTIFIC_EVIDENCE_STATUS.md`)
+
+---
+
+## 2026-08-09 — DLOG-018: station-first correction and information-budget headline withdrawal
+
+Decision: Withdraw the following quantitative headline interpretations from
+manuscript-eligible use: the `+0.48 C` L2 geometry effect, the approximately
+`30x` geometry amplification, the forcing-to-architecture `27:1` ratio, the
+claim that the separate F and L runs constitute a "full information budget",
+and the current CONFIRMED labels for the F3 P-5/P-6 verdicts.  DLOG-016 and
+DLOG-017 remain unchanged as the historical record of what was initially
+concluded; this entry supersedes those interpretations.
+
+The corrected disposition is:
+
+1. Protocol v2 requires the five random seeds to be averaged within station
+   before region-minus-random pairing.  On the current reportable
+   `ladder_effects.parquet` rows, the seven-day paired median geometry effects
+   are `+0.007968 C` (L0) and `+0.100697 C` (L2) for LightGBM, and
+   `+0.003983 C` (L0) and `+0.103896 C` (L2) for ResidualLightGBM.  The
+   corresponding absolute L-by-geometry interactions are `+0.092729 C` and
+   `+0.099913 C`.  The earlier approximately `+0.48 C` value subtracts two
+   marginal medians and is not the registered median station-paired estimand.
+   The approximately `30x` ratio is therefore withdrawn.  These corrected raw
+   contrasts remain `PROVISIONAL_NOT_YET_COMPLETE` until a governed contrast
+   table, inference, robustness checks, and a matching manifest exist.
+2. The current forcing authority is not the artifact cited by DLOG-016:
+   `forcing_effects.parquet` and `forcing_summary.json` contain F0 only.  The
+   table has 708 station-cells (118 stations per model and lead), but only 116
+   stations per cell meet the frozen `n >= 100` reportability rule; it has no
+   `reportable` column, and its summary includes all 118.  Moreover, the summary
+   code subtracts marginal station medians rather than computing the median of
+   paired station deltas.  The reported F3 values and the `-0.622 C` contrast
+   are therefore `PROVISIONAL_NOT_YET_COMPLETE`, not current authority values.
+3. DLOG-016 states that the reported F3 seven-day RMSE of `1.113 C` lies inside
+   the pre-registered P-5 range `1.15--1.25 C`; it does not.  If the missing
+   raw F3 artifact is recovered or reproduced, P-5's learned-advantage threshold
+   and its RMSE-range prediction must be adjudicated separately.  P-5 and P-6
+   are downgraded from CONFIRMED to `PROVISIONAL_NOT_YET_COMPLETE`; P-7 and F2
+   remain `PLANNED`.
+4. The `27:1` ratio combines an ungoverned F3 tree contrast with an architecture
+   contrast measured under F0-L0.  The current F and L effects come from
+   separate conditional designs, so they cannot be added, ranked as a universal
+   ratio, or labelled a closed budget.  Until a common-key F-by-L-by-G-by-A
+   experiment exists, the admissible framing is "conditional information
+   contrasts," not an additive or full information budget.
+5. The information-regime claims are absent from `paper/claim_ledger.yaml`,
+   `outputs/final/claim_ledger_resolved.csv`, and
+   `outputs/final/paper_values.tex`.  The current `result_manifest.json` binds
+   protocol v1 only, omits forcing artifacts, and its recorded digest for
+   `ladder_effects.parquet` does not match the current file.  A passing current
+   manuscript gate therefore does not close any F/L headline.  No such number
+   may enter the manuscript until the ledger, macros, result tables, protocol
+   hashes, and manifest form one verified authority state.
+6. The 432 registry-clean L0/L1/L2 cells remain useful provisional evidence,
+   but they are a completed subset, not completion of protocol v2's declared
+   L0--L3 matrix plus U2 sensitivity.  L3, L2-U2, the N1--N15 governed inference
+   output, and the crossed design remain incomplete.
+
+Why: A requirement-to-evidence audit applied the frozen primary estimand to the
+current raw artifacts and checked the result manifest, claim ledger, protocol
+seals, and decision chronology.  It found that the geometry headline used a
+difference of marginal medians, the forcing headline lacks a current supporting
+artifact and reportability enforcement, and the proposed budget combines
+non-crossed conditional contrasts.
+
+Evidence available before the decision: `protocols/wrr_strong_accept_protocol_v1.yaml`,
+`protocols/wrr_strong_accept_protocol_v2.yaml`,
+`protocols/wrr_strong_accept_protocol_v3.yaml`, the current
+`outputs/final/ladder_effects.parquet`, `forcing_effects.parquet`,
+`forcing_summary.json`, `result_manifest.json`, the claim ledger and generated
+macros, and `docs/SCIENTIFIC_EVIDENCE_STATUS.md`.  The two-sided shard audit
+passes for all 12,744 current L0/L1/L2 station-cells; that key-integrity result
+does not cure the estimator, completeness, inference, or manifest gaps.
+
+Data periods already inspected: 2021-2023 evaluation outcomes and 2006-2017
+fit/validation inputs.
+
+Changes a primary hypothesis? yes — it withdraws the current headline verdicts
+and narrows the admissible claim to provisional conditional contrasts.  It adds
+no favorable replacement hypothesis and does not change the registered
+station-first estimand.
+
+Requires a protocol version bump? no for this correction.  A future crossed
+F-by-L-by-G-by-A experiment and any new headline decision rules require a new
+prospective protocol before outcomes are read.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-019: station-level L-by-geometry interaction correction
+
+Decision: Correct only the L-by-geometry interaction interpretation in
+DLOG-018.  Its seven-day values `+0.092729 C` (LightGBM) and `+0.099913 C`
+(ResidualLightGBM) were calculated as
+`median_station(G@L2) - median_station(G@L0)`.  Although each within-level
+geometry contrast first averaged the five random seeds within station, this
+difference of two marginal medians is still not the station-level
+difference-in-differences required for the L-by-geometry interaction.
+
+The protocol-compatible station-level estimand is, for every common reportable
+station `s`,
+
+`[(RMSE_region,L2,s - RMSE_random,L2,s) -
+  (RMSE_region,L0,s - RMSE_random,L0,s)]`,
+
+followed by the median across stations.  The new create-only information-regime
+authority builder applies that ordering on the common 116-station seven-day
+set.  Its seven-day L-by-geometry medians are
+`+0.087489705415824 C` for LightGBM and `+0.100936172151032 C` for
+ResidualLightGBM.
+
+Supersession scope: this entry supersedes only DLOG-018's characterization of
+`+0.092729 C` and `+0.099913 C` as L-by-geometry interactions and replaces
+those two interaction values.  It does not supersede DLOG-018's within-level
+G@L0 or G@L2 paired geometry contrasts, its withdrawal of the `+0.48 C`,
+approximately `30x`, `27:1`, or "full information budget" claims, its forcing
+artifact findings, or any provisional status.  The corrected interaction
+values remain `PROVISIONAL_NOT_YET_COMPLETE`: the v4 protocol is an unsealed,
+post-outcome draft, and governed inference, robustness, claim-ledger, and
+manuscript bindings remain incomplete.  The published create-only authority's
+own status is explicitly `COMPLETED_SUBSET_NOT_FULL_V2`; its existence does not
+complete the v2 matrix or seal the v4 draft.
+
+Why: An authority-level contrast audit distinguished the median of paired
+station double differences from a difference between the medians of two
+paired station contrasts.  Only the former preserves the registered
+station-first estimand through the interaction.
+
+Evidence available before the decision: the 432 current L0/L1/L2 shards,
+`outputs/final/ladder_effects.parquet`,
+`outputs/final/forecast_keys.parquet`, the two-sided key audit, the create-only
+`scripts/final/build_information_regime_authority.py` authority builder,
+`outputs/final/information_regime_v4/` and its verified output hashes,
+DLOG-018, and the unsealed
+`protocols/wrr_information_regimes_protocol_v4.yaml` draft.  The authority
+contains 4,176 absolute station rows, 6,960 paired contrast rows, and 60
+paired-only summary rows; all three leads use 116 common reportable stations.
+
+Data periods already inspected: 2021-2023 evaluation outcomes and 2006-2017
+fit/validation inputs.
+
+Changes a primary hypothesis? no — estimator correction only.  It preserves
+the conditional L-by-geometry question and does not introduce a favorable new
+hypothesis or threshold.
+
+Requires a protocol version bump? no.  This correction does not edit or seal
+the existing v2/v3 protocols or the v4 draft.  Any execution of still-unrun v4
+extensions requires a prospective seal before outcome access.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-020: F0/F3_full station-first forcing normalization authority
+
+Decision: Replace the withdrawn DLOG-016 forcing numbers with the create-only
+v4 authority for the already-viewed F0/F3_full tree-model domain.  This is a
+post-outcome normalization, not a prospective, preregistered, independent, or
+confirmatory experiment.  The authority scores the exact forecast registry,
+requires the same keys and registry target values across arms, filters every
+cell to the same 116 stations with at least 100 paired targets, and computes
+the registered station-first estimand
+`median_i[RMSE_i(F0)-RMSE_i(F3_full)]`.
+
+The resulting forcing values at 1/3/7 days are
+`+0.118791/+0.492673/+0.540617 C` for LightGBM and
+`+0.116222/+0.513690/+0.535455 C` for ResidualLightGBM.  The runner's
+F3_full-minus-F0 deltas are the same values with the opposite sign.  The
+ordering increases from 1 to 3 to 7 days in both tree models, so the observed
+post-outcome normalization matches the qualitative P-6 ordering.  It is not
+labelled a confirmatory P-6 verdict because the v3 chronology and seal do not
+support that claim.
+
+P-5 is mixed and has no automatic joint verdict.  At seven days, the
+station-median F3_full RMSE is `1.113565 C` for LightGBM and `1.121000 C` for
+ResidualLightGBM, both outside the registered `1.15--1.25 C` range.  The
+within-station learned-minus-damped medians are `-0.607671 C` and
+`-0.581723 C`, which meet the `-0.30 C` threshold, and their changes from F0
+are `-0.566723 C` and `-0.539034 C`, which meet the registered expansion
+component.  The authority therefore records the range component as not met,
+the learned-threshold and expansion components as met, and the joint status as
+`NOT_ADJUDICATED_BY_AUTHORITY_BUILDER`.  DLOG-016's `0.622 C`, `P-5
+CONFIRMED`, and `P-6 CONFIRMED` statements remain historical and are
+superseded by this disposition.
+
+Why: DLOG-018 found that the cited forcing artifacts contained F0 only, used
+118 unfiltered stations, and subtracted marginal medians.  The v4 runner and
+independent authority now reproduce both arms from key-level predictions,
+enforce reportability and cross-arm equality, retain canonical protocol-arm
+semantics, reconstruct station metrics and contrasts independently, and bind
+every input and output hash.
+
+Evidence available before the decision: the twelve key-level shards in
+`outputs/final/forcing_shards_v4/`, `forcing_effects_v4.parquet`,
+`forcing_contrasts_v4.parquet`, `forcing_summary_v4.json`, the create-only
+`outputs/final/forcing_regime_v4_authority/`, and its independently rebuilt
+and verified manifest.  The authority contains 1,392 common-station metric
+rows and 696 station-paired contrast rows.  Its manifest SHA-256 is
+`260baa7e9fae08afb64280cb87fe320fc1712f4d2e0bd8b261ef824b133285b8`;
+it binds v4 draft protocol SHA-256
+`66e089baf37db1137cad23f148e31df39cc71aea872dec4a97dc6f8701d13a98`
+and the twelve-shard aggregate SHA-256
+`2e915e654ea302091ac0e35ff704d3c55949ffad1338d95278ef66f1921d93e1`.
+
+Data periods already inspected: 2006-2017 fitting/validation inputs and the
+2021-2023 evaluation outcomes, including earlier non-authoritative F0/F3
+summaries.
+
+Changes a primary hypothesis? no.  This entry applies the registered
+station-first estimator and gives equal weight to met and unmet P-5
+components; it introduces no new favorable threshold or hypothesis.
+
+Requires a protocol version bump? no for this already-viewed normalization.
+Still-unrun F1, F2, placebos, components, crossed, deep-model, or audit-window
+experiments remain governed by a future exact-byte v4 seal.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-021: completed-subset whole-HUC2 inference authority
+
+Decision: Freeze approximate fixed-cohort descriptive sensitivities for the
+60 model-stratified contrasts in the completed L0/L1/L2 subset.  The
+create-only inference authority uses 116 common reportable stations and 15
+canonical HUC2 clusters in every cell.  It reports a 10,000-draw whole-HUC2
+cluster bootstrap of the equal-station median, complete `2^15` whole-cluster
+sign-flip enumeration, equal-HUC2 medians, and all 15 leave-one-HUC2 results.
+The analysis is permanently labelled `POST_OUTCOME_NORMALIZATION_ONLY` and
+`COMPLETED_SUBSET_NOT_FULL_V2`.
+
+At seven days, the station-first L-by-geometry interaction remains
+`+0.087490 C` for LightGBM and `+0.100936 C` for ResidualLightGBM, but its
+robustness is model dependent.  LightGBM has a cluster-bootstrap interval
+`[-0.039911, +0.555379] C`, exact two-sided sign-flip sensitivity
+`p=0.400146`, and equal-HUC2 median `+0.006568 C`.  ResidualLightGBM has
+interval `[+0.006921, +0.301810] C`, sign-flip sensitivity `p=0.041016`, and
+equal-HUC2 median `+0.079093 C`.  Both leave-one-HUC2 ranges remain positive,
+but the LightGBM cluster resampling and equal-HUC result prohibit a
+model-general or population-level interaction claim.
+
+The seven-day G@L2 contrast shows the same pattern: LightGBM
+`+0.100697 C`, interval `[-0.028897, +0.650207] C`, `p=0.387695`; and
+ResidualLightGBM `+0.103896 C`, interval `[+0.011825, +0.319547] C`,
+`p=0.041016`.  The smaller G@L0 contrasts are positive in both models, with
+intervals excluding zero in this approximate sensitivity.  These raw values
+are not Holm-adjusted confirmatory results.
+
+Protocol v2's N01--N15 family is not adjudicated: N07--N09 require the
+uncompleted L3 arm, and v2 does not specify which model or, for the C1--C3
+presentations, which geometry selects a family member.  The authority records
+candidate mappings only, emits no Holm value, and emits no confirmatory
+verdict.  Outcome-informed selection is forbidden.
+
+Why: DLOG-019 froze the correct station-level double difference but retained
+provisional status pending governed inference and robustness.  The new
+builder binds the upstream authority and canonical HUC2 registry, and an
+independent audit exactly recomputed all 60 medians, equal-HUC summaries,
+900 leave-one-HUC rows, all sign-flip tails, and representative bootstrap
+draws before approving the formal artifact.
+
+Evidence available before the decision:
+`outputs/final/information_regime_v4/`,
+`scripts/final/build_information_regime_inference_v4.py`, and
+`outputs/final/information_regime_inference_v4/`.  The formal inference
+manifest SHA-256 is
+`1bce4a92c0b90193a6c64edf26eaaa43f323e5335374c12dbf78cb82d3fa515c`;
+the builder SHA-256 is
+`9ada6b7d2136af038b77be35edb8bd9063930c1909e4d0ee83d13e28cb6193ad`.
+The summary has 60 rows, and the per-HUC2 and leave-one-HUC2 tables have 900
+rows each.
+
+Data periods already inspected: 2006-2017 fitting/validation inputs and the
+2021-2023 evaluation outcomes, including all L0/L1/L2 subset outcomes.
+
+Changes a primary hypothesis? no.  This is a post-outcome robustness
+normalization that exposes model dependence and withholds the incomplete
+multiple-comparison verdict.
+
+Requires a protocol version bump? no.  It neither completes protocol v2 nor
+authorizes any unrun v4 extension.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-022: F0/F3_full whole-HUC2 descriptive inference authority
+
+Decision: Freeze whole-HUC2 robustness summaries for the six already-viewed
+F0-versus-F3_full tree-model forcing contrasts.  The create-only authority
+uses the registered positive forcing-value statistic
+`RMSE_i(F0)-RMSE_i(F3_full)`, 116 common reportable stations, and 15 canonical
+HUC2 clusters in every model-by-horizon cell.  It reports a 10,000-draw
+whole-HUC2 cluster bootstrap of the equal-station median, every one of the
+`2^15` whole-cluster sign flips, an equal-HUC2 sensitivity, and all 15
+leave-one-HUC2 estimates.  Its permanent status is
+`POST_OUTCOME_NORMALIZATION_ONLY / COMPLETED_VIEWED_DOMAIN_SUBSET /
+APPROXIMATE_FIXED_COHORT_DESCRIPTIVE`; it is neither prospective nor
+confirmatory.
+
+The LightGBM forcing values at 1/3/7 days are
+`+0.118791/+0.492673/+0.540617 C`, with whole-HUC2 bootstrap intervals
+`[+0.075163,+0.169223]`, `[+0.360625,+0.651083]`, and
+`[+0.406486,+0.702479] C`.  The corresponding ResidualLightGBM values are
+`+0.116222/+0.513690/+0.535455 C`, with intervals
+`[+0.074042,+0.164942]`, `[+0.355890,+0.673587]`, and
+`[+0.391430,+0.695267] C`.  The exact positive-tail counts are respectively
+4/2/2 and 4/4/2 of 32,768 configurations; the two-sided absolute counts are
+8/4/4 and 8/8/4.  These are raw descriptive sensitivities, not adjusted
+p-values or binary significance decisions.
+
+All 90 leave-one-HUC2 estimates remain positive.  The equal-HUC2 medians at
+1/3/7 days are `+0.137610/+0.613368/+0.656035 C` for LightGBM and
+`+0.131188/+0.606121/+0.602032 C` for ResidualLightGBM.  These summaries show
+that the positive forcing contrast is not produced by one HUC2 in this fixed
+cohort, but they do not turn the retrospective gridded oracle into an
+operational forecast, a population law, or a prospective hypothesis test.
+No Holm adjustment, claim verdict, P-5 adjudication, or architecture ratio is
+computed by this authority.
+
+Why: DLOG-020 froze corrected station-first point estimates but did not yet
+bind clustered uncertainty or cluster-influence sensitivities.  The new
+builder validates the upstream forcing authority's exact manifest, 696 paired
+station rows, station registry, sign convention, common-station inventory and
+hash chain before computing the six cells.  An independent implementation
+then reproduced all six point estimates, all 90 per-HUC2 values, all 90 LOCO
+values, all exact tail counts, deterministic seeds, and every bootstrap draw
+summary with maximum absolute discrepancy zero.  A second formal-path check
+verified create-only publication and byte equality of the four result files
+against the audited temporary build.
+
+Evidence available before the decision:
+`outputs/final/forcing_regime_v4_authority/`,
+`scripts/final/build_forcing_regime_inference_v4.py`, and the create-only
+`outputs/final/forcing_regime_inference_v4/`.  The formal inference manifest
+SHA-256 is
+`580fed64c308267c1ed0c49e60dac8f21ff1657651de4ee70e3b179d6ed758d7`;
+the input-set SHA-256 is
+`c6bf211c565814943b05a353a77f3285b01dac4558980a1d69b777f36d40c1a1`;
+the output-set SHA-256 is
+`ed1cb4d4b8750a9d50e4a2f43627b64982ad28b17b1d6589d91538ac08f366c1`;
+and the builder SHA-256 is
+`9aa6035ed1477f2e435ac2a263d4ab91e1c67f5c813549e2270647f32497d9da`.
+
+Data periods already inspected: 2006-2017 fitting/validation inputs and the
+2021-2023 evaluation outcomes, including the earlier forcing summaries.
+
+Changes a primary hypothesis? no.  This is a robustness normalization of the
+already-viewed forcing domain and introduces no new threshold, favorable
+contrast, or multiplicity choice.
+
+Requires a protocol version bump? no.  It neither seals v4 nor authorizes F1,
+F2, placebos, components, crossed, neural, U2, novelty, event, cohort, or
+audit-window execution.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-023: label-free F2a acquisition verified, not promoted
+
+Decision: Freeze the completed input-acquisition verification for the
+retrospective Open-Meteo Previous Runs/GFS fixed-lead air-temperature
+composite.  This decision binds an input product only.  It does not promote an
+F2a model arm, authorize execution under the still-draft v4 protocol, or add a
+forecast-value result.
+
+The immutable acquisition contains 4,080 station-month chunks for 120
+stations and 362,520 rows over 2021-03-30 through 2023-12-31.  Of those rows,
+361,800 satisfy the complete fixed-lead record contract.  Coverage is
+120,600/120,840 station-days (`0.9980139026812314`) independently at each of
+the registered 1-, 3-, and 7-day leads, and all 120 stations pass the frozen
+0.90 coverage gate at every lead.  The full verifier found no water-temperature
+or flow outcome access, no panel-artifact access, and no outcome-label field.
+
+The admissible semantics are permanently narrow: each row is a retrospectively
+retrieved fixed-valid-time-minus-lead daily air-temperature composite.  It is
+not one coherent model initialization, an as-issued operational trajectory,
+or a multi-variable forecast.  Any future recovery fraction must compare F2a
+only with `F3_temperature_only` on an exact common-key registry; comparison
+with `F3_full` is forbidden.
+
+Why: acquisition completed after the v4 draft was written, so integrity,
+coverage, source semantics, and the label-free access boundary had to be
+verified before a common-key builder could consume the product.  The verifier
+recomputed all chunk/response hashes, manifest and snapshot-index bindings,
+schema and temporal identities, and the fixed-lead coverage inventory.  It
+explicitly records `arm_promoted: false` and
+`promotion_requires_separate_protocol_authorization: true`.  A second full
+verification into an independent temporary directory reproduced the formal
+report byte for byte, including SHA-256
+`7d8a019d4966a941e9396a40930b2775ba95660347684701838721fe5032a60e`.
+
+Evidence available before the decision:
+`data_usgs/confirmatory_predictors/gfs-previous-runs-v1/manifest.json`,
+`data_usgs/raw_snapshots/openmeteo-gfs-previous-runs-v1/snapshot_index.json`,
+`scripts/data_usgs/verify_confirmatory_nwp.py`, and the create-only
+`outputs/final/f2a_acquisition_verification_v1.json`.  Their SHA-256 values are,
+respectively,
+`54f85eef3ccd4b3cc69071f3c4ed7af5e3208274d3b9062a49c43c96ea43362c`,
+`433f4b4885f225f5f9fe87ec9e94ba81493c07691bb4cc9a994be1931a406771`,
+`2238015a5b1fb8b669df371096874f66d07aafa6d2718b4f97502ebe6bf149aa`,
+and `7d8a019d4966a941e9396a40930b2775ba95660347684701838721fe5032a60e`.
+
+Data periods already inspected: no model outcome was inspected by this
+acquisition or verification step.  The atmospheric predictor dates are
+2021-03-30 through 2023-12-31; the 2021-2023 water-temperature evaluation
+domain and F3 oracle context had already been viewed separately.
+
+Changes a primary hypothesis? no.  It verifies an input and its stopping gate
+without computing a model score, contrast, event metric, or recovery fraction.
+
+Requires a protocol version bump? no.  A new exact-byte v4 execution seal is
+still required before F2a feature construction, training, scoring, or any
+extension result can run.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-024: score-independent v4 key-registry authority
+
+Decision: Freeze the create-only Phase-1 primary, F2a-temperature, and
+corrected as-of history-context registries at
+`outputs/final/information_regime_key_registries_v4/`.  The formal manifest
+status is `PHASE1_KEY_REGISTRIES_ONLY_NOT_MODEL_SCORE_AUTHORITY`.  This
+decision freezes score-independent membership and context only: no model score
+was read or accepted, no model output was published, and `arm_promoted`
+remains `false` for F2a.
+
+The primary registry reconstructs exactly 358,807 raw keys from 118 sites and
+358,765 reportable keys from 116 sites.  Its 1-, 3-, and 7-day raw counts are
+120,466, 119,654, and 118,687; its corresponding reportable counts are
+120,444, 119,639, and 118,682.  The raw and reportable key-identity SHA-256
+values are, respectively,
+`6c4d26bb04884712ae07f7087a4e1782924a78e79e8066fc25e7ce795128c5aa`
+and
+`63a20255826c384a719d5287fa1563641b82df8b11b56d6a358084190a2487b4`.
+This registry is the F0/F3_full base registry; it is not an F2b intersection.
+
+The separate F2a-temperature registry contains 329,648 common keys from 117
+sites and 329,628 reportable keys from 116 sites.  Its common counts at 1, 3,
+and 7 days are 110,397, 109,857, and 109,394; its reportable counts are
+110,385, 109,850, and 109,393.  The common and reportable key-identity SHA-256
+values are, respectively,
+`a71bab597c0d70504219ab0d3f497e00ab1736e847b170e08b6c68adfc11bd2b`
+and
+`bc30f2aa5f9101033fdade46454516dd172378a8522f9e4c66883d44d84be8a4`.
+It matches the fixed-lead composite only to target-day
+`F3_temperature_only`; `F3_full` is forbidden as its recovery denominator.
+
+The corrected context uses the last finite water-temperature observation on
+or before each issue date and never uses a future observation.  The raw
+Hall/H75/H100 membership counts are 358,807/352,245/315,336, and the
+reportable counts are 358,765/352,223/315,314.  The defective legacy context
+columns were not consumed, and the authority-bound
+`outputs/final/forecast_keys.parquet` was not overwritten.  These are frozen
+stratum memberships, not a history-quality model result.
+
+Why: the still-draft v4 design requires exact common keys, pre-score
+reportability, and as-of context before any future model runner can be sealed.
+The builder reconstructs the registries twice from canonical hash-bound
+inputs, compares all seven serialized files byte for byte, validates their
+schemas and semantic inventories, and publishes create-only.  This closes the
+key-registry construction gate without opening the score, recovery, or
+execution gates.
+
+Evidence available before the decision:
+`scripts/final/build_information_regime_key_registries_v4.py` and the seven
+files under `outputs/final/information_regime_key_registries_v4/`.  The formal
+manifest SHA-256 is
+`ac0c256907264022e1fe7c4e407e0f95ece1f03233ecd6bb1841e27eb40b49ea`,
+and the builder SHA-256 is
+`ae22113b0011d4d0dec902f65f98df0ec45a47cd0842c07cdf0b83c9c0584b94`.
+The production-byte claim is limited to the exact pinned runtime: CPython
+3.11.7, NumPy 1.26.4, pandas 2.1.4, PyArrow/Arrow 14.0.2, GCC 11.2.0, and
+x86_64 little-endian Linux.  The manifest discloses that both repository locks
+target a different Python/pandas/PyArrow environment; cross-environment
+Parquet byte identity is not claimed.
+
+Data periods already inspected: the 2021–2023 key, target, acquired F2a, and
+retrospective F3-temperature context required to construct these registries.
+No model score, prediction, contrast, recovery fraction, or event metric was
+read or computed by this step.
+
+Changes a primary hypothesis? no.  This is a governance and data-contract
+artifact, not an arm promotion, model result, or prospective preregistration.
+
+Requires a protocol version bump? no.  The v4 document remains
+`DRAFT_NOT_SEALED` with `execution_authorized: false`; a new exact-byte seal
+binding the completed implementation is still required before any unrun model
+feature construction, training, scoring, or result publication.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-025: F/L tree results withdrawn for lost observedness lineage
+
+Decision: Withdraw the current information-ladder and forcing-ladder tree-model
+results from scientific use.  Preserve their files and hashes as forensic
+records of a reproducible but invalid training lineage; do not delete,
+overwrite, relabel, or use them as manuscript evidence.  This decision
+supersedes the result-bearing parts of DLOG-018 through DLOG-022.  DLOG-018's
+withdrawal of the older `+0.48 C`, `30x`, `27:1`, and full-budget claims still
+stands; none of those values is restored.
+
+The defect occurs before fitting.  The two exact input Parquets contain no
+`*_observed` columns.  The legacy final runners concatenate them without
+creating raw observedness flags, impute every variable, and then pass that
+imputed panel both as the feature panel and as the purported true-label panel.
+The feature builder consequently infers observedness from already-filled
+values.  Imputed water-temperature targets enter training, missing issue-date
+water temperatures pass admissibility, and history missingness features no
+longer represent the raw record.  The forcing runner additionally uses the
+last 2,000 rows of the same training table as its LightGBM evaluation set,
+rather than a disjoint validation partition.
+
+For the twelve forcing tree cells, the current versus correctly admissible
+combined 2006--2017 row counts are 525,720 versus 423,266 at one day, 525,240
+versus 420,673 at three days, and 524,280 versus 418,055 at seven days.  The
+invalid unions are therefore 102,454, 104,567, and 106,225 rows.  Target values
+were imputed in 100,174, 100,041, and 99,769 rows, respectively.  Even among
+otherwise admissible rows, missingness features are wrong in 57,441, 56,619,
+and 56,141 rows.  On the corrected 358,765-key evaluation registry, 51,723
+keys have at least one erroneous history-missingness feature.  These errors
+need not cancel between F0 and F3_full, between random-site and whole-region
+geometry, or between L levels.
+
+The withdrawn information descendants are all 432 files under
+`outputs/final/ladder_shards/`, `ladder_effects.parquet`,
+`ladder_summary.json`, and the formal `information_regime_v4/` and
+`information_regime_inference_v4/` authorities.  Their manifest SHA-256 values
+are `6984d561ceb537814837057707db726c20be5b569709ded27ebd2ddd15aef39b`
+and `1bce4a92c0b90193a6c64edf26eaaa43f323e5335374c12dbf78cb82d3fa515c`.
+The withdrawn forcing descendants are all twelve files under
+`outputs/final/forcing_shards_v4/`, the v4 effects, contrasts, and summary,
+and the `forcing_regime_v4_authority/` and
+`forcing_regime_inference_v4/` authorities.  Their manifest SHA-256 values are
+`260baa7e9fae08afb64280cb87fe320fc1712f4d2e0bd8b261ef824b133285b8`
+and `580fed64c308267c1ed0c49e60dac8f21ff1657651de4ee70e3b179d6ed758d7`.
+Downstream metric reconstruction and HUC2 resampling remain arithmetically
+reproducible, but they operate on scientifically invalid predictions.
+
+This defect does not invalidate the raw evaluation key identity, chronology,
+or registry-valued `y_true`.  Across the 358,807 legacy evaluation keys, raw
+issue and target water temperature are finite and the maximum panel-versus-
+registry target difference remains
+`1.5258789076710855e-6 C`.  The raw F3 future availability path is also
+separate from the imputed history path.  The score-independent key-registry
+authority from DLOG-024, the F2a acquisition verification from DLOG-023, and
+the conventional Route-A authority are not withdrawn.  New work must use the
+358,765-row `primary_reportable_key_registry_v4.parquet`, not the defective
+legacy context metadata.
+
+Why: two independent read-only implementations traced the exact production
+bytes through loader, imputer, feature builder, training-row selection, and
+formal authorities, then reproduced the affected row and mask inventories.
+Existing tests exercised helper functions with hand-created observed flags but
+never tested the production `raw -> flags -> train-only fit -> impute ->
+feature` lifecycle.  The authority builders verified key, target, shard, and
+downstream arithmetic consistency; they did not independently reconstruct the
+training lineage.
+
+Evidence available before the decision: the exact development and evaluation
+panels (SHA-256
+`0427a07ea4514ba29ce7d0cf89594e6c35c7f9134cc4d1d96fdc90daeaf5ba69`
+and `cecdac459139456202240954e4c98fe18bba1fe8b63e9b06ab268683e0d1c03c`),
+`scripts/final/run_information_ladder.py` (SHA-256
+`8fa6b3c327df6dbb74f5e68f22dc0db861f4fc61cd46cab068bd6b79e206b49c`),
+and `scripts/final/run_forcing_ladder_v4.py` (SHA-256
+`6b370a4c1271e43f4797408bc1831a44882a7e3d727ccd71a485eb0cccac6eb8`).
+The old authority directories listed above bind those exact defective source
+and data bytes.
+
+Data periods already inspected: 2006--2017 training/validation inputs and the
+already-open 2021--2023 evaluation domain.  This audit read no unrun F2,
+placebo, component, crossed, neural, L2_U2, L3, event, cohort, or audit-window
+model outcome.
+
+Changes a primary hypothesis? no.  It removes invalid evidence rather than
+selecting a favorable result.  Every withdrawn F/L estimate, interval,
+sign-flip tail, equal-HUC summary, LOCO range, P-5 component, and lead-order
+interpretation must remain absent until a versioned observed-lineage rerun is
+independently authorized.
+
+Requires a protocol version bump? no for the withdrawal.  Corrected runs must
+use new versioned runners and output paths, preserve raw flags before
+imputation, bind pre-imputation training keys and labels, use disjoint
+2006--2015 training and 2016--2017 validation, and issue new authorities.  The
+draft v4 execution protocol remains unsealed and unauthorized.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-026: observedness-lineage withdrawal authority frozen
+
+Decision: Freeze the create-only, score-independent preprocessing-lineage
+defect authority at
+`outputs/final/preprocessing_lineage_defect_authority_v1/`.  Its status is
+`SCIENTIFIC_RESULTS_WITHDRAWN_PENDING_OBSERVED_LINEAGE_RERUN`.  This authority
+binds and independently reconstructs the adverse evidence underlying
+DLOG-025; it is not a corrected model result, an execution authorization, or
+a protocol seal.
+
+The formal evaluation domain is the 358,765-row
+`primary_reportable_key_registry_v4.parquet`, not the legacy 358,807-row key
+file.  The authority reconstructs 17,478/17,231/17,014 keys with at least one
+erroneous history-mask feature at 1/3/7 days, or 51,723 in total.  It retains
+the legacy 51,765-key count separately as forensic chronology and identifies
+the 42 legacy-only nonreportable keys.  The maximum raw-panel versus formal
+`y_true` difference is `1.5258789076710855e-6 C`, within the fixed `2e-6 C`
+tolerance.
+
+The report's frozen claim token
+`SCIENTIFIC_EVIDENCE_STATUS_ROWS_31_32_33_36_38` is a historical symbolic
+identifier assigned before the new authority row was inserted into the status
+document; it is not a live source-line pointer.  The withdrawn semantics are
+the named L-subset, L2 geometry, L-by-geometry, F0 and F3 learned-result rows,
+regardless of later Markdown line movement.  The published authority bytes
+must not be rewritten to chase documentation line numbers.
+
+The training reconstruction preserves DLOG-025's combined 2006--2017 counts:
+525,720/423,266 current/admissible rows at one day,
+525,240/420,673 at three days, and 524,280/418,055 at seven days.  It also
+binds the exact old forcing source and records that its LightGBM evaluation
+set was the last 2,000 rows of the same training table, rather than the
+disjoint 2016--2017 validation partition required for a corrected rerun.
+
+The published directory contains exactly the report and manifest JSON.  Their
+SHA-256 values are
+`5c1b1e05932538dba1b2a0d21ad44fdfe54a9c52e949b96b3a668356910e68d9`
+and
+`e69124409f49e4fb2aaaae319104251ca3078e535fca69121ed0eafddb23d908`.
+The bound builder SHA-256 is
+`03158b8b4ae23550b7501132bb0d148220617cd67f3cfda0805f7e9ae51a9fc7`;
+the independently exercised test-file SHA-256 is
+`971306c4264524fce04248f7e8776d1ba6810c9c3449b8694b41914502ecda97`.
+The builder read zero prediction or score rows.  Two exact build passes,
+strict production input/config/runtime pins, an anchored-directory
+create-only publisher, staged byte verification and no-replace atomic rename
+were independently verified before publication.  A post-publication check
+then confirmed the exact two-file set and both published digests.
+
+The withdrawal and preservation boundary is unchanged.  All old F/L learned
+predictions and descendants remain scientifically withdrawn; raw key identity
+and `y_true`, the DLOG-024 score-independent registries, the DLOG-023 F2a
+acquisition verification, conventional Route-A, and the separate air2stream
+raw path remain outside this specific defect.  No old numerical F/L claim is
+restored, and no new model score is introduced.
+
+Why: DLOG-025 recorded the adverse decision before this evidence artifact was
+built.  A separate append-only entry is therefore required to freeze the
+later create-only authority without implying that it existed at the time of
+the original withdrawal.
+
+Evidence available before the decision: the exact inputs and sources bound in
+the manifest, two independent attack reviews of the builder and publisher,
+17 focused tests, and two production reconstruction passes.
+
+Data periods already inspected: 2006--2017 training/validation inputs and the
+already-open 2021--2023 evaluation domain.  No unrun extension outcome and no
+model prediction or score was read.
+
+Changes a primary hypothesis? no.  This freezes adverse lineage evidence and
+keeps every affected result withdrawn.
+
+Requires a protocol version bump? no.  Any corrected model execution still
+requires a versioned runner, independently authorized score-execution
+protocol, source registry and new result authority; the v4 draft remains
+unsealed and `execution_authorized: false`.
+
+Commit(s): (this worktree)

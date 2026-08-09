@@ -1,0 +1,152 @@
+# WRR redesign protocol v3 — forcing ladder (F-axis)
+#
+# Freeze 2026-08-09 (DLOG-015) after the advisory review's D1 finding: the
+# F0 information set (no meteorological information beyond the issue date)
+# makes damped persistence an approximately Bayes-optimal predictor of the
+# anomaly, so the learned-gain null is a mathematical consequence of the
+# design, and the Section 5.1 attribution of published skill gaps to
+# "benchmark design" is unidentified without an arm that varies forcing
+# information.  Protocol v3 adds the missing forcing axis.  It does NOT
+# change protocol v2's L-axis (information ladder) or its inference family.
+#
+# This file was sealed BEFORE any F-axis outcome was read (seal file:
+# wrr_strong_accept_protocol_v3_seal.json, SHA-256 of outputs/final/).
+
+study_id: thermoroute_wrr_sa_v3
+supersedes: thermoroute_wrr_sa_v2
+freeze_note: |
+  The v2 seal remains valid for the L-axis; v3 governs the F-axis and the
+  cross matrix.  The L2/L3 information ladder (protocol v2) is unchanged and
+  continues to run.
+
+# --------------------------------------------------------------------------- #
+# (a) Forcing ladder (the new axis)
+# --------------------------------------------------------------------------- #
+forcing_levels:
+  F0_no_future_met:
+    label: no future meteorological forcing (status quo ante)
+    definition: features use only information available at the issue date t
+    status: already published in the v1/v2 authority
+  F1_climatological_forcing:
+    label: climatological future forcing
+    definition: met variables at t+1..t+h are set to the per-station
+      harmonic climatology (same object as the temperature climatology,
+      fitted 2006-2015, strictly backward)
+    cost: near zero (reuses the fitted climatology)
+  F2_archived_nwp:
+    label: archived NWP forecasts
+    definition: Open-Meteo Previous Runs GFS archive at the station grid
+      point, fetched per station; valid from 2021-03-30
+      (NWP_COMMON_VALID_TIME_START)
+    key_rule: |
+      F2 keys are a strict subset of the common registry.  ALL FOUR F arms
+      are re-scored on the F0 n F2 intersection registry; F0 is additionally
+      reported on the full window.  Cross-arm comparisons are only ever made
+      on identical key sets.
+    degradation_rule: |
+      If the GFS fetch success rate is below 90% of station-days, F2 is
+      downgraded to a sensitivity and is reported as such.
+  F3_perfect_forcing:
+    label: perfect future forcing (observed Daymet/gridMET)
+    definition: met variables at t+1..t+h take their observed panel values;
+      where the panel ends (last h days of 2023-12-31), the climatological
+      value is substituted and the substitution count is reported
+    cost: near zero (the held-out panel already carries TEMP/PRCP/DH/RHMEAN
+      99.91% and WDSP 100% observed)
+    missing_fill: per-station climatology; substitution count reported per
+      lead
+
+forcing_features: |
+  For each met variable v in (TEMP, PRCP, DH, RHMEAN, WDSP) and lead h:
+    v_fut{h}     = value of v at t+h            (target-day forcing)
+    v_futmean{h} = mean of v over t+1..t+h      (accumulated forcing)
+  F0 has no future columns; F1 computes them from the station climatology;
+  F3 from the observed panel.  The same column schema is used for every arm
+  so the models are information-comparable.
+
+# --------------------------------------------------------------------------- #
+# (b) Models and scoring
+# --------------------------------------------------------------------------- #
+models: [LightGBM, ResidualLightGBM, air2stream]
+models_note: |
+  LightGBM and ResidualLightGBM use the frozen per-lead hyperparameters and
+  best iterations of protocol v1/v2 (FROZEN_PARAMS, BEST_ITER).  The deep
+  architecture (ThermoRoute) gains an F3 arm by adding the future-met
+  channels to its sequence input; its training is heavier and is scheduled
+  after the tree arms establish the direction (P-5 test below).
+  air2stream participates in F1 (its published roll-out already uses the
+  climatology for steps 2..h) and F3 (roll-out with observed Ta at every
+  step); it has no F0 form.
+
+scoring: |
+  Identical to the v2 runner: per-site station-first metrics on the common
+  forecast-key registry, with the two-sided registry assertion
+  (assert_shards_in_registry.py).  No cross-arm comparison on different key
+  sets.
+
+# --------------------------------------------------------------------------- #
+# (c) Cross matrix (Phase 3; endpoints only)
+# --------------------------------------------------------------------------- #
+cross_matrix: |
+  Full forcing ladder x {L0, L2} = 8 cells, plus the diagonal
+  (F0,L0), (F2,L1), (F2,L2), (F3,L3) when the L3 attributes are ready.
+  Models: LightGBM, ThermoRoute, damped persistence.  The resulting 2-D
+  information-budget matrix becomes the paper's core figure.
+
+# --------------------------------------------------------------------------- #
+# (d) Pre-registered quantitative predictions
+# --------------------------------------------------------------------------- #
+predictions:
+  P-5: |
+    Perfect forcing (F3) at 7 days expands the learned-model advantage over
+    damped persistence: station-median paired ΔRMSE (ThermoRoute minus
+    damped) moves from -0.069 C (F0) to at most -0.30 C (F3).  Equivalently,
+    the 7-day station-median RMSE of the learned model under F3 is expected
+    near 1.15-1.25 C (Rahmani-class magnitude).  A failure (|Δ| grows by
+    less than 0.10 C) is the stronger, more counterintuitive result: the
+    predictability ceiling is set by within-day thermal inertia, independent
+    of forcing quality.
+  P-6: |
+    The forcing value grows with lead: F3 minus F0 station-median ΔRMSE of
+    the best model is smallest at 1 day (local memory dominates) and largest
+    at 7 days.  Expected ordering |ΔRMSE_7d| > |ΔRMSE_3d| > |ΔRMSE_1d|.
+  P-7: |
+    F1 (climatological forcing) recovers a material fraction of the F3
+    gain at 3 and 7 days (climatology carries the seasonal phase), but not
+    at 1 day; the F1-to-F3 gap isolates the value of FORECAST ACCURACY
+    beyond seasonal structure.
+  verdict_rule: |
+    Every prediction is tested and the verdict (confirmed / refuted /
+    partial) is written to the decision log with the same weight either way.
+    Both outcomes are publishable; the paper's central claim is written
+    after the verdict, never before.
+
+# --------------------------------------------------------------------------- #
+# (e) Stopping rules
+# --------------------------------------------------------------------------- #
+stopping_rules:
+  - |
+    If the F2 fetch or alignment fails the 90% rule, F2 is reported as a
+    sensitivity; F0/F1/F3 remain the primary arms.
+  - |
+    If the deep-model F3 training exceeds its budget, the F3 result is
+    reported with LightGBM + ResidualLightGBM + air2stream and the deep
+    arm is labelled pending; the P-5 test is evaluated on the deep model
+    when available and on the best tree model as an interim signal.
+  - |
+    No manuscript rewrite of the D1-related framing (Sections 5.1,
+    Conclusions, Abstract, Key Points) happens before the F3 verdict is
+    written to the decision log.
+
+# --------------------------------------------------------------------------- #
+# (f) Advisory-review commitments carried into v3
+# --------------------------------------------------------------------------- #
+commitments:
+  - D1: "The authors' central attribution is unidentified" — answered by the
+    F-axis; Section 5.1 rewritten as the information-budget framing.
+  - D2: spatial null has no test power — the L-axis (v2, running) supplies
+    the L2/L3 arms; the spatial conclusion is rewritten conditionally.
+  - D3: ThermoRoute demoted to one table row; Section 3.1 compressed;
+    ablation results move to SI (Batch A of the length plan).
+  - D5: official air2stream replaces the unofficial a8 variant (Phase 5b) or
+    the disclaimers are consolidated into Limitations (Batch B).

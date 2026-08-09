@@ -1,0 +1,727 @@
+# WRR information-regimes protocol v4
+#
+# This document is a DRAFT. It is not a seal, preregistration, execution
+# authorization, or claim that any listed extension has run. The sealed v2/v3
+# protocols remain immutable historical records.
+
+protocol_id: thermoroute_wrr_information_regimes_v4
+version: 4
+status: DRAFT_NOT_SEALED
+draft_date_utc: 2026-08-09
+execution_authorized: false
+seal_path: null
+
+relationship_to_prior_protocols:
+  immutable_predecessors:
+    - protocols/wrr_strong_accept_protocol_v2.yaml
+    - protocols/wrr_strong_accept_protocol_v2_seal.json
+    - protocols/wrr_strong_accept_protocol_v3.yaml
+    - protocols/wrr_strong_accept_protocol_v3_seal.json
+  rule: |
+    This draft does not edit, reopen, or retroactively reseal v2 or v3. It
+    normalizes the information-regime analysis and defines still-unrun
+    extensions. If v4 is later sealed, its seal must be a new file and must
+    identify the exact source, input, model, split, and contrast registries.
+
+chronology_and_evidence_status:
+  disclosure: |
+    The 2021-2023 evaluation window is already open. Results from the v1
+    conventional benchmark have been inspected. A tree-model F3_full result was
+    described in the decision log and review materials, and L0-L2 tree-model
+    ladder outcomes and random-split seeds 0-4 have been inspected. Therefore
+    v4 is a post-outcome normalization/reanalysis protocol for those domains.
+    It must never be described as an untouched, prospective, or independently
+    confirmatory analysis of 2021-2023.
+  already_viewed_domains:
+    - v1 conventional model/reference comparisons on 2021-2023
+    - the previously narrated F3_full tree-model contrast on 2021-2023
+    - L0, L1, and L2 tree-model ladder outcomes on 2021-2023
+    - random spatial split seeds 0-4 from the existing ladder
+    - existing F0-L0 matched architecture comparisons
+    - existing L0 distance and hydroclimatic-novelty diagnostics
+  normalization_only_domains:
+    - station-paired re-estimation of already-viewed F3_full and L0-L2 effects
+    - reinterpretation of already-viewed results under the three-regime frame
+    - correction of differences between marginal medians to paired estimands
+  pre_outcome_extensions_if_sealed_before_execution:
+    - F2a retrospective fixed-lead temperature-forecast composite
+    - F2b exact-initialized archived-vintage forecast trajectories
+    - F3_full and F3_temperature_only within-month shuffled and time-shifted placebos
+    - future-forcing component experiments
+    - plain-TCN and ThermoRoute hard-regime cells
+    - L2-U2 and L3 arms
+    - random spatial split seeds 5-9
+    - L2 transfer-penalty novelty analysis
+    - F0/F2a/F2b/F3_full/F3_temperature_only event-value analysis
+    - expanded no-flow cohort
+    - a separately frozen 2024-2025 audit, if outcomes remain untouched
+  qualification_rule: |
+    An extension is pre-outcome only if its code, inputs, estimand, stopping
+    rule, and exact contrast registry are frozen in a future v4 seal before
+    its outcome is computed or inspected. Draft status alone provides no such
+    protection.
+  prohibited_chronology_language:
+    - untouched confirmation on 2021-2023
+    - preregistered 2021-2023 information-regime result
+    - independent confirmation by the already-open 2021-2023 window
+
+scientific_objective: |
+  Quantify how local thermal state, future atmospheric information, spatial
+  and hydroclimatic novelty, and model class jointly define short-range river
+  water-temperature predictability. Effects are conditional contrasts, not an
+  assumed additive information budget and not causal effects in the natural
+  system.
+
+predictability_regimes:
+  regime_I_history_dominated:
+    defining_conditions:
+      - target-site issue-date water temperature is available
+      - recent target-site water-temperature history is available
+      - lead is short, especially 1-3 days
+    quantities_of_interest:
+      - local-state value
+      - residual forcing value by lead
+      - architecture value under history-rich information
+  regime_II_forcing_limited:
+    defining_conditions:
+      - target-site thermal history remains available
+      - lead extends toward 3-7 days
+      - future meteorological information is absent, imperfect, or oracle
+    quantities_of_interest:
+      - realized-future-forcing oracle value
+      - retrospective forecast-composite or archived-vintage recovery
+      - forcing-by-architecture interaction
+  regime_III_transfer_limited:
+    defining_conditions:
+      - local water-temperature history is unavailable
+      - target sites or whole regions are excluded from fitting
+      - geographic or hydroclimatic novelty may be high
+    quantities_of_interest:
+      - geometry-by-local-information interaction
+      - value recovered by basin attributes
+      - architecture-by-local-information interaction
+
+prediction_tasks:
+  T1:
+    label: known-site short-range hindcast
+    target_site_in_model_fit: true
+    target_site_water_temperature_history: available_through_issue_time
+    role: contextual temporal benchmark; not an ungauged or operational replay
+  T2:
+    label: random-site gauged transfer
+    target_site_in_model_fit: false
+    target_site_water_temperature_history: available_through_issue_time
+    geometry: random_site
+    role: interpolation-like gauged transfer
+  T3:
+    label: whole-region gauged transfer
+    target_region_in_model_fit: false
+    target_site_water_temperature_history: available_through_issue_time
+    geometry: whole_region
+    role: regional gauged transfer
+  T4:
+    label: whole-region cold-start/no-local-history transfer
+    target_region_in_model_fit: false
+    target_site_water_temperature_history: unavailable_to_model
+    geometry: whole_region
+    role: thermally ungauged-like transfer; labels remain available for scoring
+  T5:
+    label: attribute-informed ungauged-like transfer
+    target_region_in_model_fit: false
+    target_site_water_temperature_history: unavailable_to_model
+    basin_attributes: available
+    geometry: whole_region
+    role: attribute-regionalized transfer; not a claim about every ungauged river
+
+axes:
+  F_future_forcing:
+    primary_slot_order: [F0, F2b, F3_full]
+    diagnostic_levels: [F1, F2a, F3_temperature_only]
+    F0:
+      label: no future meteorological information
+      availability_boundary: predictors dated no later than issue time
+      interpretation: retrospective date-indexed hindcast baseline
+    F1:
+      label: climatological future forcing negative control
+      construction: station-specific training-period climatology at future valid times
+      interpretation: diagnostic for redundancy with calendar and seasonal features
+    F2a:
+      label: retrospective fixed-lead temperature-forecast composite
+      source_candidate: Open-Meteo Previous Runs GFS temperature fields
+      source_documentation: https://open-meteo.com/en/docs/previous-runs-api
+      source_semantics: |
+        The `_previous_dayN` fields form sequences indexed by a fixed offset
+        for each valid time. They can support fixed-lead skill analysis, but
+        they are not evidence that all lead values came from one coherent
+        model initialization. They are retrospectively retrieved and are not
+        an as-issued operational trajectory.
+      frozen_acquisition_scope:
+        lead_days: [1, 3, 7]
+        value_per_forecast_key: target-day daily-mean air temperature
+        all_intermediate_leads_acquired: false
+        interpretation: |
+          The frozen acquisition supplies one target-day daily mean at each
+          registered lead (1, 3, and 7 days). It does not supply a complete
+          t+1 through t+h trajectory or a mean over that trajectory. Neither
+          quantity may be claimed or reconstructed by interpolation.
+        all_leads_upgrade_rule: |
+          A complete trajectory or horizon-mean analysis requires a separately
+          frozen all-leads acquisition, coverage audit, feature definition,
+          and common-key registry before its outcomes are inspected.
+      forcing_scope: future_air_temperature_only
+      coherent_single_initialization: false
+      allowed_claim: retrospective fixed-lead temperature-forecast composite value
+      forbidden_claims:
+        - as-issued operational forecast
+        - coherent issued forecast trajectory
+        - operational recovery fraction against F3_full
+      recovery_denominator: F3_temperature_only
+    F2b:
+      label: exact-initialized archived-vintage forecast trajectory
+      source_candidate: NOAA/NCEI GFS 0.25-degree historical forecast archive
+      source_documentation: https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast
+      known_archive_boundary: |
+        NOAA/NCEI documents four GFS 0.25-degree cycles per day from
+        2021-02-26. The currently visible old-month online THREDDS file-unit
+        catalogs expose only short leads (+0/+3/+6 h); a full trajectory to
+        +192 h may require HAS/tape retrieval. Availability must not be
+        assumed from catalog existence.
+      status_until_retrieval_gate_passes: PLANNED_DEGRADED
+      upgrade_requirements:
+        - one exact initialization is bound to every issue time
+        - initialization and publication time are no later than the issue time
+        - all required valid times through the forecast horizon share that initialization
+        - original or attested vintage bytes and checksums are archived
+        - common-key coverage gate passes
+      allowed_claim_if_upgraded: archived-vintage coherent forecast value
+      operational_wording_gate: |
+        The term operational or as-issued is allowed only if publication
+        timing, revision semantics, and contemporaneous availability are
+        independently bound. Otherwise use archived-vintage retrospective
+        forecast, even when the initialization is coherent.
+    F3_temperature_only:
+      label: realized future gridded air-temperature oracle
+      construction: retrospective Daymet gridded air-temperature estimates at future valid times
+      interpretation: oracle upper bound matched to the F2a variable scope
+    F3_full:
+      label: realized future gridded meteorological-forcing oracle
+      construction: |
+        Retrospective Daymet/gridMET fields over t+1 through t+h: Daymet
+        temperature, precipitation, vapour-pressure-derived RHMEAN proxy, and
+        daylight-period mean shortwave radiation (legacy field DH), plus
+        gridMET daily mean wind speed. These are gridded estimates at station
+        coordinates, not direct station observations or catchment-average
+        forcings.
+      interpretation: oracle information upper bound, never a deployable forecast
+      forbidden_claims:
+        - operational forecast improvement
+        - deployable gain
+        - weather-forecast value without an F2 comparison
+
+  L_local_information:
+    primary_levels: [L0, L2]
+    diagnostic_levels: [L1, L2_U2, L3]
+    L0:
+      label: history-rich gauged site
+      issue_date_water_temperature: visible
+      recent_water_temperature_sequence: visible
+      target_site_climatology: training-period_per_site
+      target_site_decay_parameter: training-period_per_site
+      target_site_identity: allowed_only_in_T1; forbidden_in_transfer_models
+      issue_time_flow: visible_when_available
+    L1:
+      label: gauged cold-start with no target-site long-term statistics
+      issue_date_water_temperature: visible
+      recent_water_temperature_sequence: visible
+      target_site_climatology: training_station_pooled
+      target_site_decay_parameter: training_station_pooled
+      target_site_identity: forbidden
+      issue_time_flow: visible_when_available
+    L2:
+      label: thermally ungauged, hydrology observed
+      issue_date_water_temperature: masked_from_all_model_and_anchor_inputs
+      recent_water_temperature_sequence: masked_from_all_model_inputs
+      target_site_climatology: forbidden
+      target_site_decay_parameter: forbidden
+      target_site_identity: forbidden
+      issue_time_flow: visible
+      anchor: training_station_pooled_climatology_only
+    L2_U2:
+      label: fully local-observation-free sensitivity
+      inherits: L2
+      issue_time_flow: masked
+      required_scope: whole_region, 7-day, LightGBM and plain_TCN
+      purpose: exclude residual target-site hydrologic adaptation
+    L3:
+      label: attribute-informed thermally ungauged transfer
+      inherits: L2
+      basin_attributes: predeclared_hydrologic_attributes
+      regionalization: training_only
+      target_site_identity: forbidden
+
+  G_spatial_geometry:
+    primary_levels: [random_site, whole_region]
+    random_site:
+      folds_per_seed: 4
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      viewed_seed_subset: [0, 1, 2, 3, 4]
+      pre_outcome_extension_seed_subset: [5, 6, 7, 8, 9]
+      balancing_rule: match whole-region fold sizes and target-station counts as closely as integer allocation permits
+    whole_region:
+      folds: 4
+      grouping: deterministic HUC2 packing frozen before scoring
+      target_region_excluded_from_fit: true
+    matching_requirements:
+      - same target stations wherever the contrast is defined
+      - same forecast keys within each paired contrast
+      - same training-station count or a recorded matched subsample
+      - same tuning and fit budget
+
+  A_model_class:
+    primary_levels: [LightGBM, plain_TCN]
+    selected_extension: ThermoRoute
+    references: [level_legal_anchor, validated_forced_hybrid]
+    common_point_target: unbounded_residual_to_the_level_legal_anchor
+    comparison_requirements:
+      - identical information channels and masks
+      - identical target and forecast keys
+      - identical station weighting
+      - point-RMSE-only selection objective
+      - matched hyperparameter candidate count frozen before execution
+      - matched model-fit seeds and stopping information
+      - no probability or auxiliary-loss advantage in the primary point comparison
+    model_fit_seeds: [0, 1, 2, 3, 4]
+    thermoroute_constraint_check:
+      variants: [bounded, unbounded]
+      rule: |
+        Hard-regime cells must include an unbounded variant so a residual
+        bound cannot be misread as a property of deep architecture.
+
+leads_days: [1, 3, 7]
+
+primary_core_matrix:
+  dimensions:
+    F: [F0, F2b, F3_full]
+    L: [L0, L2]
+    G: [random_site, whole_region]
+    A: [LightGBM, plain_TCN]
+    lead_days: [1, 3, 7]
+  logical_cell_count: 72
+  arithmetic: 3 * 2 * 2 * 2 * 3
+  F2b_gate_rule: |
+    The intended primary matrix has 72 logical cells only if F2b satisfies
+    its vintage, coherence, and coverage gates. If F2b fails, the F2b cells
+    remain PLANNED_DEGRADED, the completed F0/F3 subset has 48 cells, and the
+    paper must not say that the 72-cell primary matrix is complete.
+  task_mapping:
+    F_any_L0_random_site: T2
+    F_any_L0_whole_region: T3
+    F_any_L2_whole_region: T4
+    F_any_L2_random_site: cold-start interpolation sensitivity
+
+F2a_temperature_diagnostic_matrix:
+  F_levels: [F0, F2a, F3_temperature_only]
+  L_levels: [L0, L2]
+  G_levels: [random_site, whole_region]
+  A_levels: [LightGBM, plain_TCN]
+  leads_days: [1, 3, 7]
+  interpretation: temperature-only fixed-lead composite response surface
+  recovery_name: retrospective_temperature_composite_recovery_fraction
+  operational_label_forbidden: true
+
+selected_thermoroute_cells:
+  applies_to_all_leads: [1, 3, 7]
+  cells:
+    - {F: F0, L: L0, G: random_site}
+    - {F: F3_full, L: L0, G: random_site}
+    - {F: F0, L: L2, G: whole_region}
+    - {F: F2b, L: L2, G: whole_region}
+    - {F: F3_full, L: L2, G: whole_region}
+  variants_required: [bounded, unbounded]
+  degradation_rule: |
+    If F2b is unavailable, its ThermoRoute cell remains planned rather than
+    being silently replaced by F2a. Any single-seed or reduced-budget result
+    is exploratory and cannot carry the architecture conclusion.
+
+common_key_and_reportability_contract:
+  key_fields: [site_id, issue_time, target_time, lead_days]
+  primary_registry_by_lead: |
+    For a complete 72-cell matrix, construct one registry per lead from the
+    intersection of outcome-observable keys and auditable F2b coverage. Every
+    F0/F2b/F3_full x L x G x A primary cell must score exactly that registry's
+    held-station subset. No arm may decline a difficult key.
+  F2a_registry_by_lead: |
+    F0, F2a, and F3_temperature_only comparisons use their own explicitly
+    named common intersection. It must never be mixed with the F2b/full-F3
+    registry or used to imply a full-forcing recovery fraction.
+  full_window_sensitivities: |
+    F0 or F3 may additionally be reported on a larger legacy registry, but
+    values from different registries are secondary absolute scores and are
+    never subtracted or divided.
+  reportability:
+    minimum_paired_targets_per_station_lead: 100
+    station_set_rule: intersection_across_every_arm_in_the_declared_contrast
+    determination_time: before reading model scores
+  two_sided_assertion:
+    - no required registry key missing from a cell
+    - no outside key admitted to a cell
+    - target bytes identical across all cells sharing a key
+  target_numeric_reconstruction_contract: |
+    Key identifiers, station identifiers, horizons, issue dates, and target
+    dates are compared exactly. When a source panel target is independently
+    reconstructed against the frozen forecast registry, only an absolute
+    floating-point tolerance of 2e-6 degrees C with zero relative tolerance is
+    allowed; the observed maximum pre-execution representation difference is
+    1.5258789076710855e-6 degrees C. Any larger mismatch fails closed. Every
+    published prediction row copies the registry y_true value, so this numeric
+    tolerance cannot admit a key, alter a target, or change cross-arm pairing.
+  L2_mask_proof: |
+    Predictions and anchors must be invariant to perturbing all prohibited
+    target-site water-temperature inputs. L2-U2 additionally requires
+    invariance to prohibited flow and target-site preprocessing state.
+
+station_first_estimands:
+  station_risk: |
+    R_i(c,h) = sqrt(mean over the exact common keys of station i of
+    (prediction(c)-observation)^2), for cell c and lead h.
+  random_seed_first_rule: |
+    For random geometry, form the paired station contrast inside each seed
+    on identical keys, then average that contrast over the ten seeds for each
+    station. Preserve all ten seed-specific station effects as sensitivity
+    evidence. Never pool daily rows or concatenate seeds.
+  region_vs_random_rule: |
+    For every station and seed, subtract the random-cell station risk from
+    the matched whole-region station risk. Average the ten differences per
+    station, then take the unweighted median across stations.
+  primary_summary: unweighted_median_of_station_level_paired_effects
+  uncertainty:
+    interval: 10000-draw whole-HUC2 cluster bootstrap of the station-level paired effect
+    sensitivity: exact whole-HUC2 sign-flip enumeration and leave-one-HUC2 range
+    scope: approximate fixed-cohort descriptive sensitivity
+  forcing_value: median_i_of_R_F0_minus_R_Fk
+  local_state_value: median_i_of_R_L2_minus_R_L0
+  geometry_penalty: median_i_of_R_region_minus_R_random
+  architecture_value: median_i_of_R_LightGBM_minus_R_plain_TCN
+  interactions:
+    L_by_G: geometry_penalty_at_L2_minus_geometry_penalty_at_L0
+    F_by_A: forcing_value_for_plain_TCN_minus_forcing_value_for_LightGBM
+    L_by_A: architecture_value_at_L2_minus_architecture_value_at_L0
+    F_by_L: forcing_value_at_L2_minus_forcing_value_at_L0
+  recovery_fractions:
+    F2a_temperature_composite: |
+      V(F2a)/V(F3_temperature_only), using the same stations and keys.
+      Name it retrospective temperature-composite recovery, never Q_op.
+    F2b_archived_vintage: |
+      V(F2b)/V(F3_full), using the same stations and keys. Name it
+      archived-vintage recovery unless the operational wording gate passes.
+    denominator_guard: |
+      Do not report a ratio if the paired F3 value is non-positive, its
+      interval includes zero, or its absolute magnitude is below 0.05 C;
+      report numerator and denominator separately.
+  forbidden_estimands:
+    - difference between two marginal station-median RMSE values presented as a paired effect
+    - pooled daily-row RMSE as the primary effect
+    - ratio of effects measured under different F, L, G, A, key, or station conditions
+    - additive information budget without a separately frozen factorial, ANOVA, or Shapley decomposition
+
+hypotheses:
+  H1:
+    statement: realized-future-forcing oracle value increases from 1 to 3 to 7 days
+    test: paired F3_full versus F0 forcing values and their lead differences
+    chronology: normalization_of_already_viewed_2021_2023_F3_narrative
+    confirmatory_label_allowed: false
+  H2:
+    statement: removing local thermal history increases the whole-region geometry penalty
+    test: absolute L-by-G interaction, reported by lead and primary model class
+    chronology: normalization_of_already_viewed_2021_2023_L0_L2_outcomes
+    confirmatory_label_allowed: false
+  H3:
+    statement: forecast information recovers a positive but incomplete fraction of its matched oracle value
+    tests:
+      F2a: compare F2a only with F3_temperature_only on the F2a common registry
+      F2b: compare F2b with F3_full only if all F2b upgrade gates pass
+    chronology: pre_F2_outcome_extension_with_already_viewed_oracle_context
+    operational_claim_allowed_for_F2a: false
+  H4:
+    statement: architecture value changes with forcing richness or local-information availability
+    test: two-sided F-by-A and L-by-A interactions; no complex-model win is presumed
+    chronology: pre_outcome_for_unrun_hard_cells_but_not_for_existing_F0_L0_comparison
+  H5:
+    statement: geographic and hydroclimatic novelty explain heterogeneity in regional transfer penalty
+    test: predeclared slopes and binned response curves for L2 whole-region station effects
+    chronology: pre_outcome_for_L2_novelty_extension_but_not_for_existing_L0_diagnostic
+
+forcing_placebos:
+  applies_to: [F3_temperature_only, F3_full]
+  within_station_calendar_month_shuffle:
+    operation: permute future-forcing blocks within station and calendar month
+    fixed_random_seeds: [27101, 27102, 27103, 27104, 27105]
+    preserves: [station, season, variable_marginals]
+    destroys: event_specific_alignment
+  time_shift:
+    offsets_days: [-7, 7]
+    boundary_policy: drop_unmatched_keys_then_reintersect_all_compared_arms
+  interpretation_gate: |
+    If true F3 does not outperform both placebo families on paired common
+    keys, no event-specific future-forcing claim is allowed. The F3 arm may
+    then be described only as a future-feature contrast with unresolved
+    seasonal or timing content.
+
+forcing_component_extensions:
+  components:
+    - future_air_temperature_only
+    - future_shortwave_radiation_only
+    - future_precipitation_only
+    - future_humidity_and_wind
+    - future_full_meteorology
+    - future_discharge_separate_if_available
+  rules:
+    - component feature sets and variable units are frozen before execution
+    - future discharge is never bundled under atmospheric forcing
+    - F2a is compared only in the air-temperature component family
+    - no component is selected for the headline because it happened to win
+
+history_quality_sensitivity:
+  window_days: 32
+  raw_observation_basis: before_imputation
+  strata:
+    H100: recent water-temperature history is 100 percent observed
+    H75: recent water-temperature history is at least 75 percent observed
+    Hall: all keys allowed by the primary admissibility rule
+  estimand: repeat the station-paired L0-versus-L2 local-state value within each stratum
+  degradation_rule: |
+    A stratum with fewer than 30 reportable stations is descriptive only and
+    cannot establish that the local-history value is free of imputation bias.
+
+novelty_and_attributes:
+  station_distances:
+    - nearest_training_gauge_km
+    - mean_distance_to_five_nearest_training_gauges_km
+    - climate_novelty
+    - elevation_novelty
+    - log_drainage_area_novelty
+    - snow_regime_novelty
+    - flow_regime_novelty
+  hydroclimatic_distance: training_only_standardized_Euclidean_distance_to_nearest_training_station
+  predeclared_L3_attributes:
+    - drainage_area
+    - mean_elevation
+    - mean_slope
+    - forest_or_riparian_proxy
+    - baseflow_or_groundwater_proxy
+    - reservoir_influence
+    - mean_annual_air_temperature
+    - mean_annual_precipitation
+    - snow_fraction
+    - aridity
+    - stream_order
+  no_variable_search_rule: no post-outcome stepwise selection or best-subset search
+  L3_match_gate: 0.70
+
+validated_forced_hybrid:
+  requirement: at_least_one_route_must_pass_for_a_process_side_claim
+  route_A:
+    model: official_air2stream
+    gates:
+      - source builds from a pinned revision
+      - equations, units, and parameter ranges match the published formulation
+      - a reference case passes a declared tolerance
+      - calibration is training-only with a recorded budget
+      - F0/F2/F3 rollout semantics are explicit
+  route_B:
+    model: transparent_forced_thermal_response
+    form: T_next = T_current + alpha_i * (T_equilibrium(forcing_next) - T_current)
+    gates:
+      - physical sign and unit tests pass
+      - parameters are interpretable and training-only
+      - identical forcing arms and keys are used
+      - equations and calibration code are frozen before outcomes
+  existing_unofficial_a8_status: does_not_satisfy_this_gate
+  failure_rule: no process-model or physical-mechanism comparison is allowed
+
+event_and_decision_metrics:
+  threshold_training_period: 2006-2015
+  threshold_scope: station_specific
+  warmest_10_percent:
+    threshold: training_q90_water_temperature
+    metrics: [RMSE, MAE, warm_bias]
+  rapid_change:
+    definition: target_temperature_minus_issue_temperature
+    warming: signed_change_at_or_above_training_q90
+    cooling: signed_change_at_or_below_training_q10
+    rule: warming_and_cooling_are_never_merged_as_absolute_change
+    metrics: [RMSE, MAE, bias]
+  exceedance_detection:
+    threshold: training_q90_water_temperature
+    metrics: [POD, FAR, CSI, Brier_score, onset_timing_error]
+    probability_rule: |
+      Brier score requires a probability mapping frozen on training/validation
+      data before evaluation. A thresholded point forecast may supply POD/FAR/
+      CSI but must not be treated as a probability forecast.
+  forcing_comparisons:
+    full: [F0, F2b, F3_full]
+    temperature_only: [F0, F2a, F3_temperature_only]
+
+cohort_extension:
+  core_temperature_cohort:
+    required_variables: [water_temperature, meteorology, coordinates, basic_metadata]
+    flow_required: false
+    target_size: at_least_300_when_data_availability_permits
+  nested_flow_complete_cohort:
+    relationship: subset_of_core_temperature_cohort
+    comparison: paired_with_flow_versus_without_flow
+  headline_replication_cells_on_core_cohort:
+    count: 12
+    cells:
+      - {F: F0, L: L0, G: random_site, A: LightGBM}
+      - {F: F3_full, L: L0, G: random_site, A: LightGBM}
+      - {F: F0, L: L2, G: random_site, A: LightGBM}
+      - {F: F3_full, L: L2, G: random_site, A: LightGBM}
+      - {F: F0, L: L0, G: whole_region, A: LightGBM}
+      - {F: F3_full, L: L0, G: whole_region, A: LightGBM}
+      - {F: F0, L: L2, G: whole_region, A: LightGBM}
+      - {F: F3_full, L: L2, G: whole_region, A: LightGBM}
+      - {F: F0, L: L0, G: random_site, A: plain_TCN}
+      - {F: F3_full, L: L0, G: random_site, A: plain_TCN}
+      - {F: F0, L: L2, G: whole_region, A: plain_TCN}
+      - {F: F3_full, L: L2, G: whole_region, A: plain_TCN}
+    applies_to_leads: [1, 3, 7]
+  scope_alternative: |
+    If a defensible larger cohort cannot be built, retain the current cohort
+    but name it as a fixed availability-selected set of gauges with joint
+    water-temperature and flow records. The title, abstract, and conclusions
+    must make that restriction visible and must not state a CONUS-wide law.
+
+independent_audit:
+  preferred_window: [2024-01-01, 2025-12-31]
+  status: PLANNED_IF_OUTCOMES_REMAIN_UNTOUCHED
+  separate_freeze_required_before:
+    - target outcome acquisition or inspection
+    - threshold changes
+    - model retuning
+    - figure or estimand changes
+  audit_freeze_contents:
+    - cohort
+    - F/L/G/A cells
+    - model artifacts
+    - forecast products and vintages
+    - thresholds and keys
+    - estimands and figures
+    - stopping rules
+  outcome_rules:
+    support: report as frozen audit replication
+    attenuation: report effect attenuation without retuning
+    direction_change: narrow or withdraw the claim without retuning
+  unavailable_rule: |
+    If no untouched audit can be run, describe the 2021-2023 information
+    analysis as a post-test-designed or post-outcome-normalized reanalysis,
+    not as independent confirmation.
+
+stopping_and_degradation_rules:
+  F2a:
+    coverage_gate: 0.90
+    failure: diagnostic sensitivity only; no recovery headline
+  F2b:
+    coverage_gate: 0.90
+    failure: |
+      Remain PLANNED_DEGRADED. Report the 48-cell F0/F3 subset if complete;
+      do not relabel F2a as F2b and do not claim a completed 72-cell matrix.
+  F3_placebos:
+    failure: remove event-specific and forecast-accuracy interpretations
+  L2_U2:
+    failure: L2 remains thermally ungauged with hydrology observed; no fully ungauged claim
+  L3:
+    attribute_match_below: 0.70
+    failure: exploratory matched-subset result only; T5 cannot carry a main conclusion
+  random_splits:
+    incomplete_seed_count: fewer_than_10
+    failure: do not claim the registered random-split distribution is complete
+  architecture:
+    unstable_direction_across_model_fit_seeds: no directional architecture headline
+    unequal_information_or_budget: comparison is diagnostic, not architecture-isolating
+    missing_unbounded_hard_cell: no claim that a hard-regime loss is caused by architecture
+  geometry:
+    leave_one_HUC2_changes_direction: cohort_specific_sensitivity_only
+  history_quality:
+    H100_or_H75_underpowered: imputation-artifact question remains unresolved
+  hybrid:
+    no_validated_route: no process-side claim
+  cohort:
+    no_expansion: activate fixed_cohort_scope_alternative
+  audit:
+    unavailable: activate post_outcome_reanalysis_wording
+    divergent: narrow_claim_without_retuning
+  computation:
+    partial_cell_matrix: |
+      Persist cell-level failure statuses, but produce no artifact named
+      complete_primary_matrix and make no completion claim.
+
+completion_gates:
+  evidence_authority:
+    - all headline numbers resolve to one manifest in one commit
+    - F/L/G/A per-station effects, keys, model artifacts, and protocol hashes are bound
+    - no decision-log-only number is treated as manuscript evidence
+  primary_design:
+    - all 72 logical cells complete, or the manuscript explicitly declares the 48-cell F0/F3 degradation
+    - every primary comparison passes two-sided common-key equality
+    - reportability and station intersections are frozen before scores
+    - random geometry has all 10 seeds and 4 folds per seed
+  forcing:
+    - F3 true, within-month shuffled, and both time-shift placebos complete
+    - F2a is labeled retrospective fixed-lead temperature composite
+    - F2a recovery uses F3_temperature_only, never F3_full
+    - F2b fills primary cells only after vintage/coherence/coverage gates pass
+    - forcing components and future discharge, if used, are separately labeled
+  local_and_transfer:
+    - L0 and L2 masks and invariance proofs pass
+    - L2-U2 is complete or fully ungauged wording is prohibited
+    - L3 passes its attribute gate or is explicitly exploratory
+    - absolute L-by-G interaction is reported instead of a ratio headline
+    - L2 transfer penalty is evaluated against geographic and hydroclimatic novelty
+  architecture:
+    - LightGBM and plain_TCN complete every non-degraded primary cell
+    - selected ThermoRoute hard-regime cells are complete and honestly budgeted
+    - bounded and unbounded ThermoRoute are compared in hard regimes
+    - architecture conclusions name the exact F/L/G regime
+  hydrologic_relevance:
+    - at least one forced hybrid route passes before a process-side claim
+    - history-quality sensitivities address imputation dependence
+    - warm-tail, rapid-warming, rapid-cooling, and exceedance results are reported by forcing arm
+    - predictive information importance is not called a causal natural-system mechanism
+  generalization:
+    - larger no-flow cohort headline replication is complete, or fixed-cohort scope is visible in title and abstract
+    - equal-HUC and leave-one-HUC2 sensitivities are reported
+    - audit is completed under a separate freeze, or post-outcome reanalysis wording is used
+  manuscript:
+    - title and research questions use information-regime/predictability framing
+    - F3 is called a realized-future gridded-forcing oracle upper bound
+    - F2a is never called operational or as-issued
+    - no 27-to-1, 30-fold, or other unstable ratio headline appears
+    - no pooled-versus-station-median or marginal-median-versus-paired conflict remains
+    - figures show task definitions, F-by-L response, conditional interactions, and hydrologic/decision relevance
+    - author, affiliation, funding, DOI, release, and conflict-of-interest placeholders are closed before submission
+
+manuscript_claim_rules:
+  allowed_after_matching_gates:
+    - predictability differs across history-dominated, forcing-limited, and transfer-limited regimes
+    - information and architecture values are conditional on F, L, G, lead, and model class
+    - F3 estimates a retrospective gridded-forcing oracle information upper bound
+    - F2a estimates retrospective fixed-lead temperature-composite value
+  always_forbidden:
+    - architecture is universally unimportant
+    - spatial transfer is universally unimportant
+    - F3 is an operational or deployable forecast gain
+    - F2a is an as-issued coherent forecast trajectory
+    - predictive importance proves physical causation
+    - fixed-cohort results are national laws
+    - an effect ratio built from different estimands or near-zero denominators
+
+seal_readiness_requirements:
+  - replace every unresolved data/product/model pointer with an exact identifier
+  - freeze the F2a extraction rule and verify its fixed-lead semantics
+  - either bind a retrievable F2b archive plan or accept the 48-cell degradation before sealing
+  - freeze the exact primary contrast registry and multiple-comparison presentation
+  - freeze hyperparameter candidate counts, fit budgets, and all model seeds
+  - freeze code and input hashes, environment, expected execution units, and failure statuses
+  - verify no extension outcome was inspected between this draft and the proposed seal
+  - create a new seal without changing v2 or v3

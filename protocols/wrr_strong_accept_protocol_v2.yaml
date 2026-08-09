@@ -1,0 +1,259 @@
+# WRR Strong-Accept redesign protocol v2 — information ladder
+#
+# Freeze 2026-08-08 (DLOG-013) after the external review of the strong-accept
+# v1 spatial factorial and the disclosure of three runner defects (DLOG-012).
+# This protocol governs the rerun of the spatial/information experiment and
+# the hydrologic-similarity analysis.  It does NOT alter protocol v1's primary
+# models, periods, estimands, or the frozen five-test family; v2 adds a new
+# comparison family (N1-N15), four quantitative predictions (P-1..P-4), and a
+# corrected runner with fold-complete sharded outputs.
+#
+# Everything in this file was fixed BEFORE any v2 outcome was read.  The seal
+# file (wrr_strong_accept_protocol_v2_seal.json) records the SHA-256 digests
+# of outputs/final/ at the freeze moment, so no post-outcome edit can be
+# hidden.
+
+study_id: thermoroute_wrr_sa_v2
+
+supersedes: thermoroute_wrr_sa_v1
+
+periods:
+  training: [2006-01-01, 2015-12-31]
+  validation: [2016-01-01, 2017-12-31]
+  calibration: [2018-01-01, 2018-12-31]
+  development: [2019-01-01, 2020-12-31]
+  independent_test: [2021-01-01, 2023-12-31]
+
+unchanged_from_v1:
+  primary_models: [Persistence, DampedPersistence, Climatology,
+                   ResidualLightGBM, ThermoRoute]
+  frozen_five_test_family: true   # not modified, not extended
+  primary_estimands: true         # station-first paired deltas, skills
+  reportability: "min 100 paired targets per station-horizon"
+  key_registry: "outputs/final/forecast_keys.parquet (common across cells)"
+
+# --------------------------------------------------------------------------- #
+# (a) Information ladder
+# --------------------------------------------------------------------------- #
+# Four levels of target-station information x two geometries = 8 cells.
+# Admissibility is unchanged: a key requires its issue-date water temperature
+# to be OBSERVED (evaluation requires a label), so the key registry is
+# identical across all eight cells.  Masks act on the INPUT tensors only.
+
+information_levels:
+  L0_gauged_local:
+    label: gauged, local history
+    scenario: established long-record temperature station
+    wtemp_history: visible
+    persistence_feature: visible
+    climatology: per-station fit
+    damped_anchor_phi: per-station fit
+    flow: visible
+    anchor_formula: clim_i + phi_i^h (y_t - clim_i,t)
+  L1_gauged_pooled:
+    label: new station, no local statistics
+    scenario: newly installed gauge with short local record
+    wtemp_history: visible
+    persistence_feature: visible
+    climatology: in-fold pooled fit
+    damped_anchor_phi: in-fold pooled fit
+    flow: visible
+    anchor_formula: clim_pool + phi_pool^h (y_t - clim_pool,t)
+  L2_ungauged_thermal:
+    label: thermally ungauged, hydrology observed
+    scenario: USGS gauge with discharge but no water-temperature record (U1)
+    wtemp_history: masked entirely
+    persistence_feature: removed from feature columns
+    climatology: in-fold pooled fit
+    damped_anchor_phi: in-fold pooled fit
+    flow: visible
+    anchor_formula: clim_pool (no last-observation term)
+    variants:
+      U1_hydrology_observed: flow visible (primary)
+      U2_fully_ungauged: flow masked (sensitivity; region geometry, 7 d,
+                         LightGBM only, 24 cells)
+  L3_ungauged_regionalized:
+    label: ungauged, attribute-regionalized anchor
+    scenario: no local record, regionalization from basin attributes
+    wtemp_history: masked entirely
+    persistence_feature: removed from feature columns
+    climatology: attribute-regionalized (kNN in attribute z-space, k=5,
+                 Euclidean distance; k fixed pre-outcome)
+    damped_anchor_phi: attribute-regionalized from the v2 half-life
+                       regression (leave-one-HUC2-out predictions)
+    flow: visible
+    anchor_formula: clim_hat + phi_hat^h * (y_t - clim_hat,t) term omitted;
+                    anchor = clim_hat (regionalized climatology only)
+
+geometries:
+  random_site: 5 seeds x 4 balanced folds (folds as in protocol v1)
+  whole_region: 4 deterministic leave-HUC2 folds (as in protocol v1)
+
+cell_matrix:
+  geometry: [random_site, whole_region]
+  level: [L0_gauged_local, L1_gauged_pooled, L2_ungauged_thermal, L3_ungauged_regionalized]
+  model: [LightGBM, ResidualLightGBM]
+  horizon: [1, 3, 7]
+  cell_count: (20 + 4) x 4 x 2 x 3 = 576
+  plus: L2_U2 sensitivity (region, 7 d, LightGBM, 24 cells) = 600 total
+
+key_registry_rule: |
+  Every cell must score EXACTLY the subset of
+  outputs/final/forecast_keys.parquet for its held stations and horizon.
+  The runner asserts set equality per cell (site, issue_date, horizon) and
+  FAILS on any difference.  This is the protocol's methodological promise
+  made executable.
+
+# --------------------------------------------------------------------------- #
+# (b) Regulation strata (pre-fixed thresholds)
+# --------------------------------------------------------------------------- #
+regulation_strata:
+  variable: upstream_storage_ratio  # SR = total upstream reservoir storage /
+                                    # mean annual runoff volume (training period)
+  strata:
+    - name: unregulated
+      condition: SR < 0.05
+      expectation: shorter half-life, larger learned gain
+    - name: moderately_regulated
+      condition: 0.05 <= SR < 0.5
+      expectation: intermediate
+    - name: strongly_regulated
+      condition: SR >= 0.5
+      expectation: longer half-life, low air-temperature sensitivity,
+                   small learned gain
+  merge_rule: |
+    If a stratum has fewer than 15 stations, it is merged into the adjacent
+    stratum; the merge direction is pre-fixed: moderately_regulated merges
+    INTO strongly_regulated.  No other merge is permitted.
+  secondary_check: |
+    GAGES-II CLASS (Ref / Non-ref) is reported as an independent robustness
+    check, never as a primary stratum.
+
+# --------------------------------------------------------------------------- #
+# (c) Process classification (pre-fixed priority order, not reorderable)
+# --------------------------------------------------------------------------- #
+process_classes:
+  order: [regulated, snowmelt_dominated, groundwater_dominated, rain_dominated]
+  rules:
+    - class: regulated
+      condition: SR >= 0.5
+    - class: snowmelt_dominated
+      condition: SNOW_PCT_PRECIP > 0.3 (GAGES-II)
+    - class: groundwater_dominated
+      condition: BFI > 0.6 (GAGES-II BFI_AVE)
+    - class: rain_dominated
+      condition: remainder (no condition)
+
+# --------------------------------------------------------------------------- #
+# (d) Half-life attribute regression (pre-fixed model forms)
+# --------------------------------------------------------------------------- #
+half_life_regression:
+  target: log(t_1/2)  # t_1/2 = ln(0.5)/ln(phi_i), per-station damped anchor
+  main_model: log(t_1/2) ~ BFI + log(SR + 0.01) + log(drainage_area)
+                         + SNOW_PCT + FOREST_PCT + aridity
+  parsimonious_model: log(t_1/2) ~ BFI + log(drainage_area) + log(SR + 0.01)
+  reporting: |
+    Both models are reported (coefficients, standard errors, R^2).  No
+    stepwise selection, no variable search, no interaction search.  Any
+    exploratory addition is labelled exploratory and enters no conclusion.
+  cross_validation: leave-one-HUC2-out only (never random CV)
+  cv_reporting: [CV-R^2, CV-RMSE]
+  residuals: |
+    The 5-8 largest-|residual| stations are profiled by name and by which
+    process/regulation class they fall in; the profile is a required
+    deliverable, not optional commentary.
+
+# --------------------------------------------------------------------------- #
+# (e) New inference family (separate from the frozen five-test family)
+# --------------------------------------------------------------------------- #
+inference_family_v2:
+  contrast_definitions:
+    C1: L1 - L0        # cost of losing local statistics
+    C2: L2 - L1        # cost of losing the last observation
+    C3: L3 - L2        # value recovered by attribute regionalization
+    C4: region - random  # geometry effect, within each level
+  tests:            # all leads 1/3/7 unless noted
+    - N01 N02 N03: C1
+    - N04 N05 N06: C2
+    - N07 N08 N09: C3
+    - N10 N11 N12: C4 within L0
+    - N13 N14 N15: C4 within L2
+  family_size: 15
+  multiple_testing: |
+    Holm correction is applied WITHIN the 15-test family (never across the
+    v1 frozen family and the v2 family).
+  procedure: |
+    HUC2 whole-cluster sign-flip p-values and HUC2 cluster bootstrap CIs,
+    identical to the v1 procedure; all results are declared approximate
+    descriptive sensitivities (15 clusters; the fixed-cohort caveat of v1
+    applies unchanged).
+  pairing: |
+    All contrasts are per-station paired differences on the intersection of
+    the two cells' station sets; the random arm is averaged over the five
+    seeds before pairing.
+
+# --------------------------------------------------------------------------- #
+# (f) Quantitative predictions (pre-registered, testable)
+# --------------------------------------------------------------------------- #
+predictions:
+  P-1: |
+    The ungauged (L2) penalty relative to L1 approximates the value of the
+    last observation: about 1.1 C at 1 d, 0.45 C at 3 d, 0.13 C at 7 d
+    (derived from the v1 authority: damped-persistence RMSE minus climatology
+    RMSE at 1/3/7 d = 1.110 / 0.448 / 0.130 C).
+  P-2: |
+    The geometry penalty (region minus random) is <= 0.02 C at L0/L1 and
+    significantly larger at L2/L3, with the amplification growing as lead
+    shrinks (short leads make local information more valuable).
+  P-3: |
+    Cross-station variation in t_1/2 is partially explained by BFI, upstream
+    storage ratio, and drainage area: expected CV-R^2 >= 0.35 on
+    leave-one-HUC2-out.
+  P-4: |
+    Skill curves collapse better on dimensionless lead pi = h / t_1/2,i than
+    on h in days: the normalized within-group variance ratio
+    Var(residual | pi-binning) / Var(residual | h-binning) is reported, with
+    collapse claimed only if the ratio is clearly below 1.
+  verdict_rule: |
+    A prediction that fails is reported as a negative result with the same
+    weight as a success; both outcomes are publishable findings.
+
+# --------------------------------------------------------------------------- #
+# (g) Stopping rules and degradation paths
+# --------------------------------------------------------------------------- #
+stopping_rules:
+  - |
+    If the GAGES-II / StreamCat attribute match rate is below 70% of the 120
+    stations, L3 and the attribute regression are degraded to exploratory
+    analyses on the matched subset; the main conclusions must not depend on
+    them.
+  - |
+    If the ThermoRoute station-agnostic ungauged training exceeds the compute
+    budget, it degrades to seed 0 + region geometry only (4 trainings) and is
+    labelled single-seed in the manuscript.
+  - |
+    If the full 576-cell matrix cannot complete, the runner MUST fail its
+    completeness assertion and produce no summary; a partial run is never
+    reported as the experiment.
+  - |
+    If the fold-loss or cache-leak defects recur (DLOG-012), the run is
+    invalid and the runner exits non-zero.
+
+runner_requirements:
+  script: scripts/final/run_information_ladder.py
+  shards: |
+    outputs/final/ladder_shards/<geometry>_<level>_<model>_s<seed>_f<fold>_h<h>.parquet
+    one file per cell, written on completion; resume = shard-file existence.
+  completeness_assertion: |
+    expected = (4 region folds + 20 random folds) x 4 levels x 2 models x 3
+    horizons [+ 24 L2-U2 cells]; the runner FAILS unless every shard exists
+    before any summary is written.
+  preprocessing_cache_rule: |
+    prep_key = (level, geometry, seed, fold, horizon) with the fold in the
+    key, and the cache is cleared after every fold.
+  registry_assertion: per-cell key-set equality with the common registry.
+  mask_proof: |
+    For L2/L3 cells, the runner must show that predictions are invariant to
+    perturbing the target station's issue-date WTEMP by +-5 C (bit-identical
+    or all-zero importance on the masked feature), recorded in the SI
+    leakage-control section.
