@@ -1151,6 +1151,31 @@ probability. The comparison is also an oracle bound in event space exactly as
 it is in RMSE space: it states what perfect weather information would be worth
 for warning, not what a forecast product delivers.
 
+**Which rivers depend on future weather.** The station spread in the forcing
+value is wide — the middle half runs from 0.30 to 0.86 °C at seven days — and
+that spread is structured. Against six attributes declared before the
+relationships were inspected, the strongest is the one the physics predicts:
+the anomaly half-life of the station's own damped anchor, with Spearman
+ρ = −0.49 [−0.66, −0.16] at seven days under whole-HUC2 resampling. Rivers that
+hold a thermal anomaly for longer carry their own state forward and need
+tomorrow's weather less. The relationship is strongest at one day (ρ = −0.82)
+and weakens with lead (−0.63, −0.47), which is the expected direction: local
+memory protects a forecast most over the interval it can bridge. Flashier
+rivers depend more on future forcing (discharge coefficient of variation,
+ρ = +0.48 [0.26, 0.63]), and warmer, lower-latitude stations depend more
+(ρ = +0.33 and −0.44). Catchment area is not resolved (ρ = −0.16, interval
+covering zero).
+
+One of the six is a nuisance control and it is not null: stations with more
+complete training water-temperature records show a smaller forcing value
+(ρ = −0.29 [−0.45, −0.07]). Part of the apparent physical gradient may
+therefore be a record-quality gradient, and the two cannot be separated on this
+cohort. Latitude and mean annual air temperature are also two views of one
+gradient. We report these as exploratory covariation on a fixed,
+non-probability cohort with about nine effective spatial clusters, not as an
+attribution, and we do not fit a multivariable model the design cannot carry
+(`outputs/final/forcing_heterogeneity.parquet`).
+
 Two things this still does not establish. It does not attribute the gain to any
 particular meteorological variable; the single-component and leave-one-out arms
 are specified in the same sealed protocol and have not been run. And it does

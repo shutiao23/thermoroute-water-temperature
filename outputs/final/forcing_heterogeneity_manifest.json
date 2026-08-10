@@ -1,0 +1,20 @@
+{
+ "bootstrap": {
+  "draws": 10000,
+  "seed": 0,
+  "unit": "HUC2"
+ },
+ "builder_sha256": "58c92e658feab9e19c3f4470df529cc0479f429aa83f5f8ae502882ab05b5fcb",
+ "declared_attributes": [
+  "log_half_life",
+  "log_drain_area",
+  "mean_annual_air_temp_c",
+  "latitude",
+  "flow_cv",
+  "wtemp_observed_fraction"
+ ],
+ "format": "thermoroute.forcing-heterogeneity.v1",
+ "note": "Exploratory covariation on a fixed non-probability cohort with about nine effective spatial clusters; not an attribution and not a multivariable model.",
+ "output_sha256": "e66881ef99c81b61c8e2e2efe5e934b54bb1555d7ab2276a383764baeedd6e29",
+ "primary_hypothesis": "log_half_life"
+}
