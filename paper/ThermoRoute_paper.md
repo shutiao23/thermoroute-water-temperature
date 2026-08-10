@@ -1118,6 +1118,39 @@ level of a month rather than the sequence of its days — the longer the lead,
 the more the anchor has decayed and the more even a month-level statement is
 worth.
 
+**What the forcing value is worth as a warning.** A station-median RMSE
+improvement is a statistics result; what a release schedule or a thermal-refuge
+warning acts on is whether a threshold will be crossed. We therefore scored
+both arms on warm-tail exceedance and on signed rapid change, with every
+threshold fitted per station on the 2006–2015 training period only and a
+minimum of ten events per station-cell
+(`outputs/final/forcing_event_metrics_summary.parquet`).
+
+The event result is larger in relative terms than the RMSE result. At seven
+days with the raw-target tree, the probability of detection for exceedance of a
+station's training 95th percentile rises from 0.18 to 0.55, and for rapid
+warming from 0.18 to 0.52; the critical success index roughly triples in both
+cases. Crucially this is not a base-rate trade: the false-alarm ratio *falls*
+at the same time, from 0.36 to 0.20 for the 95th-percentile exceedance and from
+0.43 to 0.21 for rapid cooling. Every station-first paired interval excludes
+zero, and the lead structure matches the RMSE result — the event gain is small
+at one day and largest at three to seven.
+
+| Event (7 d, LightGBM) | POD F0 → F3 | FAR F0 → F3 | ΔCSI | Stations |
+| --- | --- | --- | ---: | ---: |
+| Warm exceedance, station q90 | 0.59 → 0.77 | 0.24 → 0.15 | +0.155 | 116 |
+| Warm exceedance, station q95 | 0.18 → 0.55 | 0.36 → 0.20 | +0.231 | 114 |
+| Rapid warming | 0.18 → 0.52 | 0.28 → 0.20 | +0.274 | 116 |
+| Rapid cooling | 0.26 → 0.62 | 0.43 → 0.21 | +0.274 | 116 |
+
+These are deterministic point predictors, so the Brier column that usually
+accompanies such a table is here the misclassification rate of a 0/1 indicator
+and is reported in the artifact rather than the manuscript; it is not a
+reliability result, and none of these models emits a calibrated event
+probability. The comparison is also an oracle bound in event space exactly as
+it is in RMSE space: it states what perfect weather information would be worth
+for warning, not what a forecast product delivers.
+
 Two things this still does not establish. It does not attribute the gain to any
 particular meteorological variable; the single-component and leave-one-out arms
 are specified in the same sealed protocol and have not been run. And it does

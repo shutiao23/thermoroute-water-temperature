@@ -1,0 +1,12 @@
+{
+ "brier_caveat": "point predictors emit no calibrated probability; the Brier score here is the misclassification rate of a deterministic 0/1 indicator and is not a reliability result",
+ "builder_sha256": "3e5352b60bd9c56c3175eeb541c3a54933fb462fd455acc8b819e0f340a94170",
+ "chronology": "inherits the post-outcome descriptive status of F0/F3",
+ "format": "thermoroute.forcing-event-metrics.v1",
+ "minimum_events_per_station_cell": 10,
+ "outputs_sha256": {
+  "forcing_event_metrics.parquet": "b80906e51e97e1c4c19be07f65dd8c9c20ca6a0ab3bf5a96b77fc7c0d65a8749",
+  "forcing_event_metrics_summary.parquet": "1f3a0bd7f5965a4c36ad94e043c11727c0294d87006a28a5ed2a9863cb3b04b0"
+ },
+ "threshold_period": "2006-01-01..2015-12-31 (training only)"
+}
