@@ -292,7 +292,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--prove-only", action="store_true",
-                        help="run the mask-invariance proof and stop")
+                        help="run the mask-invariance proof over every fold and stop")
+    parser.add_argument("--folds", nargs="*", type=int, default=None,
+                        help="restrict to these fold indices (explicit, never implicit)")
     parser.add_argument("--levels", nargs="*", default=list(LEVEL_NAMES))
     parser.add_argument("--horizons", nargs="*", type=int, default=list(V5.HORIZONS))
     return parser
@@ -313,10 +315,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     raw_frame, registry, _reference = load_inputs()
     folds = whole_region_folds(registry)
+    if args.folds is not None:
+        folds = [f for f in folds if f.index in set(args.folds)]
+        if not folds:
+            raise LadderError(f"no fold matches {args.folds}")
 
     if args.prove_only or not args.execute:
         report = []
-        for fold in folds[:1] if args.prove_only else folds:
+        # --prove-only means "run the proofs and stop", not "only fold 0";
+        # restricting the fold set silently would make a passing proof cover a
+        # quarter of the cohort while reading as if it covered all of it.
+        for fold in folds:
             for level_name in args.levels:
                 for horizon in args.horizons:
                     proof = prove_mask_invariance(
