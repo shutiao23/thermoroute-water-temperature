@@ -1,0 +1,55 @@
+{
+ "bound_input_paths": {
+  "inference_authority_manifest": "outputs/final/forcing_regime_v5_observed_inference_authority_v1/forcing_v5_inference_authority_manifest.json",
+  "parent_protocol": "protocols/wrr_information_regimes_protocol_v4.yaml",
+  "point_authority_manifest": "outputs/final/forcing_regime_v5_observed_point_authority_v1/forcing_v5_point_result_authority_manifest.json",
+  "point_authority_summary": "outputs/final/forcing_regime_v5_observed_point_authority_v1/forcing_v5_point_summary.json",
+  "reference_lineage_manifest": "outputs/final/forcing_regime_v5_observed/forcing_lineage_manifest_v5_observed.json",
+  "station_registry": "data_usgs/station_registry_v1.csv"
+ },
+ "bound_input_sha256": {
+  "inference_authority_manifest": "a164e2471f8fcf5ff8300c6dd0b778131162f6f0f59960bf323c3f224edbc43e",
+  "parent_protocol": "66e089baf37db1137cad23f148e31df39cc71aea872dec4a97dc6f8701d13a98",
+  "point_authority_manifest": "bfb9534272fad49902f6e8cc4fc42a0ca90407951071a53a5bfc0a8f1a9832a4",
+  "point_authority_summary": "f4219ba56c09e9f6ac99893b133f6a20a1527d14d161605edc41f1a2aaf97cdc",
+  "reference_lineage_manifest": "a3b4902f8fae6e6f84fbb1319f1fdca06295f6da5f2d620537dabe1e00435fa8",
+  "station_registry": "090e7c0daf39ac38ceefeb1af8a12c178283e18347905d8e72ada969ad5460c9"
+ },
+ "execution_authorized": false,
+ "format": "thermoroute.forcing-placebo-v5a-specification-seal.v1",
+ "next_required_authority": "a separate execution authority binding the placebo runner source, resolved runtime, frozen key registry and a clean design commit",
+ "pre_outcome_assertion": {
+  "checked_absent_paths": [
+   "outputs/final/forcing_placebo_v5a",
+   "outputs/final/forcing_placebo_v5a_authority_v1",
+   "outputs/final/forcing_placebo_v5a_inference_authority_v1",
+   "outputs/final/forcing_component_v5a"
+  ],
+  "meaning": "No shuffled, shifted, or single-component forcing outcome existed when this seal was written."
+ },
+ "protocol_canonical_document_sha256": "e8c8145e967b6b208670971c406c33e6a2e3f55b1185156bc29edc2b8d9c47f8",
+ "protocol_id": "thermoroute_wrr_forcing_placebo_v5a",
+ "protocol_path": "protocols/wrr_forcing_placebo_protocol_v5a.yaml",
+ "protocol_sha256": "58183acf80495675878401fb1defe0365bf8690bec470e0c6e34ce4ba5ac0059",
+ "protocol_version": "5a",
+ "repository": {
+  "commit": "88d7578235d85b08abc939f78667d35a6b664396",
+  "tree_clean_at_seal_time": true
+ },
+ "sealed_decision_rule_names": [
+  "P1_event_scale_supported",
+  "P2_partly_seasonal",
+  "P3_finding_withdrawn",
+  "P4_timing_specificity",
+  "stopping_rule"
+ ],
+ "sealed_decision_rules_sha256": "f60a6e3d02c342c03ff6955b9b442ab3e7b1b04a01fa1a9c46d88e09e7c6cf4f",
+ "sealer_sha256": "529066f2a160b7ddbe67140a101b8c5a14596694f706cd27afbd75410ab63c60",
+ "status": "SPECIFICATION_SEALED_EXECUTION_NOT_AUTHORIZED",
+ "what_this_seal_does_not_do": [
+  "authorize execution of any placebo or component arm",
+  "bind a placebo runner source hash or resolved runtime",
+  "confer prospective status on the already-inspected F0/F3 result",
+  "permit any operational or deployable claim about F3"
+ ]
+}
