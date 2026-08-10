@@ -1078,11 +1078,54 @@ the value is largest in spring (0.67 °C at three days) and smallest in summer
 synoptic variability and summer sits nearer a radiation-controlled equilibrium;
 it is stable across the three test years (0.54–0.56 °C at three days).
 
-Two things this table does not establish. It does not attribute the gain to any
-particular meteorological variable, and it does not exclude the possibility
-that part of it is carried by calendar or seasonal-phase information rather
-than by event-scale weather; within-month-shuffled and time-shifted placebos
-and single-component arms are specified for that purpose and have not been run.
+**The gain is event-scale weather information, not seasonal phase.** A value
+computed against F0 could in principle come from a sharper seasonal signal
+rather than from knowing what specific weather followed a given issue. We
+tested that with a placebo whose design, thresholds and decision rules were
+sealed before its outcome existed
+(`protocols/wrr_forcing_placebo_protocol_v5a_seal.json`): the meteorology
+vector is deranged across dates *within each station-month*, so every station's
+climate, seasonal phase and month-level realized conditions are preserved
+exactly and only the day-to-day correspondence between a forecast key and its
+weather is destroyed. All five permutation seeds were refitted end to end.
+
+The forcing value collapses. Of the true value, the placebo retains 0.0% at one
+day, 2.0% at three and 8.8% at seven for the raw-target tree (−0.5%, 1.7% and
+8.4% for the residual-target tree). The station-level placebo-minus-true
+contrast is +0.129, +0.525 and +0.577 °C at 1, 3 and 7 days, every interval
+excludes zero, every leave-one-HUC2-out range keeps its sign, and the placebo
+is worse at 91–95% of stations. The sealed rule P1 — retention below 25% — is
+satisfied at every model and lead.
+
+**Table 4.14 — shuffled-forcing placebo (sealed pre-outcome).** $V_F$ is the
+station-first forcing value in °C; *retained* is the placebo's share of the
+true value, the quantity rules P1–P3 are stated in.
+
+| Model | Lead | $V_F$ true | $V_F$ shuffled | Retained | Placebo worse at | Rule |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| LightGBM | 1 d | 0.130 | 0.000 | 0.0% | 0.91 | P1 |
+| LightGBM | 3 d | 0.542 | 0.011 | 2.0% | 0.92 | P1 |
+| LightGBM | 7 d | 0.627 | 0.055 | 8.8% | 0.94 | P1 |
+| ResidualLightGBM | 1 d | 0.125 | −0.001 | −0.5% | 0.91 | P1 |
+| ResidualLightGBM | 3 d | 0.578 | 0.010 | 1.7% | 0.94 | P1 |
+| ResidualLightGBM | 7 d | 0.605 | 0.051 | 8.4% | 0.95 | P1 |
+
+The residue is itself informative and rises monotonically with lead. At one day
+the placebo is worth nothing at all: tomorrow's weather is useful only as
+tomorrow's weather. By seven days about a twelfth of the value survives a
+within-month shuffle, which is the part attributable to knowing the general
+level of a month rather than the sequence of its days — the longer the lead,
+the more the anchor has decayed and the more even a month-level statement is
+worth.
+
+Two things this still does not establish. It does not attribute the gain to any
+particular meteorological variable; the single-component and leave-one-out arms
+are specified in the same sealed protocol and have not been run. And it does
+not separate day-to-day correspondence from sub-monthly synoptic persistence:
+the placebo destroys the exact date pairing, but a donor drawn from the same
+month can still fall within a few days of the true valid time. The ±7-day
+time-shift arm is the control for that, and it is likewise specified and
+unrun.
 Nor can the value be divided by an architecture effect from Section 4.3 to form
 a ratio: the two come from different cells of a design that has not been
 crossed, and the interaction between forcing and architecture is unmeasured.
@@ -1299,9 +1342,12 @@ is not. A separate retrospective analysis on the same cohort and keys
 (Section 4.7) puts an upper bound on what perfect future meteorology could add:
 0.13 °C at one day and 0.54–0.63 °C at three and seven days, an order of
 magnitude above the architecture effect measured under issue-time information.
-That bound is an information ceiling from a realized-weather oracle, and until
-the shuffled and time-shifted controls of protocol v5a have run we do not
-attribute it to event-scale weather rather than to seasonal phase. Reported
+That bound is an information ceiling from a realized-weather oracle. A
+placebo sealed before its outcome existed shows it is event-scale weather
+information rather than seasonal phase: deranging the meteorology within each
+station-month, which preserves climate and seasonal phase exactly, removes
+91–100% of the value (Section 4.7). Whether the residue at seven days reflects
+exact timing or sub-monthly persistence awaits the time-shift arm. Reported
 skill for this variable is nonetheless governed jointly by the reference model
 and by the information the model is given, and neither is a property of the
 architecture.

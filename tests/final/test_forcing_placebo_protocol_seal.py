@@ -61,10 +61,36 @@ def test_seal_refuses_when_a_placebo_outcome_already_exists(
         S.assert_no_placebo_outcome_exists()
 
 
-def test_no_placebo_outcome_exists_in_this_checkout() -> None:
-    # If this fails, an arm was run before its seal and the pre-outcome claim
-    # is void for that arm.
-    assert S.assert_no_placebo_outcome_exists()
+def test_the_guard_refuses_once_an_outcome_exists() -> None:
+    """The property that outlives the run.
+
+    Before the shuffle arm ran, this asserted that no placebo outcome was
+    present.  That is a fact about a moment, and executing the arm falsified it
+    -- the same trap that left three v5 tests permanently red.  What must remain
+    true is the guard itself: with an outcome on disk the sealer must refuse to
+    mint a seal, so any seal in the repository necessarily predates its outcome.
+    """
+    outcome_present = any(
+        (S.ROOT / rel).exists()
+        for rel in (
+            "outputs/final/forcing_placebo_v5a",
+            "outputs/final/forcing_placebo_v5a_authority_v1",
+        )
+    )
+    if outcome_present:
+        with pytest.raises(S.SealError, match="already exist"):
+            S.assert_no_placebo_outcome_exists()
+    else:
+        assert S.assert_no_placebo_outcome_exists()
+
+
+def test_the_existing_seal_records_that_it_preceded_the_outcome() -> None:
+    if not S.SEAL.exists():
+        pytest.skip("protocol has not been sealed")
+    sealed = json.loads(S.SEAL.read_text(encoding="utf-8"))
+    assertion = sealed["pre_outcome_assertion"]
+    assert "outputs/final/forcing_placebo_v5a" in assertion["checked_absent_paths"]
+    assert sealed["repository"]["tree_clean_at_seal_time"] is True
 
 
 @pytest.mark.skipif(not S.SEAL.exists(), reason="protocol has not been sealed yet")
@@ -91,8 +117,13 @@ def test_verify_detects_a_post_seal_protocol_edit(
 
 @pytest.mark.skipif(not S.SEAL.exists(), reason="protocol has not been sealed yet")
 def test_seal_is_immutable() -> None:
+    """A published seal must never be overwritten.
+
+    ``build_seal`` now refuses earlier, because an outcome exists, so the
+    immutability guard is exercised directly rather than through it.
+    """
     with pytest.raises(S.SealError, match="immutable"):
-        S.write_seal(S.build_seal())
+        S.write_seal({"format": S.SEAL_FORMAT, "status": "REPLACEMENT_ATTEMPT"})
 
 
 @pytest.mark.skipif(not S.SEAL.exists(), reason="protocol has not been sealed yet")

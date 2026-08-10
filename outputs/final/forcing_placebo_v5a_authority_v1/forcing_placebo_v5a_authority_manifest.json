@@ -1,0 +1,9 @@
+{
+ "builder_sha256": "eaab08a027099fbe05333c9f9da3d3d1289479433f1ff96b16d3dac60c4e6afa",
+ "format": "thermoroute.forcing-placebo-v5a-shuffle-authority.v1.manifest",
+ "outputs_sha256": {
+  "forcing_placebo_v5a_shuffle_rows.parquet": "ee41632f4c14c252f8aed9b7134593b66d3ad9d53bdcbbe6de6465c6c845ec83",
+  "forcing_placebo_v5a_shuffle_summary.json": "54ab6b33150c86c76bf2e7a9289ecc49f10f05eacbdae0bc49b8f1acdbe75fc5"
+ },
+ "placebo_lineage_manifest_sha256": "66731b59d4f7ea9b11e3e1030745cb62021a57e030d02604684782645a33f1ca"
+}

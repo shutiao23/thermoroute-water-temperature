@@ -1485,3 +1485,83 @@ depended on, and leave the narrative documents to a token check that states
 what must be present rather than what the bytes must be. Recorded as an open
 item; it is not fixed here, because redesigning the pin semantics is a change
 to the sealed execution path and belongs with the next protocol version.
+
+---
+
+## 2026-08-10 — DLOG-028: shuffled-forcing placebo executed under a pre-outcome seal; P1 satisfied
+
+Decision: the F0/F3_full forcing value is reported as **event-scale weather
+information** rather than seasonal-phase information. Sealed decision rule P1
+is satisfied at every model and lead.
+
+Chronology, which is what makes this entry different from every other result in
+this project. Protocol v5a was sealed at commit `88d7578` on a clean tree with
+no placebo output directory present; the sealer refuses to write when one
+exists, so the claim that the decision rules preceded the outcome is checkable
+rather than asserted. The seal binds the protocol bytes (`58183acf...`) and a
+canonical digest of the decision-rule, estimand, arm and held-fixed blocks
+(`f60a6e3d...`), fixing thresholds P1 < 25%, P2 25-60%, P3 > 60% before any
+shuffled fit existed. P3, under which the forcing value would have been
+withdrawn as an information claim, was reachable and is covered by a test.
+**This is the first result in the project whose interpretation rule was frozen
+before its outcome.**
+
+Result. Retention of the true forcing value by the placebo: 0.0%, 2.0% and 8.8%
+at 1, 3 and 7 days for the raw-target tree; -0.5%, 1.7% and 8.4% for the
+residual-target tree. The station-level placebo-minus-true contrast is +0.129,
++0.525 and +0.577 degC, every interval excludes zero, every leave-one-HUC2-out
+range keeps its sign, and the placebo is worse at 91-95% of stations.
+
+Construction. `RawFutureRegistry` means "the exact realized future", so it was
+not filled with permuted values. The derangement is applied upstream to the
+meteorology columns of the raw panel the future lookup reads, and the registry
+is then built through the ordinary public factory, so every v5 validator runs
+unchanged on the placebo and no private constructor is touched. Preprocessing,
+imputer, climatologies, damped anchor and the entire base feature table come
+from the true panel; future forcing is the only thing that moves. The stratum
+is the specific year-month, the stricter of the two readings the sealed
+`[site_id, target_month]` admits.
+
+What the arm does and does not settle. A within-month derangement preserves
+each station-month mean exactly, so it removes within-month day-to-day
+correspondence specifically, not "future weather" wholesale. The residue rising
+monotonically with lead (0% to 9%) is the month-level component, and it grows
+because the anchor has decayed further at longer leads. The arm does not
+separate day-to-day correspondence from sub-monthly synoptic persistence, since
+a donor from the same month can fall within a few days of the true valid time;
+the +/-7-day shift arm is the control for that and has not run. It also
+attributes nothing to individual meteorological variables; the component arms
+are specified in the same seal and have not run.
+
+Status boundary. The underlying F0/F3 contrast remains post-outcome and
+descriptive: sealing a control before its own outcome does not make the
+already-inspected reference result confirmatory. Section 4.7 stays out of the
+Abstract and the Key Points. No ratio against an architecture, local-information
+or geometry effect is admissible until the crossed matrix exists.
+
+Engineering note. The first execution completed all thirty fits and then raised
+TypeError on `transaction.commit(expected_files)`, which requires a keyword-only
+`precommit_check`. The transaction rolled the bundle back, so nothing was
+published and no partial arm could be mistaken for a result, but forty minutes
+of compute was lost. The callback now re-verifies thirty shards, the manifest
+cell count, the unchanged true panels and preprocessing record, and the seal's
+bound inputs; two tests guard the call site. This is the same shape of mistake
+as DLOG-025 -- verifying artifacts and authorizations while leaving the actual
+call path unexercised -- and the three-line `inspect.signature` assertion that
+now prevents it should have existed before the first run.
+
+Evidence available before the decision: the sealed protocol and its seal, the
+v5 point and inference authorities, the twelve reference shards, the thirty
+placebo shards and their lineage manifest.
+
+Data periods already inspected: 2006-2017 training/validation inputs and the
+already-open 2021-2023 window. No shift, component, F2, L2, L3, neural,
+crossed, event, cohort or audit-window outcome was read.
+
+Changes a primary hypothesis? No. It supplies the control that the forcing
+result required, and the control was passed.
+
+Requires a protocol version bump? No. The shift and component arms remain
+specified under the same v5a seal and unrun.
+
+Commit(s): (this worktree)
