@@ -1,0 +1,13 @@
+{
+ "development_panel_sha256": "0427a07ea4514ba29ce7d0cf89594e6c35c7f9134cc4d1d96fdc90daeaf5ba69",
+ "future_discharge_enabled": false,
+ "implementation_path": "src/thermoroute/forced_hybrid.py",
+ "implementation_sha256": "71b686f98688c339106f54c14e5bdab4366ac8f8bb848027b312e334b7a200a0",
+ "model_schema_version": "thermoroute.forced-hybrid.v1",
+ "output_path": "outputs/final/forced_hybrid_reference_v1_model.json",
+ "runner_path": "scripts/final/run_forced_hybrid_reference.py",
+ "runner_sha256": "bc5049d06a5d491ce5bdb1cb25d2f72bad24127b5b9c3daaa8a6c612b1f8c916",
+ "schema_version": "thermoroute.forced-hybrid-execution-seal.v1",
+ "station_registry_sha256": "090e7c0daf39ac38ceefeb1af8a12c178283e18347905d8e72ada969ad5460c9",
+ "status": "AUTHORIZED_FOR_PARAMETER_CALIBRATION_ONLY"
+}

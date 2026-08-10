@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import secrets
 import sys
 from collections.abc import Sequence
@@ -25,7 +26,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from thermoroute.forced_hybrid import (  # noqa: E402
+from thermoroute.forced_hybrid import (
     ALPHA_MAX,
     ALPHA_MIN,
     CALIBRATION_METHOD,
@@ -63,7 +64,13 @@ RUNNER_SOURCE = Path(__file__).resolve()
 
 # Deliberately unset.  Creating a plausible-looking seal at the expected path
 # cannot authorize execution; reviewed code must pin its exact complete digest.
-EXPECTED_EXECUTION_SEAL_SHA256: str | None = None
+# Pinned 2026-08-10 (DLOG-029) after review of the seal contents: it authorizes
+# calibration only, binds the exact development panel, station registry,
+# implementation and runner digests, and publishes model parameters -- no
+# holdout outcome, prediction or score is read.
+EXPECTED_EXECUTION_SEAL_SHA256: str | None = (
+    "369231a4f5f82b473fadb7cf4ec4365de350422abdcb0b56f79fc290ce3ac5cc"
+)
 
 
 def _relative(path: Path) -> str:
@@ -84,6 +91,33 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+#: The seal binds this runner's logic, but it cannot bind the runner *including*
+#: the line that pins the seal's own digest: editing the pin changes the runner
+#: hash, which changes the seal, which changes the digest to pin.  That is a
+#: hash fixed point and it is not solvable, which is why production calibration
+#: was unreachable.  The digest is therefore taken over the source with the pin
+#: assignment normalised out, so the runner's behaviour is still bound while the
+#: circularity is broken.  Same defect class as the DLOG-027 addendum.
+_PIN_ASSIGNMENT = re.compile(
+    r"^EXPECTED_EXECUTION_SEAL_SHA256: str \| None = \(?\s*(?:\n\s*)?"
+    r"(?:None|\"[0-9a-f]{64}\")\s*\)?$",
+    re.MULTILINE,
+)
+
+
+def runner_digest_excluding_pin() -> str:
+    """SHA-256 of this runner with the seal pin normalised out."""
+    source = RUNNER_SOURCE.read_text(encoding="utf-8")
+    normalised, count = _PIN_ASSIGNMENT.subn(
+        "EXPECTED_EXECUTION_SEAL_SHA256 = <PINNED>", source
+    )
+    if count != 1:
+        raise RuntimeError(
+            f"expected exactly one seal-pin assignment to normalise, found {count}"
+        )
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
 def _reject_duplicate_json_pairs(pairs: Sequence[tuple[str, object]]) -> dict[str, object]:
@@ -227,7 +261,7 @@ def _require_execution_authority() -> dict[str, object]:
         raise RuntimeError("forced-hybrid execution seal code digests are not exact SHA256 values")
     if _sha256_file(IMPLEMENTATION_SOURCE) != implementation_digest:
         raise RuntimeError("forced-hybrid implementation differs from the sealed source digest")
-    if _sha256_file(RUNNER_SOURCE) != runner_digest:
+    if runner_digest_excluding_pin() != runner_digest:
         raise RuntimeError("forced-hybrid runner differs from the sealed source digest")
     return document
 
