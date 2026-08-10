@@ -89,7 +89,9 @@ def test_dry_run_reads_no_files_git_scores_or_predictions(
     assert plan["phase_1"]["execution_authorized_after_phase"] is False
     assert plan["phase_2"]["terminal_seal_linked_last"] is True
     assert plan["scope"]["cell_count"] == 12
-    assert plan["runner_pins"]["protocol_candidate_sha256"] is None
+    assert plan["runner_pins"]["protocol_candidate_sha256"] == (
+        "0d4d97a2420ad55fed2c7d558c0c56b5c3a1c6485208c83f53110a3b6beff2a5"
+    )
 
 
 def test_declared_source_pin_mismatch_fails_closed() -> None:
@@ -241,7 +243,7 @@ def test_verify_mode_reports_candidate_only_as_inert_without_writes(
     protocol = _bound(V5.SEALED_SCORE_PROTOCOL, A._protocol_payload(base_capture))
 
     def capture_protocol(captured, *, require_runner_pin: bool):
-        assert require_runner_pin is False
+        assert require_runner_pin is True
         captured["sealed_score_protocol"] = protocol
         return protocol
 

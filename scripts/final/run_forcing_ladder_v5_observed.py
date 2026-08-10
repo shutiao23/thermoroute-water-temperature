@@ -285,9 +285,12 @@ EXPECTED_DEFECT_AUTHORITY_SHA256: str | None = (
 )
 # The published defect authority withdraws invalid results and mandates a rerun;
 # it is not itself permission to inspect new model outcomes.  These independent
-# canonical score-execution pins must also be reviewed and inserted.  Both
-# canonical files are currently absent.
-EXPECTED_SEALED_SCORE_PROTOCOL_SHA256: str | None = None
+# canonical score-execution pins must also be reviewed and inserted. Phase 1
+# published this inert protocol candidate create-only; the terminal seal remains
+# absent and is the only object that can authorize execution.
+EXPECTED_SEALED_SCORE_PROTOCOL_SHA256: str | None = (
+    "0d4d97a2420ad55fed2c7d558c0c56b5c3a1c6485208c83f53110a3b6beff2a5"
+)
 
 SCORE_GIT_DESIGN_ROLES = (
     "runner",

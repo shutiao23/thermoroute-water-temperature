@@ -192,7 +192,7 @@ def test_dry_run_is_data_free_scope_exact_and_gate_locked(
     assert plan["publication"]["single_linux_RENAME_NOREPLACE"] is True
 
 
-def test_execute_is_locked_before_data_fit_lock_or_output(
+def test_phase1_protocol_alone_is_locked_before_data_parse_fit_or_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert V5.EXPECTED_DEFECT_AUTHORITY_SHA256 == (
@@ -203,11 +203,10 @@ def test_execute_is_locked_before_data_fit_lock_or_output(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("locked execution crossed a production side-effect boundary")
 
-    monkeypatch.setattr(V5, "_read_stable_regular", forbidden)
     monkeypatch.setattr(V5.pd, "read_parquet", forbidden)
     monkeypatch.setattr(V5, "_lgb_fit", forbidden)
     monkeypatch.setattr(V5, "_BundleTransaction", forbidden)
-    with pytest.raises(RuntimeError, match="canonical sealed score-execution"):
+    with pytest.raises(RuntimeError, match="score-execution seal cannot be resolved"):
         V5.execute(V5.DEFAULT_OUTPUT_DIR)
     assert not os.path.lexists(V5.DEFAULT_OUTPUT_DIR)
 
