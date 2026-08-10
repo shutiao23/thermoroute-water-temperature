@@ -19,14 +19,13 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unicodedata
-
+from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -34,17 +33,17 @@ MARKDOWN = ROOT / "paper" / "ThermoRoute_paper.md"
 OUTPUT = HERE / "ThermoRoute_WRR.tex"
 
 WITHDRAWN_PATTERNS = {
-    "legacy 40-site cohort": re.compile(r"\b40\s+(?:public\s+)?USGS stations\b", re.I),
-    "legacy reportable N=114": re.compile(r"\b(?:n\s*=\s*)?114\s+(?:blind-test\s+)?stations\b", re.I),
+    "legacy 40-site cohort": re.compile(r"\b40\s+(?:public\s+)?USGS stations\b", re.IGNORECASE),
+    "legacy reportable N=114": re.compile(r"\b(?:n\s*=\s*)?114\s+(?:blind-test\s+)?stations\b", re.IGNORECASE),
     "legacy skill triplet": re.compile(r"\+0\.13\s*/\s*\+0\.14\s*/\s*\+0\.23"),
     "legacy RMSE triplet": re.compile(r"0\.554\s*/\s*1\.175\s*/\s*1\.490"),
     "legacy air2stream triplet": re.compile(r"0\.630\s*/\s*1\.289\s*/\s*1\.658"),
     "legacy coverage range": re.compile(r"89\s*[-–—]\s*97\s*%"),
-    "legacy transfer distance": re.compile(r"\b358\s*km\b", re.I),
-    "legacy superiority": re.compile(r"\bsignificantly beats\b", re.I),
-    "legacy unseen-basin claim": re.compile(r"\btransfers? to unseen basins\b", re.I),
-    "legacy coverage claim": re.compile(r"\bnear[- ]nominal per[- ]station coverage\b", re.I),
-    "legacy safety claim": re.compile(r"\bbounded-degradation guarantee\b", re.I),
+    "legacy transfer distance": re.compile(r"\b358\s*km\b", re.IGNORECASE),
+    "legacy superiority": re.compile(r"\bsignificantly beats\b", re.IGNORECASE),
+    "legacy unseen-basin claim": re.compile(r"\btransfers? to unseen basins\b", re.IGNORECASE),
+    "legacy coverage claim": re.compile(r"\bnear[- ]nominal per[- ]station coverage\b", re.IGNORECASE),
+    "legacy safety claim": re.compile(r"\bbounded-degradation guarantee\b", re.IGNORECASE),
 }
 
 # The status block must (a) name the study design and (b) promise that anything
@@ -131,10 +130,13 @@ UNICODE_DECLARATIONS: dict[int, str] = {
     0x00B3: r"\textsuperscript{3}",
     0x00B7: r"\ensuremath{\cdot}",
     0x00D7: r"\ensuremath{\times}",
+    0x00E9: r"\'e",
     0x00FC: r"\"u",
+    0x0161: r"\v{s}",
     0x0177: r"\^y",
     0x0394: r"\ensuremath{\Delta}",
     0x03A3: r"\ensuremath{\Sigma}",
+    0x03B1: r"\ensuremath{\alpha}",
     0x03B2: r"\ensuremath{\beta}",
     0x03B3: r"\ensuremath{\gamma}",
     0x03B4: r"\ensuremath{\delta}",
@@ -684,8 +686,43 @@ institution, street, city, state, postcode, country
         rendered,
     )
     rendered = rendered.replace("\\begin{figure}", "\\begin{figure}[!t]")
+    rendered = _fold_body_captions_into_floats(rendered)
     _assert_unicode_is_declared(rendered)
     return rendered
+
+
+#: Pandoc turns ``![alt](path)`` into a float carrying ``\caption{alt}``, which
+#: LaTeX then auto-numbers.  The manuscript also writes the real, multi-panel
+#: caption as a bold body paragraph beginning ``**Figure N. ...**``.  Left
+#: alone the PDF shows both, with LaTeX's counter and the hand-written number
+#: disagreeing.  Folding the body paragraph into the float's caption leaves one
+#: caption whose number comes from LaTeX, which is the only counter that can
+#: stay correct when a figure moves.
+_BODY_CAPTION_RE = re.compile(
+    r"\\caption\{[^{}]*\}\n\\end\{figure\}\n\n"
+    r"\\textbf\{Figure[~\s]*\d+\.\s*(?P<title>.*?)\}(?P<body>.*?)(?=\n\n)",
+    re.DOTALL,
+)
+
+
+def _fold_body_captions_into_floats(rendered: str) -> str:
+    """Merge each ``**Figure N. ...**`` paragraph into its float's caption."""
+
+    def _merge(match: re.Match[str]) -> str:
+        title = " ".join(match.group("title").split())
+        body = match.group("body").strip()
+        caption = f"\\textbf{{{title}}} {body}" if body else f"\\textbf{{{title}}}"
+        return f"\\caption{{{caption}}}\n\\end{{figure}}"
+
+    folded, count = _BODY_CAPTION_RE.subn(_merge, rendered)
+    remaining = re.findall(r"\\textbf\{Figure[~\s]*\d+\.", folded)
+    if remaining:
+        raise SystemExit(
+            "build_agu: figure body captions left unfolded "
+            f"({len(remaining)} of {count + len(remaining)}); the float and the "
+            "bold paragraph would be numbered independently"
+        )
+    return folded
 
 
 def _write_create_or_replace(path: Path, payload: str) -> None:

@@ -120,9 +120,13 @@ def test_phase1_protocol_is_forcing_specific_canonical_inert_and_result_free(
     payload = A._protocol_payload(base_capture)
     protocol = yaml.safe_load(payload)
     assert payload == V5._canonical_json_bytes(protocol)
-    assert len(payload) == 8_663
+    # Repinned by DLOG-027: the runner's information-regime TODO token was
+    # describing a superseded state (T05 pending) and refused every run once
+    # the seal and clean design commit landed.  Correcting the token changed
+    # the protocol payload, so these two byte pins move with it.
+    assert len(payload) == 8_664
     assert hashlib.sha256(payload).hexdigest() == (
-        "0d4d97a2420ad55fed2c7d558c0c56b5c3a1c6485208c83f53110a3b6beff2a5"
+        "5c56041f8b3447d97818e7f3e7bbe58b486532546a6fbc12a24d25c866d07b17"
     )
     assert protocol["protocol_id"] == "thermoroute_wrr_forcing_v5_observed_score_execution"
     assert protocol["version"] == 5

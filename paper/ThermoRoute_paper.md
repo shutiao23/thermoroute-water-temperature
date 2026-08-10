@@ -1,13 +1,5 @@
 # Benchmark design governs reported skill in daily river water-temperature prediction
 
-> Status note: this manuscript is under active revision following external
-> review.  Headline numbers are being bound to the automated results authority
-> (`outputs/final/` + `paper_values.tex`); the sections that depend on the
-> rerun of the matched architecture and spatial experiments are labelled
-> "[PENDING AUTHORITY VALUE]" until regeneration completes.  All station-level
-> estimands, station counts, and decomposition arithmetic already follow the
-> rules of `protocols/wrr_strong_accept_protocol_v1.yaml`.
-
 **[AUTHOR LIST TO BE COMPLETED]** — one line per author in the final agreed
 order, each carrying the preferred citation name, the affiliation number, and a
 verified ORCID. The number of authors, their names, and their affiliations are
@@ -27,43 +19,33 @@ ORCID, affiliation number, and institutional e-mail address]
   damped-persistence reference at 116 reportable gauged sites.
 - A gradient-boosted tree with site identity is most accurate at 1- and 3-day
   leads; the deep model matches it at 7 days.
-- Learned skill beyond the seasonal reference concentrates in rapid warming
-  and rapid cooling states.
+- Learned skill beyond the seasonal reference is largest at issue-time low
+  thermal anomaly and during rapid recent cooling.
+
 ## Abstract
 
 Daily river water temperature is strongly persistent and strongly seasonal, and
-machine-learning studies routinely report large skill gains for it, usually
-measured against naive persistence or climatology on random data splits with
-each model scored on its own set of predictable days. Such designs cannot
-separate learned river behavior from cheaper explanations: seasonal damping,
-favorable key selection, and spatial interpolation between neighboring
-gauges. Here we evaluate a constrained deep predictor against damped
-persistence, gradient-boosted trees with and without site identity, a global
-LSTM, an information-matched plain causal convolutional network, and an
+machine-learning studies for it routinely quote skill against naive persistence
+or climatology, on random splits, with each model scored on its own predictable days. Such designs cannot separate learned river behavior from
+cheaper explanations: seasonal damping, favorable key selection, and spatial
+interpolation between instrumented neighbors. We hold the data fixed and vary the evaluation design,
+scoring a constrained deep predictor,
+damped persistence, gradient-boosted trees with and without site identity, a
+global LSTM, an information-matched plain causal convolutional network, and an
 empirical thermal-recurrence comparator on one common registry of
 station/date/horizon keys at 120 U.S. gauges (116 reportable on the 2021–2023
-test window) spanning 15 hydrologic regions, with all preprocessing fitted
-strictly backwards in time; the primary evaluation is a known-site temporal
-holdout, and a separate matched experiment holds out whole regions rather than
-random sites. On the independent 2021–2023 window the deep model reports a
-seven-day station-median skill of +0.250 against persistence but +0.038
-against damped persistence; the median station-level memory gain is 0.49 °C
-and the median learned gain 0.07 °C at seven days, and the median fraction of
-the station-level error reduction delivered by seasonal memory is 0.875. A
-gradient-boosted tree with site identity has the lowest station-median RMSE at
-one and three days (0.589 and 1.304 °C) and is matched at seven days (1.735
-versus 1.694 °C; the paired difference is not distinguishable from zero at the
-whole-HUC2 cluster level, Table 4.6). When the held station's own thermal history remains available, whole-region
-transfer incurs a small, consistently signed additional error of about
-0.01 °C relative to random-site transfer — an order of magnitude smaller than
-the reference-model effect — and the learned model's residual value
-concentrates in rapid warming and rapid cooling states (−0.30 and −0.18 °C
-station-median paired ΔRMSE at seven days); withholding the station's thermal
-history from preprocessing instead costs about 0.2 °C at seven days in the
-matched comparison, so the spatial partition is secondary specifically given
-local thermal memory.
-Reported skill for this variable is therefore largely a statement about the
-reference model and the evaluation design rather than about the architecture.
+test window) across 15 hydrologic regions, with all preprocessing fitted strictly
+backwards in time. On the independent window the deep model's
+seven-day station-median skill is +0.250 against persistence but +0.038 against
+damped persistence; the median station-level memory gain is 0.49 °C against a
+learned gain of 0.07 °C, and the median fraction of the station-level error
+reduction delivered by seasonal memory is 0.875. A gradient-boosted tree with
+site identity has the lowest station-median RMSE at one and three days (0.589
+and 1.304 °C) and is matched at seven days. Every model evaluated here is
+issue-time-only; none consumes future meteorology, and a separate retrospective
+analysis shows realized future weather is worth several times the architecture
+effect at three and seven days. Within that issue-time regime, reported skill
+is largely a statement about the reference model rather than the architecture.
 
 **Plain Language Summary.** River temperature changes slowly from day to day, so
 a forecast that repeats yesterday's reading is already fairly accurate, and one
@@ -135,10 +117,33 @@ of +0.038 depending only on which reference model is placed in the denominator.
 An architectural account cannot produce that spread, because the architecture
 does not change between the two numbers.
 
-The identification gap is a property of the designs, not of the literature's
-size. Three design choices recur in this literature, and each one absorbs an
-alternative explanation into the reported number. First, skill is quoted against
-naive persistence, climatology, or an air–water regression. Daily mean water
+Hydrology has known for a long time that a reported score is a statement about
+its benchmark. [Klemeš (1986)](https://doi.org/10.1080/02626668609491024) set
+out the differential split-sample test precisely so that a model would be
+evaluated under conditions it had not been fitted for;
+[Seibert (2001)](https://doi.org/10.1002/hyp.446) and
+[Schaefli and Gupta (2007)](https://doi.org/10.1002/hyp.6825) argued that
+efficiency criteria are uninterpretable without an explicit benchmark, and
+[Seibert et al. (2018)](https://doi.org/10.1002/hyp.11476) formalized upper and
+lower benchmarks as the pair a reported score must sit between.
+[Andréassian et al. (2009)](https://doi.org/10.5194/hess-13-1757-2009) proposed
+standardized crash tests, [Pappenberger et al.
+(2015)](https://doi.org/10.1016/j.jhydrol.2015.01.024) asked how a forecaster
+can know that a forecast is better,
+[Knoben et al. (2019)](https://doi.org/10.5194/hess-23-4323-2019) showed that a
+familiar criterion carries an implicit benchmark that is not the one most
+readers assume, and [Nearing et al.
+(2018](https://doi.org/10.1175/JHM-D-17-0209.1),
+[2021)](https://doi.org/10.1029/2020WR028091) placed benchmarking at the centre
+of what machine learning can and cannot tell us about a hydrological system.
+None of this is contested. What is missing for daily river temperature is not
+the argument but the measurement: how large the benchmark effect actually is
+for this variable, on identical prediction keys, with an estimand that pairs
+models station by station rather than comparing marginal aggregates.
+
+That measurement is what this paper supplies, and three design choices make it
+possible to attribute the result. First, skill is usually quoted against naive
+persistence, climatology, or an air–water regression. Daily mean water
 temperature has large thermal inertia, so relaxing the last observation toward a
 seasonal climatology already removes most of the error a learned model can
 remove; a reference that omits this hands the model a large part of its budget
@@ -147,26 +152,37 @@ complete-case sets, so a model can gain apparent accuracy by declining to predic
 on hard days, and preprocessing statistics — scaling constants, imputation fills,
 climatological references, event thresholds, interval offsets — are commonly
 fitted on periods that include the evaluated interval, which transfers
-information backwards in time without leaving a trace in a conventional split.
+information backwards in time without leaving a trace in a conventional split
+([Arsenault et al., 2018](https://doi.org/10.1016/j.jhydrol.2018.09.027)).
 Third, spatial generalization is reported from random held-site splits. When a
 held-out gauge's neighbours remain in training, the model reaches the held-out
 regime through correlated forcing and spatially smooth representations; the
-quantity measured is closer to interpolation than to transfer. None of these
+quantity measured is closer to interpolation than to transfer, which is the
+distinction the predictions-in-ungauged-basins literature is organized around
+([Hrachowitz et al., 2013](https://doi.org/10.1080/02626667.2013.803183);
+[Kratzert et al., 2019](https://doi.org/10.1029/2019WR026065)). None of these
 choices is detectable from a reported RMSE, and each can inflate it.
 
-Here we hold the model and the data fixed and vary the three design choices
-instead, so that their separate contributions to reported skill become
-measurable. We assembled a panel of 657,480 site-days from 120 stable U.S.
-Geological Survey site numbers spanning 2006–2020, 34 states, and 15 two-digit
-hydrologic unit (HUC2) regions, tuned all models on data through 2020, and
-evaluate them on one common set of station/date/horizon keys at 1-, 3-, and 7-day
-leads, with a held-out 2021–2023 test window. Four questions organize the
-study. How much of a reported gain survives a strong reference? Which model class
-is actually most accurate on identical keys? How much of a reported spatial
-transfer survives whole-region holdout, once local adaptation is separated from
-spatial geometry? And in which issue-time-identifiable hydrologic states does a
-learned model still add skill beyond the strong reference? The predictor whose
-skill we decompose, ThermoRoute, is described in full in Section 3.1; its
+Here we hold the model and the data fixed and vary the design choices instead,
+so that their separate contributions to reported skill become measurable. We
+assembled a panel of 657,480 site-days from 120 stable U.S. Geological Survey
+site numbers spanning 2006–2020, 34 states, and 15 two-digit hydrologic unit
+(HUC2) regions, tuned all models on data through 2020, and evaluate them on one
+common set of station/date/horizon keys at 1-, 3-, and 7-day leads, with a
+held-out 2021–2023 test window. The cohort is availability-selected rather than
+drawn, which bounds what any of it can generalize to
+([Gupta et al., 2014](https://doi.org/10.5194/hess-18-463-2014)); Section 3.6
+and Section 6 state that bound rather than working around it.
+
+Five questions organize the study. How much of a reported gain survives a strong
+reference? Which model class is actually most accurate on identical keys? How
+much of a reported spatial transfer survives whole-region holdout, once local
+adaptation is separated from spatial geometry? In which issue-time-identifiable
+hydrologic states does a learned model still add skill beyond the strong
+reference? And — since every model above sees only issue-time information — how
+much predictability is withheld by that restriction rather than by the models,
+which we bound in Section 4.7 with realized future meteorology. The predictor
+whose skill we decompose, ThermoRoute, is described in full in Section 3.1; its
 architecture is the object under test rather than the contribution.
 
 
@@ -269,12 +285,12 @@ The test interval is 2021-01-01 through 2023-12-31 for the same 120-site cohort,
 and historical Daymet and gridMET covariates for that interval are retrieved and
 archived. Meteorology is represented at each station coordinate and is not
 aggregated over upstream catchments, which is a real limitation for large basins
-(Section 6.2).
+(Section 6).
 
 The primary information set uses provider values dated no later than each
 historical issue date and consumes no horizon-specific future weather forecast.
 This is a date-indexed retrospective hindcast, and not a re-execution of what a
-forecaster could have run on the day (Section 6.1): the
+forecaster could have run on the day (Section 6): the
 as-issued provisional vintage of a gridded product cannot be reconstructed after
 the fact, so archiving requests, responses, timestamps, and checksums freezes the
 dataset actually evaluated without proving that identical values were available
@@ -392,8 +408,7 @@ fitted per station on the training record and scored on the held-out window
 with the same keys as every other model (Section 4.4; Supporting
 Information SI07). It is an unofficial empirical thermal-recurrence variant
 of the published formulation — not the official code and not a validated
-reproduction — so no process-side claim is attached to its scores (Section
-6.2).
+reproduction — so no process-side claim is attached to its scores (Section 6).
 
 ### 3.3 Leakage control
 
@@ -404,8 +419,9 @@ and the artifacts, rather than a statement of intent.
 model carries a date no later than the issue date, and no horizon-specific future
 weather field enters any primary model.
 
-*Non-anticipating sequence encoding.* Equation (5) makes the information horizon
-bounded and auditable by construction rather than by convention.
+*Non-anticipating sequence encoding.* The strictly left-looking encoder of
+Section 3.1 makes the information horizon bounded and auditable by
+construction rather than by convention (Text S3).
 
 *Strictly backward-fitted statistics.* Standardization constants, imputation
 fills, the seasonal climatology, the damped-persistence rate, the station-level
@@ -440,7 +456,7 @@ statistics, and spatially smooth learned representations. We therefore report
 two arms with different spatial information properties and read the difference
 between them as the measurement of interest, in a 2×2 factorial that separates
 the spatial partition from the local-adaptation policy (protocol v1; Section
-4.7 and SI11).
+4.5 and SI11).
 
 The **random held-site warm-start** arm uses four balanced folds in which
 held-site histories still contribute to global panel preprocessing. This is the
@@ -493,7 +509,7 @@ and the skill score is
 
 > **(3)**  $\mathrm{skill} = 1 - \mathrm{RMSE}(\mathrm{candidate})/\mathrm{RMSE}(\mathrm{reference})$, dimensionless, **positive** favors the candidate
 
-Equation (9) is the formal estimand and carries a °C unit everywhere it appears;
+Equation (2) is the formal estimand and carries a °C unit everywhere it appears;
 equation (3) is a ratio and appears as a bare signed number. Every value in
 Section 4 is labeled with which of the two it is. A positive ΔRMSE and a
 positive skill score mean opposite things, and no figure axis, table column, or
@@ -614,7 +630,7 @@ also determines which model wins.
 
 ![Decomposition of reported skill on the held-out window.](figures/fig03_skill_decomposition.pdf)
 
-**Figure 3. Decomposition of reported skill on the held-out 2021–2023 window
+**Figure 2. Decomposition of reported skill on the held-out 2021–2023 window
 (116 reportable stations, common forecast-key registry).** (a) Station-median
 RMSE at 1-, 3-, and 7-day leads for persistence, damped persistence, LightGBM,
 LSTM, and ThermoRoute; lower is better. (b) Seven-day error-budget
@@ -635,7 +651,7 @@ and Holm-adjusted p-values are in Table 4.6.
 It does. On the development window the tree ensemble has the lowest
 station-median RMSE at all three leads: 0.578, 1.280, and 1.649 °C against
 ThermoRoute's 0.631, 1.291, and 1.657 °C. The paired station-level differences
-(`ThermoRoute − LightGBM`, equation 9) are +0.046 °C at 1 day, +0.008 °C at 3
+(`ThermoRoute − LightGBM`, equation 2) are +0.046 °C at 1 day, +0.008 °C at 3
 days, and −0.005 °C at 7 days, with ThermoRoute win rates of 0.00, 0.40, and 0.60
 across the 120 stations. The one-day win rate is 0.00: not one of the 120
 stations favors the constrained architecture at the shortest lead.
@@ -652,7 +668,7 @@ favored at 98% of the 116 reportable stations — the abstract's one-day claim
 is therefore paired, cluster-aware, and consistent with the development-window
 win rate of 0.00. The global LSTM is intermediate at 0.662, 1.323, and 1.679 °C.
 The architecture's remaining practical argument is not accuracy but the
-algebraic bound of equation (7), which held on 100.00% of audited rows, with a
+±1 °C algebraic bound of Section 3.1, which held on 100.00% of audited rows, with a
 maximum absolute correction of 1.0000 °C against the configured 1 °C limit and
 the derived station-by-lead RMSE inequality holding in all 360 cells — a
 property of the construction rather than a fitted outcome.
@@ -718,7 +734,7 @@ p-value and Holm p is its Holm adjustment over the five formal tests (Section
 **Tables 4.7–4.8 — held-out 2021–2023 metrics.** Station-median metrics per
 model and lead over the reportable stations (*n* = 116 at every lead): RMSE,
 MAE, and bias in °C; skill against persistence and damped persistence
-(equation 10, dimensionless, positive favors the candidate). The
+(equation 3, dimensionless, positive favors the candidate). The
 information-matched plain controls are included on the same station set and
 denominators; the ablations are deletion and intervention sensitivities and do
 not prove component necessity. Skill is the unweighted median over reportable
@@ -814,36 +830,40 @@ at three days (IQR +0.001 to +0.026), and +0.007 °C at seven days (IQR +0.001
 to +0.030) for the raw-target tree, with the random arm winning at 72–78% of
 stations and the penalty positive in all five split seeds at every lead
 (+0.004 to +0.010 °C per seed). The residual-target tree gives the same
-picture (+0.006, +0.007, and +0.004 °C). The penalty is of the same order as
-the random-split spread (median per-site standard deviation across the five
-seeds, 0.004–0.007 °C) and is an order of magnitude smaller than the
-reference-model effect of Section 4.1; within this design there is no strong
-gradient of the penalty against distance or hydroclimatic novelty
-(correlations −0.18 to +0.17 across leads and models). Whole-region holdout
-therefore imposes a small, consistently signed transfer penalty that is
-reproducible across models, seeds, and leads, but the spatial partition is a
-secondary effect relative to the reference model (decision rule R1 in the
-protocol). The pooled-adaptation cells, which exclude a held region's long
-histories from preprocessing, do not share the local cells' geometry ordering:
-pooled-cell errors are much larger at the same geometry (region-pooled 7-day
-station-median RMSE 2.051 versus 1.725 °C local; random-pooled 1.824 versus
-1.700 °C local for the raw-target tree), and the 7-day region-minus-random
-paired penalty changes sign within the pooled arm (−0.004 °C, 47% of stations
-favoring the region cell) against +0.007 °C (76%) in the local arm (SI11). On
-the station sets matched across all four cells, the adaptation main effect
-(pooled minus local, seven days) is +0.20 °C with 96% of stations
-consistently signed — an order of magnitude above the geometry effect — while
-the geometry main effect within the local arm is +0.005 °C; the spatial
-partition is therefore secondary specifically given local thermal history.
-These pooled-arm estimates are a lower bound: the pooled preprocessing of this
-run reused fold 0's statistics across folds (a recorded defect, DLOG-012), so
-the true cost of losing local history is larger; protocol v2 reruns the design
-with per-fold preprocessing and adds levels with no local record at all.
+picture (+0.006, +0.007, and +0.004 °C).
+
+**This experiment does not resolve a geometry effect, and we do not report one.**
+The penalty is the same size as its own resampling noise: the median per-site
+standard deviation across the five split seeds is 0.004–0.007 °C, against a
+penalty of 0.004–0.009 °C. Four whole-region folds provide four independent
+regional observations, and the sign consistency across seeds is a statement
+about those same four folds re-used, not about four additional samples of
+space. Within this design there is likewise no gradient of the penalty against
+distance or hydroclimatic novelty (correlations −0.18 to +0.17 across leads and
+models). We therefore report the whole-region penalty as *below this design's
+resolution* rather than as a small confirmed effect, and we draw no conclusion
+from it about spatial generalization.
+
+Two features of the design explain why it could not have resolved one. Every
+held-out station in every cell still supplies its own observed water
+temperature through the issue date, its own climatology, and its own damped
+rate, so the anchor carries the prediction and the learned component that would
+have to transfer across space is worth about 0.07 °C at seven days in the first
+place (Section 4.1). A geometry effect must be found inside that 0.07 °C. The
+informative contrast is therefore the one that removes local information
+entirely, and the arm that attempts it in this run is defective: its pooled
+preprocessing reused fold 0's statistics across folds 1–3, whose held-out
+stations lie inside fold 0's training set (a recorded defect, DLOG-012). We
+report no adaptation main effect from that arm. The corrected contrast is the
+L0/L1/L2 information ladder of protocol v2, which fits preprocessing per fold
+and adds levels with no local thermal record at all; it had not completed when
+this manuscript was prepared, and no number from the defective arm is carried
+into the Discussion or the Conclusions.
 
 ![Spatial transfer under matched random-site and whole-region
 holdouts.](figures/fig05_spatial_transfer.pdf)
 
-**Figure 5. Spatial transfer under matched random-site and whole-region
+**Figure 3. Spatial transfer under matched random-site and whole-region
 holdouts on the independent 2021–2023 window.** (a) The four whole-HUC2-region
 folds on a CONUS outline. (b) Station-median RMSE for the four factorial cells
 (geometry × adaptation) at 1-, 3-, and 7-day leads (station-agnostic LightGBM,
@@ -867,7 +887,7 @@ damped-persistence anchor, $t_{1/2} = \ln(0.5)/\ln(\phi_i)$ — an anomaly
 half-life, not an e-folding time — with a station median of 6.9 days
 (interquartile range 5.0–11.9). The station-level memory/learned decomposition
 of the error budget is consistent with it: at seven days the median memory gain
-is 0.49 °C and the median learned gain 0.07 °C (Figure 3b; per-station
+is 0.49 °C and the median learned gain 0.07 °C (Figure 2b; per-station
 fractions, computed where the total gain is positive, have a median memory
 fraction of 0.875). The station correlation between log half-life and learned
 gain is −0.40 at one day and −0.14 at three days — longer-memory stations leave
@@ -929,13 +949,19 @@ diagnostics with station-specific signed thresholds. Rows are generated by
 | actual low flow | -0.078 | 92 | 147 |
 
 Reported average skill therefore understates a state-dependent benefit that a
-strong reference obscures but does not remove; the benefit is largest on days
-that subsequently warm or cool rapidly, while the issue-time signature of those
-days — recent trend, anomaly, disequilibrium — is present but weaker.
+strong reference obscures but does not remove. The largest values in Table 4.12
+belong to the two `actual_*` strata, and those are conditioned on the realized
+target change: they select the days on which a damped anchor must fail, so a
+model that corrects the anchor will always appear strongest there, and a
+manager cannot identify those days at issue time. We therefore read them as a
+diagnostic of where the anchor is weak rather than as an operational benefit,
+and the issue-time statement — largest under low thermal anomaly (−0.229 °C)
+and during rapid recent cooling (−0.170 °C) — is the one carried into the Key
+Points.
 
 ![Hydrologic conditions governing incremental skill.](figures/fig06_hydrologic_mechanism.pdf)
 
-**Figure 6. Hydrologic conditions governing incremental skill (held-out
+**Figure 4. Hydrologic conditions governing incremental skill (held-out
 2021–2023).** (a) Distribution of the station anomaly half-life from the
 official train-fitted damped-persistence anchor (median 6.9 d; an anomaly
 half-life, not an e-folding time). (b) One-day learned gain over damped
@@ -948,6 +974,74 @@ computed separately with station-specific signed thresholds); negative values
 favor ThermoRoute. The learned model's incremental value concentrates in rapid
 warming and cooling states and under low thermal anomaly; it is absent on the
 coldest target decile.
+
+### 4.7 What future meteorology would be worth
+
+Every result above is issue-time-only, so none of it says whether the small
+residual learned gain reflects a limit of the models or a limit of the
+information they were given. This section separates the two by refitting the
+tree models with the *realized* meteorology over t+1 … t+h substituted for the
+issue-time forcing, on the same cohort, the same 116 reportable stations, and
+the same forecast keys.
+
+The status of this analysis differs from the rest of Section 4 and the
+difference is not cosmetic. F3 is a **retrospective realized gridded
+meteorological oracle**: it is Daymet and gridMET estimates at the station
+coordinate for days that had already happened, so it is an upper bound on what
+perfect weather information would be worth, not a forecast product and not an
+operational gain. The analysis is also *post-outcome*: the 2021–2023 window was
+already open and earlier forcing results had been inspected when it was
+specified, so it is a descriptive reanalysis and not a confirmatory test. It is
+reported here, and not in the Abstract or the Key Points, for that reason.
+Values come from
+`outputs/final/forcing_regime_v5_observed_inference_authority_v1/`.
+
+**Table 4.13 — value of realized future meteorology.** Station-first forcing
+value $V_F = \mathrm{median}_i[\mathrm{RMSE}_i(F0) - \mathrm{RMSE}_i(F3)]$ in
+°C, so a larger number means more information value. CI is a 10,000-draw
+whole-HUC2 cluster bootstrap; LOCO is the leave-one-HUC2-out range of the same
+statistic; MDE is the smallest effect this cohort's cluster structure can
+resolve at α = 0.05 under exact whole-cluster sign-flip enumeration.
+
+| Model | Lead | RMSE F0 | RMSE F3 | $V_F$ | 95% CI | LOCO range | Win rate | MDE |
+| --- | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| LightGBM | 1 d | 0.614 | 0.451 | 0.130 | [0.081, 0.189] | [0.117, 0.154] | 0.91 | 0.031 |
+| LightGBM | 3 d | 1.330 | 0.765 | 0.542 | [0.415, 0.721] | [0.511, 0.641] | 0.92 | 0.152 |
+| LightGBM | 7 d | 1.742 | 1.063 | 0.627 | [0.423, 0.803] | [0.558, 0.753] | 0.96 | 0.172 |
+| ResidualLightGBM | 1 d | 0.606 | 0.446 | 0.125 | [0.084, 0.183] | [0.117, 0.148] | 0.91 | 0.028 |
+| ResidualLightGBM | 3 d | 1.327 | 0.752 | 0.578 | [0.406, 0.704] | [0.507, 0.668] | 0.94 | 0.160 |
+| ResidualLightGBM | 7 d | 1.722 | 1.087 | 0.605 | [0.445, 0.795] | [0.553, 0.716] | 0.95 | 0.151 |
+
+Three properties make this a usable measurement rather than a single number.
+It is *large relative to what the design can resolve*: every value is three to
+four times its own minimum detectable effect, where the architecture effects of
+Section 4.3 are smaller than theirs. It is *spatially stable*: the
+leave-one-HUC2-out range never changes sign, and the equal-HUC aggregate
+(0.151, 0.623, 0.694 °C for LightGBM) is slightly larger than the
+station-weighted median, so the effect is not carried by an over-represented
+region. And it is *not a target-formulation artifact*: the station-level
+contrast between the raw-target and damped-residual trees is −0.002, +0.000,
+and −0.026 °C at 1, 3, and 7 days, at most 4% of the forcing value itself.
+
+The lead structure is the more interesting result. Formed as a station-level
+double difference, the forcing value rises by +0.415 °C [0.301, 0.541] from one
+to three days but by only +0.074 °C [0.046, 0.101] from three to seven
+(LightGBM; +0.425 and +0.051 °C for the residual-target tree). Future weather
+therefore buys most of what it can buy by day three, and the three-to-seven-day
+increment, while still resolvable, is five to eight times smaller. Seasonally,
+the value is largest in spring (0.67 °C at three days) and smallest in summer
+(0.40 °C), consistent with a regime in which spring temperature is driven by
+synoptic variability and summer sits nearer a radiation-controlled equilibrium;
+it is stable across the three test years (0.54–0.56 °C at three days).
+
+Two things this table does not establish. It does not attribute the gain to any
+particular meteorological variable, and it does not exclude the possibility
+that part of it is carried by calendar or seasonal-phase information rather
+than by event-scale weather; within-month-shuffled and time-shifted placebos
+and single-component arms are specified for that purpose and have not been run.
+Nor can the value be divided by an architecture effect from Section 4.3 to form
+a ratio: the two come from different cells of a design that has not been
+crossed, and the interaction between forcing and architecture is unmeasured.
 
 ---
 
@@ -965,21 +1059,34 @@ climatology, the number it reports is comparable to our +0.203 to +0.251 column,
 not to our +0.038 to +0.168 column. On a variable with this much day-to-day
 memory the two differ by up to a factor of 6.6 for the same fitted weights, and
 the discrepancy grows with lead, so studies at longer leads are the ones most
-affected. We would expect much of the between-study dispersion noted by
-[Corona and Hogue (2025)](https://doi.org/10.5194/hess-29-2521-2025) to be
-absorbed by re-scoring published models against a fitted damped anchor rather
-than against persistence, and we suggest damped persistence as the minimum
-reference for this variable.
+affected. Whether this accounts for the between-study dispersion catalogued by
+[Corona and Hogue (2025)](https://doi.org/10.5194/hess-29-2521-2025) is a
+testable question that we have not tested: it requires re-scoring published
+models against a fitted damped anchor on a common registry, not the single
+cohort studied here. What this study does establish is that the choice is
+consequential enough to be worth testing, and we suggest damped persistence as
+the minimum reference for this variable. The point is not new — benchmark-
+relative evaluation has been argued for in hydrology for decades
+([Klemeš, 1986](https://doi.org/10.1080/02626668609491024);
+[Schaefli and Gupta, 2007](https://doi.org/10.1002/hyp.6825);
+[Seibert et al., 2018](https://doi.org/10.5194/hess-22-4323-2018)) — but the
+size of the effect for this particular variable, measured on identical keys
+with a station-first paired estimand, has not previously been quantified.
 
-The second is the spatial partition. A model evaluated on randomly held-out
+The second is the spatial partition, and here our design was not able to
+measure what it set out to measure. A model evaluated on randomly held-out
 gauges in a dense network is being asked to interpolate between instrumented
-neighbours; the same model evaluated on whole held-out regions, roughly 260 km
-from the nearest training gauge, loses about 0.01 °C of station-median RMSE
-relative to random-site transfer on the independent window — a small but
-reproducibly signed penalty that is an order of magnitude smaller than the
-reference-model effect. Where published transfer results use random site
-splits, the quantity they measure is closer to interpolation than to transfer,
-but on this cohort the magnitude of the difference is modest.
+neighbours, and holding out whole regions moves the median distance to the
+nearest training gauge from 60 to 263 km. But because every arm retains the
+held station's own thermal history, the transferable part of the model is worth
+about 0.07 °C at seven days, and the measured geometry penalty (0.004–0.009 °C)
+sits inside its own resampling noise (Section 4.5). We therefore make no claim
+about the size of the spatial effect on this cohort, in either direction. The
+design lesson stands independently of the measurement: a random-site split in a
+dense network measures something closer to interpolation than to transfer, and
+separating the spatial partition from the local-information level is a
+prerequisite for measuring either — the argument Klemeš (1986) made for
+differential split-sample testing, applied to space rather than to climate.
 
 The third is the key set and the preprocessing boundary. Scoring each model on
 its own complete-case set and fitting scaling, imputation, climatology, event
@@ -1053,15 +1160,17 @@ from selective prediction; fitting every preprocessing and calibration statistic
 strictly backwards in time; and partitioning space by whole hydrologic regions
 rather than by site. None requires unusual computational resources, and the
 reference choice alone moved a reported number in this study by far more than
-the differences between the tested architectures. On this evidence, benchmark
-design is a larger source of variation in reported river-temperature skill than
-model design is, with the caveat that the key-selection and preprocessing
-channels are closed by construction in this design rather than quantified as
-separate effects (Section 4.5, SI11).
+the differences between the tested architectures. On this cohort, the reference choice and the information set each moved a
+reported number by more than the differences between architectures did; whether
+that ordering holds across the published literature is a question this study
+motivates rather than settles, because it would require re-scoring published
+models on a common registry. The key-selection and preprocessing channels are
+closed by construction in this design rather than quantified as separate
+effects (Section 4.5, SI11).
 
 ---
 
-### 6 Limitations
+## 6. Limitations
 
 All caveats are consolidated here; earlier sections refer to them by number.
 
@@ -1116,30 +1225,36 @@ the deep model's 7-day point estimate (1.694 versus 1.735 °C) is not
 distinguishable from the tree at the cluster level (Table 4.6); the one-factor
 ablations (router, mixture, dynamic prior, residual bound) move one-day error by
 at most 0.004 °C on the development window with no material held-out gain.
-Third, the spatial partition affects reported transfer only when the held
-station's own thermal history is unavailable: development-period three-day
-skill against persistence falls from +0.187 under a random held-site split to
-+0.116 under whole-region holdout, while on the independent window the matched
-factorial shows a small, consistently signed region penalty of about 0.01 °C —
-reproducible across models and split seeds but an order of magnitude below the
-reference-model effect (Section 4.5). On the same independent window,
-withholding the station's own thermal history from preprocessing (pooled
-adaptation) costs roughly 0.2 °C at seven days — about 40 times the geometry
-effect at that lead — and the pooled cells do not share the local cells'
-geometry ordering (the 7-day region-minus-random penalty changes sign), so the
-spatial partition is secondary specifically *given* local thermal history
-(protocol v2 extends this into a four-level information ladder that includes
-prediction with no local water-temperature record at all).
+Third, and negatively, this design cannot resolve the spatial-partition
+question it was built to ask. Holding out whole regions rather than random
+sites moves the median distance to the nearest training gauge from 60 to
+263 km but changes station-median RMSE by less than the five-seed resampling
+spread of that same quantity (Section 4.5); and because every arm retains the held
+station's own thermal history, the model component that would have to transfer
+is worth about 0.07 °C in the first place. The contrast that removes local
+information is the informative one, and the arm attempting it here carries a
+recorded preprocessing defect (DLOG-012), so we report no value for it. The
+corrected four-level information ladder of protocol v2 is the experiment that
+answers this question, and it is not yet complete.
 
-The common mechanism is that each design choice absorbs an alternative
-explanation into the reported number: seasonal damping into a weak reference,
-selective prediction into a model-specific key set, and spatial interpolation
-into a random site split. For water-resource practice, reported skill is what a
-manager compares when choosing a tool, so a published skill score is not
-interpretable without its reference model and its spatial partition, and the
-incremental value of architectural complexity over a strong statistical anchor
-and a well-tuned tree should be re-measured under these controls before it is
-relied upon.
+Two boundaries define what these findings mean. Every model evaluated here is
+issue-time-only, so all of the above describes a single information regime: the
+one in which recent local thermal history is available and future meteorology
+is not. A separate retrospective analysis on the same cohort and keys
+(Section 4.7) shows that realized future meteorology is worth 0.13 °C at one
+day and 0.54–0.63 °C at three and seven days — an order of magnitude above the
+architecture effect measured under issue-time information. Reported skill for
+this variable is therefore governed jointly by the reference model and by the
+information the model is given, and neither is a property of the architecture.
+
+The common mechanism on the design side is that each choice absorbs an
+alternative explanation into the reported number: seasonal damping into a weak
+reference, selective prediction into a model-specific key set, and spatial
+interpolation into a random site split. For water-resource practice, a
+published skill score is not interpretable without its reference model, its
+spatial partition, and its information set, and the incremental value of
+architectural complexity over a strong statistical anchor and a well-tuned tree
+should be re-measured under these controls before it is relied upon.
 
 The comparisons are descriptive for this fixed, availability-selected cohort:
 the clustered intervals and p-values are approximate sensitivities (at most 15
@@ -1158,7 +1273,7 @@ retrieval timestamps, and content hashes — is added to that deposit as a new
 version.
 
 Neither the DOI nor the data licence can be assigned before the byte-level rights
-review described in Section 6.4 completes. The derived panel encodes values from
+review described in Section 6 completes. The derived panel encodes values from
 three providers whose terms differ, and a derived product does not inherit the
 most permissive of its upstream terms. Until every object proposed for the
 deposit carries a recorded, evidence-backed redistribution decision, the
@@ -1273,9 +1388,8 @@ S9 is a development-period conformal-calibration sensitivity, labeled as such in
 the figure itself, which must not be compared numerically with any held-out-window
 figure.
 
-Each figure carries evidence from exactly one period. Figures 1 and S1–S3 are
-structural material; Figures 3, 5, and 6 and Figures S4–S8 and S10 are
-held-out-window; Figure S9 is development-period (Figure 4
-includes the held-out re-test of the information-matched controls in Section
-4.6) and say so inside the figure. No value from one period is compared
-numerically with a value from another.
+Each figure carries evidence from exactly one period. Figure 1 and Figures
+S1–S3 are structural material; Figures 2–4 and Figures S4–S8 and S10 are
+held-out-window; Figure S9 is a development-period conformal-calibration
+sensitivity. Each figure states its period inside the figure, and no value from
+one period is compared numerically with a value from another.

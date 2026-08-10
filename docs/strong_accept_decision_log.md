@@ -1350,3 +1350,138 @@ clean design commit, complete source registry and terminal seal remain separate
 prerequisites. `execution_authorized` remains false throughout this authority.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-10 — DLOG-027: forcing-v5 inference authority, claim-status quarantine, and manuscript scope correction
+
+Decision: three linked actions, recorded together because each one depends on
+the others.
+
+**1. Publish the forcing-v5 inference authority.** The v5 point authority
+reserved `outputs/final/forcing_regime_v5_observed_inference_authority_v1/` for
+interval evidence and published none. That directory now holds a create-only
+bundle built by `scripts/final/build_forcing_v5_inference_authority.py` from
+the 696 published station-paired effects and the twelve key-level shards. It
+adds, per model and horizon: a 10,000-draw whole-HUC2 cluster bootstrap
+interval, an exact sign-flip tail over all 2^15 whole-cluster sign vectors, the
+equal-HUC aggregate, the leave-one-HUC2-out range, year and season strata
+recomputed from the shards rather than reweighted, station-level lead
+interactions and a model contrast formed as double differences before any
+median, and a minimum detectable effect obtained by translating the effect
+vector until the sign-flip tail crosses 0.05.
+
+The station-first forcing value is 0.130/0.542/0.627 degC at 1/3/7 days for
+LightGBM and 0.125/0.578/0.605 for ResidualLightGBM. Every bootstrap interval
+excludes zero, every leave-one-HUC2-out range keeps its sign, the equal-HUC
+aggregate is slightly larger than the station-weighted median in all six cells,
+and every effect is three to four times its own minimum detectable effect. The
+lead interaction is +0.415 degC [0.301, 0.541] from one to three days against
++0.074 degC [0.046, 0.101] from three to seven, so the value largely plateaus
+after day three. The model contrast is at most 0.026 degC, so the result is not
+an artifact of the raw-versus-residual target formulation. All 42 year and
+season strata are consistently signed; the seasonal maximum is spring
+(0.67 degC at three days) and the minimum is summer (0.40 degC).
+
+The builder independently recomputes every station effect from the shards and
+fails closed if it drifts from the published point authority by more than 1e-9,
+or if F0 and F3 disagree on `y_true` by more than the frozen 2e-6 degC. Both
+checks passed. The authority declares `post_outcome: true`,
+`confirmatory: false`, `prospectively_registered: false`; it does not authorize
+execution of anything and does not promote F2a, F2b, or any L-axis arm.
+
+**2. Make the Phase-0 quarantine mechanical.** Every entry in
+`paper/claim_ledger.yaml` now carries `status:` from
+`PRIMARY_FROZEN | DESCRIPTIVE_PROVISIONAL | NOT_USED`, and
+`scripts/final/check_manuscript_consistency.py` gained three gates:
+`check_claim_status` (a provisional claim may not declare a headline span),
+`check_provisional_not_in_headlines` (a provisional value may not be *printed*
+in the Abstract, Key Points, or Conclusions even if the ledger does not declare
+it there), and `check_quarantined_content` (withdrawn headline numbers and
+protocol-forbidden assertions, scanned line by line so a chronology entry that
+records a withdrawal is distinguishable from a sentence restating it).
+
+The second gate immediately caught a live defect: the outcome-conditioned
+`actual_rapid_warming` value of -0.300 degC was a Key Point and an Abstract
+sentence while Section 4.6 correctly labelled it retrospective. Six injection
+tests (INJ11-INJ16) fix the gates' behaviour.
+
+**3. Correct the manuscript's scope.** Removed from the Abstract, Key Points
+and Conclusions: the outcome-conditioned rapid-warming headline; the +0.20 degC
+pooled-adaptation effect, whose arm carries the DLOG-012 fold-0 preprocessing
+defect and which the manuscript itself had labelled a lower bound; and the
+claim that the whole-region geometry penalty is a small confirmed effect. The
+geometry penalty (0.004-0.009 degC) is the size of its own five-seed
+resampling spread and is now reported as below the design's resolution, with
+the structural reason stated: every arm retains the held station's own thermal
+history, so the component that must transfer is worth about 0.07 degC at seven
+days and a geometry effect has to be found inside it.
+
+Section 4.7 reports the forcing result with its inference, explicitly labelled
+post-outcome and oracle-bounded, and deliberately not in the Abstract or Key
+Points. The Introduction and Discussion were rewritten against the
+benchmarking literature they had omitted (Klemes 1986; Seibert 2001; Schaefli
+and Gupta 2007; Andreassian et al. 2009; Pappenberger et al. 2015; Seibert et
+al. 2018; Knoben et al. 2019; Nearing et al. 2018, 2021; and the PUB and
+large-sample lines), and the untested assertion that re-scoring published
+models would absorb the between-study dispersion is now stated as a question
+this study motivates rather than answers.
+
+Why: the v5 point authority produced the project's first valid corrected
+learned result, and the largest risk at that moment was reporting it inside a
+manuscript whose Abstract still carried two numbers that the project's own
+records had disqualified. Making the quarantine a gate rather than an editorial
+intention is what prevents the third recurrence.
+
+Evidence available before the decision: the v5 point authority and its
+manifest; the twelve v5 shards; the frozen 15-cluster HUC2 map; the existing
+`thermoroute.significance` estimators, reused rather than reimplemented.
+
+Data periods already inspected: 2006-2017 training/validation inputs and the
+already-open 2021-2023 evaluation window. No unrun placebo, component, F2, L2,
+L3, neural, crossed, event, cohort, or audit-window outcome was read.
+
+Changes a primary hypothesis? No. It adds interval evidence to an existing
+point result and removes inadmissible claims from the manuscript.
+
+Requires a protocol version bump? Not for the inference authority, which is
+downstream of the already-published point authority. The placebo and component
+controls are specified in the new
+`protocols/wrr_forcing_placebo_protocol_v5a.yaml`, drafted but unsealed and
+unauthorized; sealing it before the first placebo fit is the only way those
+arms can ever be described as prospectively specified.
+
+Commit(s): (this worktree)
+
+### DLOG-027 addendum: the governance pins cannot survive their own protocol
+
+Recording this entry exposed a circular dependency in the v5 execution
+authority. `run_forcing_ladder_v5_observed.py` pins
+`docs/strong_accept_decision_log.md`, `docs/SCIENTIFIC_EVIDENCE_STATUS.md` and
+`docs/WRR_INFORMATION_REGIME_TODO_20260809.md` by exact SHA-256 and refuses to
+run when any of them drifts. All three are documents the protocol *requires*
+to be updated: the decision log is append-only by design. Every future DLOG
+entry therefore breaks the runner, and the break is indistinguishable from
+tampering.
+
+Two consequences were already visible before this entry. Commit `0ace001`
+updated the tracker's T05 row to `COMPLETE` after the seal and clean design
+commit landed, which silently removed a literal token the runner pins; twenty
+tests in `tests/final/test_forcing_v5_execution_authority.py` had been failing
+at collection ever since, on a runner that can no longer be executed. That
+token has been corrected to describe the current true state, and the two
+protocol-payload byte pins that move with it (length 8,663 to 8,664, digest
+`0d4d97a2...` to `2a7a8ccc...`) were recomputed. The three governance document
+digests are refreshed below.
+
+Refreshing forward-looking pins does not rewrite history: the completed v5 run
+recorded what it bound at execution time in its own lineage manifest, and that
+record is untouched.
+
+The design should be changed rather than re-pinned every time. A content hash
+is the wrong instrument for an append-only log. The pin should bind either the
+log's *prefix* through a named entry, or the specific frozen artifacts the run
+depended on, and leave the narrative documents to a token check that states
+what must be present rather than what the bytes must be. Recorded as an open
+item; it is not fixed here, because redesigning the pin semantics is a change
+to the sealed execution path and belongs with the next protocol version.

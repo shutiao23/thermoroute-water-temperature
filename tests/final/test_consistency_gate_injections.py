@@ -70,7 +70,9 @@ def test_inj2_generated_table_internal_row_drift(gate_manuscript):
 
 
 def test_inj4_abstract_only_drift(gate_manuscript):
-    inject_span(gate_manuscript, "## Abstract", "1.694", "1.999")
+    # 0.589 is the one-day LightGBM RMSE, declared in both the Abstract and
+    # Section 4.4; drifting only the Abstract copy must still fail the gate.
+    inject_span(gate_manuscript, "## Abstract", "0.589", "0.999")
     assert run_gate() == 1
 
 
@@ -139,8 +141,8 @@ def test_inj10_si07_unfiltered_drift(tmp_path, monkeypatch):
 
 def test_contradiction_scan_reports_stale_sibling():
     """The warning-level scan must fire on a stale sibling number."""
-    from check_manuscript_consistency import check_contradictions
     import pandas as pd
+    from check_manuscript_consistency import check_contradictions
     spans = {"abstract": "The seven-day RMSE is 1.478 C beside 1.459 C."}
     resolved = pd.DataFrame([{
         "claim_id": "T", "status": "RESOLVED", "value": "1.4589",
@@ -148,3 +150,84 @@ def test_contradiction_scan_reports_stale_sibling():
     }])
     warnings = check_contradictions(resolved, spans)
     assert any("1.478" in w and "T" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Phase-0 quarantine gates (claim status, withdrawn numbers, prohibited claims)
+#
+# INJ11  a provisional claim declared in a headline span
+# INJ12  a provisional value printed in the Abstract without being declared
+# INJ13  a claim with no status at all
+# INJ14  a withdrawn headline number restored as an assertion
+# INJ15  a protocol-forbidden operational claim about F3
+# INJ16  a NOT_USED claim that still carries used_in spans
+# ---------------------------------------------------------------------------
+
+
+def test_inj11_provisional_claim_declared_in_a_headline_span(monkeypatch):
+    ledger = [dict(claim) for claim in G.load_ledger()]
+    for claim in ledger:
+        if claim["claim_id"] == "RQ4_RAPID_WARMING_7D_DELTA":
+            claim["used_in"] = ["abstract", "section_4_6"]
+    problems = G.check_claim_status(ledger)
+    assert any("DESCRIPTIVE_PROVISIONAL" in p and "abstract" in p for p in problems)
+
+
+def test_inj12_provisional_value_printed_in_the_abstract(gate_manuscript):
+    text = gate_manuscript.read_text(encoding="utf-8")
+    marker = "**Plain Language Summary.**"
+    assert marker in text
+    leaked = text.replace(
+        marker,
+        "The learned model gains -0.300 °C on days that subsequently warm "
+        "rapidly.\n\n" + marker,
+        1,
+    )
+    gate_manuscript.write_text(leaked, encoding="utf-8")
+    assert run_gate() == 1
+
+
+def test_inj13_missing_claim_status():
+    ledger = [dict(claim) for claim in G.load_ledger()]
+    ledger[0].pop("status", None)
+    problems = G.check_claim_status(ledger)
+    assert any("expected one of" in p for p in problems)
+
+
+def test_inj14_withdrawn_number_restored_as_an_assertion():
+    problems = G.check_quarantined_content({
+        "doc": "The whole-region geometry effect is +0.48 °C at seven days.",
+    })
+    assert any("withdrawn" in p for p in problems)
+
+
+def test_inj14b_withdrawn_number_may_still_be_narrated():
+    problems = G.check_quarantined_content({
+        "doc": "DLOG-018 withdrew the +0.48 °C geometry effect and the 27:1 ratio.",
+    })
+    assert problems == []
+
+
+def test_inj15_prohibited_operational_claim_about_f3():
+    problems = G.check_quarantined_content({
+        "doc": "Realized future meteorology yields an operational forecast gain "
+               "of 0.63 degC at seven days.",
+    })
+    assert any("prohibited" in p for p in problems)
+
+
+def test_inj15b_ratio_language_is_rejected():
+    problems = G.check_quarantined_content({
+        "doc": "Together these give the full information budget for the cohort.",
+    })
+    assert any("information budget" in p for p in problems)
+
+
+def test_inj16_not_used_claim_still_carrying_spans():
+    ledger = [{"claim_id": "X", "status": "NOT_USED", "used_in": ["abstract"]}]
+    problems = G.check_claim_status(ledger)
+    assert any("NOT_USED but still lists used_in" in p for p in problems)
+
+
+def test_every_shipped_claim_declares_a_valid_status():
+    assert G.check_claim_status(G.load_ledger()) == []

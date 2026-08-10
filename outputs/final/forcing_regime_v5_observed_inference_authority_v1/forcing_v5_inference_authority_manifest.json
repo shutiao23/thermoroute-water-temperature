@@ -1,0 +1,32 @@
+{
+ "authority_status": "POST_OUTCOME_DESCRIPTIVE_INFERENCE_NOT_CONFIRMATORY",
+ "builder_sha256": "422183b0510c4e9cb5ad87b8f517108b86d1a5585c13c5108d18329a4e9fe2da",
+ "format": "thermoroute.forcing-v5-observed-inference-authority.v1.manifest",
+ "inputs": {
+  "point_paired_effects_sha256": "71b338d141c2b8e84644d1b7e69b6992390f50f8d299856323c5b54a90f35583",
+  "point_station_metrics_sha256": "353b6715ebf1d7ac854a956c2e53914395bed73e556a0cae4632b8b76a90ca30",
+  "point_summary_sha256": "f4219ba56c09e9f6ac99893b133f6a20a1527d14d161605edc41f1a2aaf97cdc",
+  "shard_sha256": {
+   "F0_LightGBM_h1_v5_observed.parquet": "b49e99143f4a0552fca1d11114f7201bbd008a78200531fe6bcc0ec871f5c247",
+   "F0_LightGBM_h3_v5_observed.parquet": "4de47a5737f42265e053457b14137432d97e834bb6cb0e532724b862d55d0d88",
+   "F0_LightGBM_h7_v5_observed.parquet": "6926a26dee8f26d7b6c644eb11f81e945962c012d46e6352ac782a7b3c419f1b",
+   "F0_ResidualLightGBM_h1_v5_observed.parquet": "dc40a5a0cc32956c1d53326d2f0ce831423ebc6dc0ea4b5e0d194bd832d51108",
+   "F0_ResidualLightGBM_h3_v5_observed.parquet": "1ec2326b7720d09961fb1d44544ef01fb994d170392b33f2fa456db68acf4656",
+   "F0_ResidualLightGBM_h7_v5_observed.parquet": "2d4d0a22ce3c213135d774c798b5127186ce04b2ed0e60af231a826f133bb31e",
+   "F3_full_LightGBM_h1_v5_observed.parquet": "4db834da94f22044f893bc455785d1a86683b2445cb613adf4b5665a1f5c5a47",
+   "F3_full_LightGBM_h3_v5_observed.parquet": "3afb2387fcadd38d51f3975338da951ab8196c4dcf00cd83d7911e9d8eacfadc",
+   "F3_full_LightGBM_h7_v5_observed.parquet": "f4fb8682eb394b4abf964c5023d57a7ae2f2a276c8d647c43bfbaba50d6a3fc1",
+   "F3_full_ResidualLightGBM_h1_v5_observed.parquet": "b3c49ca7ab2ed41712eca41747d1ac564a32c10905835fc1ccaeadbeeccb0d27",
+   "F3_full_ResidualLightGBM_h3_v5_observed.parquet": "951e8600feec792031b7fde2daeefcc5fb03ac6c4080de7d9f72ba0efca28836",
+   "F3_full_ResidualLightGBM_h7_v5_observed.parquet": "dfa1df1ac90765a0ce7443f70d0e91c9df5123149d8f9b7cc4bc8128498895fe"
+  },
+  "station_registry_sha256": "090e7c0daf39ac38ceefeb1af8a12c178283e18347905d8e72ada969ad5460c9"
+ },
+ "outputs_sha256": {
+  "forcing_v5_inference_contrasts.parquet": "a69def24f1c961e61cd2eb106d4dc5cc49b963151c2811a2087add389dc3532c",
+  "forcing_v5_inference_excluded_subgroups.parquet": "a6076aa23f7155a1942c82e16ae9f8d93c8fa08a0b7c200d22afa0b96427f887",
+  "forcing_v5_inference_strata.parquet": "723c9b31c100dbc7c1da7614fec047ffd2e875ee15ff8ae5c68a7096c887bf34",
+  "forcing_v5_inference_summary.json": "0c68544b6abb415a4325677da461f725cd0766c9450088e39354e01f23f72eb1"
+ },
+ "summary_canonical_sha256": "d45aed6d0053d793a95fd33c059d4ce33d67542aeb8b694d7b011d95b98771e3"
+}

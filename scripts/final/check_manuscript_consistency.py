@@ -37,9 +37,52 @@ GENERATED = ROOT / "paper" / "tables_final.md"
 TEX = ROOT / "paper" / "agu_submission" / "ThermoRoute_WRR.tex"
 
 
-def resolve_claims() -> pd.DataFrame:
+#: Every ledger claim must carry one of these.  The taxonomy exists because a
+#: result can be arithmetically reproducible and still not be admissible as a
+#: manuscript headline (post-outcome, known-defect upstream, or outcome-
+#: conditioned).  See docs/strong_accept_decision_log.md DLOG-027.
+CLAIM_STATUSES = ("PRIMARY_FROZEN", "DESCRIPTIVE_PROVISIONAL", "NOT_USED")
+
+#: Spans in which only a PRIMARY_FROZEN claim may appear.  A provisional number
+#: may be reported and discussed in its own Results subsection; it may not be a
+#: summary-level conclusion of the paper.
+HEADLINE_SPANS = ("abstract", "key_point_1", "conclusions")
+
+#: Numbers withdrawn by DLOG-018/025 and never restored.  Matching is
+#: boundary-aware so an unrelated 0.48 in another context is not flagged, but
+#: any reappearance of the withdrawn headline forms fails the build.
+WITHDRAWN_NUMBER_PATTERNS = {
+    r"\+\s*0\.48\s*°?C": "withdrawn geometry effect +0.48 degC (DLOG-018)",
+    r"(?<![\d.])0\.622\s*°?C": "withdrawn F3 seven-day RMSE 0.622 degC (DLOG-018)",
+    r"\b30\s*[x×]\b": "withdrawn 30x information ratio (DLOG-018)",
+    r"\b27\s*:\s*1\b": "withdrawn 27:1 information ratio (DLOG-018)",
+}
+
+#: Assertions the v4 protocol forbids.  Phrases are chosen so that a *negated*
+#: disclaimer ("the as-issued vintage cannot be reconstructed") does not trip
+#: the gate while an affirmative claim does.
+PROHIBITED_PHRASES = {
+    "operational forecast gain": "F3 is a retrospective oracle, not an operational gain",
+    "operational forecast improvement": "F3 is a retrospective oracle",
+    "deployable gain": "F3 is a retrospective oracle",
+    "deployable improvement": "F3 is a retrospective oracle",
+    "as-issued forecast value": "no archived-vintage coherence gate has passed",
+    "coherent issued forecast": "no archived-vintage coherence gate has passed",
+    "operational recovery fraction": "F2a may only recover F3_temperature_only",
+    "information budget": "F and L are separate conditional designs, not additive",
+    "untouched confirmation": "the 2021-2023 window was already open",
+    "preregistered 2021-2023": "the 2021-2023 window was already open",
+    "prospectively registered": "no prospective registration exists for this window",
+}
+
+
+def load_ledger() -> list[dict]:
     with open(ROOT / "paper" / "claim_ledger.yaml", encoding="utf-8") as fh:
-        ledger = yaml.safe_load(fh)
+        return yaml.safe_load(fh)
+
+
+def resolve_claims() -> pd.DataFrame:
+    ledger = load_ledger()
     tables = {path.name: pd.read_parquet(path)
               for path in FINAL.glob("*.parquet")}
     resolved = FR.resolve_claim_ledger(ledger, tables)
@@ -48,7 +91,91 @@ def resolve_claims() -> pd.DataFrame:
         lambda cid: by_id[cid].get("print_precision"))
     resolved["used_in_mode"] = resolved["claim_id"].map(
         lambda cid: by_id[cid].get("used_in_mode", "all"))
+    resolved["claim_status"] = resolved["claim_id"].map(
+        lambda cid: by_id[cid].get("status"))
     return resolved
+
+
+def check_claim_status(ledger: list[dict]) -> list[str]:
+    """Every claim declares a status, and provisional claims stay out of headlines.
+
+    This is the gate that makes the Phase-0 quarantine mechanical rather than
+    editorial: a number whose experiment is known-defective, post-outcome, or
+    conditioned on the realised outcome can still be reported, but it cannot
+    reach the Abstract, the Key Points, or the Conclusions.
+    """
+    problems: list[str] = []
+    for claim in ledger:
+        cid = claim.get("claim_id", "<unnamed>")
+        status = claim.get("status")
+        if status not in CLAIM_STATUSES:
+            problems.append(
+                f"claim {cid} declares status {status!r}; expected one of "
+                f"{list(CLAIM_STATUSES)}")
+            continue
+        used = list(claim.get("used_in") or [])
+        if status == "NOT_USED":
+            if used:
+                problems.append(
+                    f"claim {cid} is NOT_USED but still lists used_in={used}")
+            continue
+        if not used:
+            problems.append(f"claim {cid} has status {status} but no used_in spans")
+        if status == "DESCRIPTIVE_PROVISIONAL":
+            leaked = sorted(set(used) & set(HEADLINE_SPANS))
+            if leaked:
+                problems.append(
+                    f"claim {cid} is DESCRIPTIVE_PROVISIONAL and may not appear "
+                    f"in headline spans {leaked}; move it to a Results "
+                    f"subsection or promote the evidence first")
+    return problems
+
+
+#: A withdrawn number or forbidden phrase may still be *narrated* — the
+#: decision-log chronology in SI04 has to say what was withdrawn, and the
+#: Limitations have to say what F3 is not.  A line carrying one of these
+#: markers is therefore reporting the prohibition rather than making the
+#: claim.  The vocabulary is deliberately small and explicit: widening it is
+#: how a gate like this quietly stops working.
+NARRATION_MARKERS = (
+    "withdrew", "withdrawn", "superseded", "historical", "retracted",
+    "formerly", "initially reported", "no longer", "never", "not an",
+    "not a ", "cannot", "must not", "is not", "are not", "rather than",
+    "forbidden", "no claim", "does not",
+)
+
+
+def _is_narration(line: str) -> bool:
+    lowered = line.lower()
+    return any(marker in lowered for marker in NARRATION_MARKERS)
+
+
+def check_quarantined_content(documents: dict[str, str]) -> list[str]:
+    """Withdrawn numbers and protocol-forbidden assertions must not be asserted.
+
+    The scan is line-by-line so that a chronology entry recording a withdrawal
+    is distinguishable from a sentence restating the withdrawn number as
+    current evidence.
+    """
+    problems: list[str] = []
+    for name, text in documents.items():
+        haystack = text.replace("–", "-").replace("−", "-")
+        for number, line in enumerate(haystack.splitlines(), start=1):
+            if _is_narration(line):
+                continue
+            for pattern, reason in WITHDRAWN_NUMBER_PATTERNS.items():
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    problems.append(
+                        f"{name}:{number} asserts withdrawn value "
+                        f"{match.group(0)!r}: {reason}")
+            lowered = line.lower()
+            for phrase, reason in PROHIBITED_PHRASES.items():
+                if phrase in lowered:
+                    problems.append(
+                        f"{name}:{number} asserts prohibited claim "
+                        f"{phrase!r}: {reason}")
+    return problems
 
 
 def _form_patterns(forms: list[str]) -> list[str]:
@@ -198,7 +325,7 @@ def _md_spans(manuscript: str) -> dict[str, str]:
         elif line.startswith("### 4."):
             token = "section_" + line[4:].split()[0].replace(".", "_")
             out[token] = section_text(li, end)
-    for n in (3, 4, 5, 6):
+    for n in (1, 2, 3, 4):
         # non-greedy: stop at the FIRST blank line (a greedy `.*` with the
         # `\Z` alternative in the lookahead would swallow the document tail)
         m = re.search(rf"\*\*Figure {n}\..*?(?=\n\n|\Z)", manuscript, re.DOTALL)
@@ -288,6 +415,32 @@ def check_manuscript_numbers(manuscript: str, resolved: pd.DataFrame) -> list[st
     return problems
 
 
+def check_provisional_not_in_headlines(manuscript: str,
+                                       resolved: pd.DataFrame) -> list[str]:
+    """A provisional value must be absent from the headline spans, not merely undeclared.
+
+    ``check_claim_status`` only reads the ledger's ``used_in`` list, so a
+    provisional number could still be printed in the Abstract while the ledger
+    claims it lives in Section 4.6.  This check reads the manuscript itself.
+    """
+    problems: list[str] = []
+    spans = {token: text.replace("–", "-").replace("−", "-")
+             for token, text in _md_spans(manuscript).items()}
+    for row in resolved.itertuples(index=False):
+        if row.status != "RESOLVED" or row.claim_status != "DESCRIPTIVE_PROVISIONAL":
+            continue
+        forms = _printable_forms(
+            str(row.value), None, getattr(row, "print_precision", None))
+        patterns = _form_patterns(forms)
+        for span in HEADLINE_SPANS:
+            if _printed(patterns, spans.get(span, "")):
+                problems.append(
+                    f"claim {row.claim_id} is DESCRIPTIVE_PROVISIONAL but its "
+                    f"value {row.value} is printed in {span}; a provisional "
+                    f"result may not carry a summary-level statement")
+    return problems
+
+
 def check_generated_tables() -> list[str]:
     problems: list[str] = []
     if not GENERATED.exists():
@@ -342,6 +495,7 @@ def check_no_pooled_headlines() -> list[str]:
 
 
 def main() -> int:
+    ledger = load_ledger()
     resolved = resolve_claims()
     unresolved = resolved[resolved.status != "RESOLVED"]
     print("claim resolution:")
@@ -352,6 +506,14 @@ def main() -> int:
         if claim.status != "PENDING":
             problems.append(f"{claim.claim_id}: {claim.status}")
     manuscript = MANUSCRIPT.read_text(encoding="utf-8")
+    documents = {"manuscript": manuscript}
+    if TEX.exists():
+        documents["tex"] = TEX.read_text(encoding="utf-8")
+    for si_path in sorted((ROOT / "paper" / "si").glob("SI*.md")):
+        documents[f"si/{si_path.name}"] = si_path.read_text(encoding="utf-8")
+    problems += check_claim_status(ledger)
+    problems += check_quarantined_content(documents)
+    problems += check_provisional_not_in_headlines(manuscript, resolved)
     problems += check_manuscript_numbers(manuscript, resolved)
     problems += check_generated_tables()
     problems += check_no_pooled_headlines()

@@ -183,11 +183,11 @@ PINNED_GOVERNANCE_SHA256 = MappingProxyType(
             "b038754f751cc8dab5c26c6ae8e25d577d9b8a30a8f5ea481398a298e4b1b521"
         ),
         "scientific_evidence_status": (
-            "fb8b1044cc94f895e486123e38a75ef2f05385f250a39821b096cabba4beebdd"
+            "a061777ef6efc52b72de897148f1fe99f6512547d584ab0a6a4ac49e8e2b47ea"
         ),
-        "decision_log": "684ae4df2316d7260b88410929b2f64cd25075104b6d8f2d78ae1b747aa06ecd",
+        "decision_log": "9ebee202e3ba030f2a6d6fe81a676d5e0bc6700aab9ee3ad44a79d4942c3dbc1",
         "information_regime_todo": (
-            "15902e7c1e9059cae0ff45cbf7fbf295166d69a04d2932f192d9291b74e464ce"
+            "5966f09e5815ac8dfe5826c098246d415909a98813586f84467f5dcbfad20c40"
         ),
     }
 )
@@ -1860,11 +1860,18 @@ def _validate_semantic_authority_semantics(captured: Mapping[str, _BoundFile]) -
             b"The authority remains explicitly non-executable",
             b"execution_authorized` remains false",
         ),
+        # T05 was "IN PROGRESS: SOURCE PINS/DESIGN COMMIT PENDING" when this
+        # pin was written; the seal and the clean design commit then landed
+        # (3eba8d6, cd69b0c) and the tracker was updated, which left the pin
+        # describing a state that no longer exists and refused every run.  The
+        # pin tracks the *current* true boundary: the semantic authority is
+        # frozen under DLOG-028 and the execution protocol is sealed.  See
+        # DLOG-027 for the correction.
         "information-regime TODO": (
             b"T01",
             b"COMPLETE: DLOG-028",
             b"T05",
-            b"SOURCE PINS/DESIGN COMMIT PENDING",
+            b"v4 execution protocol and seal | COMPLETE: DLOG-028",
         ),
     }
     for label, payload in documents.items():

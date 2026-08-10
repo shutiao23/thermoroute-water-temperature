@@ -1,4 +1,5 @@
 - claim_id: RQ1_SKILL_7D_PERSISTENCE
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - key_point_1
@@ -13,6 +14,7 @@
   estimator: median_station_skill
   latex_macro: SevenDaySkillPersistence
 - claim_id: RQ1_SKILL_7D_DAMPED
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - key_point_1
@@ -27,10 +29,11 @@
   estimator: median_station_skill
   latex_macro: SevenDaySkillDamped
 - claim_id: RQ1_MEMORY_GAIN_7D
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_6
-  - figure_3
+  - figure_2
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -40,10 +43,11 @@
   latex_macro: SevenDayMemoryGain
   print_precision: 2
 - claim_id: RQ1_LEARNED_GAIN_7D
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_6
-  - figure_3
+  - figure_2
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -53,6 +57,7 @@
   latex_macro: SevenDayLearnedGain
   print_precision: 2
 - claim_id: RQ1_ALL_KEYS_7D_DELTA
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_6
   source_table: outputs/final/paired_effects.parquet
@@ -64,9 +69,10 @@
   estimator: median_station_paired_delta_rmse
   latex_macro: AllKeysSevenDayDelta
 - claim_id: RQ1_MEMORY_FRACTION_7D
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_6
-  - figure_3
+  - figure_2
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -76,10 +82,11 @@
   estimator: median_station_memory_fraction
   latex_macro: SevenDayMemoryFraction
 - claim_id: RQ1_STATION_COUNT_7D
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_4
-  - figure_3
+  - figure_2
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -88,6 +95,7 @@
   estimator: reportable_station_count
   latex_macro: NHeldoutStationsSevenDay
 - claim_id: RQ1_STATION_COUNT_1D
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_4
@@ -99,6 +107,7 @@
   estimator: reportable_station_count
   latex_macro: NHeldoutStationsOneDay
 - claim_id: RQ1_STATION_COUNT_3D
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_4
@@ -110,8 +119,8 @@
   estimator: reportable_station_count
   latex_macro: NHeldoutStationsThreeDay
 - claim_id: RQ1_TR_7D_RMSE
+  status: PRIMARY_FROZEN
   used_in:
-  - abstract
   - section_4_4
   source_table: outputs/final/station_metrics.parquet
   filter:
@@ -121,6 +130,7 @@
   estimator: median_station_rmse
   latex_macro: SevenDayThermoRouteRMSE
 - claim_id: RQ2_TCN_7D_DELTA
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_4
   source_table: outputs/final/paired_effects.parquet
@@ -132,6 +142,7 @@
   estimator: median_station_paired_delta_rmse
   latex_macro: SevenDayTCNMinusThermoRouteDelta
 - claim_id: RQ2_LGBM_1D_RMSE
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_4
@@ -143,6 +154,7 @@
   estimator: median_station_rmse
   latex_macro: OneDayLightGBMRMSE
 - claim_id: RQ2_LGBM_3D_RMSE
+  status: PRIMARY_FROZEN
   used_in:
   - abstract
   - section_4_4
@@ -154,6 +166,7 @@
   estimator: median_station_rmse
   latex_macro: ThreeDayLightGBMRMSE
 - claim_id: RQ2_TR_7D_VS_LGBM
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_4
   - table_4_6
@@ -166,6 +179,7 @@
   estimator: median_station_paired_delta_rmse
   latex_macro: SevenDayThermoRouteMinusLightGBM
 - claim_id: RQ3_REGION_PENALTY_3D
+  status: DESCRIPTIVE_PROVISIONAL
   used_in:
   - section_4_5
   source_table: outputs/final/spatial_effects.parquet
@@ -177,6 +191,7 @@
   estimator: median_station_region_minus_random_rmse
   latex_macro: ThreeDayRegionPenalty
 - claim_id: RQ3_DISTANCE_RANDOM_KM
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_5
   source_table: outputs/final/spatial_effects.parquet
@@ -187,6 +202,7 @@
   latex_macro: RandomNearestGaugeKm
   print_precision: 0
 - claim_id: RQ3_DISTANCE_REGION_KM
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_5
   source_table: outputs/final/spatial_effects.parquet
@@ -197,15 +213,17 @@
   latex_macro: RegionNearestGaugeKm
   print_precision: 0
 - claim_id: RQ4_HALFLIFE_MEDIAN
+  status: PRIMARY_FROZEN
   used_in:
   - section_4_6
-  - figure_6
+  - figure_4
   source_table: outputs/final/basin_attributes.parquet
   filter:
     stat: half_life_days
   estimator: median
   latex_macro: HalfLifeMedianDays
 - claim_id: RQ4_RAPID_WARMING_7D_DELTA
+  status: DESCRIPTIVE_PROVISIONAL
   used_in:
   - section_4_6
   source_table: outputs/final/hydrologic_state_effects.parquet
@@ -217,6 +235,7 @@
   latex_macro: SevenDayRapidWarmingDelta
   print_precision: 2
 - claim_id: RQ4_ISSUE_TREND_7D_DELTA
+  status: DESCRIPTIVE_PROVISIONAL
   used_in:
   - section_4_6
   source_table: outputs/final/hydrologic_state_effects.parquet
@@ -228,6 +247,7 @@
   latex_macro: SevenDayIssueTrendDelta
   print_precision: 2
 - claim_id: RQ2_FLOW_REMOVAL_1D_DELTA
+  status: PRIMARY_FROZEN
   used_in:
   - si19
   source_table: outputs/final/flow_ablation_effects.parquet
@@ -237,6 +257,7 @@
   estimator: median_station_flow_removal_delta
   latex_macro: OneDayFlowRemovalDelta
 - claim_id: RQ2_FLOW_REMOVAL_7D_DELTA
+  status: PRIMARY_FROZEN
   used_in:
   - si19
   source_table: outputs/final/flow_ablation_effects.parquet
@@ -246,6 +267,7 @@
   estimator: median_station_flow_removal_delta
   latex_macro: SevenDayFlowRemovalDelta
 - claim_id: A2S_RMSE_1D
+  status: PRIMARY_FROZEN
   used_in:
   - si07
   source_table: outputs/final/air2stream_metrics.parquet
@@ -256,6 +278,7 @@
   estimator: median_station_rmse
   latex_macro: Air2streamOneDayRMSE
 - claim_id: A2S_RMSE_1D_UNFILTERED
+  status: PRIMARY_FROZEN
   used_in:
   - si07
   source_table: outputs/final/air2stream_metrics.parquet
@@ -266,6 +289,7 @@
   estimator: median_station_rmse
   latex_macro: Air2streamOneDayRMSEUnfiltered
 - claim_id: A2S_RMSE_3D
+  status: PRIMARY_FROZEN
   used_in:
   - si07
   source_table: outputs/final/air2stream_metrics.parquet
@@ -276,6 +300,7 @@
   estimator: median_station_rmse
   latex_macro: Air2streamThreeDayRMSE
 - claim_id: A2S_RMSE_3D_UNFILTERED
+  status: PRIMARY_FROZEN
   used_in:
   - si07
   source_table: outputs/final/air2stream_metrics.parquet
@@ -286,6 +311,7 @@
   estimator: median_station_rmse
   latex_macro: Air2streamThreeDayRMSEUnfiltered
 - claim_id: A2S_RMSE_7D
+  status: PRIMARY_FROZEN
   used_in:
   - si07
   source_table: outputs/final/air2stream_metrics.parquet
@@ -296,6 +322,7 @@
   estimator: median_station_rmse
   latex_macro: Air2streamSevenDayRMSE
 - claim_id: A2S_RMSE_7D_UNFILTERED
+  status: PRIMARY_FROZEN
   used_in:
   - si07
   source_table: outputs/final/air2stream_metrics.parquet
