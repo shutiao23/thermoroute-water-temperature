@@ -318,7 +318,7 @@ def summarise(scored: pd.DataFrame, clusters: dict[str, str],
             "median_station_delta_rmse": float(np.median(delta)),
             "median_anchor_rmse": float(np.median(block["rmse_anchor"])),
             "median_model_rmse": float(np.median(block["rmse_model"])),
-            "n_stations": int(len(block)),
+            "n_stations": len(block),
         })
     return rows
 
