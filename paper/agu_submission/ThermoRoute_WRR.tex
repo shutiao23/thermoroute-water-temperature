@@ -138,9 +138,9 @@ reduction delivered by seasonal memory is 0.875. A gradient-boosted tree with
 site identity has the lowest station-median RMSE at one and three days (0.589
 and 1.304 °C) and is matched at seven days. Every model evaluated here is
 issue-time-only; none consumes future meteorology, and a separate retrospective
-analysis shows realized future weather is worth several times the architecture
-effect at three and seven days. Within that issue-time regime, reported skill
-is largely a statement about the reference model rather than the architecture.
+analysis bounds what perfect future weather could add at several times the
+architecture effect. Within that issue-time regime, reported skill is largely a
+statement about the reference model rather than the architecture.
 
 % agujournal2025.cls provides a native Plain Language Summary environment, nested
 % inside the abstract.  This replaces the \section*{Plain Language Summary}
@@ -1389,11 +1389,15 @@ Two boundaries define what these findings mean. Every model evaluated here is
 issue-time-only, so all of the above describes a single information regime: the
 one in which recent local thermal history is available and future meteorology
 is not. A separate retrospective analysis on the same cohort and keys
-(Section 4.7) shows that realized future meteorology is worth 0.13 °C at one
-day and 0.54--0.63 °C at three and seven days --- an order of magnitude above the
-architecture effect measured under issue-time information. Reported skill for
-this variable is therefore governed jointly by the reference model and by the
-information the model is given, and neither is a property of the architecture.
+(Section 4.7) puts an upper bound on what perfect future meteorology could add:
+0.13 °C at one day and 0.54--0.63 °C at three and seven days, an order of
+magnitude above the architecture effect measured under issue-time information.
+That bound is an information ceiling from a realized-weather oracle, and until
+the shuffled and time-shifted controls of protocol v5a have run we do not
+attribute it to event-scale weather rather than to seasonal phase. Reported
+skill for this variable is nonetheless governed jointly by the reference model
+and by the information the model is given, and neither is a property of the
+architecture.
 
 The common mechanism on the design side is that each choice absorbs an
 alternative explanation into the reported number: seasonal damping into a weak
