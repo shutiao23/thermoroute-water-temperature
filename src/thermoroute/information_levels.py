@@ -135,15 +135,23 @@ def _matches(column: str, prefixes: Sequence[str], extras: Sequence[str]) -> boo
 
 
 def prohibited_columns(name: str, columns: Iterable[str]) -> tuple[str, ...]:
-    """Columns this level forbids, in the order they appear."""
+    """Columns this level forbids, in the order they appear.
+
+    Written as an explicit list of (hidden variable, matcher) pairs rather than
+    a boolean chain: which variable a rung hides is the thing a reviewer needs
+    to check, and it should be readable without resolving operator precedence.
+    """
     rung = level(name)
-    out: list[str] = []
-    for column in columns:
-        if not rung.water_temperature_visible and _matches(
-            column, _WATER_TEMPERATURE_PREFIXES, _WATER_TEMPERATURE_EXTRAS
-        ) or not rung.flow_visible and _matches(column, _FLOW_PREFIXES, ()):
-            out.append(column)
-    return tuple(out)
+    hidden: list[tuple[Sequence[str], Sequence[str]]] = []
+    if not rung.water_temperature_visible:
+        hidden.append((_WATER_TEMPERATURE_PREFIXES, _WATER_TEMPERATURE_EXTRAS))
+    if not rung.flow_visible:
+        hidden.append((_FLOW_PREFIXES, ()))
+    return tuple(
+        column
+        for column in columns
+        if any(_matches(column, prefixes, extras) for prefixes, extras in hidden)
+    )
 
 
 def admissible_columns(name: str, columns: Iterable[str]) -> tuple[str, ...]:
