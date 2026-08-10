@@ -1565,3 +1565,64 @@ Requires a protocol version bump? No. The shift and component arms remain
 specified under the same v5a seal and unrun.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-10 — DLOG-029: shift arms executed under the same seal; P4 satisfied
+
+Decision: the F0/F3_full forcing value is reported as **exact-event-timing**
+weather information. Sealed decision rule P4 is satisfied.
+
+The shuffle arm (DLOG-028) removed within-month day-to-day correspondence but
+could not separate that from sub-monthly synoptic persistence, because a
+same-month donor can land within a few days of the true valid time. The +/-7-day
+arms displace the realized future by a whole week, leaving climate,
+near-seasonal phase and local weather persistence intact.
+
+Result. The +7-day arm, the primary control P4 is stated in, retains -0.1%,
+0.7% and 14.0% of the true forcing value at 1, 3 and 7 days for the raw-target
+tree and -0.5%, 1.0% and 13.8% for the residual-target tree, and is worse than
+the true arm at 90-95% of stations. The -7-day arm retains essentially nothing
+at any lead. The two are reported separately and never averaged; the minus arm
+is the weaker control because it moves the future window toward information
+already available at issue time.
+
+The two residues are coherent. At seven days the within-month shuffle leaves
+8.8% and the week displacement 14.0%. Displacement preserves more because
+synoptic weather is autocorrelated over several days, so the shifted window
+still resembles the true one; a shuffle within a month does not. That ordering
+is what a weather-information reading predicts and would be hard to obtain from
+a seasonal-phase artifact.
+
+Boundary rule. Displacement leaves seven days at one end of each station's
+record without a donor; those keys took a climatology substitution and were
+counted per key by the runner. The sealed rule is enforced in the scoring
+authority: such keys are dropped from both shift arms *and* from the true arm,
+so all three share one common shift-registry, named separately and never mixed
+with the primary 358,765-key registry. A test asserts the common registry is
+strictly smaller than the primary one, so a silently unapplied boundary rule
+cannot pass.
+
+Chronology. Both arms run under the same specification seal as the shuffle,
+written at commit 88d7578 before any placebo outcome existed. The underlying
+F0/F3 contrast remains post-outcome and descriptive; Section 4.7 stays out of
+the Abstract and the Key Points.
+
+Still open under the same seal: the four single-component and four
+leave-one-out arms, which would attribute the value to individual
+meteorological variables. Nothing here attributes it.
+
+Evidence available before the decision: the sealed protocol and seal, the v5
+point and inference authorities, the twelve reference shards, the twelve shift
+shards and their lineage manifest.
+
+Data periods already inspected: 2006-2017 inputs and the already-open 2021-2023
+window. No component, F2, L2, L3, neural, crossed, cohort or audit-window
+outcome was read.
+
+Changes a primary hypothesis? No. It supplies the timing control the forcing
+result required, and the control was passed.
+
+Requires a protocol version bump? No.
+
+Commit(s): (this worktree)

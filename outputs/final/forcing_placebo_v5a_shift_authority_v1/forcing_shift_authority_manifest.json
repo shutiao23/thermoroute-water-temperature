@@ -1,0 +1,9 @@
+{
+ "builder_sha256": "b4e8bc668a139168b1d884e02d5f48668e3173d55b81aa8ec6ecfe433f7b3268",
+ "format": "thermoroute.forcing-placebo-v5a-shift-authority.v1.manifest",
+ "outputs_sha256": {
+  "forcing_shift_rows.parquet": "e3b9f31ff21e48d52813c9f12a08c65b628f33ca6650af91aa43dee6640e6d58",
+  "forcing_shift_summary.json": "a4961d84780e9ac091cf30d344427a180fe19358b8c3019c6339f1e89dea3acf"
+ },
+ "shift_lineage_manifest_sha256": "328a1d6b05efc060efc209d8acae8b00670f05511d8834f0c048f9feea1fa3ff"
+}

@@ -1176,14 +1176,36 @@ non-probability cohort with about nine effective spatial clusters, not as an
 attribution, and we do not fit a multivariable model the design cannot carry
 (`outputs/final/forcing_heterogeneity.parquet`).
 
-Two things this still does not establish. It does not attribute the gain to any
+**The model is using exact event timing.** The shuffle cannot separate
+day-to-day correspondence from sub-monthly synoptic persistence, because a
+same-month donor can land within a few days of the true valid time. The second
+sealed control displaces the realized future by a whole week in each direction,
+which leaves climate, near-seasonal phase and local weather persistence intact
+and removes only the exact dates. Keys whose displaced valid time falls outside
+the record are dropped from both shift arms *and* from the true arm, so all
+three are scored on one common shift-registry named separately from the primary
+one.
+
+The forcing value does not survive a week's displacement either. The +7-day arm
+— the primary timing control that decision rule P4 is stated in — retains
+−0.1%, 0.7% and 14.0% of the true value at 1, 3 and 7 days for the raw-target
+tree (−0.5%, 1.0% and 13.8% for the residual-target tree), and is worse than
+the true arm at 90–95% of stations. The −7-day arm retains essentially nothing
+at any lead; it is the weaker control of the pair, because displacing backwards
+moves the future window toward information already available at issue time, and
+the two are reported separately and never averaged. P4 is satisfied, so the
+lead-structure interpretation above stands.
+
+The residues of the two controls are consistent and mildly informative. At
+seven days the within-month shuffle leaves 8.8% and the one-week displacement
+14.0%: displacing by a week preserves more than shuffling within a month
+because synoptic weather is autocorrelated over several days, so the shifted
+window still resembles the true one. Both are small, and the direction is what
+a weather-information reading predicts.
+
+One thing this still does not establish. It does not attribute the gain to any
 particular meteorological variable; the single-component and leave-one-out arms
-are specified in the same sealed protocol and have not been run. And it does
-not separate day-to-day correspondence from sub-monthly synoptic persistence:
-the placebo destroys the exact date pairing, but a donor drawn from the same
-month can still fall within a few days of the true valid time. The ±7-day
-time-shift arm is the control for that, and it is likewise specified and
-unrun.
+are specified in the same sealed protocol and have not been run.
 Nor can the value be divided by an architecture effect from Section 4.3 to form
 a ratio: the two come from different cells of a design that has not been
 crossed, and the interaction between forcing and architecture is unmeasured.
@@ -1404,8 +1426,9 @@ That bound is an information ceiling from a realized-weather oracle. A
 placebo sealed before its outcome existed shows it is event-scale weather
 information rather than seasonal phase: deranging the meteorology within each
 station-month, which preserves climate and seasonal phase exactly, removes
-91–100% of the value (Section 4.7). Whether the residue at seven days reflects
-exact timing or sub-monthly persistence awaits the time-shift arm. Reported
+91–100% of the value (Section 4.7). A second sealed control shows the same
+under a one-week displacement of the future, so the model is using exact event
+timing rather than the weather window around it. Reported
 skill for this variable is nonetheless governed jointly by the reference model
 and by the information the model is given, and neither is a property of the
 architecture.
