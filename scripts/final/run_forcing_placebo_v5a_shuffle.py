@@ -154,6 +154,7 @@ def build_execution_authority(*, require_clean_tree: bool) -> dict[str, Any]:
         "runtime": _runtime_identity(),
         "arm": PLACEBO_ARM,
         "shuffle_seeds": list(SHUFFLE_SEEDS),
+        "pinned_input_sha256": dict(V5.PINNED_INPUT_SHA256),
         "stratum": "site_id x year-month of the valid date (stricter of the two sealed readings)",
     }
 
@@ -261,6 +262,36 @@ def build_shuffled_panel(raw_panel: Any, *, seed: int) -> tuple[Any, dict[str, A
 # ---------------------------------------------------------------------------
 
 
+def capture_placebo_inputs() -> dict[str, Any]:
+    """Bind the six pinned data inputs under this protocol's own authority.
+
+    The placebo deliberately does not call ``V5.capture_execution_inputs``.
+    That function enforces the *v5* score-execution authority, which authorizes
+    twelve specific v5 cells and, because the sealed v5 protocol document embeds
+    the digests of the append-only governance documents, can no longer be
+    reproduced once a DLOG entry is appended (see the DLOG-027 addendum).
+    Borrowing it would also mean running one protocol's arm under another
+    protocol's authorization.
+
+    What is load-bearing for a placebo is that the *data* is the same data the
+    reference arm used.  That is exactly what this checks: each pinned input is
+    read through the v5 stable-file reader and its digest must equal the v5
+    literal pin, so the placebo and the reference cannot silently diverge on
+    inputs.
+    """
+    captured: dict[str, Any] = {}
+    for role, path in V5.PINNED_INPUT_PATHS.items():
+        bound = V5._read_stable_regular(path, root=ROOT, label=f"placebo input {role}")
+        expected = V5.PINNED_INPUT_SHA256[role]
+        if bound.sha256 != expected:
+            raise PlaceboError(
+                f"placebo input {role} differs from the reference run: "
+                f"expected {expected}, observed {bound.sha256}"
+            )
+        captured[role] = bound
+    return captured
+
+
 def shard_filename(model: str, horizon: int, seed: int) -> str:
     return f"{PLACEBO_ARM}_{model}_h{horizon}_seed{seed}_v5a.parquet"
 
@@ -268,7 +299,7 @@ def shard_filename(model: str, horizon: int, seed: int) -> str:
 def execute(*, require_clean_tree: bool = True) -> int:
     authority = build_execution_authority(require_clean_tree=require_clean_tree)
 
-    snapshot = V5.capture_execution_inputs()
+    snapshot = capture_placebo_inputs()
     raw, stations, _registry = V5._load_raw_panel_from_bounds(snapshot)
     reference = V5.validate_reference_registry(
         pd.read_parquet(io.BytesIO(snapshot["primary_key_registry"].payload)),
