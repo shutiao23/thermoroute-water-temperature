@@ -141,9 +141,7 @@ def prohibited_columns(name: str, columns: Iterable[str]) -> tuple[str, ...]:
     for column in columns:
         if not rung.water_temperature_visible and _matches(
             column, _WATER_TEMPERATURE_PREFIXES, _WATER_TEMPERATURE_EXTRAS
-        ):
-            out.append(column)
-        elif not rung.flow_visible and _matches(column, _FLOW_PREFIXES, ()):
+        ) or not rung.flow_visible and _matches(column, _FLOW_PREFIXES, ()):
             out.append(column)
     return tuple(out)
 
