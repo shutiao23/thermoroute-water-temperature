@@ -120,7 +120,7 @@ def test_phase1_protocol_is_forcing_specific_canonical_inert_and_result_free(
     assert payload == V5._canonical_json_bytes(protocol)
     assert len(payload) == 8_663
     assert hashlib.sha256(payload).hexdigest() == (
-        "08a15960b8cd9814fed75178b8bb7db57e0bfa4fe42419b07e1f710c02c6b9dd"
+        "0d4d97a2420ad55fed2c7d558c0c56b5c3a1c6485208c83f53110a3b6beff2a5"
     )
     assert protocol["protocol_id"] == "thermoroute_wrr_forcing_v5_observed_score_execution"
     assert protocol["version"] == 5

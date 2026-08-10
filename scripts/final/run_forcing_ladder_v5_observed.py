@@ -187,7 +187,7 @@ PINNED_GOVERNANCE_SHA256 = MappingProxyType(
         ),
         "decision_log": "684ae4df2316d7260b88410929b2f64cd25075104b6d8f2d78ae1b747aa06ecd",
         "information_regime_todo": (
-            "5dc1611160a07ae12c0b40dec1de12b30e3eb08fbb773f4cf5ca6b0eceef67ed"
+            "15902e7c1e9059cae0ff45cbf7fbf295166d69a04d2932f192d9291b74e464ce"
         ),
     }
 )
