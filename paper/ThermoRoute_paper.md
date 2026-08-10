@@ -887,9 +887,18 @@ damped-persistence anchor, $t_{1/2} = \ln(0.5)/\ln(\phi_i)$ — an anomaly
 half-life, not an e-folding time — with a station median of 6.9 days
 (interquartile range 5.0–11.9). The station-level memory/learned decomposition
 of the error budget is consistent with it: at seven days the median memory gain
-is 0.49 °C and the median learned gain 0.07 °C (Figure 2b; per-station
-fractions, computed where the total gain is positive, have a median memory
-fraction of 0.875). The station correlation between log half-life and learned
+is 0.49 °C and the median learned gain 0.07 °C (Figure 2b). Whole-HUC2 cluster
+bootstrap intervals separate the two without overlap — [0.386, 0.570] °C for
+the memory gain against [0.057, 0.086] °C for the learned gain — and the
+leave-one-HUC2-out ranges ([0.477, 0.531] and [0.066, 0.074] °C) do not
+approach each other either. Per-station memory fractions, computed over the
+113 of 116 stations whose total gain is positive, have a median of 0.875
+([0.861, 0.894]). The three stations the rule excludes are ones where the
+learned model is worse than raw persistence at seven days, and at all three the
+damped anchor is worse than raw persistence too, so the fraction would have no
+interpretable denominator there. Values
+are from `outputs/final/decomposition_intervals.parquet` and carry the same
+15-cluster approximation as every other clustered interval here (Section 3.6). The station correlation between log half-life and learned
 gain is −0.40 at one day and −0.14 at three days — longer-memory stations leave
 less for the learned model to add at short leads — and reverses sign at seven
 days (+0.21), where the remaining learned gain is small everywhere.

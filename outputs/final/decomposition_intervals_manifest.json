@@ -1,0 +1,10 @@
+{
+ "bootstrap_draws": 10000,
+ "bootstrap_seed": 0,
+ "builder_sha256": "5692beb1a0800df4afb9a94988a5cd7b18462334ca521dd376f32a649b91b8c3",
+ "cluster_unit": "HUC2",
+ "format": "thermoroute.decomposition-cluster-intervals.v1",
+ "note": "Uncertainty for an existing frozen decomposition; no prediction was recomputed and no model was refitted.",
+ "output_sha256": "8738f3c3c662c816e255f5338439f47500481cc6ff0ff2a5e0cf2642e91809a7",
+ "source_sha256": "d9f4bcccf28ce480012ecdf60f33c4ef0706313481ca35a46b77640cb80ee760"
+}
