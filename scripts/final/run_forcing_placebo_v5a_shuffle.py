@@ -309,6 +309,7 @@ def execute(*, require_clean_tree: bool = True) -> int:
     # preprocessing, imputation and every issue-time feature come from the TRUE
     # panel: the placebo moves future forcing only.
     preprocessing = V5.fit_observed_preprocessing(raw, stations)
+    preprocessing_record = V5.preprocessing_content_record(preprocessing)
     imputed = V5.impute_feature_panel(raw, preprocessing.imputer)
 
     expected_files: dict[str, dict[str, object]] = {}
@@ -378,7 +379,28 @@ def execute(*, require_clean_tree: bool = True) -> int:
         expected_files[MANIFEST_FILENAME] = dict(
             transaction.write_bytes(MANIFEST_FILENAME, payload)
         )
-        transaction.commit(expected_files)
+
+        def precommit() -> None:
+            """Re-verify the placebo's own invariants with the bytes staged."""
+            expected_shards = len(V5.HORIZONS) * len(SHUFFLE_SEEDS) * len(V5.MODELS)
+            written = [name for name in expected_files if name.endswith(".parquet")]
+            if len(written) != expected_shards:
+                raise PlaceboError(
+                    f"staged {len(written)} shards, expected {expected_shards}"
+                )
+            if len(cell_manifest) != expected_shards:
+                raise PlaceboError("manifest cell count differs from the staged shards")
+            # the true panel and the preprocessing must not have moved while the
+            # placebo arms were being fitted
+            V5._validated_raw_frame(raw)
+            V5._validated_imputed_frame(imputed)
+            if V5.preprocessing_content_record(preprocessing) != preprocessing_record:
+                raise PlaceboError("preprocessing content changed before commit")
+            # the sealed design must still be the one this run started under
+            if SEALER.verify_seal()["drifted_inputs"]:
+                raise PlaceboError("sealed placebo inputs drifted during the run")
+
+        transaction.commit(expected_files, precommit_check=precommit)
 
     print(json.dumps({
         "status": "WRITTEN",

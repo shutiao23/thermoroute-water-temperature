@@ -248,3 +248,27 @@ def test_execution_authority_binds_runner_runtime_and_commit() -> None:
     assert authority["protocol_sha256"] == P._sha256_file(P.SEALER.PROTOCOL)
     assert set(P.RUNTIME_PACKAGES) <= set(authority["runtime"]["packages"])
     assert authority["arm"] == "F3_shuffle_month"
+
+
+def test_runner_commits_with_the_required_precommit_check() -> None:
+    """A 30-fit run must not die on the commit line.
+
+    ``_BundleTransaction.commit`` takes a keyword-only ``precommit_check``; the
+    first run of this arm completed all thirty fits and then raised a TypeError
+    there, and the transaction correctly rolled the whole bundle back.  This
+    check is the cheap static guard for that class of loss.
+    """
+    import inspect
+
+    signature = inspect.signature(V5._BundleTransaction.commit)
+    parameter = signature.parameters["precommit_check"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
+    source = Path(P.__file__).read_text(encoding="utf-8")
+    assert "precommit_check=" in source, "runner must pass the required callback"
+
+
+def test_precommit_guard_counts_every_declared_shard() -> None:
+    """The precommit check must know how many shards the arm owes."""
+    expected = len(V5.HORIZONS) * len(P.SHUFFLE_SEEDS) * len(V5.MODELS)
+    assert expected == 30
