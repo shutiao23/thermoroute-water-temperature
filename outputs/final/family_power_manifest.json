@@ -1,0 +1,8 @@
+{
+ "alpha": 0.05,
+ "builder_sha256": "3a13cf738ed9dbcba296d1d9f4b45dde2212f97e7b1f4263abf9bff543ce425b",
+ "format": "thermoroute.five-test-family-power.v1",
+ "note": "Power for an existing frozen family; no model was refitted and no new comparison was added to the family.",
+ "output_sha256": "04662fe6f4874c8b86abbd7173a7e5df046748242161c56bbd488e7151c1a351",
+ "source_sha256": "93cdd78bf184f836d15f44111ce090ea21ab8d57b4a096046eaf4367e08849c2"
+}

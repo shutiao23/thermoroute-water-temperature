@@ -41,11 +41,11 @@ damped persistence; the median station-level memory gain is 0.49 °C against a
 learned gain of 0.07 °C, and the median fraction of the station-level error
 reduction delivered by seasonal memory is 0.875. A gradient-boosted tree with
 site identity has the lowest station-median RMSE at one and three days (0.589
-and 1.304 °C) and is matched at seven days. Every model evaluated here is
-issue-time-only; none consumes future meteorology, and a separate retrospective
-analysis bounds what perfect future weather could add at several times the
-architecture effect. Within that issue-time regime, reported skill is largely a
-statement about the reference model rather than the architecture.
+and 1.304 °C); at seven days the two are not separated, on a comparison the
+design is underpowered to make. Every model here is issue-time-only, and a
+separate retrospective analysis bounds what perfect future weather could add at
+several times the architecture effect. Within that regime, reported skill is
+largely a statement about the reference model rather than the architecture.
 
 **Plain Language Summary.** River temperature changes slowly from day to day, so
 a forecast that repeats yesterday's reading is already fairly accurate, and one
@@ -731,8 +731,15 @@ appears only as a Supporting Information sensitivity, Section SI07). On this
 window the deep model's station-median skill is +0.250 against persistence
 and +0.038 against damped persistence, and the tree with site identity leads
 at one and three days (station-median RMSE 0.589 and 1.304 °C; Table 4.7a) and
-is matched at seven days (1.694 versus 1.735 °C; paired station-median ΔRMSE
-−0.009 °C, Table 4.6 row 5). The
+is not separated from it at seven days (1.694 versus 1.735 °C; paired
+station-median ΔRMSE −0.009 °C, 95% interval [−0.017, +0.002], Table 4.6 row
+5). That last row is not evidence of equivalence, and we do not read it as
+such: the smallest effect this cohort's cluster structure can resolve at
+α = 0.05 is larger than the effect observed, so the comparison is underpowered
+rather than null (`outputs/final/family_power.parquet`). The three
+damped-persistence rows of the family are in the opposite position — their
+effects are three to seven times the smallest detectable effect — so the
+family's power is not uniform and Table 4.6 should be read row by row. The
 information-matched plain neural controls are scored on this window with the
 same frozen weights and keys as every other model; they carry no calibration
 (`NO_FROZEN_CALIBRATION`) and enter only the point comparisons.
@@ -1269,7 +1276,8 @@ model ranking does not
 favor architectural constraint: a gradient-boosted tree with site identity has
 the lowest station-median RMSE at 1- and 3-day leads (0.589 and 1.304 °C), and
 the deep model's 7-day point estimate (1.694 versus 1.735 °C) is not
-distinguishable from the tree at the cluster level (Table 4.6); the one-factor
+separated from the tree at the cluster level, though that row is underpowered
+rather than null (Table 4.6; Section 4.4); the one-factor
 ablations (router, mixture, dynamic prior, residual bound) move one-day error by
 at most 0.004 °C on the development window with no material held-out gain.
 Third, and negatively, this design cannot resolve the spatial-partition
