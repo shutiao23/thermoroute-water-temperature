@@ -1245,3 +1245,108 @@ protocol, source registry and new result authority; the v4 draft remains
 unsealed and `execution_authorized: false`.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-027: F2b remains planned-degraded; primary scope is 48 F0/F3 cells
+
+Decision: Close the current F2b go/no-go as **NO-GO** and retain F2b as
+`PLANNED_DEGRADED`.  Until a separately frozen archive pilot passes every
+upgrade gate, the intended primary crossed design is the 48-cell F0/F3_full
+subset rather than a completed 72-cell F0/F2b/F3_full matrix.  F2a remains a
+separate retrospective fixed-lead, temperature-only diagnostic and cannot be
+substituted for F2b.
+
+Why: A read-only official-source investigation found that the NOAA GFS NODD
+bucket currently exposes coherent 0.25-degree trajectories for sampled old
+initializations.  The 2021-03-30 00Z and 2023-12-31 sampled directories contain
+the expected three-hour f000 through f192 sequence without a missing forecast
+hour.  This establishes a plausible acquisition route, not an execution-ready
+archive.  The repository still lacks all of the following required evidence:
+
+1. a frozen UTC issuance cutoff for each date-only issue key;
+2. a complete 2021--2023 issue-day and required-variable inventory;
+3. publication/revision-history evidence for objects backfilled after their
+   nominal initialization date, including pre-2021-02-26 examples whose S3
+   `Last-Modified` metadata is in 2024;
+4. archived GRIB/message bytes, HTTP metadata, ETags and SHA-256 checksums; and
+5. a score-independent common-key authority proving at least 0.90 coverage.
+
+The official evidence checked was the NCEI GFS product description
+(`https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast`),
+the NCEP/NCO GFS product inventory
+(`https://www.nco.ncep.noaa.gov/pmb/products/gfs/`), the NOAA GFS NODD registry
+(`https://registry.opendata.aws/noaa-gfs-bdp-pds/`), NCEI THREDDS old-month
+catalogs, and the NCEI HAS Grid-004 request interface.  NODD accessibility does
+not by itself attest contemporaneous availability or immutable as-issued
+vintage semantics.
+
+Permitted manuscript wording after the 48-cell subset is actually complete:
+
+> The archived-vintage F2b arm remained `PLANNED_DEGRADED` because an
+> issue-time-complete, coherent, publication-time-bound, and checksum-frozen
+> GFS archive was not demonstrated for the 2021--2023 evaluation keys. We
+> therefore report the 48-cell F0/F3_full subset, not a completed 72-cell
+> primary matrix. F2a remains a separate retrospective fixed-lead,
+> temperature-only diagnostic and was not substituted for F2b. Consequently,
+> we make no as-issued, operational-replay, or archived-forecast recovery claim.
+
+Evidence available before the decision: only label-free source documentation,
+directory listings and HTTP metadata.  No model, prediction, score, target
+outcome or F2b-derived feature was read or computed.
+
+Data periods already inspected: object inventories for sampled 2021 and 2023
+initializations.  This was an archive-availability probe, not a model-result
+inspection and not the full issue-key coverage audit.
+
+Changes a primary hypothesis? no.  This applies the v4 F2b degradation rule;
+it does not select a favorable result.
+
+Requires a protocol version bump? no for the NO-GO.  Any future reopening must
+be a separately frozen acquisition amendment made before feature extraction or
+model scoring.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-09 — DLOG-028: score-free semantic registries v4 authority frozen
+
+Decision: Promote only the semantic data and contract registries to a
+create-only Tier-1 authority. The canonical 11-file directory is
+`outputs/final/semantic_registries_v4_authority/`; its authority-manifest
+SHA-256 is
+`12cdc355a06d2c39733a60386dfdeb8a2f6b234d2f8d6f641a995a3d3c41072c`.
+The authority remains explicitly non-executable and is not a forcing-protocol
+seal or model-result authority.
+
+Why: The production publisher rebuilt the semantic-data candidate and the
+semantic-contract candidate twice under the pinned Route-A Python 3.12
+environment, verified exact serialized bytes and cross-bindings, and committed
+the staged directory with create-only `RENAME_NOREPLACE` semantics. The
+authority binds two Parquet data registries, six JSON contract registries, two
+candidate manifests, the authority manifest, all relevant builders and tests,
+source inputs and runtime receipts. The primary state inventory is exactly 72
+logical cells: 48 `PLANNED`, 24 `REGISTERED`, zero `EXECUTED` and zero
+`WITHDRAWN`. The separate 432 legacy logical cells remain forensic
+`WITHDRAWN`.
+
+Evidence available before the decision: score-independent raw panels, frozen
+key and defect authorities, protocol/status documents, registry builders and
+tests. The focused semantic test set passed 60 tests before publication. No
+model checkpoint, prediction, score, effect, contrast result or runner output
+was read or accepted.
+
+Data periods already inspected: semantic inputs cover the previously declared
+2006--2015 training and 2016--2017 validation periods; source authorities also
+describe the already-open 2021--2023 evaluation domain. This publication adds
+no outcome-derived model evidence.
+
+Changes a primary hypothesis? no. It freezes data meanings and the current
+planned/registered inventory only.
+
+Requires a protocol version bump? no. The forcing-specific protocol candidate,
+clean design commit, complete source registry and terminal seal remain separate
+prerequisites. `execution_authorized` remains false throughout this authority.
+
+Commit(s): (this worktree)

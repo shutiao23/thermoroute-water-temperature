@@ -34,7 +34,6 @@ from thermoroute import config as C  # noqa: E402
 from thermoroute import data as D  # noqa: E402
 from thermoroute import features as F  # noqa: E402
 from thermoroute.baselines import _lgb_fit  # noqa: E402
-from thermoroute.model_suite import STAGE9_LIGHTGBM_VALIDATION_GRID  # noqa: E402
 
 OUT = ROOT / "outputs" / "conventional"
 PRED = OUT / "predictions_2021_2023.parquet"
@@ -114,8 +113,6 @@ def main() -> None:
     ref = pd.read_parquet(PRED, columns=["site_id", "horizon", "issue_date", "y_true"])
     ref["site_id"] = ref["site_id"].astype(str).str.zfill(8)
     ref["issue_date"] = pd.to_datetime(ref["issue_date"])
-    keys = ref[["site_id", "horizon", "issue_date", "y_true"]].drop_duplicates(
-        ["site_id", "horizon", "issue_date"])
 
     dist_map: dict[str, dict[str, float]] = {}
     for _, r in registry.iterrows():

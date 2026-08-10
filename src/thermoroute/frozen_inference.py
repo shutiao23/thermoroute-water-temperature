@@ -478,7 +478,7 @@ def reconstruct_frozen_transforms(
         ("scaler means", means),
         ("scaler standard deviations", stds),
     ):
-        if set(stored) != expected_training_pairs:
+        if not isinstance(stored, Mapping) or set(stored) != expected_training_pairs:
             raise FrozenInferenceError(
                 f"bundle {label} do not cover the exact training station-variable registry"
             )

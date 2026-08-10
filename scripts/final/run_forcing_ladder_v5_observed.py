@@ -29,6 +29,7 @@ import platform
 import secrets
 import stat
 import struct
+import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -86,14 +87,34 @@ PRIMARY_KEY_REGISTRY = KEY_AUTHORITY_DIR / "primary_reportable_key_registry_v4.p
 KEY_AUTHORITY_MANIFEST = KEY_AUTHORITY_DIR / "information_regime_key_registries_v4_manifest.json"
 LEGACY_KEY_REGISTRY = ROOT / "outputs" / "final" / "forecast_keys.parquet"
 PROTOCOL = ROOT / "protocols" / "wrr_information_regimes_protocol_v4.yaml"
-SEALED_SCORE_PROTOCOL = ROOT / "protocols" / "wrr_information_regimes_protocol_v4_sealed.yaml"
-SEALED_SCORE_PROTOCOL_SEAL = ROOT / "protocols" / "wrr_information_regimes_protocol_v4_seal.json"
+SCIENTIFIC_EVIDENCE_STATUS = ROOT / "docs" / "SCIENTIFIC_EVIDENCE_STATUS.md"
+DECISION_LOG = ROOT / "docs" / "strong_accept_decision_log.md"
+INFORMATION_REGIME_TODO = ROOT / "docs" / "WRR_INFORMATION_REGIME_TODO_20260809.md"
+SEMANTIC_AUTHORITY_DIR = ROOT / "outputs" / "final" / "semantic_registries_v4_authority"
+SEMANTIC_DAILY_REGISTRY = SEMANTIC_AUTHORITY_DIR / "daily_raw_observed_panel_registry_v4.parquet"
+SEMANTIC_TRAINING_REGISTRY = (
+    SEMANTIC_AUTHORITY_DIR / "training_example_registry_2006_2017_v4.parquet"
+)
+SEMANTIC_AUTHORITY_MANIFEST = (
+    SEMANTIC_AUTHORITY_DIR / "semantic_registries_v4_authority_manifest.json"
+)
+# The forcing correction has a narrower scope and a different terminal seal
+# schema than the later crossed/neural protocol.  Keep its execution authority
+# on distinct canonical paths so one exact-path validator can never overwrite
+# or masquerade as the other protocol's seal.
+SEALED_SCORE_PROTOCOL = (
+    ROOT / "protocols" / "wrr_information_regimes_forcing_v5_observed_protocol.yaml"
+)
+SEALED_SCORE_PROTOCOL_SEAL = (
+    ROOT / "protocols" / "wrr_information_regimes_forcing_v5_observed_seal.json"
+)
 SCORE_CLEAN_DESIGN_COMMIT = (
     ROOT / "outputs" / "final" / "forcing_regime_v5_observed_clean_design_commit_v1.json"
 )
 SCORE_SOURCE_REGISTRY = (
     ROOT / "outputs" / "final" / "forcing_regime_v5_observed_source_registry_v1.json"
 )
+SCORE_AUTHORITY_BUILDER = ROOT / "scripts" / "final" / "build_forcing_v5_execution_authority.py"
 DEFECT_AUTHORITY_DIR = ROOT / "outputs" / "final" / "preprocessing_lineage_defect_authority_v1"
 DEFECT_AUTHORITY_MANIFEST = (
     DEFECT_AUTHORITY_DIR / "preprocessing_lineage_defect_authority_v1_manifest.json"
@@ -110,6 +131,12 @@ PINNED_INPUT_SHA256 = MappingProxyType(
         "evaluation_panel": "cecdac459139456202240954e4c98fe18bba1fe8b63e9b06ab268683e0d1c03c",
         "station_registry": "090e7c0daf39ac38ceefeb1af8a12c178283e18347905d8e72ada969ad5460c9",
         "primary_key_registry": "9a135dcffcfd467cf1e2dda4fc711ba6cf66c8ad54bf3b6f799f4a2d5a3c1d24",
+        "semantic_daily_raw_observed_registry": (
+            "0837012f88a004b3b44449770166e59f76006f851723582f00374a98b4bd67a0"
+        ),
+        "semantic_training_example_registry": (
+            "af7f55372b1ca05bf56a00360c510b1ca1e5ed386b85fa7c10bcf56daca5c095"
+        ),
     }
 )
 PINNED_INPUT_PATHS = MappingProxyType(
@@ -118,6 +145,8 @@ PINNED_INPUT_PATHS = MappingProxyType(
         "evaluation_panel": EVAL_PANEL,
         "station_registry": STATION_REGISTRY,
         "primary_key_registry": PRIMARY_KEY_REGISTRY,
+        "semantic_daily_raw_observed_registry": SEMANTIC_DAILY_REGISTRY,
+        "semantic_training_example_registry": SEMANTIC_TRAINING_REGISTRY,
     }
 )
 PINNED_GOVERNANCE_SHA256 = MappingProxyType(
@@ -126,10 +155,63 @@ PINNED_GOVERNANCE_SHA256 = MappingProxyType(
         "key_authority_manifest": (
             "ac0c256907264022e1fe7c4e407e0f95ece1f03233ecd6bb1841e27eb40b49ea"
         ),
+        "semantic_authority_manifest": (
+            "12cdc355a06d2c39733a60386dfdeb8a2f6b234d2f8d6f641a995a3d3c41072c"
+        ),
+        "semantic_data_candidate_manifest": (
+            "a92dd4765c875d8f5c927c054cf5e2c41160fd23b5d00fa58e354feaf46b59e7"
+        ),
+        "semantic_contract_candidate_manifest": (
+            "6ab801eebc260734519a1c1ab235878a0f2107df5fa09d92e1a248dc86dce9ac"
+        ),
+        "semantic_cell_registry": (
+            "3bcdf816598dfae05b90f5f7c7fe5fc48faa02c4b1109d81a0ff0ea38d4315a0"
+        ),
+        "semantic_fold_registry": (
+            "63b1296622850173e90e75cc75c0b545d1048e79d3ca2d89ccd2701ce756daf8"
+        ),
+        "semantic_model_registry": (
+            "6abc55474893a95620d0c07363c94b5c7b3d1774b3102efdbc81650c98764e52"
+        ),
+        "semantic_input_registry": (
+            "132136ef459dd28be91b7552187d6df1be0f77e04008d4cd4743e9e8cabcaf71"
+        ),
+        "semantic_contrast_registry": (
+            "947146712828dd8900dd9cad2cf07dd672b76f82c0b5b6a5f1b76378551ea42b"
+        ),
+        "semantic_environment_registry": (
+            "b038754f751cc8dab5c26c6ae8e25d577d9b8a30a8f5ea481398a298e4b1b521"
+        ),
+        "scientific_evidence_status": (
+            "fb8b1044cc94f895e486123e38a75ef2f05385f250a39821b096cabba4beebdd"
+        ),
+        "decision_log": "684ae4df2316d7260b88410929b2f64cd25075104b6d8f2d78ae1b747aa06ecd",
+        "information_regime_todo": (
+            "5dc1611160a07ae12c0b40dec1de12b30e3eb08fbb773f4cf5ca6b0eceef67ed"
+        ),
     }
 )
 PINNED_GOVERNANCE_PATHS = MappingProxyType(
-    {"protocol": PROTOCOL, "key_authority_manifest": KEY_AUTHORITY_MANIFEST}
+    {
+        "protocol": PROTOCOL,
+        "key_authority_manifest": KEY_AUTHORITY_MANIFEST,
+        "semantic_authority_manifest": SEMANTIC_AUTHORITY_MANIFEST,
+        "semantic_data_candidate_manifest": (
+            SEMANTIC_AUTHORITY_DIR / "semantic_data_registries_v4_candidate_manifest.json"
+        ),
+        "semantic_contract_candidate_manifest": (
+            SEMANTIC_AUTHORITY_DIR / "semantic_contract_registry_manifest_v4_candidate.json"
+        ),
+        "semantic_cell_registry": SEMANTIC_AUTHORITY_DIR / "cell_registry_v4.json",
+        "semantic_fold_registry": SEMANTIC_AUTHORITY_DIR / "fold_registry_v4.json",
+        "semantic_model_registry": SEMANTIC_AUTHORITY_DIR / "model_registry_v4.json",
+        "semantic_input_registry": SEMANTIC_AUTHORITY_DIR / "input_registry_v4.json",
+        "semantic_contrast_registry": SEMANTIC_AUTHORITY_DIR / "contrast_registry_v4.json",
+        "semantic_environment_registry": SEMANTIC_AUTHORITY_DIR / "environment_registry_v4.json",
+        "scientific_evidence_status": SCIENTIFIC_EVIDENCE_STATUS,
+        "decision_log": DECISION_LOG,
+        "information_regime_todo": INFORMATION_REGIME_TODO,
+    }
 )
 PINNED_DEPENDENCY_SHA256 = MappingProxyType(
     {
@@ -139,7 +221,25 @@ PINNED_DEPENDENCY_SHA256 = MappingProxyType(
         "config_source": "7661e82df4a6017dcc351f9f4f07e3b94afd5d2426689f775b83e12b78c41c1f",
         "data_source": "37fe83c34a72dbe676ce37abd27b24c0d5ac4f91c1d62d9822856bf374751984",
         "features_source": "0605254b9ac86bd92c7ffb0f31e7db526dde90777d5ddbcf1b1d7bebfcd4e58b",
-        "baselines_source": "38d88f105f9018703af9cf6b3d666962ddd3e733848c89a0378453bc4d048e9a",
+        "baselines_source": "247b6fca9072830b7d88443101117cfc5c10d48a010f3838888479a428ff682f",
+        "semantic_data_builder_source": (
+            "766dfb8a0d4674e450676fc696a44d24919d69f96eb4306009ea8df0f6186f28"
+        ),
+        "semantic_contract_builder_source": (
+            "46101f8f814f6d66cfa1801ff53445936bb60f44e23a3f3575c4e445f331c614"
+        ),
+        "semantic_authority_publisher_source": (
+            "e6779f68034b78a1f9e6866cc3a4fdf83bb334d287f44b96a19707bee3a05e7e"
+        ),
+        "semantic_data_builder_tests": (
+            "72fa6ccf0c08306f563407613a74961f150e7fe954ebc7c043842e5d0fed4c70"
+        ),
+        "semantic_contract_builder_tests": (
+            "3d8e43d1eb748be7a73b149c0af02e4844a6282dd6defd9d18c7dc17792dfca7"
+        ),
+        "semantic_authority_publisher_tests": (
+            "8a8b632a1d6d7c9fe7f0a39a4e888bb5f6f0ba1007ca49c2c88ff71c879f1d1d"
+        ),
         "pyproject": "ef49ffacf3c73a2e566b89abac22d663bdd997a3f68adc5dcf0f5f187860fcc6",
         "requirements_lock": ("ff2d67915ccaabb750cdf4c630d59500d6c8841b305d5fffb1ffd549195dc047"),
         "requirements_lock_py312_hashed": (
@@ -154,21 +254,52 @@ PINNED_DEPENDENCY_PATHS = MappingProxyType(
         "data_source": ROOT / "src" / "thermoroute" / "data.py",
         "features_source": ROOT / "src" / "thermoroute" / "features.py",
         "baselines_source": ROOT / "src" / "thermoroute" / "baselines.py",
+        "semantic_data_builder_source": (
+            ROOT / "scripts" / "final" / "build_semantic_data_registries_v4.py"
+        ),
+        "semantic_contract_builder_source": (
+            ROOT / "scripts" / "final" / "build_semantic_contract_registries_v4.py"
+        ),
+        "semantic_authority_publisher_source": (
+            ROOT / "scripts" / "final" / "publish_semantic_registries_v4.py"
+        ),
+        "semantic_data_builder_tests": (
+            ROOT / "tests" / "final" / "test_semantic_data_registries_v4.py"
+        ),
+        "semantic_contract_builder_tests": (
+            ROOT / "tests" / "final" / "test_semantic_contract_registries_v4.py"
+        ),
+        "semantic_authority_publisher_tests": (
+            ROOT / "tests" / "final" / "test_publish_semantic_registries_v4.py"
+        ),
         "pyproject": ROOT / "pyproject.toml",
         "requirements_lock": ROOT / "requirements-lock.txt",
         "requirements_lock_py312_hashed": ROOT / "requirements-lock-py312-hashed.txt",
     }
 )
 
-# This deliberately remains unset while the formal authority directory is absent.
-# A reviewed release must insert the exact published manifest SHA; merely creating
-# a file at the expected path cannot unlock execution.
-EXPECTED_DEFECT_AUTHORITY_SHA256: str | None = None
+# The defect authority is independently published and reviewed.  Its exact
+# manifest is necessary but deliberately insufficient to authorize scoring.
+EXPECTED_DEFECT_AUTHORITY_SHA256: str | None = (
+    "e69124409f49e4fb2aaaae319104251ca3078e535fca69121ed0eafddb23d908"
+)
 # The published defect authority withdraws invalid results and mandates a rerun;
 # it is not itself permission to inspect new model outcomes.  These independent
 # canonical score-execution pins must also be reviewed and inserted.  Both
 # canonical files are currently absent.
 EXPECTED_SEALED_SCORE_PROTOCOL_SHA256: str | None = None
+
+SCORE_GIT_DESIGN_ROLES = (
+    "runner",
+    "score_authority_builder",
+    "sealed_score_protocol",
+    "defect_authority_manifest",
+    "defect_authority_report",
+    "semantic_daily_raw_observed_registry",
+    "semantic_training_example_registry",
+    *tuple(PINNED_GOVERNANCE_PATHS),
+    *tuple(PINNED_DEPENDENCY_PATHS),
+)
 
 EXPECTED_PANEL_COLUMNS = ("DATE", "site_id", *C.ALL_VARS)
 OBSERVED_COLUMNS = tuple(f"{variable}_observed" for variable in C.ALL_VARS)
@@ -1076,6 +1207,332 @@ def _score_execution_scope_record() -> dict[str, object]:
     }
 
 
+def _score_contract_hashes() -> dict[str, str]:
+    """Return the result-free, frozen runner contract committed before scoring."""
+
+    return {
+        "schema_version_sha256": _canonical_json_sha256(SCHEMA_VERSION),
+        "manifest_format_sha256": _canonical_json_sha256(MANIFEST_FORMAT),
+        "frozen_base_feature_columns_sha256": _canonical_json_sha256(
+            list(FROZEN_BASE_FEATURE_COLUMNS)
+        ),
+        "frozen_parameters_sha256": _canonical_json_sha256(
+            {
+                str(horizon): {
+                    **dict(FROZEN_PARAMS[horizon]),
+                    "best_iteration_upper_bound": BEST_ITER_UPPER_BOUND[horizon],
+                }
+                for horizon in HORIZONS
+            }
+        ),
+        "execution_scope_sha256": _canonical_json_sha256(_score_execution_scope_record()),
+    }
+
+
+def _content_binding(bound: _BoundFile) -> dict[str, object]:
+    return {
+        "path": bound.path.relative_to(ROOT).as_posix(),
+        "sha256": bound.sha256,
+        "bytes": len(bound.payload),
+    }
+
+
+def _score_runtime_authority_record() -> dict[str, object]:
+    """Exact runtime that the pre-score terminal authority permits."""
+
+    return _runtime_evidence()
+
+
+def _score_authority_categories(
+    captured: Mapping[str, _BoundFile],
+) -> dict[str, object]:
+    """Partition every non-terminal execution dependency into one authority."""
+
+    runtime_file_roles = (
+        "pyproject",
+        "requirements_lock",
+        "requirements_lock_py312_hashed",
+    )
+    source_roles = (
+        "score_authority_builder",
+        *tuple(sorted(set(PINNED_DEPENDENCY_PATHS) - set(runtime_file_roles))),
+    )
+    input_roles = tuple(sorted(set(PINNED_INPUT_PATHS) - {"primary_key_registry"}))
+    key_roles = ("key_authority_manifest", "primary_key_registry")
+    defect_roles = ("defect_authority_manifest", "defect_authority_report")
+    governance_roles = tuple(sorted(set(PINNED_GOVERNANCE_PATHS) - {"key_authority_manifest"}))
+    required = {
+        "runner",
+        *source_roles,
+        *input_roles,
+        *runtime_file_roles,
+        *key_roles,
+        *defect_roles,
+        *governance_roles,
+    }
+    missing = required - set(captured)
+    if missing:
+        raise RuntimeError(f"execution authority capture lacks roles: {sorted(missing)}")
+
+    def bindings(roles: Sequence[str]) -> dict[str, dict[str, object]]:
+        return {role: _content_binding(captured[role]) for role in sorted(roles)}
+
+    runtime = _score_runtime_authority_record()
+    return {
+        "source_authorities": bindings(source_roles),
+        "input_authorities": bindings(input_roles),
+        "runtime_authorities": {
+            "files": bindings(runtime_file_roles),
+            "environment": runtime,
+            "environment_sha256": _canonical_json_sha256(runtime),
+        },
+        "key_authorities": bindings(key_roles),
+        "defect_authorities": bindings(defect_roles),
+        "governance_authorities": bindings(governance_roles),
+    }
+
+
+def _protocol_declared_authority_pins(
+    captured: Mapping[str, _BoundFile],
+) -> dict[str, object]:
+    """Pins allowed in Phase 1; intentionally excludes runner/builder bytes."""
+
+    categories = _score_authority_categories(captured)
+    source_value = categories["source_authorities"]
+    if type(source_value) is not dict:
+        raise RuntimeError("source authority construction failed")
+    source = dict(source_value)
+    source.pop("score_authority_builder")
+    runtime = categories["runtime_authorities"]
+    if type(runtime) is not dict:
+        raise RuntimeError("runtime authority construction failed")
+    return {
+        "source_authorities": source,
+        "input_authorities": categories["input_authorities"],
+        "runtime_file_authorities": runtime["files"],
+        "key_authorities": categories["key_authorities"],
+        "defect_authorities": categories["defect_authorities"],
+        "governance_authorities": categories["governance_authorities"],
+    }
+
+
+def _git_output(*arguments: str) -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", os.fspath(ROOT), *arguments],
+            check=True,
+            capture_output=True,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = exc.stderr.decode("utf-8", errors="replace").strip()
+        suffix = f": {detail}" if detail else ""
+        raise RuntimeError(f"clean-design Git authority cannot be resolved{suffix}") from exc
+    return completed.stdout
+
+
+def _git_blob_oid(payload: bytes, object_format: str) -> str:
+    if object_format not in {"sha1", "sha256"}:
+        raise RuntimeError("unsupported Git object format")
+    digest = hashlib.new(object_format)
+    digest.update(f"blob {len(payload)}\0".encode("ascii"))
+    digest.update(payload)
+    return digest.hexdigest()
+
+
+def _git_design_authority_record(
+    captured: Mapping[str, _BoundFile],
+) -> dict[str, object]:
+    """Prove that every design surface is the exact blob in HEAD's tree.
+
+    Every Git query is path-scoped to non-result design files.  This function
+    never invokes status/diff over the repository and never opens a score or
+    prediction artifact.
+    """
+
+    missing = set(SCORE_GIT_DESIGN_ROLES) - set(captured)
+    if missing:
+        raise RuntimeError(f"Git design capture lacks roles: {sorted(missing)}")
+    top = Path(_git_output("rev-parse", "--show-toplevel").decode("utf-8").strip())
+    if _absolute(top) != _absolute(ROOT):
+        raise RuntimeError("clean-design Git root differs from the repository root")
+    object_format = _git_output("rev-parse", "--show-object-format").decode("ascii").strip()
+    commit = _git_output("rev-parse", "--verify", "HEAD^{commit}").decode("ascii").strip()
+    tree = _git_output("rev-parse", "--verify", "HEAD^{tree}").decode("ascii").strip()
+    digest_length = 40 if object_format == "sha1" else 64
+    for value, label in ((commit, "commit"), (tree, "tree")):
+        if len(value) != digest_length or any(char not in "0123456789abcdef" for char in value):
+            raise RuntimeError(f"clean-design Git {label} is not canonical")
+
+    paths: dict[str, dict[str, object]] = {}
+    for role in SCORE_GIT_DESIGN_ROLES:
+        bound = captured[role]
+        relative = bound.path.relative_to(ROOT).as_posix()
+        raw = _git_output("ls-tree", "-z", "HEAD", "--", relative)
+        records = [record for record in raw.split(b"\0") if record]
+        if len(records) != 1 or b"\t" not in records[0]:
+            raise RuntimeError(f"clean-design path is absent or ambiguous in HEAD: {relative}")
+        metadata, observed_path = records[0].split(b"\t", 1)
+        fields = metadata.decode("ascii").split(" ")
+        if len(fields) != 3 or fields[1] != "blob":
+            raise RuntimeError(f"clean-design path is not a Git blob: {relative}")
+        mode, _kind, git_oid = fields
+        if observed_path.decode("utf-8") != relative:
+            raise RuntimeError("clean-design Git path identity changed")
+        expected_oid = _git_blob_oid(bound.payload, object_format)
+        if git_oid != expected_oid:
+            raise RuntimeError(f"clean-design working bytes differ from HEAD: {relative}")
+        paths[role] = {
+            **_content_binding(bound),
+            "git_mode": mode,
+            "git_blob_oid": git_oid,
+        }
+    return {
+        "object_format": object_format,
+        "commit": commit,
+        "tree": tree,
+        "design_paths": paths,
+        "design_paths_match_commit_tree": True,
+        "repository_wide_clean_claimed": False,
+    }
+
+
+def _forcing_score_protocol_document(
+    captured: Mapping[str, _BoundFile],
+) -> dict[str, object]:
+    """Build the deterministic Phase-1 protocol candidate without outcomes."""
+
+    return {
+        "format": "thermoroute.forcing-v5-observed-protocol-candidate.v1",
+        "protocol_id": "thermoroute_wrr_forcing_v5_observed_score_execution",
+        "version": 5,
+        "status": "SEALED_PROTOCOL_CANDIDATE_AWAITING_TERMINAL_AUTHORITY",
+        "execution_authorized": False,
+        "terminal_seal_required": True,
+        "derived_from_draft": _content_binding(captured["protocol"]),
+        "canonical_authority_paths": {
+            "protocol_candidate": SEALED_SCORE_PROTOCOL.relative_to(ROOT).as_posix(),
+            "clean_design_commit": SCORE_CLEAN_DESIGN_COMMIT.relative_to(ROOT).as_posix(),
+            "source_registry": SCORE_SOURCE_REGISTRY.relative_to(ROOT).as_posix(),
+            "terminal_seal": SEALED_SCORE_PROTOCOL_SEAL.relative_to(ROOT).as_posix(),
+        },
+        "forcing_v5_observed_execution_scope": _score_execution_scope_record(),
+        "declared_authority_pins": _protocol_declared_authority_pins(captured),
+        "phase_order": {
+            "phase_1": "PUBLISH_PROTOCOL_CANDIDATE_CREATE_ONLY",
+            "phase_2_prerequisite": (
+                "PIN_PROTOCOL_SHA256_IN_FINAL_RUNNER_AND_COMMIT_CLEAN_DESIGN_TREE"
+            ),
+            "phase_2": "PUBLISH_CLEAN_DESIGN_SOURCE_REGISTRY_AND_TERMINAL_SEAL_CREATE_ONLY",
+            "terminal_seal_is_only_score_authority": True,
+        },
+        "result_data_policy": {
+            "model_execution_performed": False,
+            "score_or_prediction_artifacts_read": False,
+            "score_or_prediction_inputs_permitted": False,
+            "formal_result_directory_must_be_absent": True,
+        },
+        "binds_runner_or_runner_bound_artifact_hashes": False,
+        "no_self_hash_cycle": True,
+    }
+
+
+def _score_clean_design_document(
+    captured: Mapping[str, _BoundFile],
+    git_design: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "format": "thermoroute.forcing-v5-observed-clean-design-commit.v2",
+        "status": "CLEAN_DESIGN_COMMITTED_BEFORE_SCORE_EXECUTION",
+        "analysis_status": STATUS,
+        "runner": _content_binding(captured["runner"]),
+        "authority_builder": _content_binding(captured["score_authority_builder"]),
+        "protocol_candidate": _content_binding(captured["sealed_score_protocol"]),
+        "forcing_v5_observed_execution_scope": _score_execution_scope_record(),
+        "contract_hashes": _score_contract_hashes(),
+        "git_design_authority": dict(git_design),
+        "pre_score_chronology": {
+            "formal_result_directory_absent": True,
+            "model_execution_performed": False,
+            "score_or_prediction_artifacts_read": False,
+        },
+        "no_self_hash_cycle": True,
+    }
+
+
+def _score_source_registry_document(
+    captured: Mapping[str, _BoundFile],
+    clean_design_bound: _BoundFile,
+    git_design: Mapping[str, object],
+) -> dict[str, object]:
+    categories = _score_authority_categories(captured)
+    role_inventory: dict[str, list[str]] = {}
+    for category, value in categories.items():
+        if category == "runtime_authorities":
+            if type(value) is not dict or type(value.get("files")) is not dict:
+                raise RuntimeError("runtime authority inventory is invalid")
+            role_inventory[category] = sorted(value["files"])
+        else:
+            if type(value) is not dict:
+                raise RuntimeError("source authority inventory is invalid")
+            role_inventory[category] = sorted(value)
+    return {
+        "format": "thermoroute.forcing-v5-observed-source-registry.v2",
+        "status": "SEALED_SOURCE_REGISTRY_AWAITING_TERMINAL_SEAL",
+        "analysis_status": STATUS,
+        "execution_authorized": False,
+        "terminal_seal_required": True,
+        "runner": _content_binding(captured["runner"]),
+        "clean_design_commit": _content_binding(clean_design_bound),
+        "git_design_identity": {
+            key: git_design[key] for key in ("object_format", "commit", "tree")
+        },
+        "authority_categories": categories,
+        "authority_categories_sha256": _canonical_json_sha256(categories),
+        "authority_role_inventory": role_inventory,
+        "result_data_policy": {
+            "model_execution_performed": False,
+            "score_or_prediction_artifacts_read": False,
+            "score_or_prediction_inputs_permitted": False,
+        },
+    }
+
+
+def _score_terminal_seal_document(
+    captured: Mapping[str, _BoundFile],
+    clean_design_bound: _BoundFile,
+    source_registry_bound: _BoundFile,
+    git_design: Mapping[str, object],
+) -> dict[str, object]:
+    categories = _score_authority_categories(captured)
+    authority_roots = {
+        category: _canonical_json_sha256(value) for category, value in sorted(categories.items())
+    }
+    return {
+        "format": "thermoroute.forcing-v5-observed-execution-seal.v2",
+        "status": "TERMINAL_SCORE_EXECUTION_AUTHORITY",
+        "execution_authorized": True,
+        "protocol": _content_binding(captured["sealed_score_protocol"]),
+        "runner": _content_binding(captured["runner"]),
+        "clean_design_commit": _content_binding(clean_design_bound),
+        "source_registry": _content_binding(source_registry_bound),
+        "git_design_identity": {
+            key: git_design[key] for key in ("object_format", "commit", "tree")
+        },
+        "authority_roots": authority_roots,
+        "authority_roots_sha256": _canonical_json_sha256(authority_roots),
+        "forcing_v5_observed_execution_scope": _score_execution_scope_record(),
+        "pre_score_chronology": {
+            "formal_result_directory_absent_at_publication": True,
+            "model_execution_performed": False,
+            "score_or_prediction_artifacts_read": False,
+        },
+        "no_self_hash_cycle": True,
+    }
+
+
 def _validate_draft_and_key_authority_semantics(
     draft_bound: _BoundFile,
     key_manifest_bound: _BoundFile,
@@ -1119,6 +1576,303 @@ def _validate_draft_and_key_authority_semantics(
         raise RuntimeError("pinned key manifest is not the exact non-score Phase-1 authority")
 
 
+def _parse_canonical_authority_json(bound: _BoundFile, *, label: str) -> dict[str, object]:
+    try:
+        document = json.loads(bound.payload)
+    except Exception as exc:
+        raise RuntimeError(f"{label} is not parseable JSON") from exc
+    if type(document) is not dict or bound.payload != _canonical_json_bytes(document):
+        raise RuntimeError(f"{label} is not exact canonical JSON")
+    return document
+
+
+def _validate_semantic_authority_semantics(captured: Mapping[str, _BoundFile]) -> None:
+    """Validate DLOG-028's inert authority and its exact V5 registrations."""
+
+    manifest = _parse_canonical_authority_json(
+        captured["semantic_authority_manifest"],
+        label="semantic authority manifest",
+    )
+    scope = manifest.get("authority_scope")
+    evidence = manifest.get("evidence_boundary")
+    publication = manifest.get("publication_contract")
+    state = manifest.get("protocol_cell_state_receipt")
+    if (
+        manifest.get("artifact_id") != "thermoroute-semantic-registries-v4-authority"
+        or manifest.get("authority_class") != "TIER1_SEMANTIC_DATA_AND_CONTRACT_ONLY"
+        or manifest.get("formal_semantic_registry_authority") is not True
+        or manifest.get("execution_authorized") is not False
+        or manifest.get("model_execution_authorized") is not False
+        or manifest.get("forcing_protocol_seal_bound") is not False
+        or manifest.get("forcing_protocol_seal_required_separately") is not True
+        or manifest.get("candidate_status_promoted_to_executed") is not False
+        or type(scope) is not dict
+        or scope.get("dependency_authority_transfers_to_execution") is not False
+        or type(evidence) is not dict
+        or evidence.get("prediction_or_score_rows_read") != 0
+        or evidence.get("prediction_files_read") is not False
+        or evidence.get("score_tables_read") is not False
+        or evidence.get("model_checkpoints_read") is not False
+        or type(publication) is not dict
+        or publication.get("create_only") is not True
+        or publication.get("exact_file_count") != 11
+        or publication.get("overwrite_supported") is not False
+        or publication.get("resume_supported") is not False
+        or type(state) is not dict
+        or state.get("primary_cell_count") != 72
+        or state.get("primary_state_counts")
+        != {"EXECUTED": 0, "PLANNED": 48, "REGISTERED": 24, "WITHDRAWN": 0}
+    ):
+        raise RuntimeError("semantic authority identity/evidence boundary is not exact")
+
+    registries = manifest.get("registries")
+    if type(registries) is not dict:
+        raise RuntimeError("semantic authority lacks registry receipts")
+    receipt_specs = {
+        "semantic_daily_raw_observed_registry": (
+            "semantic_data",
+            "daily_raw_observed_panel_registry_v4.parquet",
+        ),
+        "semantic_training_example_registry": (
+            "semantic_data",
+            "training_example_registry_2006_2017_v4.parquet",
+        ),
+        "semantic_cell_registry": ("semantic_contract", "cell_registry_v4.json"),
+        "semantic_fold_registry": ("semantic_contract", "fold_registry_v4.json"),
+        "semantic_model_registry": ("semantic_contract", "model_registry_v4.json"),
+        "semantic_input_registry": ("semantic_contract", "input_registry_v4.json"),
+        "semantic_contrast_registry": ("semantic_contract", "contrast_registry_v4.json"),
+        "semantic_environment_registry": (
+            "semantic_contract",
+            "environment_registry_v4.json",
+        ),
+    }
+    for role, (group, filename) in receipt_specs.items():
+        group_receipts = registries.get(group)
+        if type(group_receipts) is not dict:
+            raise RuntimeError(f"semantic authority lacks {group} receipts")
+        receipt = group_receipts.get(filename)
+        bound = captured[role]
+        if (
+            type(receipt) is not dict
+            or bound.path.parent != SEMANTIC_AUTHORITY_DIR
+            or bound.path.name != filename
+            or receipt.get("sha256") != bound.sha256
+            or receipt.get("size_bytes") != len(bound.payload)
+        ):
+            raise RuntimeError(f"semantic authority registry binding is invalid: {role}")
+
+    candidates = manifest.get("candidate_manifests")
+    candidate_specs = {
+        "semantic_data_candidate_manifest": (
+            "semantic_data",
+            "semantic_data_registries_v4_candidate_manifest.json",
+        ),
+        "semantic_contract_candidate_manifest": (
+            "semantic_contract",
+            "semantic_contract_registry_manifest_v4_candidate.json",
+        ),
+    }
+    if type(candidates) is not dict:
+        raise RuntimeError("semantic authority lacks candidate manifest receipts")
+    for role, (group, filename) in candidate_specs.items():
+        receipt = candidates.get(group)
+        bound = captured[role]
+        if (
+            type(receipt) is not dict
+            or bound.path.parent != SEMANTIC_AUTHORITY_DIR
+            or receipt.get("filename") != filename
+            or receipt.get("sha256") != bound.sha256
+            or receipt.get("size_bytes") != len(bound.payload)
+            or receipt.get("candidate_status") != "CANDIDATE_NOT_AUTHORITY"
+        ):
+            raise RuntimeError(f"semantic candidate manifest binding is invalid: {role}")
+
+    code_bindings = manifest.get("code_bindings")
+    if type(code_bindings) is not dict:
+        raise RuntimeError("semantic authority lacks code bindings")
+    builders = code_bindings.get("builders")
+    publisher = code_bindings.get("publisher")
+    tests = code_bindings.get("tests")
+    code_specs = {
+        "semantic_data_builder_source": (builders, "semantic_data_builder"),
+        "semantic_contract_builder_source": (builders, "semantic_contract_builder"),
+        "semantic_authority_publisher_source": (publisher, "semantic_authority_publisher"),
+        "semantic_data_builder_tests": (tests, "semantic_data_builder_tests"),
+        "semantic_contract_builder_tests": (tests, "semantic_contract_builder_tests"),
+        "semantic_authority_publisher_tests": (tests, "semantic_authority_publisher_tests"),
+    }
+    for role, (group, key) in code_specs.items():
+        receipt = None if type(group) is not dict else group.get(key)
+        bound = captured[role]
+        if (
+            type(receipt) is not dict
+            or receipt.get("path") != bound.path.relative_to(ROOT).as_posix()
+            or receipt.get("sha256") != bound.sha256
+            or receipt.get("size_bytes") != len(bound.payload)
+        ):
+            raise RuntimeError(f"semantic authority code binding is invalid: {role}")
+
+    runtimes = manifest.get("runtime_receipts")
+    route_a = (
+        None if type(runtimes) is not dict else runtimes.get("semantic_contract_route_a_runtime")
+    )
+    route_a_values = None if type(route_a) is not dict else route_a.get("values")
+    if (
+        type(route_a_values) is not dict
+        or route_a_values.get("python_version") != "3.12.13"
+        or route_a_values.get("python_implementation") != "CPython"
+        or route_a_values.get("numpy_version") != "1.26.4"
+        or route_a_values.get("pandas_version") != "2.2.2"
+        or route_a_values.get("pyarrow_version") != "24.0.0"
+        or route_a_values.get("lightgbm_version") != "4.6.0"
+    ):
+        raise RuntimeError("semantic authority Route-A runtime receipt is not exact")
+
+    cell_registry = _parse_canonical_authority_json(
+        captured["semantic_cell_registry"],
+        label="semantic cell registry",
+    )
+    logical_cells = cell_registry.get("logical_cells")
+    if type(logical_cells) is not list:
+        raise RuntimeError("semantic cell registry lacks logical cells")
+    expected_cells = {
+        (arm, model, horizon) for arm in ARMS for model in MODELS for horizon in HORIZONS
+    }
+    observed_cells: set[tuple[str, str, int]] = set()
+    for record in logical_cells:
+        if (
+            type(record) is not dict
+            or record.get("family") != "v5_observed_lineage_tree_correction"
+        ):
+            continue
+        identity = (record.get("forcing"), record.get("architecture"), record.get("lead_days"))
+        if (
+            identity not in expected_cells
+            or record.get("local_level") != "L0"
+            or record.get("geometry") != "known_site_temporal"
+            or record.get("protocol_state") != "REGISTERED"
+            or record.get("post_outcome_status") != STATUS
+            or record.get("status") != "CANDIDATE_NOT_AUTHORITY"
+            or record.get("execution_authorized") is not False
+        ):
+            raise RuntimeError("semantic cell registry V5 registration is not exact")
+        observed_cells.add(identity)  # type: ignore[arg-type]
+    if observed_cells != expected_cells:
+        raise RuntimeError("semantic cell registry does not register exactly the 12 V5 cells")
+
+    model_registry = _parse_canonical_authority_json(
+        captured["semantic_model_registry"],
+        label="semantic model registry",
+    )
+    model_records = model_registry.get("models")
+    if type(model_records) is not list:
+        raise RuntimeError("semantic model registry lacks models")
+    expected_models = {(model, horizon) for model in MODELS for horizon in HORIZONS}
+    observed_models: set[tuple[str, int]] = set()
+    for record in model_records:
+        if (
+            type(record) is not dict
+            or record.get("family") != "v5_observed_lineage_tree_correction"
+        ):
+            continue
+        identity = (record.get("architecture"), record.get("lead_days"))
+        horizon = record.get("lead_days")
+        if (
+            identity not in expected_models
+            or type(horizon) is not int
+            or record.get("optimization") != _resolved_lightgbm_params(horizon)
+            or record.get("configuration_status")
+            != "DEFINED_V5_CONFIGURATION_BUT_NOT_EXECUTION_AUTHORITY"
+            or record.get("status") != "CANDIDATE_NOT_AUTHORITY"
+            or record.get("execution_authorized") is not False
+        ):
+            raise RuntimeError("semantic model registry V5 contract is not exact")
+        observed_models.add(identity)  # type: ignore[arg-type]
+    if observed_models != expected_models:
+        raise RuntimeError("semantic model registry does not define exactly six V5 models")
+
+    input_registry = _parse_canonical_authority_json(
+        captured["semantic_input_registry"],
+        label="semantic input registry",
+    )
+    input_records = input_registry.get("inputs")
+    if type(input_records) is not list:
+        raise RuntimeError("semantic input registry lacks inputs")
+    expected_inputs = {(arm, horizon) for arm in ARMS for horizon in HORIZONS}
+    observed_inputs: set[tuple[str, int]] = set()
+    for record in input_records:
+        if (
+            type(record) is not dict
+            or record.get("family") != "v5_observed_lineage_tree_correction"
+        ):
+            continue
+        arm = record.get("forcing")
+        horizon = record.get("lead_days")
+        identity = (arm, horizon)
+        expected_features = (
+            list(FROZEN_BASE_FEATURE_COLUMNS)
+            if arm == "F0" and type(horizon) is int
+            else (
+                [*FROZEN_BASE_FEATURE_COLUMNS, *_future_feature_columns(horizon)]
+                if arm == "F3_full" and type(horizon) is int
+                else None
+            )
+        )
+        label_boundary = record.get("label_boundary")
+        if (
+            identity not in expected_inputs
+            or expected_features is None
+            or record.get("feature_schema") != expected_features
+            or record.get("local_level") != "L0"
+            or record.get("input_status") != "STRUCTURAL_CANDIDATE_NOT_EXECUTION_READY"
+            or record.get("status") != "CANDIDATE_NOT_AUTHORITY"
+            or record.get("execution_authorized") is not False
+            or type(label_boundary) is not dict
+            or label_boundary.get("labels_are_separate_from_imputed_predictor_projection")
+            is not True
+            or label_boundary.get("y_true_is_raw_not_imputed") is not True
+        ):
+            raise RuntimeError("semantic input registry V5 contract is not exact")
+        observed_inputs.add(identity)  # type: ignore[arg-type]
+    if observed_inputs != expected_inputs:
+        raise RuntimeError("semantic input registry does not define exactly six V5 inputs")
+
+    manifest_sha = PINNED_GOVERNANCE_SHA256["semantic_authority_manifest"]
+    documents = {
+        "scientific evidence status": captured["scientific_evidence_status"].payload,
+        "decision log": captured["decision_log"].payload,
+        "information-regime TODO": captured["information_regime_todo"].payload,
+    }
+    required_tokens = {
+        "scientific evidence status": (
+            b"Semantic registries v4 authority",
+            b"DLOG-028",
+            manifest_sha.encode("ascii"),
+            b"execution_authorized: false",
+        ),
+        "decision log": (
+            b"DLOG-028: score-free semantic registries v4 authority frozen",
+            manifest_sha.encode("ascii"),
+            b"The authority remains explicitly non-executable",
+            b"execution_authorized` remains false",
+        ),
+        "information-regime TODO": (
+            b"T01",
+            b"COMPLETE: DLOG-028",
+            b"T05",
+            b"SOURCE PINS/DESIGN COMMIT PENDING",
+        ),
+    }
+    for label, payload in documents.items():
+        try:
+            payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(f"{label} is not UTF-8") from exc
+        if not all(token in payload for token in required_tokens[label]):
+            raise RuntimeError(f"{label} does not carry the exact DLOG-028 boundary")
+
+
 def _validate_score_execution_authority(
     protocol_bound: _BoundFile,
     seal_bound: _BoundFile,
@@ -1126,14 +1880,7 @@ def _validate_score_execution_authority(
     source_registry_bound: _BoundFile,
     captured: Mapping[str, _BoundFile],
 ) -> None:
-    """Validate the acyclic, externally published score-execution authority chain.
-
-    The runner pins the sealed protocol, while the clean-design commitment and
-    source registry bind the final runner.  The protocol therefore declares
-    canonical paths, never hashes of runner-bound artifacts; the terminal seal
-    binds the protocol and both external artifacts.  This directionality avoids
-    an impossible protocol <-> runner content-hash fixed point.
-    """
+    """Validate the exact two-phase, acyclic score-execution authority chain."""
 
     if EXPECTED_SEALED_SCORE_PROTOCOL_SHA256 is None:
         raise RuntimeError("canonical sealed score-execution protocol SHA256 pin is unset")
@@ -1150,141 +1897,43 @@ def _validate_score_execution_authority(
         type(document) is dict for document in (protocol, seal, clean_design, source_registry)
     ):
         raise RuntimeError("canonical score-execution authority roots are not mappings")
-
-    expected_draft = {
-        "path": PROTOCOL.relative_to(ROOT).as_posix(),
-        "sha256": PINNED_GOVERNANCE_SHA256["protocol"],
-    }
-    if (
-        protocol.get("protocol_id") != "thermoroute_wrr_information_regimes_v4_sealed"
-        or protocol.get("version") != 4
-        or protocol.get("status") != "SEALED"
-        or protocol.get("execution_authorized") is not True
-        or protocol.get("derived_from_draft") != expected_draft
-        or protocol.get("seal_path") != SEALED_SCORE_PROTOCOL_SEAL.relative_to(ROOT).as_posix()
-        or protocol.get("clean_design_commit_path")
-        != SCORE_CLEAN_DESIGN_COMMIT.relative_to(ROOT).as_posix()
-        or protocol.get("source_registry_path")
-        != SCORE_SOURCE_REGISTRY.relative_to(ROOT).as_posix()
-        or protocol.get("forcing_v5_observed_execution_scope") != _score_execution_scope_record()
-        or protocol.get("binds_runner_or_runner_bound_artifact_hashes") is not False
+    expected_protocol = _forcing_score_protocol_document(captured)
+    if protocol != expected_protocol or protocol_bound.payload != _canonical_json_bytes(
+        expected_protocol
     ):
-        raise RuntimeError("canonical score-execution protocol identity/scope is not exact")
+        raise RuntimeError("canonical forcing protocol candidate bytes/semantics are not exact")
+    if protocol.get("execution_authorized") is not False:
+        raise RuntimeError("Phase-1 protocol candidate must not independently authorize scoring")
 
-    runner_binding = {
-        "path": captured["runner"].path.relative_to(ROOT).as_posix(),
-        "sha256": captured["runner"].sha256,
-    }
-    contract_hashes = {
-        "schema_version_sha256": _canonical_json_sha256(SCHEMA_VERSION),
-        "manifest_format_sha256": _canonical_json_sha256(MANIFEST_FORMAT),
-        "frozen_base_feature_columns_sha256": _canonical_json_sha256(
-            list(FROZEN_BASE_FEATURE_COLUMNS)
-        ),
-        "frozen_parameters_sha256": _canonical_json_sha256(
-            {
-                str(horizon): {
-                    **dict(FROZEN_PARAMS[horizon]),
-                    "best_iteration_upper_bound": BEST_ITER_UPPER_BOUND[horizon],
-                }
-                for horizon in HORIZONS
-            }
-        ),
-        "execution_scope_sha256": _canonical_json_sha256(_score_execution_scope_record()),
-    }
-    expected_clean_fields = {
-        "format",
-        "status",
-        "analysis_status",
-        "runner",
-        "forcing_v5_observed_execution_scope",
-        "contract_hashes",
-        "no_self_hash_cycle",
-    }
-    if set(clean_design) != expected_clean_fields or (
-        clean_design.get("format") != "thermoroute.forcing-v5-observed-clean-design-commit.v1"
-        or clean_design.get("status") != "CLEAN_DESIGN_COMMITTED_BEFORE_SCORE_EXECUTION"
-        or clean_design.get("analysis_status") != STATUS
-        or clean_design.get("runner") != runner_binding
-        or clean_design.get("forcing_v5_observed_execution_scope")
-        != _score_execution_scope_record()
-        or clean_design.get("contract_hashes") != contract_hashes
-        or clean_design.get("no_self_hash_cycle") is not True
+    git_design = _git_design_authority_record(captured)
+    expected_clean = _score_clean_design_document(captured, git_design)
+    if clean_design != expected_clean or clean_design_bound.payload != _canonical_json_bytes(
+        expected_clean
     ):
-        raise RuntimeError("clean-design commitment does not bind the exact final runner contract")
+        raise RuntimeError("clean-design record does not bind the final committed design")
 
-    source_roles = set(captured) - {
-        "sealed_score_protocol",
-        "sealed_score_protocol_seal",
-        "score_clean_design_commit",
-        "score_source_registry",
-    }
-    source_bindings: dict[str, dict[str, str]] = {}
-    for role in sorted(source_roles):
-        bound = captured[role]
-        source_bindings[role] = {
-            "path": bound.path.relative_to(ROOT).as_posix(),
-            "sha256": bound.sha256,
-        }
-    expected_source_fields = {
-        "format",
-        "status",
-        "analysis_status",
-        "runner",
-        "clean_design_commit",
-        "source_dependency_and_authority_bindings",
-        "execution_authorized",
-    }
-    if set(source_registry) != expected_source_fields or (
-        source_registry.get("format") != "thermoroute.forcing-v5-observed-source-registry.v1"
-        or source_registry.get("status") != "SEALED_SOURCE_REGISTRY"
-        or source_registry.get("analysis_status") != STATUS
-        or source_registry.get("runner") != runner_binding
-        or source_registry.get("clean_design_commit")
-        != {
-            "path": SCORE_CLEAN_DESIGN_COMMIT.relative_to(ROOT).as_posix(),
-            "sha256": clean_design_bound.sha256,
-        }
-        or source_registry.get("source_dependency_and_authority_bindings") != source_bindings
-        or source_registry.get("execution_authorized") is not True
+    expected_source = _score_source_registry_document(
+        captured,
+        clean_design_bound,
+        git_design,
+    )
+    if source_registry != expected_source or source_registry_bound.payload != _canonical_json_bytes(
+        expected_source
     ):
-        raise RuntimeError("source registry does not bind the exact final runner and sources")
+        raise RuntimeError("source registry does not bind every execution authority exactly")
+    if source_registry.get("execution_authorized") is not False:
+        raise RuntimeError("source registry must remain inert without the terminal seal")
 
-    expected_seal_fields = {
-        "format",
-        "status",
-        "execution_authorized",
-        "protocol",
-        "clean_design_commit",
-        "source_registry",
-        "forcing_v5_observed_execution_scope",
-        "no_self_hash_cycle",
-    }
-    if set(seal) != expected_seal_fields:
-        raise RuntimeError("canonical score-execution seal field set is not exact")
-    if (
-        seal.get("format") != "thermoroute.forcing-v5-observed-execution-seal.v1"
-        or seal.get("status") != "SEALED"
-        or seal.get("execution_authorized") is not True
-        or seal.get("protocol")
-        != {
-            "path": SEALED_SCORE_PROTOCOL.relative_to(ROOT).as_posix(),
-            "sha256": protocol_bound.sha256,
-        }
-        or seal.get("clean_design_commit")
-        != {
-            "path": SCORE_CLEAN_DESIGN_COMMIT.relative_to(ROOT).as_posix(),
-            "sha256": clean_design_bound.sha256,
-        }
-        or seal.get("source_registry")
-        != {
-            "path": SCORE_SOURCE_REGISTRY.relative_to(ROOT).as_posix(),
-            "sha256": source_registry_bound.sha256,
-        }
-        or seal.get("forcing_v5_observed_execution_scope") != _score_execution_scope_record()
-        or seal.get("no_self_hash_cycle") is not True
-    ):
-        raise RuntimeError("canonical score-execution seal does not bind this exact run")
+    expected_seal = _score_terminal_seal_document(
+        captured,
+        clean_design_bound,
+        source_registry_bound,
+        git_design,
+    )
+    if seal != expected_seal or seal_bound.payload != _canonical_json_bytes(expected_seal):
+        raise RuntimeError("terminal score-execution seal does not bind this exact design")
+    if seal.get("execution_authorized") is not True:
+        raise RuntimeError("terminal score-execution seal is not affirmative")
 
 
 def capture_execution_inputs() -> dict[str, _BoundFile]:
@@ -1313,9 +1962,15 @@ def capture_execution_inputs() -> dict[str, _BoundFile]:
     captured["defect_authority_manifest"] = manifest
     captured["defect_authority_report"] = report
     captured["runner"] = _read_stable_regular(Path(__file__), root=ROOT, label="v5 runner")
+    captured["score_authority_builder"] = _read_stable_regular(
+        SCORE_AUTHORITY_BUILDER,
+        root=ROOT,
+        label="forcing v5 score-execution authority builder",
+    )
     _validate_draft_and_key_authority_semantics(
         captured["protocol"], captured["key_authority_manifest"]
     )
+    _validate_semantic_authority_semantics(captured)
     sealed_protocol = _read_stable_regular(
         SEALED_SCORE_PROTOCOL, root=ROOT, label="canonical sealed score-execution protocol"
     )

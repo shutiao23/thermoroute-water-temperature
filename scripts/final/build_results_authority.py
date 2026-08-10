@@ -30,6 +30,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -181,6 +182,31 @@ def main(argv: list[str] | None = None) -> int:
 
     decomp = FR.decomposition_effects(station)
     decomp.to_parquet(args.out / "decomposition_effects.parquet", index=False)
+
+    # air2stream station metrics for SI07: the primary set applies the
+    # reportability rule (>= 100 paired keys, matching every other model);
+    # the sensitivity set keeps all fitted stations with no filter.
+    a2s = pd.read_parquet(args.air2stream)
+    a2s["site_id"] = a2s["site_id"].astype(str).str.zfill(8)
+    a2s_rows = []
+    key_counts = a2s.groupby("site_id").size()
+    for set_name, mask in (("reportable", key_counts >= FR.MINIMUM_VALID_TARGETS),
+                           ("unfiltered", pd.Series(True, index=key_counts.index))):
+        for site in key_counts.index[mask]:
+            for h in (1, 3, 7):
+                g = a2s[(a2s.site_id == site) & (a2s.horizon == h)]
+                if g.empty:
+                    continue
+                err = g["y_pred"].to_numpy(float) - g["y_true"].to_numpy(float)
+                a2s_rows.append({
+                    "site_id": site, "horizon": int(h), "set": set_name,
+                    "n_keys": int(g["y_true"].notna().sum()),
+                    "rmse": float(np.sqrt(np.mean(err ** 2))),
+                    "mae": float(np.mean(np.abs(err))),
+                    "bias": float(np.mean(err)),
+                })
+    a2s_metrics = pd.DataFrame(a2s_rows)
+    a2s_metrics.to_parquet(args.out / "air2stream_metrics.parquet", index=False)
 
     # Consistency assertions (protocol v1: build fails on any breach).
     assert keys.duplicated("key_id").sum() == 0, "duplicate key ids"

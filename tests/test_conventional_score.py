@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +10,6 @@ import pandas as pd
 import pytest
 
 from thermoroute import conventional_acquisition as CA
-from thermoroute import conventional_score as CS
 from thermoroute.conventional_score import (
     CALIBRATED_STATE,
     ConventionalGateError,

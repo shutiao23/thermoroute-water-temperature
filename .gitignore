@@ -81,3 +81,22 @@ paper/agu_submission/ThermoRoute_WRR.fls
 # Final results authority: per-key prediction table regenerates from the
 # gitignored conventional scorer output via scripts/final/build_results_authority.py.
 outputs/final/predictions.parquet
+
+# Withdrawn DLOG-025 information/forcing runs are retained locally for forensic
+# reconstruction only. They are neither manuscript authority nor source data;
+# corrected observed-lineage runs publish under new versioned destinations.
+outputs/final/forcing_shards_v4/
+outputs/final/forcing_regime_v4_authority/
+outputs/final/forcing_regime_inference_v4/
+outputs/final/information_regime_v4/
+outputs/final/information_regime_inference_v4/
+outputs/final/ladder_shards/
+outputs/final/ladder_shards_legacy/
+outputs/final/forcing_contrasts_v4.parquet
+outputs/final/forcing_effects.parquet
+outputs/final/forcing_effects_v4.parquet
+outputs/final/forcing_summary.json
+outputs/final/forcing_summary_v4.json
+outputs/final/ladder_effects.parquet
+outputs/final/ladder_effects_legacy.parquet
+outputs/final/ladder_summary.json

@@ -50,11 +50,11 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts" / "final"))
 
 from thermoroute import config as C  # noqa: E402
-from thermoroute import data as D  # noqa: E402
 from thermoroute import features as F  # noqa: E402
+from thermoroute.air2stream import fit as a2s_fit  # noqa: E402
 from thermoroute.baselines import _lgb_fit  # noqa: E402
 from run_information_ladder import (  # noqa: E402
-    BEST_ITER, FROZEN_PARAMS, USGS_VARS, build_features, fit_preprocessing,
+    BEST_ITER, FROZEN_PARAMS, build_features, fit_preprocessing,
     load_panel, reference_keys,
 )
 
@@ -142,7 +142,6 @@ def build_arm_features(tab: pd.DataFrame, fut: pd.DataFrame | None,
 def _fit_a2s_station(args):
     """Picklable worker: fit one station on its training rows."""
     st, sub = args
-    from thermoroute.air2stream import fit as a2s_fit  # noqa: PLC0415
     Ta = sub["TEMP"].to_numpy(float)
     Q = sub["FLOW"].to_numpy(float)
     T = sub["WTEMP"].to_numpy(float)
@@ -171,7 +170,6 @@ def run_a2s_arm(panel: pd.DataFrame, fit_mask: np.ndarray,
     """
     import multiprocessing as mp  # noqa: PLC0415
     from thermoroute.air2stream import forecast_horizon  # noqa: PLC0415
-    from thermoroute.air2stream import fit as a2s_fit  # noqa: PLC0415
 
     train_rows = np.asarray(fit_mask, dtype=bool)
     sub_frames = []

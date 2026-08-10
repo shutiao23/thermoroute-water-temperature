@@ -11,8 +11,20 @@ resume phases). Production owner-controlled checks stay unchanged.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import sys
 
 import pytest
+
+
+# ``pytest`` console entry points do not consistently retain the checkout root
+# on ``sys.path`` once the configured ``src`` path is applied.  Several audited
+# tests import reusable helpers from ``scripts.*``; make that repository-local
+# namespace explicit for collection in both console and ``python -m pytest``
+# invocations.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture(scope="session", autouse=True)

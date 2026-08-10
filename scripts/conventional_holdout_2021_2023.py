@@ -34,6 +34,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -149,7 +150,6 @@ def load_dev_panel_mapped(panel_path: Path, registry_path: Path) -> pd.DataFrame
 def panel_cache_key(registry: pd.DataFrame, store: SnapshotStore) -> str:
     """Content-key: registry + interval + parser version + sorted request hashes."""
     import hashlib
-    from urllib.parse import urlencode
     registry_digest = hashlib.sha256(
         registry["site_no"].astype(str).str.cat(sep="|").encode("utf-8")
     ).hexdigest()
@@ -205,8 +205,6 @@ def assemble_holdout_panel(
                 wind = usgs.fetch_gridmet_wind(lat, lon, start, end, snapshot_store=store)
             except Exception:
                 wind = None
-            wt = frame["WTEMP"].to_numpy(float)
-            keep = np.isfinite(wt)
             cols: dict[str, pd.Series] = {
                 v: pd.Series(np.nan, index=full) for v in
                 ("WTEMP", "FLOW", "WLEVEL", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")

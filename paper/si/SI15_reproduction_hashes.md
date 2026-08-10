@@ -16,6 +16,26 @@ Every headline number in the manuscript regenerates from committed inputs with
 four commands (no model training, no network):
 
 ```bash
+python scripts/final/run_information_ladder.py --geometry all --levels L0,L1,L2,L3 \
+    --models LightGBM,ResidualLightGBM --horizons 1,3,7   # protocol v2 ladder
+```
+
+The ladder runner (protocol v2, DLOG-012..DLOG-014) replaces the archived
+2x2 factorial script: key-level shards under `outputs/final/ladder_shards/`
+(one file per cell), a completeness assertion that fails the run when any cell
+is missing, per-fold preprocessing cache keys, and a TWO-SIDED assertion that
+every cell scores EXACTLY the common forecast-key registry's subset for its
+held stations (no registry key declined, no outside key admitted); all levels
+of a cell score an identical key set, so ladder RMSEs are on the same keys as
+the main held-out tables.  Training rows obey the registry's admissibility
+rule (issue-date WTEMP genuinely observed, unmasked panel).  The G1 golden
+test (`--golden-l0 --legacy-keys`, `ladder_shards_legacy/`) reproduces the
+archived local-adaptation cells to machine precision (worst per-site |ΔRMSE|
+= 4.4e-15 over 1,380 station-cells, tolerance 1e-6); the G2 production gate
+(`--golden-l0` without `--legacy-keys`) verifies the registry equality per
+cell instead of comparing with the archived key grid.
+
+```bash
 python scripts/final/build_results_authority.py        # outputs/final/* + paper_values.tex
 python scripts/final/run_mechanism_analysis.py         # hydrologic states + basin attributes
 python scripts/final/run_missingness_sensitivity.py    # key-history strata

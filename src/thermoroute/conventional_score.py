@@ -28,7 +28,6 @@ import numpy as np
 import pandas as pd
 import torch
 
-from . import config as C
 from . import checkpoint
 from . import features as F
 from . import frozen_inference as FI
@@ -140,7 +139,7 @@ def _restrict_calibration_registry(
     *,
     external: bool,
     horizons: Sequence[int] | None = None,
-) -> Mapping[str, Any]:
+) -> dict[str, Any]:
     """Restrict the frozen calibration registry to decoded sites/horizons.
 
     Dry sites that built no windows carry no predictions and no thresholds
@@ -152,7 +151,7 @@ def _restrict_calibration_registry(
     """
     thresholds = metadata.get("event_thresholds", {})
     if not isinstance(thresholds, Mapping):
-        return metadata
+        return dict(metadata)
     restricted = dict(metadata)
     if not external and set(thresholds) != sites:
         restricted["event_thresholds"] = {

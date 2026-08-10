@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
-
 from thermoroute import conventional_stats as CS
 
 REPO = Path(__file__).resolve().parents[1]

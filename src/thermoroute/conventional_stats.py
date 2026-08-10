@@ -10,7 +10,7 @@ manuscript statistic costs seconds and touches no model.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -174,7 +174,6 @@ def paired_effects(
     Only stations reportable for both arms enter; negative favours the
     candidate.
     """
-    station_med = _station_median_rmse(station)
     rows = []
     for candidate, reference, horizon in contrasts:
         candidates = {
@@ -279,7 +278,6 @@ def probability_metrics(pred: pd.DataFrame) -> pd.DataFrame:
         if g.empty or g[["q05", "q95"]].isna().all().all():
             continue
         q05 = g.q05.to_numpy(float)
-        q50 = g.q50.to_numpy(float)
         q95 = g.q95.to_numpy(float)
         y = g.y_true.to_numpy(float)
         width = q95 - q05

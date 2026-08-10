@@ -76,8 +76,15 @@ python scripts/final/check_manuscript_consistency.py
 
 The experimental scripts that produce the spatial and flow tables are
 `scripts/final/run_spatial_factorial.py` (LightGBM, 2×2 factorial, five random
-split seeds) and `scripts/final/run_flow_ablation.py`; both are CPU-light and
-reproducible from the committed panels.
+split seeds; archived after DLOG-012), `scripts/final/run_information_ladder.py`
+(protocol v2: four-level information ladder L0-L3 × geometry, fold-complete
+sharded outputs, completeness and key-registry assertions; `--golden-l0`
+reproduces the archived local cells bit-for-bit) and
+`scripts/final/run_flow_ablation.py`; all are CPU-light and reproducible from
+the committed panels. The protocol v2 design, the inference family N1–N15, the
+pre-registered predictions P-1–P-4, and the stopping rules are frozen in
+`protocols/wrr_strong_accept_protocol_v2.yaml` (seal:
+`protocols/wrr_strong_accept_protocol_v2_seal.json`).
 
 ## Study design
 

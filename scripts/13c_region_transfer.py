@@ -39,8 +39,6 @@ import numpy as np
 import pandas as pd
 import torch
 
-torch.set_num_threads(int(os.environ.get("WORKER_THREADS", "8")))
-
 from thermoroute import config as C
 from thermoroute import data as D
 from thermoroute import features as F
@@ -337,6 +335,10 @@ def assemble():
 
 
 if __name__ == "__main__":
+    # Importers reuse the fold/preprocessing helpers (notably Stage 16).  Do
+    # not overwrite their already-declared Torch runtime during module import;
+    # the standalone region-transfer process owns this execution setting.
+    torch.set_num_threads(int(os.environ.get("WORKER_THREADS", "8")))
     ap = argparse.ArgumentParser()
     ap.add_argument("--fold", type=int, default=None)
     ap.add_argument("--assemble", action="store_true")

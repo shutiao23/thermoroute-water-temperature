@@ -13,7 +13,6 @@ import pytest
 from thermoroute.frozen_calibration import (
     FrozenCalibrationError,
     apply_frozen_calibration,
-    validate_calibration_registry,
 )
 from thermoroute.conformal import cqr_policy_contract, _build_cqr_offset_audit
 from thermoroute.probability import logit

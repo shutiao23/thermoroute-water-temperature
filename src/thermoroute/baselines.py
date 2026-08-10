@@ -224,7 +224,7 @@ def run_lightgbm(tabs, thresholds, feature_set: str = "V3",
             frame = _base_cols(sub, h, "LightGBM", yhat, feature_set=feature_set)
 
             if quantiles:
-                preds = {}
+                preds: dict[float, np.ndarray] = {}
                 for q in C.QUANTILES:
                     mq = _lgb_fit(Xtr, ytr, Xva, yva, "quantile", alpha=q)
                     preds[q] = mq.predict(Xall)
@@ -244,6 +244,6 @@ def run_lightgbm(tabs, thresholds, feature_set: str = "V3",
                     force_col_wise=True)
                 clf.fit(Xtr, (ytr > thr).astype(int), eval_set=[(Xva, (yva > thr).astype(int))],
                         callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)])
-                frame["p_exceed"] = clf.predict_proba(Xall)[:, 1]
+                frame["p_exceed"] = np.asarray(clf.predict_proba(Xall))[:, 1]
             out.append(frame)
     return pd.concat(out, ignore_index=True)

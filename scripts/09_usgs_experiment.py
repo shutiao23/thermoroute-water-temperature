@@ -31,15 +31,20 @@ import tempfile
 import threading
 from typing import Callable, Mapping
 
-MAIN_THREADS = int(os.environ.get("THERMOROUTE_FORMAL_THREADS") or "8")
+_IMPORT_SAFE_THREAD_DEFAULT = os.environ.get("OMP_NUM_THREADS") or "1"
+MAIN_THREADS = int(
+    os.environ.get("THERMOROUTE_FORMAL_THREADS")
+    or ("8" if __name__ == "__main__" else _IMPORT_SAFE_THREAD_DEFAULT)
+)
 
-for _thread_variable in (
-    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
-):
-    os.environ.setdefault(_thread_variable, str(MAIN_THREADS))
-os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(MAIN_THREADS))
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+if __name__ == "__main__":
+    for _thread_variable in (
+        "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ.setdefault(_thread_variable, str(MAIN_THREADS))
+    os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(MAIN_THREADS))
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 ROOT = Path(__file__).resolve().parents[1]
 _WORKER_ARGUMENT = "--_thermoroute-stage09-worker"
@@ -246,7 +251,6 @@ from thermoroute.train import (
 from thermoroute.weighting import STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
-assert_role_thread_cap(ROOT, "stage09")
 
 USGS_VARS = ("WTEMP", "FLOW", "TEMP", "PRCP", "RHMEAN", "DH", "WDSP")  # +gridMET wind
 CFG = C.TrainConfig(batch_size=1536)         # larger batch ⇒ fewer steps on 100k+ samples
@@ -1875,9 +1879,6 @@ class _SeedWorkerLauncher:
 
     def __call__(self, order_path: Path) -> int:
         """Launch one clean interpreter in its own cancellable process group."""
-        seed = int(
-            json.loads(order_path.read_text(encoding="utf-8"))["seed"]
-        )
         with tempfile.TemporaryDirectory(
             prefix="thermoroute-stage09-seed-pycache-"
         ) as cache:
@@ -2083,6 +2084,11 @@ def _run_stage09_seed_worker(order_path: Path) -> int:
 
 
 def main():
+    # Importing the module is intentionally side-effect free with respect to a
+    # formal role.  The role-specific cap belongs to an actual Stage-09
+    # invocation; asserting it during test collection made the repository
+    # impossible to collect under the ordinary one-thread test policy.
+    assert_role_thread_cap(ROOT, "stage09")
     runtime_policy = assert_formal_numerical_policy()
     ap = argparse.ArgumentParser()
     ap.add_argument(

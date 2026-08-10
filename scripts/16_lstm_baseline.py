@@ -32,18 +32,20 @@ from __future__ import annotations
 
 import os
 LSTM_WORKER_THREADS = int(
-    os.environ.get("THERMOROUTE_FORMAL_THREADS") or "8"
+    os.environ.get("THERMOROUTE_FORMAL_THREADS")
+    or ("8" if __name__ == "__main__" else os.environ.get("OMP_NUM_THREADS", "1"))
 )
-for _thread_variable in (
-    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
-):
-    os.environ.setdefault(_thread_variable, str(LSTM_WORKER_THREADS))
-os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(LSTM_WORKER_THREADS))
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-# Stage 13c is imported below and uses this value when setting Torch threads.
-# Keep it aligned with the process-declared formal thread cap.
-os.environ.setdefault("WORKER_THREADS", str(LSTM_WORKER_THREADS))
+if __name__ == "__main__":
+    for _thread_variable in (
+        "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ.setdefault(_thread_variable, str(LSTM_WORKER_THREADS))
+    os.environ.setdefault("THERMOROUTE_FORMAL_THREADS", str(LSTM_WORKER_THREADS))
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    # Stage 13c is imported below. Keep standalone worker semantics aligned
+    # with this process's declared formal cap without mutating library importers.
+    os.environ.setdefault("WORKER_THREADS", str(LSTM_WORKER_THREADS))
 
 import argparse
 import gc
@@ -145,7 +147,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np
 import pandas as pd
-import torch
 from scipy.stats import wilcoxon
 
 from thermoroute import config as C
@@ -210,7 +211,6 @@ from thermoroute.train import (
 from thermoroute.weighting import STATION_EQUAL_WEIGHTING
 
 configure_deterministic_runtime()
-assert_role_thread_cap(ROOT, "stage16")
 
 # Reuse 13c's exact fold packing / prep / LightGBM-per-fold so the transfer arm
 # is identical to ThermoRoute's (same regions, same in-fold stations).
@@ -496,9 +496,6 @@ def insample():
                 selection_order_dir
                 / f"candidate{candidate_id}.selection.json"
             ).read_text(encoding="utf-8")
-        )
-        candidate_prediction = (
-            run_dir / "selection" / f"candidate{candidate_id}.parquet"
         )
         selection_rows.append({
             "candidate_id": candidate_id, **candidate,
@@ -1238,6 +1235,9 @@ def _run_lstm_worker(order_path: Path) -> int:
 
 
 if __name__ == "__main__":
+    # Module imports are used by diagnostics and must not impersonate a formal
+    # Stage-16 process.  Enforce the role cap only for a real entrypoint run.
+    assert_role_thread_cap(ROOT, "stage16")
     ap = argparse.ArgumentParser()
     ap.add_argument("--insample", action="store_true")
     ap.add_argument("--transfer", action="store_true")

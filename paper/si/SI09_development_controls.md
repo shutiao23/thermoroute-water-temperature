@@ -57,3 +57,83 @@ stage receipts → predictions/metrics → displayed value. Partial members, fai
 runs and diagnostic caches cannot populate this SI. Every displayed count,
 budget, receipt status and sensitivity follows the README cell-level binder
 contract.
+
+
+## One-factor ablation accuracy and skill (relocated Tables 4.8a-b)
+
+<!-- TABLE 4.8a (generated) -->
+
+| Model | RMSE 1 | RMSE 3 | RMSE 7 | MAE 1 | MAE 3 | MAE 7 | bias 1 | bias 3 | bias 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| TR-fixedKappa | 0.635 | 1.333 | 1.695 | 0.464 | 1.017 | 1.266 | 0.012 | -0.036 | -0.121 |
+| TR-noDynamicPrior | 0.634 | 1.327 | 1.702 | 0.464 | 1.011 | 1.268 | 0.027 | -0.017 | -0.109 |
+| TR-noMoE | 0.643 | 1.345 | 1.698 | 0.475 | 1.021 | 1.267 | -0.001 | -0.025 | -0.130 |
+| TR-noRouter | 0.642 | 1.342 | 1.694 | 0.470 | 1.026 | 1.265 | -0.011 | -0.041 | -0.119 |
+| TR-noTCN | 0.667 | 1.357 | 1.733 | 0.496 | 1.040 | 1.310 | -0.010 | -0.049 | -0.161 |
+| TR-unbounded | 0.634 | 1.333 | 1.695 | 0.466 | 0.999 | 1.271 | 0.003 | -0.047 | -0.125 |
+
+
+## One-factor ablation accuracy and skill (relocated Tables 4.8a-b)
+
+<!-- TABLE 4.8b (generated) -->
+
+| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| TR-fixedKappa | +0.209 | +0.187 | +0.250 | +0.180 | +0.075 | +0.041 |
+| TR-noDynamicPrior | +0.212 | +0.189 | +0.248 | +0.181 | +0.077 | +0.038 |
+| TR-noMoE | +0.199 | +0.182 | +0.250 | +0.169 | +0.074 | +0.036 |
+| TR-noRouter | +0.202 | +0.180 | +0.250 | +0.172 | +0.072 | +0.038 |
+| TR-noTCN | +0.176 | +0.167 | +0.240 | +0.141 | +0.058 | +0.030 |
+| TR-unbounded | +0.204 | +0.189 | +0.252 | +0.176 | +0.076 | +0.042 |
+
+
+## One-factor ablation accuracy and skill (relocated Tables 4.8a-b)
+
+<!-- TABLE 4.8a (generated) -->
+| Model | RMSE 1 | RMSE 3 | RMSE 7 | MAE 1 | MAE 3 | MAE 7 | bias 1 | bias 3 | bias 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| TR-fixedKappa | 0.635 | 1.333 | 1.695 | 0.464 | 1.017 | 1.266 | 0.012 | -0.036 | -0.121 |
+| TR-noDynamicPrior | 0.634 | 1.327 | 1.702 | 0.464 | 1.011 | 1.268 | 0.027 | -0.017 | -0.109 |
+| TR-noMoE | 0.643 | 1.345 | 1.698 | 0.475 | 1.021 | 1.267 | -0.001 | -0.025 | -0.130 |
+| TR-noRouter | 0.642 | 1.342 | 1.694 | 0.470 | 1.026 | 1.265 | -0.011 | -0.041 | -0.119 |
+| TR-noTCN | 0.667 | 1.357 | 1.733 | 0.496 | 1.040 | 1.310 | -0.010 | -0.049 | -0.161 |
+| TR-unbounded | 0.634 | 1.333 | 1.695 | 0.466 | 0.999 | 1.271 | 0.003 | -0.047 | -0.125 |
+
+
+## One-factor ablation accuracy and skill (relocated Tables 4.8a-b)
+
+<!-- TABLE 4.8b (generated) -->
+| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| TR-fixedKappa | +0.209 | +0.187 | +0.250 | +0.180 | +0.075 | +0.041 |
+| TR-noDynamicPrior | +0.212 | +0.189 | +0.248 | +0.181 | +0.077 | +0.038 |
+| TR-noMoE | +0.199 | +0.182 | +0.250 | +0.169 | +0.074 | +0.036 |
+| TR-noRouter | +0.202 | +0.180 | +0.250 | +0.172 | +0.072 | +0.038 |
+| TR-noTCN | +0.176 | +0.167 | +0.240 | +0.141 | +0.058 | +0.030 |
+| TR-unbounded | +0.204 | +0.189 | +0.252 | +0.176 | +0.076 | +0.042 |
+
+
+## One-factor ablation accuracy and skill (relocated Tables 4.8a-b)
+
+<!-- TABLE 4.8a (generated) -->
+| Model | RMSE 1 | RMSE 3 | RMSE 7 | MAE 1 | MAE 3 | MAE 7 | bias 1 | bias 3 | bias 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| TR-fixedKappa | 0.635 | 1.333 | 1.695 | 0.464 | 1.017 | 1.266 | 0.012 | -0.036 | -0.121 |
+| TR-noDynamicPrior | 0.634 | 1.327 | 1.702 | 0.464 | 1.011 | 1.268 | 0.027 | -0.017 | -0.109 |
+| TR-noMoE | 0.643 | 1.345 | 1.698 | 0.475 | 1.021 | 1.267 | -0.001 | -0.025 | -0.130 |
+| TR-noRouter | 0.642 | 1.342 | 1.694 | 0.470 | 1.026 | 1.265 | -0.011 | -0.041 | -0.119 |
+| TR-noTCN | 0.667 | 1.357 | 1.733 | 0.496 | 1.040 | 1.310 | -0.010 | -0.049 | -0.161 |
+| TR-unbounded | 0.634 | 1.333 | 1.695 | 0.466 | 0.999 | 1.271 | 0.003 | -0.047 | -0.125 |
+
+
+## One-factor ablation accuracy and skill (relocated Tables 4.8a-b)
+
+<!-- TABLE 4.8b (generated) -->
+| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| TR-fixedKappa | +0.209 | +0.187 | +0.250 | +0.180 | +0.075 | +0.041 |
+| TR-noDynamicPrior | +0.212 | +0.189 | +0.248 | +0.181 | +0.077 | +0.038 |
+| TR-noMoE | +0.199 | +0.182 | +0.250 | +0.169 | +0.074 | +0.036 |
+| TR-noRouter | +0.202 | +0.180 | +0.250 | +0.172 | +0.072 | +0.038 |
+| TR-noTCN | +0.176 | +0.167 | +0.240 | +0.141 | +0.058 | +0.030 |
+| TR-unbounded | +0.204 | +0.189 | +0.252 | +0.176 | +0.076 | +0.042 |

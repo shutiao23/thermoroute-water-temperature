@@ -57,10 +57,13 @@ is calibrated per station on the 2006–2015 training record (multi-start bounde
 least squares, six starts, `max_nfev = 6000`) and scored on the 2021–2023
 **common-key registry** of the results authority (`outputs/final/forecast_keys.parquet`):
 only stations with at least 100 paired common keys are reportable, so the
-hybrid row uses the identical 116-station set as every other model (118 stations
-carry a fitted hybrid, but the table reports the common 116; a station-count
-sensitivity for all 118 is available in the reproduction artifacts). Station-median
-RMSE is 0.719 / 1.478 / 1.825 °C at 1 / 3 / 7 days; median of per-station skill
+primary hybrid rows use the identical 116-station set as every other model
+(118 stations carry a fitted hybrid, of which two fall below the 100-key
+threshold). Station-median RMSE on the reportable set is 0.719 / 1.459 / 1.825 °C
+at 1 / 3 / 7 days. A separately labelled sensitivity retains all 118 fitted
+stations with **no reportability filter applied**, giving 0.719 / 1.478 /
+1.825 °C; the 1- and 7-day figures coincide with the primary set to three
+decimals and only the 3-day value differs. Median of per-station skill
 against damped persistence is +0.063 / −0.008 / −0.011. The official upstream
 model was not executed; the hybrid is an *unofficial empirical comparator*, not
 a claim against the published model and not a process-based result (manuscript
@@ -91,9 +94,12 @@ commit `d4834bccf01657c03ab60efb4c18f8a256132c53`:
 | ThermoRoute | 1 | all | 116 | 0.640 | 0.463 | +0.011 | station median | si07.row |
 | ThermoRoute | 3 | all | 116 | 1.337 | 1.013 | -0.029 | station median | si07.row |
 | ThermoRoute | 7 | all | 116 | 1.694 | 1.269 | -0.130 | station median | si07.row |
-| Air2stream (a8, unofficial) | 1 | all | 118 | 0.719 | 0.525 | -0.034 | station median | si07.row |
-| Air2stream (a8, unofficial) | 3 | all | 118 | 1.478 | 1.066 | -0.155 | station median | si07.row |
-| Air2stream (a8, unofficial) | 7 | all | 118 | 1.825 | 1.317 | -0.243 | station median | si07.row |
+| Air2stream (a8, unofficial) | 1 | all | 116 | 0.719 | 0.559 | -0.020 | station median | si07.row |
+| Air2stream (a8, unofficial) | 3 | all | 116 | 1.459 | 1.115 | -0.110 | station median | si07.row |
+| Air2stream (a8, unofficial) | 7 | all | 116 | 1.825 | 1.366 | -0.189 | station median | si07.row |
+| Air2stream (a8, unofficial, no reportability filter) | 1 | all | 118 | 0.719 | 0.559 | -0.020 | station median | si07.sens |
+| Air2stream (a8, unofficial, no reportability filter) | 3 | all | 118 | 1.478 | 1.128 | -0.111 | station median | si07.sens |
+| Air2stream (a8, unofficial, no reportability filter) | 7 | all | 118 | 1.825 | 1.366 | -0.189 | station median | si07.sens |
 | no supported Fortran compiler present (`gfortran`, `ifort`, `ifx`, `flang`, `nvfortran`, `f95`, `f90` all absent), no Makefile or documented compiler command, and Intel-specific `ifport` / `makedirqq` calls in `AIR2STREAM_READ.f90` | the pinned source was never built in this environment |
 | the shipped `air2stream_1.0.0.out` binary was deliberately not executed | running an upstream binary would not show that the pinned source builds, and no golden-output checksum is published to attest it against |
 | the commit is unsigned (`%G? = N`, `git verify-commit` fails) and no tag is advertised | provenance is TLS transport plus Git object identity, not signer attestation |
@@ -128,3 +134,52 @@ five-row comparison family nor the protocol's model registry, so its absence
 weakens no registered claim. Closing this gap means scoring it on the same exact
 common key registry and adding a row here; it does not mean reporting the
 global-model number under the per-station label.
+
+
+## Skill against persistence and damped persistence (relocated Table 4.7b)
+
+<!-- TABLE 4.7b (generated) -->
+
+| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | — | — | — | — | — | — |
+| DampedPersistence | — | — | — | — | — | — |
+| Climatology | -1.383 | -0.144 | +0.181 | -1.455 | -0.268 | -0.043 |
+| LightGBM | +0.261 | +0.195 | +0.248 | +0.237 | +0.081 | +0.030 |
+| LSTM | +0.181 | +0.172 | +0.244 | +0.150 | +0.055 | +0.028 |
+| PlainMLP-7var | +0.152 | +0.163 | +0.243 | +0.115 | +0.047 | +0.023 |
+| PlainCausalTCN-7var | +0.190 | +0.180 | +0.246 | +0.164 | +0.062 | +0.028 |
+| Air2stream | +0.091 | +0.113 | +0.218 | +0.063 | -0.008 | -0.011 |
+| ThermoRoute | +0.206 | +0.186 | +0.250 | +0.173 | +0.077 | +0.038 |
+
+
+## Skill against persistence and damped persistence (relocated Table 4.7b)
+
+<!-- TABLE 4.7b (generated) -->
+| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | — | — | — | — | — | — |
+| DampedPersistence | — | — | — | — | — | — |
+| Climatology | -1.383 | -0.144 | +0.181 | -1.455 | -0.268 | -0.043 |
+| LightGBM | +0.261 | +0.195 | +0.248 | +0.237 | +0.081 | +0.030 |
+| LSTM | +0.181 | +0.172 | +0.244 | +0.150 | +0.055 | +0.028 |
+| PlainMLP-7var | +0.152 | +0.163 | +0.243 | +0.115 | +0.047 | +0.023 |
+| PlainCausalTCN-7var | +0.190 | +0.180 | +0.246 | +0.164 | +0.062 | +0.028 |
+| Air2stream | +0.091 | +0.113 | +0.218 | +0.063 | -0.008 | -0.011 |
+| ThermoRoute | +0.206 | +0.186 | +0.250 | +0.173 | +0.077 | +0.038 |
+
+
+## Skill against persistence and damped persistence (relocated Table 4.7b)
+
+<!-- TABLE 4.7b (generated) -->
+| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | — | — | — | — | — | — |
+| DampedPersistence | — | — | — | — | — | — |
+| Climatology | -1.383 | -0.144 | +0.181 | -1.455 | -0.268 | -0.043 |
+| LightGBM | +0.261 | +0.195 | +0.248 | +0.237 | +0.081 | +0.030 |
+| LSTM | +0.181 | +0.172 | +0.244 | +0.150 | +0.055 | +0.028 |
+| PlainMLP-7var | +0.152 | +0.163 | +0.243 | +0.115 | +0.047 | +0.023 |
+| PlainCausalTCN-7var | +0.190 | +0.180 | +0.246 | +0.164 | +0.062 | +0.028 |
+| Air2stream | +0.091 | +0.113 | +0.218 | +0.063 | -0.008 | -0.011 |
+| ThermoRoute | +0.206 | +0.186 | +0.250 | +0.173 | +0.077 | +0.038 |

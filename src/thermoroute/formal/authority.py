@@ -18,7 +18,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any, Final, Self
+from typing import Any, Final, Self, cast
 
 
 class FormalAuthorityError(RuntimeError):
@@ -521,21 +521,24 @@ def _copy_json(value: object, *, frozen: bool, active: set[int]) -> Any:
     if value is None or value_type in {bool, int}:
         return value
     if value_type is str:
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        string_value = cast(str, value)
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in string_value):
             raise CanonicalJSONError("JSON strings must contain only Unicode scalar values")
-        return value
+        return string_value
     if value_type is float:
-        if not math.isfinite(value):
+        float_value = cast(float, value)
+        if not math.isfinite(float_value):
             raise CanonicalJSONError("JSON numbers must be finite")
-        return value
+        return float_value
     if value_type in {dict, MappingProxyType}:
+        mapping_value = cast(Mapping[object, object], value)
         identity = id(value)
         if identity in active:
             raise CanonicalJSONError("cyclic JSON object")
         active.add(identity)
         try:
             items: list[tuple[str, Any]] = []
-            for key, item in value.items():
+            for key, item in mapping_value.items():
                 if type(key) is not str:
                     raise CanonicalJSONError("JSON object keys must be exact strings")
                 if any(0xD800 <= ord(character) <= 0xDFFF for character in key):
@@ -549,12 +552,15 @@ def _copy_json(value: object, *, frozen: bool, active: set[int]) -> Any:
         finally:
             active.remove(identity)
     if value_type in {list, tuple}:
+        sequence_value = cast(Sequence[object], value)
         identity = id(value)
         if identity in active:
             raise CanonicalJSONError("cyclic JSON array")
         active.add(identity)
         try:
-            copied_items = tuple(_copy_json(item, frozen=frozen, active=active) for item in value)
+            copied_items = tuple(
+                _copy_json(item, frozen=frozen, active=active) for item in sequence_value
+            )
             return copied_items if frozen else list(copied_items)
         finally:
             active.remove(identity)
@@ -934,6 +940,7 @@ def revalidate_authority_snapshot(
 ) -> None:
     """Validate an exact authority and freshly recapture every bound path."""
 
+    authority: PendingAuthority | ExecutionAuthority
     if type(value) is PendingAuthority:
         authority = require_pending_authority(value, action=action, profile=profile)
     elif type(value) is ExecutionAuthority:

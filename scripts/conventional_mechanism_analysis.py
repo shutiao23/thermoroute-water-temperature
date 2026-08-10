@@ -19,7 +19,6 @@ Output: outputs/conventional/mechanism_2021_2023.json + summary printout.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np

@@ -75,7 +75,7 @@ def build_plain_control_model(
     *,
     seed: int,
     n_stations: int = DEFAULT_N_STATIONS,
-) -> torch.nn.Module:
+) -> PlainMLPForecaster | PlainCausalTCNForecaster:
     """Reconstruct one plain control architecture from its frozen contract.
 
     The constructor kwargs are copied verbatim from
@@ -233,7 +233,7 @@ def load_plain_control_checkpoint(
         ) from exc
     model.eval()
 
-    architecture = model.architecture_metadata()  # type: ignore[attr-defined]
+    architecture = model.architecture_metadata()
     metadata: dict[str, Any] = {
         "model_class": sidecar["model_class"],
         "run_id": sidecar["run_id"],

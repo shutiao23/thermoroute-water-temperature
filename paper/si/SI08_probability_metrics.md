@@ -21,7 +21,7 @@ CQR + Platt calibration applied identically to the held-out predictions).
 Metrics not computed on the held-out window are `NOT_REGISTERED`.
 
 | Model | Horizon | n | marginal coverage | width (°C) | interval score | pinball | Brier score | Brier skill | log score | discrimination | ECE | calibration slope | calibration intercept |
-|---|---:|---|---|---|---|---|---|---|---|---|---|---|
+|---|---:|---|---|---|---|---|---|---|---|---|---|---|---|
 | LightGBM | 1 | 120,466 | 0.907 | 1.905 | NOT_REGISTERED | NOT_REGISTERED | 0.020 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
 | LightGBM | 3 | 119,654 | 0.904 | 4.142 | NOT_REGISTERED | NOT_REGISTERED | 0.039 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |
 | LightGBM | 7 | 118,687 | 0.903 | 5.318 | NOT_REGISTERED | NOT_REGISTERED | 0.049 | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED | NOT_REGISTERED |

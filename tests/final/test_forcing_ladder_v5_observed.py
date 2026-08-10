@@ -178,8 +178,8 @@ def test_dry_run_is_data_free_scope_exact_and_gate_locked(
             "outputs/final/preprocessing_lineage_defect_authority_v1/"
             "preprocessing_lineage_defect_authority_v1_manifest.json"
         ),
-        "expected_sha256": None,
-        "state": "LOCKED_PENDING_REVIEWED_SHA256_PIN",
+        "expected_sha256": ("e69124409f49e4fb2aaaae319104251ca3078e535fca69121ed0eafddb23d908"),
+        "state": "PIN_DECLARED_FILESYSTEM_NOT_READ_BY_DRY_RUN",
     }
     assert plan["score_execution_authority_gate"]["state"] == (
         "LOCKED_NO_CANONICAL_SCORE_EXECUTION_SEAL"
@@ -195,7 +195,9 @@ def test_dry_run_is_data_free_scope_exact_and_gate_locked(
 def test_execute_is_locked_before_data_fit_lock_or_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert V5.EXPECTED_DEFECT_AUTHORITY_SHA256 is None
+    assert V5.EXPECTED_DEFECT_AUTHORITY_SHA256 == (
+        "e69124409f49e4fb2aaaae319104251ca3078e535fca69121ed0eafddb23d908"
+    )
     assert not os.path.lexists(V5.DEFAULT_OUTPUT_DIR)
 
     def forbidden(*_args, **_kwargs):
@@ -224,12 +226,15 @@ def test_production_source_protocol_key_pins_and_formal_registry_binding(
 ) -> None:
     evidence = V5.verify_production_pins()
     assert {name: item["sha256"] for name, item in evidence.items()} == dict(V5.PINNED_INPUT_SHA256)
-    assert V5.PINNED_GOVERNANCE_SHA256 == {
-        "protocol": "66e089baf37db1137cad23f148e31df39cc71aea872dec4a97dc6f8701d13a98",
-        "key_authority_manifest": (
-            "ac0c256907264022e1fe7c4e407e0f95ece1f03233ecd6bb1841e27eb40b49ea"
-        ),
-    }
+    assert V5.PINNED_GOVERNANCE_SHA256["protocol"] == (
+        "66e089baf37db1137cad23f148e31df39cc71aea872dec4a97dc6f8701d13a98"
+    )
+    assert V5.PINNED_GOVERNANCE_SHA256["key_authority_manifest"] == (
+        "ac0c256907264022e1fe7c4e407e0f95ece1f03233ecd6bb1841e27eb40b49ea"
+    )
+    assert V5.PINNED_GOVERNANCE_SHA256["semantic_authority_manifest"] == (
+        "12cdc355a06d2c39733a60386dfdeb8a2f6b234d2f8d6f641a995a3d3c41072c"
+    )
     raw, stations, reference = pinned_inputs
     assert len(raw.frame) == 788_880
     assert len(stations) == 120

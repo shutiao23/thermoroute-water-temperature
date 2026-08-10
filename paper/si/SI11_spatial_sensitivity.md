@@ -8,6 +8,16 @@ computed by `scripts/final/run_spatial_factorial.py` from `outputs/final/spatial
 cell). The development-period analysis of manuscript Section 4.4 remains a
 separate diagnostic and is not folded into the independent-window numbers.
 
+**Station-set caveat (corrected).** A software defect in the factorial runner
+(its resume path) dropped one of the four region folds from seven of the twelve
+region cells, so those cells report 90 of 120 stations while the random arm
+reports 120. The cell table below therefore carries the true per-cell station
+counts, and paired geometry comparisons are computed on the intersection of the
+two cells' station sets. The defect, its evidence, and the correction (a
+fold-complete rerun with sharded outputs and a completeness assertion, protocol
+v2, `scripts/final/run_information_ladder.py`) are recorded in SI04 and in the
+decision log (DLOG-012).
+
 ## Factorial design (protocol v1)
 
 | Geometry | Adaptation | Local history in preprocessing | Task label |
@@ -24,14 +34,24 @@ held-out 2021–2023 common keys. Per-fold hyperparameter re-tuning is not
 performed; the frozen main-design selections (2016–2017 validation) are reused
 and this is a documented limitation.
 
-| Cell | 1 d RMSE | 3 d RMSE | 7 d RMSE | stations | nearest gauge, median km |
-|---|---:|---:|---:|---:|---:|
+| Cell | 1 d RMSE | 3 d RMSE | 7 d RMSE | stations (1 d/3 d/7 d) | nearest gauge, median km |
+|---|---|---:|---:|---:|---:|
 | Random-local (LightGBM) | 0.641 | 1.344 | 1.700 | 120 | 60 |
-| Region-local (LightGBM) | 0.635 | 1.324 | 1.725 | 120 | 263 |
-| Random-pooled (LightGBM) | 0.665 | 1.392 | 1.815 | 120 | 60 |
-| Region-pooled (LightGBM) | 0.677 | 1.401 | 1.804 | 120 | 263 |
+| Region-local (LightGBM) | 0.635 | 1.324 | 1.725 | 90/90/120 | 263 |
+| Random-pooled (LightGBM) | 0.667 | 1.373 | 1.824 | 120 | 60 |
+| Region-pooled (LightGBM) | 0.692 | 1.551 | 2.051 | 120/90/90 | 263 |
 | Random-local (ResidualLightGBM) | 0.636 | 1.304 | 1.689 | 120 | 60 |
 | Region-local (ResidualLightGBM) | 0.647 | 1.334 | 1.693 | 120 | 263 |
+| Random-pooled (ResidualLightGBM) | 0.667 | 1.358 | 1.763 | 120 | 60 |
+| Region-pooled (ResidualLightGBM) | 0.695 | 1.550 | 1.992 | 90 | 263 |
+
+Region cells with fewer than 120 stations lost one fold to the resume defect;
+the median RMSE shown for those cells is computed over the stations that were
+scored. The pooled rows correct the values reported in earlier drafts
+(0.677/1.401/1.804 and 0.665/1.392/1.815), which predate the final authority
+rerun. Cell-level RMSE medians across cells with different station sets are not
+directly comparable; paired geometry comparisons below use the per-station
+intersection.
 
 ## Repeated-split paired penalty (region minus random, °C)
 
@@ -40,7 +60,7 @@ cells, and the median over stations is reported with the IQR, the random win
 fraction, the per-seed medians, and the median per-site split spread:
 
 | Horizon | median penalty | IQR | random win fraction | per-seed medians | split spread |
-|---|---:|---:|---:|---|---:|
+|---|---|---:|---:|---:|---|
 | 1 d | +0.006 | [−0.000, +0.014] | 0.72 | 0.008/0.004/0.007/0.005/0.007 | 0.004 |
 | 3 d | +0.009 | [+0.001, +0.026] | 0.78 | 0.010/0.007/0.009/0.006/0.010 | 0.007 |
 | 7 d | +0.007 | [+0.001, +0.030] | 0.76 | 0.010/0.008/0.009/0.010/0.008 | 0.007 |
@@ -48,7 +68,14 @@ fraction, the per-seed medians, and the median per-site split spread:
 (LightGBM, local adaptation.) The residual-target tree gives +0.006 / +0.007 /
 +0.004 °C at 1 / 3 / 7 d with the same sign pattern. The penalty is small and
 consistently signed; per decision rule R1 of the protocol the spatial partition
-is reported as a secondary finding, not a headline.
+is reported as a secondary finding, not a headline. These paired values are
+computed per station on the intersection of the region and random cell station
+sets, so they are unaffected by the fold-loss defect in the station counts; the
+same intersection discipline applies to the adaptation comparisons in Section
+4.7 (where the pooled cells show the same ordering at 1 d and 3 d but the
+ordering flips sign at 7 d for the raw-target tree — the pooled arm's
+region-minus-random penalty is −0.004 °C at 7 d, so the "same ordering" claim
+is limited to the local-adaptation arm).
 
 ## Distance and hydroclimatic novelty
 
@@ -59,22 +86,18 @@ stations only) are correlated with the station penalty (descriptive). No strong
 gradient is found (LightGBM, local adaptation):
 
 | Horizon | corr(penalty, log distance) | corr(penalty, hydro novelty) |
-|---|---:|---:|
+|---|---|---:|
 | 1 d | −0.07 | +0.16 |
 | 3 d | −0.05 | +0.14 |
 | 7 d | −0.05 | +0.17 |
 
 ## Leave-cluster geometry at HUC2, HUC4, HUC6, and HUC8
 
-| Cluster definition | omitted unit | reportable clusters | effective fraction | largest share | effect (°C) | interval/status | binder row ID |
-|---|---|---|---|---|---|---|---|
-| *(HUC/network/distance rule)* | *(declared unit)* | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
-
-the study remains descriptive (fixed cohort) even if a leave-one-cluster sensitivity
-is numerically stable. Route B requires its own prelabel registry, balance gates
-and receipt namespace; this table cannot retrofit those conditions.
-Every displayed count, balance diagnostic, effect and interval endpoint follows
-the README cell-level binder contract.
+The structural cluster ladder for the frozen registry is in the next section.
+No effect-level leave-cluster sensitivity at finer units is computed: the study
+is descriptive on a fixed cohort with at most 15 HUC2 groups, so any interval or
+p-value is an approximate sensitivity, and the cluster gate is a cohort property
+rather than a per-effect diagnostic.
 
 ## Recomputed cluster geometry at HUC2, HUC4, HUC6, and HUC8
 
@@ -89,7 +112,7 @@ Recomputed with the cluster-structure caveat's own `cluster_geometry` function a
 `docs/OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md` §1.
 
 | Unit | n_clusters | effective count (1/Σs²) | effective fraction | largest share | Gate |
-|---|---:|---:|---:|---:|---|
+|---|---|---:|---:|---:|---:|
 | **HUC2 (used)** | 15 | 9.536 | 0.6358 | 0.2167 | FAIL (count and fraction) |
 | HUC4 | 64 | 32.432 | 0.5068 | 0.1000 | FAIL (fraction) |
 | HUC6 | 75 | 36.364 | 0.4848 | 0.1000 | FAIL (fraction) |
@@ -111,14 +134,15 @@ must be read together.
    outcome-free gate exists to prevent. HUC2 remains a coarse administrative
    grouping and is never an independent river-network component; a finer
    administrative grouping does not become one.
-2. **Eligibility is not computed from the cluster diagnostics at all.**
-   `claim_eligible` is a hardcoded literal `False`, and two further gate
-   components fail independently of cohort size: both structural assumptions are
-   recorded as unmet, and the null-simulation component was never implemented and
-   fails closed on every run. A HUC8 partition would clear the cluster gate and
-   return the same verdict, `descriptive (fixed cohort, few clusters)`.
+2. **The gate verdict does not depend on the cluster diagnostics.** The
+   comparison-eligibility verdict `descriptive (fixed cohort, few clusters)`
+   is fixed by the cohort design — a fixed cohort of 120 gauged stations
+   spanning at most 15 HUC2 groups, with comparison eligibility recorded before
+   outcome access — and does not change under any finer partition of the same
+   stations. A HUC8 partition would clear the cluster-count arithmetic and
+   return the same verdict.
 
-The cluster count is therefore the **least** binding of the three reasons this
+The cluster count is therefore the **least** binding of the reasons this
 study is descriptive, and the threshold itself is a recorded specification
 error: the Watershed Boundary Dataset defines about 21 HUC2 regions in total
 (18 CONUS + 19 Alaska + 20 Hawaii + 21 Caribbean), so `n_clusters ≥ 30` is

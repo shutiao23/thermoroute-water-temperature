@@ -42,8 +42,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -190,14 +191,28 @@ def attach_context_missingness(
     # count ending at each DATE.  Verified by test_missingness_against_brute_force.
     observed_rolling = {
         days: p.groupby("site_id")["observed"].transform(
-            lambda series: series.rolling(days, min_periods=days).sum()
+            lambda series, window=days: series.rolling(window, min_periods=window).sum()
         )
         for days in context_days
     }
+    # Bind recency to the information available *as of each panel date*.
+    # Using one station-wide maximum observed date would leak a future
+    # observation backwards into every earlier issue date and can produce
+    # negative ``days_since_last_observed_wtemp`` values.
+    observed_dates = p["DATE"].where(p["observed"].eq(1))
+    last_observed_asof = observed_dates.groupby(p["site_id"], sort=False).ffill()
+    days_since_asof = (p["DATE"] - last_observed_asof).dt.days
     rolling_table = pd.DataFrame(
-        {"site_id": p["site_id"], "DATE": p["DATE"],
-         **{f"n_observed_wtemp_{days}d": observed_rolling[days]
-            for days in context_days}}
+        {
+            "site_id": p["site_id"],
+            "DATE": p["DATE"],
+            "issue_wtemp_observed": p["observed"].astype(bool),
+            "days_since_last_observed_wtemp": days_since_asof,
+            **{
+                f"n_observed_wtemp_{days}d": observed_rolling[days]
+                for days in context_days
+            },
+        }
     )
     out = out.merge(
         rolling_table, left_on=["site_id", "issue_date"],
@@ -208,16 +223,12 @@ def attach_context_missingness(
         out[f"fraction_observed_wtemp_{days}d"] = (
             out[f"n_observed_wtemp_{days}d"] / out[f"context_rows_{days}d"]
         )
-    last_obs = (
-        p[p.observed == 1]
-        .groupby("site_id")["DATE"].max().rename("last_obs_date")
-    )
-    out = out.merge(last_obs, left_on="site_id", right_index=True, how="left")
     out["days_since_last_observed_wtemp"] = (
-        out["issue_date"] - out["last_obs_date"]
-    ).dt.days
-    out.loc[out["last_obs_date"].isna(), "days_since_last_observed_wtemp"] = -1
-    out["issue_wtemp_observed"] = out["days_since_last_observed_wtemp"] == 0
+        pd.to_numeric(out["days_since_last_observed_wtemp"], errors="coerce")
+        .fillna(-1)
+        .astype(int)
+    )
+    out["issue_wtemp_observed"] = out["issue_wtemp_observed"].fillna(False).astype(bool)
     keep = [c for c in (
         "key_id", "cohort", "task", "site_id", "issue_date", "target_date",
         "horizon", "period", "target_observed", "y_true",
@@ -256,7 +267,7 @@ def station_metrics(
                 "rmse": float(np.sqrt(np.mean(residual ** 2))),
                 "mae": float(np.mean(np.abs(residual))),
                 "bias": float(np.mean(residual)),
-                "n": int(len(g)),
+                "n": len(g),
             })
     if not rows:
         raise ValueError("no reportable station cells")
@@ -274,7 +285,7 @@ def pooled_metrics(predictions: pd.DataFrame) -> pd.DataFrame:
             "rmse": float(np.sqrt(np.mean(residual ** 2))),
             "mae": float(np.mean(np.abs(residual))),
             "bias": float(np.mean(residual)),
-            "n": int(len(group)),
+            "n": len(group),
         })
     return pd.DataFrame(rows, columns=["model", "horizon", "rmse", "mae", "bias", "n"])
 
@@ -409,7 +420,7 @@ def mean_additive_waterfall(decomp: pd.DataFrame, horizon: int) -> dict[str, flo
         "mean_g_total": float(g["g_total"].mean()),
         "mean_g_memory": float(g["g_memory"].mean()),
         "mean_g_learned": float(g["g_learned"].mean()),
-        "n_stations": int(len(g)),
+        "n_stations": len(g),
     }
 
 

@@ -153,6 +153,37 @@ def test_missingness_against_brute_force():
         assert row[f"n_observed_wtemp_{days}d"] == expected, days
 
 
+def test_issue_observedness_and_recency_are_as_of_each_issue_date():
+    site = "01000001"
+    dates = pd.date_range("2021-01-01", periods=8, freq="D")
+    panel = pd.DataFrame({
+        "site_id": site,
+        "DATE": dates,
+        # The final observation must not leak backwards into earlier issues.
+        "WTEMP": [np.nan, 5.0, np.nan, np.nan, 6.0, np.nan, np.nan, 99.0],
+    })
+    issue_dates = pd.to_datetime([
+        "2021-01-01",
+        "2021-01-02",
+        "2021-01-04",
+        "2021-01-05",
+        "2021-01-07",
+    ])
+    registry = pd.DataFrame({
+        "site_id": [site] * len(issue_dates),
+        "horizon": [1] * len(issue_dates),
+        "issue_date": issue_dates,
+        "target_date": issue_dates + pd.Timedelta(days=1),
+        "y_true": np.arange(len(issue_dates), dtype=float),
+    })
+
+    keys = FR.attach_context_missingness(registry, panel, context_days=(2,))
+
+    assert keys["issue_wtemp_observed"].tolist() == [False, True, False, True, False]
+    assert keys["days_since_last_observed_wtemp"].tolist() == [-1, 0, 2, 0, 2]
+    assert (keys["days_since_last_observed_wtemp"] >= -1).all()
+
+
 def test_claim_ledger_resolution():
     pred = make_predictions()
     station = FR.station_metrics(pred)

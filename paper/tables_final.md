@@ -2,13 +2,13 @@
 
 ### Table 4.6 — paired comparisons on the held-out window
 
-| # | Comparison | Lead | ΔRMSE (°C) | CI low | CI high | Win rate | Stations |
-| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | ThermoRoute vs. DampedPersistence | 1 d | -0.129 | -0.199 | -0.076 | 0.90 | 116 |
-| 2 | ThermoRoute vs. DampedPersistence | 3 d | -0.108 | -0.143 | -0.073 | 0.91 | 116 |
-| 3 | ThermoRoute vs. DampedPersistence | 7 d | -0.069 | -0.086 | -0.057 | 0.95 | 116 |
-| 4 | ThermoRoute vs. LightGBM | 3 d | 0.015 | 0.010 | 0.025 | 0.24 | 116 |
-| 5 | ThermoRoute vs. LightGBM | 7 d | -0.009 | -0.017 | 0.002 | 0.59 | 116 |
+| # | Comparison | Lead | ΔRMSE (°C) | CI low | CI high | Win rate | Stations | p (sign flip) | Holm p |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | ThermoRoute vs. DampedPersistence | 1 d | -0.129 | -0.199 | -0.076 | 0.90 | 116 | 3.1e-05 | 1.5e-04 |
+| 2 | ThermoRoute vs. DampedPersistence | 3 d | -0.108 | -0.143 | -0.073 | 0.91 | 116 | 3.1e-05 | 1.5e-04 |
+| 3 | ThermoRoute vs. DampedPersistence | 7 d | -0.069 | -0.086 | -0.057 | 0.95 | 116 | 6.1e-05 | 1.8e-04 |
+| 4 | ThermoRoute vs. LightGBM | 3 d | 0.015 | 0.010 | 0.025 | 0.24 | 116 | 1.0e+00 | 1.0e+00 |
+| 5 | ThermoRoute vs. LightGBM | 7 d | -0.009 | -0.017 | 0.002 | 0.59 | 116 | 7.4e-02 | 1.5e-01 |
 
 ### Table 4.7a — Accuracy (RMSE, MAE, bias)
 
@@ -24,55 +24,11 @@
 | Air2stream | 0.719 | 1.459 | 1.825 | 0.559 | 1.115 | 1.366 | -0.020 | -0.110 | -0.189 |
 | ThermoRoute | 0.640 | 1.337 | 1.694 | 0.463 | 1.013 | 1.269 | 0.011 | -0.029 | -0.130 |
 
-### Table 4.7b — Skill against persistence and damped persistence
-
-| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Persistence | — | — | — | — | — | — |
-| DampedPersistence | — | — | — | — | — | — |
-| Climatology | -1.383 | -0.144 | +0.181 | -1.455 | -0.268 | -0.043 |
-| LightGBM | +0.261 | +0.195 | +0.248 | +0.237 | +0.081 | +0.030 |
-| LSTM | +0.181 | +0.172 | +0.244 | +0.150 | +0.055 | +0.028 |
-| PlainMLP-7var | +0.152 | +0.163 | +0.243 | +0.115 | +0.047 | +0.023 |
-| PlainCausalTCN-7var | +0.190 | +0.180 | +0.246 | +0.164 | +0.062 | +0.028 |
-| Air2stream | +0.091 | +0.113 | +0.218 | +0.063 | -0.008 | -0.011 |
-| ThermoRoute | +0.206 | +0.186 | +0.250 | +0.173 | +0.077 | +0.038 |
-
-### Table 4.8a — Accuracy (RMSE, MAE, bias) — one-factor ablations
-
-| Model | RMSE 1 | RMSE 3 | RMSE 7 | MAE 1 | MAE 3 | MAE 7 | bias 1 | bias 3 | bias 7 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| TR-fixedKappa | 0.635 | 1.333 | 1.695 | 0.464 | 1.017 | 1.266 | 0.012 | -0.036 | -0.121 |
-| TR-noDynamicPrior | 0.634 | 1.327 | 1.702 | 0.464 | 1.011 | 1.268 | 0.027 | -0.017 | -0.109 |
-| TR-noMoE | 0.643 | 1.345 | 1.698 | 0.475 | 1.021 | 1.267 | -0.001 | -0.025 | -0.130 |
-| TR-noRouter | 0.642 | 1.342 | 1.694 | 0.470 | 1.026 | 1.265 | -0.011 | -0.041 | -0.119 |
-| TR-noTCN | 0.667 | 1.357 | 1.733 | 0.496 | 1.040 | 1.310 | -0.010 | -0.049 | -0.161 |
-| TR-unbounded | 0.634 | 1.333 | 1.695 | 0.466 | 0.999 | 1.271 | 0.003 | -0.047 | -0.125 |
-
-### Table 4.8b — Skill — one-factor ablations
-
-| Model | persist. 1 | persist. 3 | persist. 7 | damped 1 | damped 3 | damped 7 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| TR-fixedKappa | +0.209 | +0.187 | +0.250 | +0.180 | +0.075 | +0.041 |
-| TR-noDynamicPrior | +0.212 | +0.189 | +0.248 | +0.181 | +0.077 | +0.038 |
-| TR-noMoE | +0.199 | +0.182 | +0.250 | +0.169 | +0.074 | +0.036 |
-| TR-noRouter | +0.202 | +0.180 | +0.250 | +0.172 | +0.072 | +0.038 |
-| TR-noTCN | +0.176 | +0.167 | +0.240 | +0.141 | +0.058 | +0.030 |
-| TR-unbounded | +0.204 | +0.189 | +0.252 | +0.176 | +0.076 | +0.042 |
-
-### Table 4.11 — Station-level error-budget decomposition
-
-| Lead | RMSE, persistence | RMSE, damped | RMSE, ThermoRoute | Median memory gain | Median learned gain |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1 d | 0.813 | 0.789 | 0.640 | 0.029 | 0.129 |
-| 3 d | 1.638 | 1.454 | 1.337 | 0.170 | 0.108 |
-| 7 d | 2.202 | 1.773 | 1.694 | 0.491 | 0.069 |
-
 ### Table 4.12 — Hydrologic states (7-day keys)
 
 | State (7-day keys) | ΔRMSE, ThermoRoute − damped (°C) | stations | median keys |
 | --- | ---: | ---: | ---: |
-| All keys | -0.073 | 116 | 1,023 |
+| All keys | -0.069 | 116 | 1,060 |
 | issue low anomaly | -0.229 | 105 | 71 |
 | issue high anomaly | -0.080 | 114 | 139 |
 | issue rapid recent warming | -0.088 | 116 | 107 |

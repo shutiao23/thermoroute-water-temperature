@@ -6,7 +6,6 @@ the held-out forecast keys are rolled forward (no full-period loop).
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 

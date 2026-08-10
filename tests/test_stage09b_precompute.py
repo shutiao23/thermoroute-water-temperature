@@ -754,7 +754,6 @@ def test_work_order_collision_is_never_overwritten(
 
 
 def test_live_config_matches_canonical_json_round_trip_without_fixture_repair() -> None:
-    arms = declared_arms()
     closure = _Closure("a" * 64)
     config = _formal_config(closure)
     assert config == json.loads(json.dumps(config))

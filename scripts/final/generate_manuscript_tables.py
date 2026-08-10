@@ -55,17 +55,21 @@ def table_4_6(station: pd.DataFrame, effects: pd.DataFrame) -> str:
     inference = json.loads(
         (FINAL / "cluster_inference_2021_2023.json").read_text(encoding="utf-8"))
     rows = [["#", "Comparison", "Lead", "ΔRMSE (°C)", "CI low", "CI high",
-             "Win rate", "Stations"]]
+             "Win rate", "Stations", "p (sign flip)", "Holm p"]]
     for i, (cand, ref, h, lead) in enumerate(contrasts, start=1):
         g = effects[(effects.candidate == cand) & (effects.reference == ref)
                     & (effects.horizon == h)]
         record = inference.get(f"{cand}|{ref}|{h}", {})
+        p_flip = record.get("p_cluster_sign_flip", np.nan)
+        holm = record.get("holm_p", np.nan)
         rows.append([str(i), f"{cand} vs. {ref}", lead,
                      f3(g.delta_rmse.median()),
                      f3(record.get("ci_low", np.nan)),
                      f3(record.get("ci_high", np.nan)),
-                     f"{np.mean(g.delta_rmse < 0):.2f}", str(len(g))])
-    return md_table(rows, ["r", "l", "l", "r", "r", "r", "r", "r"])
+                     f"{np.mean(g.delta_rmse < 0):.2f}", str(len(g)),
+                     f"{p_flip:.1e}" if np.isfinite(float(p_flip)) else "—",
+                     f"{holm:.1e}" if np.isfinite(float(holm)) else "—"])
+    return md_table(rows, ["r", "l", "l", "r", "r", "r", "r", "r", "r", "r"])
 
 
 def accuracy_rows(station: pd.DataFrame, models: list[str]) -> list[list[str]]:
@@ -111,29 +115,6 @@ def skill_rows(effects: pd.DataFrame, models: list[str]) -> list[list[str]]:
     return rows
 
 
-def table_4_7b(effects: pd.DataFrame) -> str:
-    models = ["Persistence", "DampedPersistence", "Climatology", "LightGBM",
-              "LSTM", "PlainMLP-7var", "PlainCausalTCN-7var", "Air2stream",
-              "ThermoRoute"]
-    header = ["Model"] + [f"persist. {h}" for h in (1, 3, 7)] \
-        + [f"damped {h}" for h in (1, 3, 7)]
-    rows = [header] + skill_rows(effects, models)
-    return md_table(rows, ["l"] + ["r"] * 6)
-
-
-def table_4_11(decomp: pd.DataFrame, station: pd.DataFrame) -> str:
-    rows = [["Lead", "RMSE, persistence", "RMSE, damped", "RMSE, ThermoRoute",
-             "Median memory gain", "Median learned gain"]]
-    for h in (1, 3, 7):
-        d = decomp[decomp.horizon == h]
-        rows.append([
-            f"{h} d",
-            f3(station[(station.model == "Persistence") & (station.horizon == h)].rmse.median()),
-            f3(station[(station.model == "DampedPersistence") & (station.horizon == h)].rmse.median()),
-            f3(station[(station.model == "ThermoRoute") & (station.horizon == h)].rmse.median()),
-            f3(d.g_memory.median()), f3(d.g_learned.median()),
-        ])
-    return md_table(rows, ["l"] + ["r"] * 5)
 
 
 def table_4_12(state: pd.DataFrame, *, horizon: int = 7) -> str:
@@ -149,8 +130,20 @@ def table_4_12(state: pd.DataFrame, *, horizon: int = 7) -> str:
                      "actual_warmest_decile", "actual_coldest_decile",
                      "actual_high_flow", "actual_low_flow"]
     all_rows: list[list[str]] = []
-    all_rows.append(["All keys", f3(state[state.horizon == horizon].delta_rmse.median()),
-                     "116", "1,023"])
+    # The "All keys" row is the same estimand as Table 4.6 row 3 (paired
+    # ThermoRoute minus DampedPersistence at 7 d, station median), taken from
+    # the authority's paired effects; it must NOT be the median over the
+    # (site x state) cells of the state table, which mixes states.  Station
+    # and key counts are computed from the data, never hard-coded.
+    effects = pd.read_parquet(FINAL / "paired_effects.parquet")
+    all_eff = effects[(effects.candidate == "ThermoRoute")
+                      & (effects.reference == "DampedPersistence")
+                      & (effects.horizon == horizon)]
+    keys = pd.read_parquet(FINAL / "forecast_keys.parquet")
+    per_site_keys = keys[keys.horizon == horizon].groupby("site_id").size()
+    all_rows.append(["All keys", f3(all_eff.delta_rmse.median()),
+                     str(int(all_eff.delta_rmse.notna().sum())),
+                     f"{int(per_site_keys.median()):,}"])
     for name in order_issue:
         g = issue[issue.state_name == name]
         if g.empty:
@@ -170,28 +163,11 @@ def table_4_12(state: pd.DataFrame, *, horizon: int = 7) -> str:
     return md_table(rows, ["l", "r", "r", "r"])
 
 
-def table_4_8a(station: pd.DataFrame) -> str:
-    models = ["TR-fixedKappa", "TR-noDynamicPrior", "TR-noMoE", "TR-noRouter",
-              "TR-noTCN", "TR-unbounded"]
-    header = ["Model"] + [f"RMSE {h}" for h in (1, 3, 7)] \
-        + [f"MAE {h}" for h in (1, 3, 7)] + [f"bias {h}" for h in (1, 3, 7)]
-    rows = [header] + accuracy_rows(station, models)
-    return md_table(rows, ["l"] + ["r"] * 9)
-
-
-def table_4_8b(effects: pd.DataFrame) -> str:
-    models = ["TR-fixedKappa", "TR-noDynamicPrior", "TR-noMoE", "TR-noRouter",
-              "TR-noTCN", "TR-unbounded"]
-    header = ["Model"] + [f"persist. {h}" for h in (1, 3, 7)] \
-        + [f"damped {h}" for h in (1, 3, 7)]
-    rows = [header] + skill_rows(effects, models)
-    return md_table(rows, ["l"] + ["r"] * 6)
 
 
 def main() -> int:
     station = pd.read_parquet(FINAL / "station_metrics.parquet")
     effects = pd.read_parquet(FINAL / "paired_effects.parquet")
-    decomp = pd.read_parquet(FINAL / "decomposition_effects.parquet")
     state = pd.read_parquet(FINAL / "hydrologic_state_effects.parquet")
 
     out = [
@@ -204,22 +180,6 @@ def main() -> int:
         "### Table 4.7a — Accuracy (RMSE, MAE, bias)",
         "",
         table_4_7a(station),
-        "",
-        "### Table 4.7b — Skill against persistence and damped persistence",
-        "",
-        table_4_7b(effects),
-        "",
-        "### Table 4.8a — Accuracy (RMSE, MAE, bias) — one-factor ablations",
-        "",
-        table_4_8a(station),
-        "",
-        "### Table 4.8b — Skill — one-factor ablations",
-        "",
-        table_4_8b(effects),
-        "",
-        "### Table 4.11 — Station-level error-budget decomposition",
-        "",
-        table_4_11(decomp, station),
         "",
         "### Table 4.12 — Hydrologic states (7-day keys)",
         "",
