@@ -1,0 +1,7 @@
+{
+ "builder_sha256": "38bf41c63bb224c147675f4389bc9ae78f9386648d1b197537de7d53fc29c41e",
+ "calibrated_model_sha256": "af63cee9497a679e32cf6a05db244f4d5ed54a782315d9b667305c989899c239",
+ "format": "thermoroute.forced-hybrid-forcing-value.v1",
+ "note": "Physically-directed reference, calibrated on 2006-2015 only and rolled forward on the tree arms' own held-out keys.  Answers whether the trees' forcing value is available to a simple thermal-response law, not whether the hybrid beats the trees.",
+ "output_sha256": "5c84143f4801b079d0220216ac3463b5d93397823e45aa95bdb22d3b83793977"
+}
