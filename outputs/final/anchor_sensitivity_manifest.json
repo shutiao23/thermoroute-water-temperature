@@ -1,0 +1,23 @@
+{
+ "baseline_reconstruction_drift_degC": {
+  "h1": 9.94844984170129e-09,
+  "h3": 4.667412678571736e-09,
+  "h7": 4.090474847728842e-09
+ },
+ "baseline_seven_day_skill": 0.03818979833868191,
+ "builder_sha256": "9e48c0716d7353cc693ca24a14bc0bd0a9a9cb3b91c5a647755d350f127e26dc",
+ "format": "thermoroute.anchor-sensitivity.v1",
+ "note": "Only the reference model varies; ThermoRoute predictions are the published ones, so every difference is attributable to the anchor.",
+ "output_sha256": "d92fc1b155439a0f562ecfafddee99489223661531fdd249fc68957c53e25a36",
+ "strongest_variant_seven_day_skill": 0.025040514190216467,
+ "variants": {
+  "baseline": "as published: k=3, 2006-2015, per-station, phi^h",
+  "clim_doy_window": "day-of-year mean, +/-7 day window",
+  "clim_k1": "one harmonic",
+  "clim_k5": "five harmonics",
+  "phi_direct_lead": "phi_h fitted on lag-h anomaly pairs",
+  "phi_pooled": "one station-balanced phi for all",
+  "phi_train_through_2018": "anchor fitted through the calibration year",
+  "phi_unclipped": "clip relaxed to [0, 1.0]"
+ }
+}

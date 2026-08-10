@@ -611,6 +611,34 @@ skill units gives +0.203, +0.187, and +0.251 against persistence and +0.168,
 +0.076, and +0.038 against damped persistence at 1, 3, and 7 days, all
 dimensionless.
 
+**The reference is itself a fitted object, and its construction moves the
+headline.** If the argument of this paper is that the reference governs the
+reported gain, the reference we built cannot be exempt from that argument. We
+therefore rebuilt the anchor under seven predeclared one-factor variants —
+one, three and five harmonics; a nonparametric day-of-year mean; a fitting
+window extended through 2018; a pooled rather than per-station decay; a
+lead-specific decay fitted directly on lag-*h* anomaly pairs instead of
+$\phi^h$; and a relaxed clip — and rescored each against the *published*
+ThermoRoute predictions, so that every difference is attributable to the
+reference alone. The rebuilt baseline reproduces the frozen
+`DampedPersistence` station RMSEs to within 1e-8 °C, which is what makes the
+comparison meaningful.
+
+Across those variants the seven-day skill against damped persistence ranges
+from +0.025 to +0.063, with the published +0.038 in the middle
+(`outputs/final/anchor_sensitivity.parquet`). Two ends of that range are
+instructive. A single-harmonic climatology — a weaker seasonal reference of
+the kind a study might reasonably adopt — inflates the reported gain to
++0.063. A decay fitted directly at each lead, rather than extrapolated as
+$\phi^h$, produces a *stronger* reference and cuts the reported gain to
++0.025, because $\phi^h$ is exact only for a pure AR(1) and daily water
+temperature is not one. The clip never binds. The one- and three-day
+headlines are far more stable (factors of 1.1 and 1.3 across the same
+variants) than the seven-day one (a factor of 2.5), so the number this paper
+quotes most often is the one most sensitive to how carefully the reference was
+specified. That is the paper's own thesis applied to itself, and it sharpens
+rather than weakens it: the better the anchor, the less the learned model adds.
+
 The gap widens with lead, which is the diagnostic signature of damping rather
 than of learned river behavior: the longer the lead, the more of the error a
 seasonal relaxation removes on its own, and the less remains for a learned model
@@ -1208,6 +1236,16 @@ no process-side claim is attached to its scores; running the official code is
 planned (protocol v3, Phase 5b). Training and inference wall-clock costs were
 not recorded. The development-period spatial analysis and robustness probes
 of the earlier draft are archived in SI19.
+
+**Reference construction.** The damped anchor is a fitted object and the
+seven-day headline moves by a factor of 2.5 across defensible constructions of
+it (Section 4.1). Every number in this paper that is stated against damped
+persistence is therefore conditional on the anchor specified in Section 3.1,
+and a study adopting a cruder seasonal reference would report a larger gain
+from the same fitted weights. We report the published construction as the
+primary one because it was fixed before the held-out window was opened, not
+because it is the strongest anchor available; the directly fitted lead-specific
+decay is stronger.
 
 **Threshold and archive scope.** The ±1 °C algebraic bound, event-threshold
 quantiles, and reportability thresholds (100 paired keys) are
