@@ -198,7 +198,9 @@ def test_phase1_protocol_alone_is_locked_before_data_parse_fit_or_output(
     assert V5.EXPECTED_DEFECT_AUTHORITY_SHA256 == (
         "e69124409f49e4fb2aaaae319104251ca3078e535fca69121ed0eafddb23d908"
     )
-    assert not os.path.lexists(V5.DEFAULT_OUTPUT_DIR)
+    # The bundle now exists: the v5 arm has run.  What must remain true is that
+    # a locked execution still refuses before touching data, a fit, or bytes.
+    published_before = os.path.lexists(V5.DEFAULT_OUTPUT_DIR)
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("locked execution crossed a production side-effect boundary")
@@ -206,9 +208,20 @@ def test_phase1_protocol_alone_is_locked_before_data_parse_fit_or_output(
     monkeypatch.setattr(V5.pd, "read_parquet", forbidden)
     monkeypatch.setattr(V5, "_lgb_fit", forbidden)
     monkeypatch.setattr(V5, "_BundleTransaction", forbidden)
-    with pytest.raises(RuntimeError, match="score-execution seal cannot be resolved"):
+    # Whichever guard fires first, it must fire *before* any data parse, fit or
+    # byte write; the monkeypatched boundaries above raise AssertionError if
+    # they are ever reached, so any other exception type proves the refusal was
+    # earlier.  Once the bundle is published the create-only guard is the first
+    # to trigger; before publication it is the unresolved score-execution seal.
+    expected = FileExistsError if published_before else RuntimeError
+    with pytest.raises(expected) as raised:
         V5.execute(V5.DEFAULT_OUTPUT_DIR)
-    assert not os.path.lexists(V5.DEFAULT_OUTPUT_DIR)
+    assert not isinstance(raised.value, AssertionError)
+    if published_before:
+        assert "create-only" in str(raised.value)
+    else:
+        assert "score-execution seal cannot be resolved" in str(raised.value)
+    assert os.path.lexists(V5.DEFAULT_OUTPUT_DIR) == published_before
 
 
 def test_only_exact_production_destination_is_accepted_before_capture(tmp_path: Path) -> None:
@@ -983,4 +996,12 @@ def test_versioned_names_and_no_formal_output_exist() -> None:
     assert len(names) == 12
     assert all(name.endswith("_v5_observed.parquet") for name in names)
     assert V5.MANIFEST_FILENAME.endswith("_v5_observed.json")
-    assert not os.path.lexists(V5.DEFAULT_OUTPUT_DIR)
+    # Create-only is the invariant that outlives the run: once the bundle is
+    # published, a second execution must be refused rather than overwrite it.
+    if os.path.lexists(V5.DEFAULT_OUTPUT_DIR):
+        with pytest.raises(FileExistsError):
+            V5._BundleTransaction(
+                V5.DEFAULT_OUTPUT_DIR,
+                allowed_root=V5.FINAL_OUTPUT_ROOT,
+                expected_destination_name=V5.DEFAULT_OUTPUT_DIR.name,
+            )

@@ -13,7 +13,7 @@ import scripts.final.build_forcing_v5_result_authority as A  # noqa: E402
 
 def test_dry_run_does_not_touch_outputs() -> None:
     """Dry run must print the fixed non-side-effect plan."""
-    plan = json.loads(A.dry_run_plan())
+    plan = A.dry_run_plan()  # returns a mapping, not a JSON string
     assert plan["result_input"] == "outputs/final/forcing_regime_v5_observed"
     assert plan["point_authority_output"] == "outputs/final/forcing_regime_v5_observed_point_authority_v1"
     assert plan["inference_authority_output"] == "outputs/final/forcing_regime_v5_observed_inference_authority_v1"
