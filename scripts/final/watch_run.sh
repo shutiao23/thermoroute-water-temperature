@@ -39,6 +39,15 @@ count_progress() {
     n=$(grep -cE "$REGEX" "$LOG" 2>/dev/null)
     echo "${n:-0}"
 }
+
+# pgrep -f matches whole command lines, and this watchdog carries the pattern as
+# an argument -- so a naive `pgrep -f "$PATTERN"` matches the watchdog itself and
+# it waits forever on a run that already finished.  That is exactly how a
+# completed 24/24 proof got reported as STALLED.  Excluding this script's own
+# name is what makes the liveness question about the run.
+run_alive() {
+    pgrep -af "$PATTERN" 2>/dev/null | grep -v "watch_run.sh" | grep -q .
+}
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$1" | tee "$STATUS"; }
 
@@ -46,7 +55,7 @@ last=-1
 changed=$(date +%s)
 
 # Handle the case where the run already finished before the watchdog started.
-while pgrep -f "$PATTERN" >/dev/null 2>&1; do
+while run_alive; do
     now=$(date +%s)
     current=$(count_progress)
     if [ "$current" != "$last" ]; then
