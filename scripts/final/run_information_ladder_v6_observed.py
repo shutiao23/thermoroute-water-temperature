@@ -164,6 +164,7 @@ class LevelPreprocessing:
     imputer: Any
     climatology: Any
     damped: Any | None
+    meteorology_climatologies: Any
     level_name: str
     fold_index: int
 
@@ -193,6 +194,17 @@ def fit_level_preprocessing(
         fit_stations=fit_stations,
         pooled=rung.pooled_climatology,
     )
+    # F3 needs these to fill a missing future value.  They are target-site
+    # statistics like any other, so a level that pools the water climatology
+    # pools these as well; leaving them per-station would reintroduce the
+    # station's own record through the substitution path.
+    meteorology = {
+        variable: F.HarmonicClimatology.fit(
+            raw_frame, training, target=variable,
+            fit_stations=fit_stations, pooled=rung.pooled_climatology,
+        )
+        for variable in V5.METEOROLOGY_VARIABLES
+    }
     damped = None
     if rung.water_temperature_visible:
         damped = F.DampedPersistenceAnchor.fit(
@@ -204,6 +216,7 @@ def fit_level_preprocessing(
         )
     return LevelPreprocessing(
         imputer=imputer, climatology=climatology, damped=damped,
+        meteorology_climatologies=meteorology,
         level_name=level_name, fold_index=fold.index,
     )
 
@@ -270,9 +283,18 @@ def perturb_prohibited_inputs(
 
 
 def build_design(
-    raw_frame: pd.DataFrame, fold: Fold, level_name: str, horizon: int
+    raw_frame: pd.DataFrame, fold: Fold, level_name: str, horizon: int,
+    forcing: str = "F0",
 ) -> tuple[pd.DataFrame, tuple[str, ...], LevelPreprocessing]:
-    """Full feature path for one (fold, level, lead), prohibited columns dropped."""
+    """Full feature path for one (fold, level, forcing, lead).
+
+    The two axes are orthogonal by construction: the information level decides
+    which *local* observations the model may see, the forcing level decides
+    whether it may see future meteorology.  An L2/F3 cell is therefore a real
+    and interesting one -- thermally ungauged but with perfect future weather --
+    rather than a contradiction, and it is what makes the interaction between
+    local information and forcing measurable at all.
+    """
     source = hashlib.sha256(
         V5._canonical_frame_sha256(raw_frame, V5.RAW_PANEL_COLUMNS).encode()
     ).hexdigest()
@@ -282,24 +304,36 @@ def build_design(
     table, base_columns = V5.build_observed_feature_table(
         panel, imputed, preprocessing.climatology, horizon
     )
+    if forcing == "F3_full":
+        future = V5.build_raw_future_registry(
+            panel, table[["site_id", "issue_date"]], horizon
+        )
+        table, base_columns = V5.materialize_forcing_features(
+            table, base_columns, arm="F3_full", horizon=horizon,
+            raw_future_registry=future,
+            meteorology_climatologies=preprocessing.meteorology_climatologies,
+        )
+    elif forcing != "F0":
+        raise LadderError(f"unknown forcing level {forcing!r}")
     columns = admissible_columns(level_name, base_columns)
     return table, columns, preprocessing
 
 
 def prove_mask_invariance(
-    raw_frame: pd.DataFrame, fold: Fold, level_name: str, horizon: int
+    raw_frame: pd.DataFrame, fold: Fold, level_name: str, horizon: int,
+    forcing: str = "F0",
 ) -> dict[str, Any]:
     """Require a bit-identical design matrix after perturbing hidden inputs."""
     rung = level(level_name)
     if rung.water_temperature_visible and rung.flow_visible:
         return {"applicable": False, "reason": "level hides no local observation"}
 
-    table, columns, _ = build_design(raw_frame, fold, level_name, horizon)
+    table, columns, _ = build_design(raw_frame, fold, level_name, horizon, forcing)
     perturbed_frame = perturb_prohibited_inputs(
         raw_frame, fold, level_name, seed=PERTURBATION_SEED
     )
     other, other_columns, _ = build_design(
-        perturbed_frame, fold, level_name, horizon
+        perturbed_frame, fold, level_name, horizon, forcing
     )
     if columns != other_columns:
         raise LadderError(f"{level_name} column set changed under perturbation")
@@ -444,20 +478,29 @@ def execute(args: argparse.Namespace) -> int:
       for fold in folds:
         for level_name in args.levels:
             for horizon in args.horizons:
-                proof = prove_mask_invariance(raw_frame, fold, level_name, horizon)
+                forcing = args.forcing
+                proof = prove_mask_invariance(
+                    raw_frame, fold, level_name, horizon, forcing
+                )
                 table, columns, preprocessing = build_design(
-                    raw_frame, fold, level_name, horizon
+                    raw_frame, fold, level_name, horizon, forcing
                 )
                 # Bind against the full frozen namespace: that validator is
                 # what enforces two-sided equality with the formal key
                 # registry, and it only recognises the complete F0 column set.
                 # The level's column subset is applied when the model is fitted.
+                bind_columns = (
+                    V5.FROZEN_BASE_FEATURE_COLUMNS if forcing == "F0"
+                    else (*V5.FROZEN_BASE_FEATURE_COLUMNS,
+                          *V5._future_feature_columns(horizon))
+                )
                 evaluation = V5.bind_exact_evaluation_rows(
-                    table, reference, horizon, V5.FROZEN_BASE_FEATURE_COLUMNS
+                    table, reference, horizon, bind_columns
                 )
                 for model in V5.MODELS:
+                    prefix = "" if forcing == "F0" else f"{forcing}_"
                     name = (
-                        f"{level_name}_{geometry}{tag}_fold{fold.index}"
+                        f"{prefix}{level_name}_{geometry}{tag}_fold{fold.index}"
                         f"_{model}_h{horizon}"
                     )
                     path = shard_dir / f"{name}.parquet"
@@ -471,7 +514,7 @@ def execute(args: argparse.Namespace) -> int:
                     shard.to_parquet(path, index=False)
                     manifest.append({
                         "cell": name, "level": level_name, "geometry": geometry,
-                        "seed": seed,
+                        "forcing": forcing, "seed": seed,
                         "fold": fold.index, "regions_held": list(fold.regions_held),
                         "model": model, "horizon": horizon,
                         "mask_invariance": proof, "fit": evidence,
@@ -510,6 +553,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--levels", nargs="*", default=list(LEVEL_NAMES))
     parser.add_argument("--horizons", nargs="*", type=int, default=list(V5.HORIZONS))
     parser.add_argument("--geometry", choices=GEOMETRIES, default="whole_region")
+    parser.add_argument("--forcing", choices=("F0", "F3_full"), default="F0")
     parser.add_argument("--manifest-tag", default="",
                         help="suffix for this worker's manifest, so parallel "
                              "workers on disjoint cells do not overwrite each "
