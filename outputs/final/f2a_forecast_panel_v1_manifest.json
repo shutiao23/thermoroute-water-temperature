@@ -1,0 +1,18 @@
+{
+ "aggregation": "mean of 24 GMT hourly values; incomplete days dropped",
+ "builder_sha256": "81b383828f2f5e50147cba203b87bfad382da397b85086b0c8e66818c76c5bae",
+ "format": "thermoroute.f2a-fixed-lead-forecast-panel.v1",
+ "output_sha256": "a95d18f87e5a339397918e76702dca53f8b5ecfd488985535662eabe582fa6fd",
+ "rows": 361800,
+ "semantics": {
+  "as_issued_operational_archive": false,
+  "coherent_single_initialization": false,
+  "fixed_lead_composite": true,
+  "only_legal_comparator": "F3_temperature_only"
+ },
+ "snapshots_read": 4080,
+ "station_days_dropped_for_incomplete_hours": 720,
+ "stations": 120,
+ "target_end": "2023-12-29",
+ "target_start": "2021-03-30"
+}
