@@ -1,0 +1,8 @@
+{
+ "builder_sha256": "d9ae0d77790c18593fbc8d99469d339b6afcf2de8e6c3ebd2180e4e2d5ad0531",
+ "format": "thermoroute.ladder-geometry-interaction.v1.manifest",
+ "outputs_sha256": {
+  "ladder_geometry_interaction.parquet": "8725ead9ed3ea41b61f6054b26ecb83078dc73eb8b1de5f981347bec44bd5f02",
+  "ladder_geometry_interaction_summary.json": "0cc8c59de3cd265033c261289b9e51d9c4e268a088f80f9e3cd3798abb0e6543"
+ }
+}

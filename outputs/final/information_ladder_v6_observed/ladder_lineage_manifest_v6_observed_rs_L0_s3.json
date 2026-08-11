@@ -1,0 +1,637 @@
+{
+ "cells": [
+  {
+   "cell": "L0_random_site_seed3_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 31805,
+    "target_kind": "raw_y",
+    "train_rows": 249535,
+    "validation_rows": 62646
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 31805,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 249535,
+    "validation_rows": 62646
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 557,
+    "features": 210,
+    "held_rows": 31651,
+    "target_kind": "raw_y",
+    "train_rows": 248015,
+    "validation_rows": 62196
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 349,
+    "features": 210,
+    "held_rows": 31651,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248015,
+    "validation_rows": 62196
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 434,
+    "features": 210,
+    "held_rows": 31440,
+    "target_kind": "raw_y",
+    "train_rows": 246580,
+    "validation_rows": 61658
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 242,
+    "features": 210,
+    "held_rows": 31440,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 246580,
+    "validation_rows": 61658
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30127,
+    "target_kind": "raw_y",
+    "train_rows": 253664,
+    "validation_rows": 62446
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30127,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 253664,
+    "validation_rows": 62446
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 527,
+    "features": 210,
+    "held_rows": 29897,
+    "target_kind": "raw_y",
+    "train_rows": 252196,
+    "validation_rows": 62043
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 385,
+    "features": 210,
+    "held_rows": 29897,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 252196,
+    "validation_rows": 62043
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 437,
+    "features": 210,
+    "held_rows": 29641,
+    "target_kind": "raw_y",
+    "train_rows": 250797,
+    "validation_rows": 61499
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 356,
+    "features": 210,
+    "held_rows": 29641,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 250797,
+    "validation_rows": 61499
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 798,
+    "features": 210,
+    "held_rows": 30256,
+    "target_kind": "raw_y",
+    "train_rows": 254915,
+    "validation_rows": 62424
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30256,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254915,
+    "validation_rows": 62424
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 30023,
+    "target_kind": "raw_y",
+    "train_rows": 253413,
+    "validation_rows": 61990
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 551,
+    "features": 210,
+    "held_rows": 30023,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 253413,
+    "validation_rows": 61990
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 427,
+    "features": 210,
+    "held_rows": 29757,
+    "target_kind": "raw_y",
+    "train_rows": 252050,
+    "validation_rows": 61462
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 381,
+    "features": 210,
+    "held_rows": 29757,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 252050,
+    "validation_rows": 61462
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 28256,
+    "target_kind": "raw_y",
+    "train_rows": 261136,
+    "validation_rows": 63032
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 28256,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 261136,
+    "validation_rows": 63032
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 574,
+    "features": 210,
+    "held_rows": 28068,
+    "target_kind": "raw_y",
+    "train_rows": 259551,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 378,
+    "features": 210,
+    "held_rows": 28068,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 259551,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 439,
+    "features": 210,
+    "held_rows": 27844,
+    "target_kind": "raw_y",
+    "train_rows": 258039,
+    "validation_rows": 62080
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_random_site_seed3_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 210,
+    "held_rows": 27844,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 258039,
+    "validation_rows": 62080
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed3"
+   ],
+   "seed": 3,
+   "shard": "L0_random_site_seed3_fold3_ResidualLightGBM_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.information-ladder-v6-observed.v1",
+ "geometry": "random_site",
+ "levels": [
+  "L0"
+ ],
+ "seeds": [
+  3
+ ],
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_LADDER"
+}

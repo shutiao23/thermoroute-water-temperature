@@ -1,0 +1,757 @@
+{
+ "cells": [
+  {
+   "cell": "L2_random_site_seed2_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 30065,
+    "target_kind": "raw_y",
+    "train_rows": 258941,
+    "validation_rows": 62746
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 131654,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 30065,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 258941,
+    "validation_rows": 62746
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 131654,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 29851,
+    "target_kind": "raw_y",
+    "train_rows": 257440,
+    "validation_rows": 62328
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 130764,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 29851,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 257440,
+    "validation_rows": 62328
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 130764,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 29619,
+    "target_kind": "raw_y",
+    "train_rows": 256005,
+    "validation_rows": 61796
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 129877,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 29619,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 256005,
+    "validation_rows": 61796
+   },
+   "fold": 0,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 129877,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 29510,
+    "target_kind": "raw_y",
+    "train_rows": 247601,
+    "validation_rows": 62334
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 142853,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 29510,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247601,
+    "validation_rows": 62334
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 142853,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 29346,
+    "target_kind": "raw_y",
+    "train_rows": 246107,
+    "validation_rows": 61888
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 142031,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 29346,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 246107,
+    "validation_rows": 61888
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 142031,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 29130,
+    "target_kind": "raw_y",
+    "train_rows": 244694,
+    "validation_rows": 61344
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 141148,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 29130,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 244694,
+    "validation_rows": 61344
+   },
+   "fold": 1,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 141148,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 29000,
+    "target_kind": "raw_y",
+    "train_rows": 259489,
+    "validation_rows": 62978
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 129799,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 29000,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 259489,
+    "validation_rows": 62978
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 129799,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 28761,
+    "target_kind": "raw_y",
+    "train_rows": 258037,
+    "validation_rows": 62579
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 128818,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 28761,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 258037,
+    "validation_rows": 62579
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 128818,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 28477,
+    "target_kind": "raw_y",
+    "train_rows": 256703,
+    "validation_rows": 62050
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 127779,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 28477,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 256703,
+    "validation_rows": 62050
+   },
+   "fold": 2,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 127779,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 31869,
+    "target_kind": "raw_y",
+    "train_rows": 253219,
+    "validation_rows": 62490
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 139426,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 31869,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 253219,
+    "validation_rows": 62490
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 139426,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 574,
+    "features": 176,
+    "held_rows": 31681,
+    "target_kind": "raw_y",
+    "train_rows": 251591,
+    "validation_rows": 62049
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 138714,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 31681,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 251591,
+    "validation_rows": 62049
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 138714,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 31456,
+    "target_kind": "raw_y",
+    "train_rows": 250064,
+    "validation_rows": 61509
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 137938,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_random_site_seed2_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 31456,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 250064,
+    "validation_rows": 61509
+   },
+   "fold": 3,
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 137938,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "L2_random_site_seed2_fold3_ResidualLightGBM_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.information-ladder-v6-observed.v1",
+ "geometry": "random_site",
+ "levels": [
+  "L2"
+ ],
+ "seeds": [
+  2
+ ],
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_LADDER"
+}

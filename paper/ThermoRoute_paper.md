@@ -1106,6 +1106,27 @@ every interval covering zero and stations splitting about evenly. The
 "hydrology observed" rung is, on this cohort, barely distinguishable from having
 no local observation at all.
 
+**Spatial geometry matters, but only once local history is gone.** Section 4.5
+measured a geometry penalty of 0.004–0.009 °C and could not resolve it. Running
+the same four levels under random-site holdout as well, with the station
+contrast formed inside each of five split seeds and the paired contrasts then
+averaged, shows why: the penalty is 0.006–0.014 °C at L0 and 0.073–0.129 °C at
+L2, about thirteen times larger. The station-level double difference — the
+geometry penalty at L2 minus the penalty at L0 — is +0.066 to +0.124 °C, and
+every whole-HUC2 interval excludes zero at every model and lead, with
+leave-one-HUC2-out ranges that keep their sign.
+
+This is the interaction the transfer literature's concern predicts, and it
+reconciles Section 4.5 with that concern rather than contradicting it. A
+random-site split in a dense network measures something closer to interpolation
+than transfer, but the cost of that substitution is invisible while the held
+gauge still supplies its own thermal history: the model barely needs its
+neighbours. Remove the history and the neighbours start to matter. A study
+reporting spatial generalization from random splits at a gauged site is
+therefore not merely optimistic by a small margin; it is measuring a quantity
+whose sensitivity to the split design is itself conditional on how much local
+information the model retains.
+
 ---
 
 ### 4.8 What future meteorology would be worth
@@ -1292,9 +1313,31 @@ because synoptic weather is autocorrelated over several days, so the shifted
 window still resembles the true one. Both are small, and the direction is what
 a weather-information reading predicts.
 
-One thing this still does not establish. It does not attribute the gain to any
-particular meteorological variable; the single-component and leave-one-out arms
-are specified in the same sealed protocol and have not been run.
+**The forcing value is future air temperature.** The last sealed arms attribute
+it. A component arm gives the selected variable its realized future values and
+every other meteorological variable its training climatology, so exactly one
+variable carries event-scale information; the complementary family does the
+reverse. Both are reported because the variables are correlated and neither
+family alone is honest.
+
+At seven days, air temperature alone recovers 0.595 °C of the 0.627 °C full
+value (95%), while withholding air temperature and giving everything else its
+realized future retains only 0.129 °C (21%). Withholding radiation,
+precipitation or humidity-and-wind instead costs nothing measurable: each
+`without` arm returns 0.62 °C, indistinguishable from the full value. The same
+ordering holds at one and three days, where air temperature alone recovers 87%
+and 92%.
+
+The two families together say more than either does alone. Radiation and
+humidity-and-wind are individually informative — 0.105 and 0.117 °C on their
+own — but entirely substitutable, which is what a correlated predictor looks
+like when the variable it tracks is still available. Air temperature is the
+only variable that is both sufficient on its own and not replaceable by the
+others. Shares therefore exceed 100% in sum and this is not a variance
+decomposition.
+
+What remains unrun under the same seal is the F2b archived-vintage arm, so no
+statement here concerns what an operational forecast would deliver.
 Nor can the value be divided by an architecture effect from Section 4.3 to form
 a ratio: the two come from different cells of a design that has not been
 crossed, and the interaction between forcing and architecture is unmeasured.

@@ -1701,3 +1701,65 @@ information source the manuscript treats as dominant.
 Requires a protocol version bump? No.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-11 — DLOG-031: L-by-G interaction and component attribution
+
+Two results, both from arms that are now complete.
+
+**Spatial geometry matters about thirteen times more once local thermal history
+is gone.** Running all four information levels under random-site holdout as
+well as whole-region, with the station contrast formed inside each of five
+split seeds and the paired contrasts then averaged per station, gives a
+geometry penalty of 0.006-0.014 degC at L0 and 0.073-0.129 degC at L2. The
+station-level double difference is +0.066 to +0.124 degC; every whole-HUC2
+interval excludes zero at every model and lead and every leave-one-HUC2-out
+range keeps its sign.
+
+This reconciles Section 4.5 with the transfer literature rather than
+contradicting it. The cost of substituting a random split for a regional one is
+invisible while the held gauge still supplies its own thermal history, because
+the model barely needs its neighbours. Remove the history and the neighbours
+begin to matter. The sensitivity of a reported spatial result to the split
+design is therefore itself conditional on how much local information the model
+retains, which is not something a single-geometry study can discover.
+
+**The forcing value is future air temperature.** At seven days air temperature
+alone recovers 0.595 of the 0.627 degC full value (95%), while withholding air
+temperature and giving every other variable its realized future retains only
+0.129 degC (21%). Withholding radiation, precipitation or humidity-and-wind
+instead costs nothing measurable: each returns 0.62 degC. Air temperature alone
+recovers 87% and 92% at one and three days.
+
+Reporting both families is what makes this readable. Radiation and
+humidity-and-wind are individually informative -- 0.105 and 0.117 degC on their
+own -- yet entirely substitutable, which is what a correlated predictor looks
+like while the variable it tracks remains available. Air temperature is the
+only variable both sufficient alone and not replaceable. Shares sum well past
+100% and are not a variance decomposition.
+
+Method notes. Random-site aggregation is seed-first throughout: the contrast is
+formed inside each seed and the five paired contrasts averaged per station, not
+the five risks averaged and differenced afterwards, which is a different
+quantity whenever seeds disagree about which stations are hard. A component arm
+gives the unselected variables their training climatology rather than dropping
+their columns, so the feature namespace is identical across arms and "which
+variable matters" is not confounded with "how many columns the model has".
+
+Engineering note. Every fit is pinned to one LightGBM thread for determinism
+and the runners were serial, so a 128-core machine was executing one experiment
+at roughly two cores; the random-site ladder projected to 7.4 hours. Sharding
+by (seed, level) across ten workers with per-worker lineage manifests cut it to
+under an hour without touching what any single fit computes. While doing this I
+misread `pgrep -f "a\|b"` -- ERE, so the alternation is literal -- concluded the
+workers had died, and launched four duplicates that could have raced on the
+same shard paths. They were killed within ninety seconds and all 75 shards
+present at that moment were re-read and verified intact; no shard was corrupted.
+
+Scope. Whole-region and random-site geometries at F0 only. The F-by-L crossing,
+the plain-TCN architecture arm and the 48-cell matrix remain unrun, so no
+interaction between forcing and either local information or architecture is
+claimed. Post-outcome and descriptive; the axes are never added or divided.
+
+Commit(s): (this worktree)

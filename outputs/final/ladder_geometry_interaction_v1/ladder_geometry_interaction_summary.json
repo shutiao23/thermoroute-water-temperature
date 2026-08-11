@@ -1,0 +1,216 @@
+{
+ "authority_status": "POST_OUTCOME_OBSERVED_LINEAGE_INTERACTION",
+ "chronology": {
+  "confirmatory": false,
+  "post_outcome": true
+ },
+ "format": "thermoroute.ladder-geometry-interaction.v1",
+ "random_seeds": [
+  0,
+  1,
+  2,
+  3,
+  4
+ ],
+ "rows": [
+  {
+   "ci_high": 0.01464620741851837,
+   "ci_low": 0.005994634322063697,
+   "horizon": 1,
+   "median_degC": 0.010357666875977178,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L0",
+   "station_fraction_positive": 0.8620689655172413
+  },
+  {
+   "ci_high": 0.2829109621815345,
+   "ci_low": 0.031238407806991518,
+   "horizon": 1,
+   "median_degC": 0.11150706263501614,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L2",
+   "station_fraction_positive": 0.6810344827586207
+  },
+  {
+   "ci_high": 0.27021604020710854,
+   "ci_low": 0.019140377367563178,
+   "horizon": 1,
+   "loco_max": 0.1278702824684307,
+   "loco_min": 0.040894469079818904,
+   "loco_sign_stable": true,
+   "median_degC": 0.09816088537398704,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.6810344827586207
+  },
+  {
+   "ci_high": 0.03041648038566418,
+   "ci_low": 0.004700340438858719,
+   "horizon": 3,
+   "median_degC": 0.014420529359161448,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L0",
+   "station_fraction_positive": 0.7931034482758621
+  },
+  {
+   "ci_high": 0.2505357537925178,
+   "ci_low": 0.01144791811414505,
+   "horizon": 3,
+   "median_degC": 0.11239485054914153,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L2",
+   "station_fraction_positive": 0.6637931034482759
+  },
+  {
+   "ci_high": 0.24882842771896943,
+   "ci_low": 0.007076223621273403,
+   "horizon": 3,
+   "loco_max": 0.12207150897653589,
+   "loco_min": 0.02909678395889728,
+   "loco_sign_stable": true,
+   "median_degC": 0.104392149320161,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.646551724137931
+  },
+  {
+   "ci_high": 0.04206374133019811,
+   "ci_low": 0.004341615866954807,
+   "horizon": 7,
+   "median_degC": 0.008976491001004816,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L0",
+   "station_fraction_positive": 0.7241379310344828
+  },
+  {
+   "ci_high": 0.26148067816655063,
+   "ci_low": 0.018050664902183967,
+   "horizon": 7,
+   "median_degC": 0.07316454319704366,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L2",
+   "station_fraction_positive": 0.646551724137931
+  },
+  {
+   "ci_high": 0.2417059950875687,
+   "ci_low": 0.01277723615301829,
+   "horizon": 7,
+   "loco_max": 0.08970566271529701,
+   "loco_min": 0.05001339599951025,
+   "loco_sign_stable": true,
+   "median_degC": 0.06587318255928788,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.646551724137931
+  },
+  {
+   "ci_high": 0.010279825850049462,
+   "ci_low": 0.005990535770984851,
+   "horizon": 1,
+   "median_degC": 0.00833989867867694,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L0",
+   "station_fraction_positive": 0.8017241379310345
+  },
+  {
+   "ci_high": 0.330868464375498,
+   "ci_low": 0.03319829440804685,
+   "horizon": 1,
+   "median_degC": 0.1290327544951944,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L2",
+   "station_fraction_positive": 0.6637931034482759
+  },
+  {
+   "ci_high": 0.3210529975190735,
+   "ci_low": 0.02966781561452273,
+   "horizon": 1,
+   "loco_max": 0.14066131138405313,
+   "loco_min": 0.06536613948514569,
+   "loco_sign_stable": true,
+   "median_degC": 0.11619783968129327,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.6724137931034483
+  },
+  {
+   "ci_high": 0.01188561489097486,
+   "ci_low": 0.0024104005742552116,
+   "horizon": 3,
+   "median_degC": 0.008106583308907102,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L0",
+   "station_fraction_positive": 0.75
+  },
+  {
+   "ci_high": 0.36807785110251506,
+   "ci_low": 0.01789078061172784,
+   "horizon": 3,
+   "median_degC": 0.11024747274091987,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L2",
+   "station_fraction_positive": 0.6637931034482759
+  },
+  {
+   "ci_high": 0.364029985582259,
+   "ci_low": 0.012122164663795587,
+   "horizon": 3,
+   "loco_max": 0.1351805500929427,
+   "loco_min": 0.04078435074585822,
+   "loco_sign_stable": true,
+   "median_degC": 0.11959666068296732,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.6551724137931034
+  },
+  {
+   "ci_high": 0.01432288705388236,
+   "ci_low": 0.0011214843843725842,
+   "horizon": 7,
+   "median_degC": 0.006448187087800639,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L0",
+   "station_fraction_positive": 0.7672413793103449
+  },
+  {
+   "ci_high": 0.34709387655170354,
+   "ci_low": 0.044320298169714965,
+   "horizon": 7,
+   "median_degC": 0.12743664936322582,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "geometry_penalty_at_L2",
+   "station_fraction_positive": 0.6810344827586207
+  },
+  {
+   "ci_high": 0.331838316008607,
+   "ci_low": 0.038027156689840955,
+   "horizon": 7,
+   "loco_max": 0.16747484759143214,
+   "loco_min": 0.06827095100307307,
+   "loco_sign_stable": true,
+   "median_degC": 0.12369218785424825,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.6810344827586207
+  }
+ ],
+ "seed_aggregation": "station contrast formed inside each split seed, then the five paired contrasts averaged per station; risks are never averaged across seeds and differenced afterwards"
+}

@@ -1,0 +1,12 @@
+{
+ "cells": [],
+ "format": "thermoroute.information-ladder-v6-observed.v1",
+ "geometry": "random_site",
+ "levels": [
+  "L2"
+ ],
+ "seeds": [
+  0
+ ],
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_LADDER"
+}

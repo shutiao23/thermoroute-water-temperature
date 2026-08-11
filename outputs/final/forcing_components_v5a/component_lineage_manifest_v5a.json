@@ -1,0 +1,3560 @@
+{
+ "cells": [
+  {
+   "arm": "only_air_temperature",
+   "climatological_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f02a5e7b7df4a82e30746f5e20d94799d6a6f2ac71b588ec6cfdbf209d12987e",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "edc5958404dd86fa6f3ab33c53152c70cd983df01753ab461db0987bd8e8bf4e",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "85a148e3ea93bab1eb9b8ac6509a59b5f7b7bc622ffe4a86a716875837174791",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP"
+   ],
+   "rows": 120444,
+   "shard": "only_air_temperature_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_air_temperature",
+   "climatological_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f02a5e7b7df4a82e30746f5e20d94799d6a6f2ac71b588ec6cfdbf209d12987e",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "edc5958404dd86fa6f3ab33c53152c70cd983df01753ab461db0987bd8e8bf4e",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "85a148e3ea93bab1eb9b8ac6509a59b5f7b7bc622ffe4a86a716875837174791",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP"
+   ],
+   "rows": 120444,
+   "shard": "only_air_temperature_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_radiation",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "75c472f1808f7ef71f19de37d1eb0bde1479240dd38b9b0c12d6c370508cdb4b",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "20ec3febc929768d4589c809b837718a82b1fe19459b05a0c385ff254944e2e1",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "fbe90347f83d1e5903bfa65a41b35536d9285e602e198cc478644439e0249664",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "DH"
+   ],
+   "rows": 120444,
+   "shard": "only_radiation_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_radiation",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 798,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "75c472f1808f7ef71f19de37d1eb0bde1479240dd38b9b0c12d6c370508cdb4b",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "20ec3febc929768d4589c809b837718a82b1fe19459b05a0c385ff254944e2e1",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "fbe90347f83d1e5903bfa65a41b35536d9285e602e198cc478644439e0249664",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "DH"
+   ],
+   "rows": 120444,
+   "shard": "only_radiation_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_precipitation",
+   "climatological_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "b7a3d309c6f3b072de623b3862f2f390af6102c0ac3563e5b1dfd9b8cf2ae953",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "92bb4d93c756abea7f010939896f38d2867f4c504805f6ca6b177bb5eb265959",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "7377a0877a66759cf6f5fa69602aa39f0de7830ebff7dd49076c6e358bc2c9cd",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "PRCP"
+   ],
+   "rows": 120444,
+   "shard": "only_precipitation_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_precipitation",
+   "climatological_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "b7a3d309c6f3b072de623b3862f2f390af6102c0ac3563e5b1dfd9b8cf2ae953",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "92bb4d93c756abea7f010939896f38d2867f4c504805f6ca6b177bb5eb265959",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "7377a0877a66759cf6f5fa69602aa39f0de7830ebff7dd49076c6e358bc2c9cd",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "PRCP"
+   ],
+   "rows": 120444,
+   "shard": "only_precipitation_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_humidity_wind",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "689c156df95e000adf518fdf418b0f29d2452c7e7d30535a82af416af0a41be2",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "4671aba6d08001fe6f9141b1db242088d556ed89ff914a4cab205bab21c0895f",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "e5aefc8d705751ef41a9cef060da295ca673e47aa5c38bf79d602ab8ec35be1d",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "only_humidity_wind_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_humidity_wind",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "689c156df95e000adf518fdf418b0f29d2452c7e7d30535a82af416af0a41be2",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "4671aba6d08001fe6f9141b1db242088d556ed89ff914a4cab205bab21c0895f",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "e5aefc8d705751ef41a9cef060da295ca673e47aa5c38bf79d602ab8ec35be1d",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "only_humidity_wind_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_air_temperature",
+   "climatological_variables": [
+    "TEMP"
+   ],
+   "fit": {
+    "best_iteration": 798,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "490a087f83a5fc0881d17d0c5ad66e4d9e6c1d18ef41656ddf8ae8f0ba54c3d2",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "65136ad70db28c3f8c46468a6ef8383b1cc5f4259652009cdd70d2939886e6c5",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "696439a938e80905a582d650141765cf0e7306b1e91c0797b1867735882412bd",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "without_air_temperature_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_air_temperature",
+   "climatological_variables": [
+    "TEMP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "490a087f83a5fc0881d17d0c5ad66e4d9e6c1d18ef41656ddf8ae8f0ba54c3d2",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "65136ad70db28c3f8c46468a6ef8383b1cc5f4259652009cdd70d2939886e6c5",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "696439a938e80905a582d650141765cf0e7306b1e91c0797b1867735882412bd",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "without_air_temperature_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_radiation",
+   "climatological_variables": [
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "46515de129ec7c6ad50a171cb47861263024165c33dd4ee60f6e38214cd997f9",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "609b29d764174f4a47910646ef6f8b7be076b833704fc88b867cdb529cc9a17c",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "a2ff3f1be33c48f125b858ebcc0b6e56f2cf4a6b0d8515f74172966b153bce97",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "without_radiation_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_radiation",
+   "climatological_variables": [
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "46515de129ec7c6ad50a171cb47861263024165c33dd4ee60f6e38214cd997f9",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "609b29d764174f4a47910646ef6f8b7be076b833704fc88b867cdb529cc9a17c",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "a2ff3f1be33c48f125b858ebcc0b6e56f2cf4a6b0d8515f74172966b153bce97",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "without_radiation_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_precipitation",
+   "climatological_variables": [
+    "PRCP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f721c473f55085f36728187de71bb199f604ab89f2d704396b3617d110734d46",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "30856ee9464e515c8d6a7b54a63f40fde4d722b7a514dd9490c94acf34a8574a",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "7bebeb27d756bd712f682afe7a14a9ab6711456977e20dbf1d0a40b4010f4bf1",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "without_precipitation_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_precipitation",
+   "climatological_variables": [
+    "PRCP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f721c473f55085f36728187de71bb199f604ab89f2d704396b3617d110734d46",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "30856ee9464e515c8d6a7b54a63f40fde4d722b7a514dd9490c94acf34a8574a",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "7bebeb27d756bd712f682afe7a14a9ab6711456977e20dbf1d0a40b4010f4bf1",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 120444,
+   "shard": "without_precipitation_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_humidity_wind",
+   "climatological_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "fa00fcd3c08d6f3b347bd4df99c8d37609b618d53d861ef122ca619afbeb87ec",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "4b375aa69acff5e29c4797a3f0605ad2ff6ecc4c1437b5a1a61197740783b431",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "c42e28c0384372ab58fae524139f1a065c1f0240d0a6b9d971e51f0932341518",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "9522a68fadcf4c91727fd2005d1005c70bdd66dfda2c0324f7a12143919b50a5",
+     "validation_fitted_outcome_sha256": "18eb4f4121c363a522a3f85ff4ca3c210211309f0107d70dd51c305757953aca"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "rows": 120444,
+   "shard": "without_humidity_wind_LightGBM_h1.parquet"
+  },
+  {
+   "arm": "without_humidity_wind",
+   "climatological_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 800,
+    "best_iteration_upper_bound": 800,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "fa00fcd3c08d6f3b347bd4df99c8d37609b618d53d861ef122ca619afbeb87ec",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "615b25a76f052eaddf8ca99685ab6dbd29567994dcafacd7faef807b85976ab8",
+      "ordered_identity_sha256": "5092ad30e4b0ecbaef5f1c1c215f66aac7e760ab283fab4cba8c3a644ff4cf60",
+      "ordered_y_sha256": "99745380cb558fa30fe7f31704a0e49a06c2dfdbf24b44dd29dbc851bc1df95d",
+      "rows": 120444
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "4b375aa69acff5e29c4797a3f0605ad2ff6ecc4c1437b5a1a61197740783b431",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "ed071e2e19c50ae1bd046b5d9dfac9e88cf0c52fcaf40b5c039522f8aeeabe13",
+      "ordered_identity_sha256": "e91ea22065c66497e17723bba857dc4d1b77c0da25866cbbdef80fd50bb42f7e",
+      "ordered_y_sha256": "52a8cc396fb6c0863a4a8e5d7509a3f538f5efe78f4c8d50fdb6a36e1b05b111",
+      "rows": 339750
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "c42e28c0384372ab58fae524139f1a065c1f0240d0a6b9d971e51f0932341518",
+      "ordered_feature_columns_sha256": "7f66b4ca47da95682fb8eda6ba7dac1ffae753151a32203b4ac79edd0b5bb7cf",
+      "ordered_identity_and_y_sha256": "16ee3dd8fb353f7505df91248281a00a7325a4b821d3337b20f86f75d542da26",
+      "ordered_identity_sha256": "811172aeae8b9d93bec43768b31b2d0819943db7a9f6384fdb81ef60f2e9d820",
+      "ordered_y_sha256": "873347ac76eeb4fe67b166251627dffd1c775f7d5e2b2fd1157f88b34b96bddf",
+      "rows": 83516
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 120444,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "1453b661143303de277cbbbedbc3f8c5759aaae5cce5d75ecdc4c7bb08907552",
+     "validation_fitted_outcome_sha256": "3a8c48782aff1b5e50204a5a7db03e593a211c6677cb56c52cd6ba56be333f28"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 800,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 339750,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 83516
+   },
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "rows": 120444,
+   "shard": "without_humidity_wind_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "arm": "only_air_temperature",
+   "climatological_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "5a76b7838310ebc373a7e050a3f8de2db5c72d88bcd574248b46d3e3274557fe",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "490e1555ee5fda550bf029827a29ae6da89cac2de487f0bc2ddeb74b273ae7da",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "b47489c2b6066865c6722982c431b182dd57276ec66021a7ae662714dbf197a4",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP"
+   ],
+   "rows": 119639,
+   "shard": "only_air_temperature_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_air_temperature",
+   "climatological_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "5a76b7838310ebc373a7e050a3f8de2db5c72d88bcd574248b46d3e3274557fe",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "490e1555ee5fda550bf029827a29ae6da89cac2de487f0bc2ddeb74b273ae7da",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "b47489c2b6066865c6722982c431b182dd57276ec66021a7ae662714dbf197a4",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP"
+   ],
+   "rows": 119639,
+   "shard": "only_air_temperature_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_radiation",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 570,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f122f43c7ec48773b7931d6047f3b83b54e343ab3d0902ec61c00c19e2e58fbe",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "abf4c531f25e2cd373e6d98d00e4d32ddeffc29b4974da4cf4238d9d87a4fd31",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "0c06c1d736860add09749bb8c64655d3cfefa6660a4bc6a3fe6185d4c8057f62",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "DH"
+   ],
+   "rows": 119639,
+   "shard": "only_radiation_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_radiation",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f122f43c7ec48773b7931d6047f3b83b54e343ab3d0902ec61c00c19e2e58fbe",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "abf4c531f25e2cd373e6d98d00e4d32ddeffc29b4974da4cf4238d9d87a4fd31",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "0c06c1d736860add09749bb8c64655d3cfefa6660a4bc6a3fe6185d4c8057f62",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "DH"
+   ],
+   "rows": 119639,
+   "shard": "only_radiation_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_precipitation",
+   "climatological_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "69d8c807cee7738c728973208769002e0dbb3ea3fb7c30f32870177dd067f54a",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "5d0506b04940e2cdd69eb413812311c17f227f7cbc459ab361625e95824eace8",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "3bc79f6268a6d3290cce664b7c2ba4dc36779208d480dfaf5849e35373e68ba4",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "PRCP"
+   ],
+   "rows": 119639,
+   "shard": "only_precipitation_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_precipitation",
+   "climatological_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 494,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "69d8c807cee7738c728973208769002e0dbb3ea3fb7c30f32870177dd067f54a",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "5d0506b04940e2cdd69eb413812311c17f227f7cbc459ab361625e95824eace8",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "3bc79f6268a6d3290cce664b7c2ba4dc36779208d480dfaf5849e35373e68ba4",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "PRCP"
+   ],
+   "rows": 119639,
+   "shard": "only_precipitation_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_humidity_wind",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "4f91d58d051c91ccbb573885e662f2703ff65627c3eecb8c09c84fa8d247a8ec",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "37b14517902bcc1dba2c274b8c9998f65e65ae98f113849642777dcb44e1e259",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "a1103ddb01b8aba50ba3c6d511d3f0930310b923d02fa7ded5c8b800299fb31e",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "only_humidity_wind_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_humidity_wind",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 574,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "4f91d58d051c91ccbb573885e662f2703ff65627c3eecb8c09c84fa8d247a8ec",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "37b14517902bcc1dba2c274b8c9998f65e65ae98f113849642777dcb44e1e259",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "a1103ddb01b8aba50ba3c6d511d3f0930310b923d02fa7ded5c8b800299fb31e",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "only_humidity_wind_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_air_temperature",
+   "climatological_variables": [
+    "TEMP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "84b994d2d1d850e2f65490b837d7d5c853294bff30a21f12239306211e07ad85",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "4e7f9ce5a3caba24e1c866ddc526501c1bc6baf69289e0e1d4504ad5d67810a7",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "2ff043606cb145a83f83dc10a3465fc9b059d75b0cf2d6af138f3460abf54db8",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "without_air_temperature_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_air_temperature",
+   "climatological_variables": [
+    "TEMP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "84b994d2d1d850e2f65490b837d7d5c853294bff30a21f12239306211e07ad85",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "4e7f9ce5a3caba24e1c866ddc526501c1bc6baf69289e0e1d4504ad5d67810a7",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "2ff043606cb145a83f83dc10a3465fc9b059d75b0cf2d6af138f3460abf54db8",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "without_air_temperature_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_radiation",
+   "climatological_variables": [
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "9ce9b869d5542743a483956a265fa6ded51e16137a5457c58314868a7eb5463f",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "e5aad324524fb242f7b6bf20056cec91e39740f50645c0665cf39424e2744681",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "93a1a0a390629dcaceae932acb2d8a41ec4a8e853f99933dd7e6ea0874ed7308",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "without_radiation_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_radiation",
+   "climatological_variables": [
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "9ce9b869d5542743a483956a265fa6ded51e16137a5457c58314868a7eb5463f",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "e5aad324524fb242f7b6bf20056cec91e39740f50645c0665cf39424e2744681",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "93a1a0a390629dcaceae932acb2d8a41ec4a8e853f99933dd7e6ea0874ed7308",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "without_radiation_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_precipitation",
+   "climatological_variables": [
+    "PRCP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "8ee1b4245d3348ed71d89dc32a5e12188673f93b9e48bf639a45ed62b9ab698c",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "d64472c8164fccb3a35e61a86091dd719a5780d71d15f856ff32c2e2f13d9bec",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "f974f3f44d8fce616a26d3cce507b5557f2062f290c8f96c0b4b3c1928243da1",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "without_precipitation_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_precipitation",
+   "climatological_variables": [
+    "PRCP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "8ee1b4245d3348ed71d89dc32a5e12188673f93b9e48bf639a45ed62b9ab698c",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "d64472c8164fccb3a35e61a86091dd719a5780d71d15f856ff32c2e2f13d9bec",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "f974f3f44d8fce616a26d3cce507b5557f2062f290c8f96c0b4b3c1928243da1",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 119639,
+   "shard": "without_precipitation_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_humidity_wind",
+   "climatological_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "9eb11139878a330737365e347ab91d3575416502e2cbbaa0a1e6bf265295ddaa",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "f6f7f9015f1719925b41e54c23d63330e0cc9aeb91af2dcb3b3777c858bf035a",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "974c6a899799232573efd330469e46dfbe59090145fa9bd29fc25653fb1bb8e7",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "a3078b0ec7acba8d6b95bef5720c986b2020fbbc989f5dc4b014bc3247719617",
+     "validation_fitted_outcome_sha256": "114e06c2370f92d85f29b9d02e03674dd9af42a3857234e257adeb66005ad73e"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "rows": 119639,
+   "shard": "without_humidity_wind_LightGBM_h3.parquet"
+  },
+  {
+   "arm": "without_humidity_wind",
+   "climatological_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 575,
+    "best_iteration_upper_bound": 575,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "9eb11139878a330737365e347ab91d3575416502e2cbbaa0a1e6bf265295ddaa",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "09adb45970d8efd28de08ada339dfdb2a764638b3ec7513a8e620e81e02d878c",
+      "ordered_identity_sha256": "17b6dd165e219e0ca8f6647c733c9c25075f5279d9c12c9449225fb32d529605",
+      "ordered_y_sha256": "9ef4255785ae5b4eceddcb1bec03658f40b8e425607bcc16061a9ec3e769d32e",
+      "rows": 119639
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "f6f7f9015f1719925b41e54c23d63330e0cc9aeb91af2dcb3b3777c858bf035a",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "f5110a89ff5d7a278da1ac33fd7c282b483ffdcd0b019f35923d7af040c4b300",
+      "ordered_identity_sha256": "18345d04116b5273e35a899b1db5f66afb0408df3b40a551dea5274e2547ce57",
+      "ordered_y_sha256": "f845cb5775ec72fe1e6b59f4a4483d82b8cd8eef9266a6795278ada2e6098091",
+      "rows": 337725
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "974c6a899799232573efd330469e46dfbe59090145fa9bd29fc25653fb1bb8e7",
+      "ordered_feature_columns_sha256": "d4e3cae41c9da4e7b52dd335168950871e09a10a182bbf016c6389a99fe16566",
+      "ordered_identity_and_y_sha256": "b1e7c542dc6b5c23874244fb0d4f2a452bc7e00050a97a599a0b37632c633404",
+      "ordered_identity_sha256": "c2ae901a1544613fea1409f457c610beb9763bc5f9c629cf60a16af37fff5aeb",
+      "ordered_y_sha256": "299c3e836fd9adac7b5afa2d20e3e497a33184c8c10b4f2c7925de7b1bec2ccf",
+      "rows": 82948
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 119639,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "495ff2556d00a925edaa182db657257b1d81205df4aa4daca14505eb3f54f333",
+     "validation_fitted_outcome_sha256": "968a20e1713c3c3f4063a8a27163e4b3a7da5d3fab093e9f318bd6cf135eb1f8"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 575,
+     "n_jobs": 1,
+     "num_leaves": 63,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 337725,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82948
+   },
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "rows": 119639,
+   "shard": "without_humidity_wind_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "arm": "only_air_temperature",
+   "climatological_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "a3bcbf3eeb174d22cfff97e4275c1574a0fa3aaabb6812dc107233544f461f6a",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "54d6e98bca337266250d2fa83572d546df6b836b102e0dc691455af474702bb1",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "b2c8f6a8bb0d2825ac8b2474851d1e1483f2b06ee53c95b3120221e534bfe426",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP"
+   ],
+   "rows": 118682,
+   "shard": "only_air_temperature_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_air_temperature",
+   "climatological_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "a3bcbf3eeb174d22cfff97e4275c1574a0fa3aaabb6812dc107233544f461f6a",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "54d6e98bca337266250d2fa83572d546df6b836b102e0dc691455af474702bb1",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "b2c8f6a8bb0d2825ac8b2474851d1e1483f2b06ee53c95b3120221e534bfe426",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP"
+   ],
+   "rows": 118682,
+   "shard": "only_air_temperature_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_radiation",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "941d02f5d81c6c17c474a35b992a543ae598f523bc99cb795da44afc35563d0f",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "8a8897fd3ae14db0fb3c50328ccf5112ef738f10a9e98b73207524424a9ce302",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "efbab1fb46ff68b6437d4efdfff8a86b4472f190c5f10c3051a78764671cf48c",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "DH"
+   ],
+   "rows": 118682,
+   "shard": "only_radiation_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_radiation",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "941d02f5d81c6c17c474a35b992a543ae598f523bc99cb795da44afc35563d0f",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "8a8897fd3ae14db0fb3c50328ccf5112ef738f10a9e98b73207524424a9ce302",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "efbab1fb46ff68b6437d4efdfff8a86b4472f190c5f10c3051a78764671cf48c",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "DH"
+   ],
+   "rows": 118682,
+   "shard": "only_radiation_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_precipitation",
+   "climatological_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "2b703f00a16ab3612ca77cf0350641227df965f350ed91d2267e6a9577477a1b",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "02b0dfe3d5cde14a1d3d0fa1fcb98579dbaeb8279e2d6ecd531d30d8b35590f0",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "bb92d5217a936223317b9936360f32cd96c3b21d696daaddf631585c9ea483b3",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "PRCP"
+   ],
+   "rows": 118682,
+   "shard": "only_precipitation_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_precipitation",
+   "climatological_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "2b703f00a16ab3612ca77cf0350641227df965f350ed91d2267e6a9577477a1b",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "02b0dfe3d5cde14a1d3d0fa1fcb98579dbaeb8279e2d6ecd531d30d8b35590f0",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "bb92d5217a936223317b9936360f32cd96c3b21d696daaddf631585c9ea483b3",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "PRCP"
+   ],
+   "rows": 118682,
+   "shard": "only_precipitation_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_humidity_wind",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f5ae73b6b6c3c6ecbe38bba0b8020cfca0a0bfab0bfe8e8243e780eed68a4392",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "b1d0a589fcd90ed012a23c4c6e1b3365d0e77f507252b988794e4be987e024c8",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "75e75d0e22ee0c769e47464946c783bdf547a81e5f7e0725f414baef39142dff",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "only_humidity_wind_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "only_humidity_wind",
+   "climatological_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "f5ae73b6b6c3c6ecbe38bba0b8020cfca0a0bfab0bfe8e8243e780eed68a4392",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "b1d0a589fcd90ed012a23c4c6e1b3365d0e77f507252b988794e4be987e024c8",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "75e75d0e22ee0c769e47464946c783bdf547a81e5f7e0725f414baef39142dff",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "only_humidity_wind_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_air_temperature",
+   "climatological_variables": [
+    "TEMP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "a489f9e409debbd85d6a50bbc255660fb84ed22f4a04bdc710ec3b56353a1ce8",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "891f68f1840a8d8ca71bb97dc25b1b460a4ffae6ce8f316742e26dbe5120d167",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "4b05e50c468c3cd6b0058e385379029e073c6c2ca3cb42ae2ba334d793f4f095",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "without_air_temperature_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_air_temperature",
+   "climatological_variables": [
+    "TEMP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "a489f9e409debbd85d6a50bbc255660fb84ed22f4a04bdc710ec3b56353a1ce8",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "891f68f1840a8d8ca71bb97dc25b1b460a4ffae6ce8f316742e26dbe5120d167",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "4b05e50c468c3cd6b0058e385379029e073c6c2ca3cb42ae2ba334d793f4f095",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "PRCP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "without_air_temperature_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_radiation",
+   "climatological_variables": [
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "4da5ef2b4044e72d41816c41585596e35a0b3f49f5a0027bb1252082b8ae9db8",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "bf4784ce9b02ed0d79adec9c505a0bcfc1a2841cfa007be50c494dea1119f41f",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "0f358c7f9d9b63521b073f805935a16eda6a20a3f522338e2a2adb804a189240",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "without_radiation_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_radiation",
+   "climatological_variables": [
+    "DH"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "4da5ef2b4044e72d41816c41585596e35a0b3f49f5a0027bb1252082b8ae9db8",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "bf4784ce9b02ed0d79adec9c505a0bcfc1a2841cfa007be50c494dea1119f41f",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "0f358c7f9d9b63521b073f805935a16eda6a20a3f522338e2a2adb804a189240",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "without_radiation_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_precipitation",
+   "climatological_variables": [
+    "PRCP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "ecb7785cd077abbf38a5bdb6d882d4bb8efa76f4f428bd0d1398812ae2cfe9e1",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "b08c54b194c9bfe961cb7da6da240e9cb7287cd561b50444c0e06bf03b74d933",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "9b755d29a8005ab8067b9a96e72959635b9812bdb3a2b1237353961b1fe17440",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "without_precipitation_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_precipitation",
+   "climatological_variables": [
+    "PRCP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "ecb7785cd077abbf38a5bdb6d882d4bb8efa76f4f428bd0d1398812ae2cfe9e1",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "b08c54b194c9bfe961cb7da6da240e9cb7287cd561b50444c0e06bf03b74d933",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "9b755d29a8005ab8067b9a96e72959635b9812bdb3a2b1237353961b1fe17440",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "DH",
+    "RHMEAN",
+    "WDSP"
+   ],
+   "rows": 118682,
+   "shard": "without_precipitation_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_humidity_wind",
+   "climatological_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "e21f3a1c8d1096ae0f2cc4f7bf95f07932e23fcb0dd8d0caba97f6d40ce33fad",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "5a26e78fb7137f25d08a1944d4197577718598d1cfe0e15294260b1c801da5c3",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "e411b394838b565c177d60436a281bf8b2bbe652a3cbad0430a146f73211cf63",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "raw_y",
+     "train_fitted_outcome_sha256": "cb700e0c93652a42194b7c9e7566adf50b0d7ccc44331cb04c4c66272de904bd",
+     "validation_fitted_outcome_sha256": "0681ddf1859492271815960e76573307d2596147163388a6945859b1c0688451"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "LightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "rows": 118682,
+   "shard": "without_humidity_wind_LightGBM_h7.parquet"
+  },
+  {
+   "arm": "without_humidity_wind",
+   "climatological_variables": [
+    "RHMEAN",
+    "WDSP"
+   ],
+   "fit": {
+    "best_iteration": 440,
+    "best_iteration_upper_bound": 440,
+    "datasets": {
+     "evaluation": {
+      "actual_feature_matrix_sha256": "e21f3a1c8d1096ae0f2cc4f7bf95f07932e23fcb0dd8d0caba97f6d40ce33fad",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "9da50e05c531a5dca599592458250f4985af474c41c26f36260733d544a06d21",
+      "ordered_identity_sha256": "0ae642e0865225ea3c301ab2c0ae3da4ee3851e57206f8bac7ebc105f8ad3d7a",
+      "ordered_y_sha256": "0ec8e22ab6d82477f1228452061da1be25eaad442998319604a1bc55cad90c14",
+      "rows": 118682
+     },
+     "train": {
+      "actual_feature_matrix_sha256": "5a26e78fb7137f25d08a1944d4197577718598d1cfe0e15294260b1c801da5c3",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "33c9634591ad24ad25be11366550905a7ad95aad5ed853fb060f1271547ea60f",
+      "ordered_identity_sha256": "d8c5c38a0379143ad613258ecadf88bf1e015e69ffb4f67c3558717b75c744e1",
+      "ordered_y_sha256": "51abda42e3b0d07b03eaa4e03364e67ecd352c306bd2c990f5637149629f6436",
+      "rows": 335822
+     },
+     "validation": {
+      "actual_feature_matrix_sha256": "e411b394838b565c177d60436a281bf8b2bbe652a3cbad0430a146f73211cf63",
+      "ordered_feature_columns_sha256": "8da2c7c142ccc4e913dbc2ac3d544f2ff23feb2671a3c68e1a6ea7ce2dcce514",
+      "ordered_identity_and_y_sha256": "dd30f8a4be30eaa158610a0ccc6ea54180a1f20bbf7440fff877646fab51759e",
+      "ordered_identity_sha256": "38320fc6b19514c0e7cb2bf68261da19e9b87eb3d94782b5f11e43686d5450bf",
+      "ordered_y_sha256": "3a0d2de600188e0c94a81adda92e15f544e5752ec1812397ed411229e164fa32",
+      "rows": 82233
+     }
+    },
+    "early_stopping_rounds": 50,
+    "evaluation_rows": 118682,
+    "fitted_outcomes": {
+     "target_kind": "damped_residual",
+     "train_fitted_outcome_sha256": "4ea5f47994ec197ab1454711147d62c03478a283c544d9fc758a09de8b8e3f64",
+     "validation_fitted_outcome_sha256": "9dd28fe9c4d18e437af421dc8b875af1f209ea45fabbb301b0c307cc30a83431"
+    },
+    "prediction_num_threads": 1,
+    "resolved_lightgbm_parameters": {
+     "colsample_bytree": 0.8,
+     "deterministic": true,
+     "force_col_wise": true,
+     "learning_rate": 0.03,
+     "min_child_samples": 40,
+     "n_estimators": 440,
+     "n_jobs": 1,
+     "num_leaves": 15,
+     "objective": "regression",
+     "reg_lambda": 1.0,
+     "seed": 0,
+     "subsample": 0.8,
+     "subsample_freq": 1,
+     "verbosity": -1
+    },
+    "training_rows": 335822,
+    "validation_role": "actual_lgb_eval_set_not_training_tail",
+    "validation_rows": 82233
+   },
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "realized_variables": [
+    "TEMP",
+    "PRCP",
+    "DH"
+   ],
+   "rows": 118682,
+   "shard": "without_humidity_wind_ResidualLightGBM_h7.parquet"
+  }
+ ],
+ "definition": "the selected variable receives realized future values; every other meteorological variable receives its training climatology at the same valid times",
+ "execution_authority": {
+  "arm": [
+   "only_air_temperature",
+   "only_radiation",
+   "only_precipitation",
+   "only_humidity_wind",
+   "without_air_temperature",
+   "without_radiation",
+   "without_precipitation",
+   "without_humidity_wind"
+  ],
+  "authority_format": "thermoroute.forcing-placebo-v5a-shuffle-execution.v1",
+  "design_commit": "d159c3311647209af0614d8c829d3fc6cc0bfac0",
+  "design_tree_clean": false,
+  "pinned_input_sha256": {
+   "development_panel": "0427a07ea4514ba29ce7d0cf89594e6c35c7f9134cc4d1d96fdc90daeaf5ba69",
+   "evaluation_panel": "cecdac459139456202240954e4c98fe18bba1fe8b63e9b06ab268683e0d1c03c",
+   "primary_key_registry": "9a135dcffcfd467cf1e2dda4fc711ba6cf66c8ad54bf3b6f799f4a2d5a3c1d24",
+   "semantic_daily_raw_observed_registry": "0837012f88a004b3b44449770166e59f76006f851723582f00374a98b4bd67a0",
+   "semantic_training_example_registry": "af7f55372b1ca05bf56a00360c510b1ca1e5ed386b85fa7c10bcf56daca5c095",
+   "station_registry": "090e7c0daf39ac38ceefeb1af8a12c178283e18347905d8e72ada969ad5460c9"
+  },
+  "protocol_sha256": "58183acf80495675878401fb1defe0365bf8690bec470e0c6e34ce4ba5ac0059",
+  "runner_sha256": "94c40e29e200024454f357e3c82e2f8efb45ccb331aa161aec6bbe775a2b5db1",
+  "runtime": {
+   "implementation": "CPython",
+   "packages": {
+    "lightgbm": "4.7.0",
+    "numpy": "1.26.4",
+    "pandas": "2.1.4",
+    "pyarrow": "14.0.2",
+    "scikit-learn": "1.2.2",
+    "scipy": "1.11.4"
+   },
+   "python": "3.11.7"
+  },
+  "sealed_decision_rules_sha256": "f60a6e3d02c342c03ff6955b9b442ab3e7b1b04a01fa1a9c46d88e09e7c6cf4f",
+  "shuffle_seeds": [
+   0,
+   1,
+   2,
+   3,
+   4
+  ],
+  "specification_seal_sha256": "02f7f660d69efedac0af69be1d42520f57abc01fa9c210adb3404fd1950dd365",
+  "stratum": "site_id x year-month of the valid date (stricter of the two sealed readings)",
+  "v5_runner_sha256": "9f883282c57477b49d0376722f3947159162b264616521ad9c4014ab40004125"
+ },
+ "format": "thermoroute.forcing-components-v5a.v1",
+ "non_additivity": "single-component values do not sum to the full-forcing value and their differences are not a variance decomposition",
+ "status": "SEALED_PRE_OUTCOME_COMPONENT_ARM"
+}
