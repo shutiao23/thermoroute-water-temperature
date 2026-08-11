@@ -480,7 +480,11 @@ def execute(args: argparse.Namespace) -> int:
                     print(f"  {name}: {len(shard)} rows, {evidence['features']} features",
                           flush=True)
 
-    (OUTPUT_DIR / MANIFEST_FILENAME).write_text(
+    manifest_name = (
+        MANIFEST_FILENAME if not args.manifest_tag
+        else MANIFEST_FILENAME.replace(".json", f"_{args.manifest_tag}.json")
+    )
+    (OUTPUT_DIR / manifest_name).write_text(
         json.dumps({
             "format": "thermoroute.information-ladder-v6-observed.v1",
             "status": STATUS,
@@ -506,6 +510,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--levels", nargs="*", default=list(LEVEL_NAMES))
     parser.add_argument("--horizons", nargs="*", type=int, default=list(V5.HORIZONS))
     parser.add_argument("--geometry", choices=GEOMETRIES, default="whole_region")
+    parser.add_argument("--manifest-tag", default="",
+                        help="suffix for this worker's manifest, so parallel "
+                             "workers on disjoint cells do not overwrite each "
+                             "other's lineage record")
     parser.add_argument("--seeds", nargs="*", type=int, default=list(RANDOM_SEEDS),
                         help="random-site split seeds; ignored for whole_region")
     return parser
