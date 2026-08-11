@@ -56,6 +56,7 @@ import scripts.final.run_forcing_placebo_v5a_shuffle as P
 from thermoroute import config as C
 from thermoroute import data as D
 from thermoroute import features as F
+from thermoroute.baselines import _lgb_fit
 from thermoroute.information_levels import admissible_columns, level
 
 LEVEL_NAMES = ("L0", "L1", "L2", "L2_U2")
@@ -288,6 +289,161 @@ def prove_mask_invariance(
     }
 
 
+# ---------------------------------------------------------------- execution
+
+
+def fit_ladder_cell(
+    table: pd.DataFrame,
+    evaluation: pd.DataFrame,
+    columns: Sequence[str],
+    preprocessing: LevelPreprocessing,
+    fold: Fold,
+    model: str,
+    horizon: int,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Fit on in-fold stations only and predict the held region's stations."""
+    in_fold = set(fold.in_fold)
+    train = table[table["split"].eq("train") & table["site_id"].isin(in_fold)].copy()
+    validation = table[table["split"].eq("val") & table["site_id"].isin(in_fold)].copy()
+    if train.empty or validation.empty:
+        raise LadderError(f"fold {fold.index} has an empty train or validation set")
+
+    # the two guarantees the old ladder lost
+    for rows, label in ((train, "train"), (validation, "validation")):
+        if not rows["issue_wtemp_observed"].to_numpy(bool).all():
+            raise LadderError(f"{label} row has an imputed issue label")
+        if not rows["target_wtemp_observed"].to_numpy(bool).all():
+            raise LadderError(f"{label} row has an imputed target label")
+    identity = ["site_id", "issue_date", "target_date"]
+    if set(train[identity].itertuples(index=False, name=None)) & set(
+        validation[identity].itertuples(index=False, name=None)
+    ):
+        raise LadderError("train and validation identities overlap")
+    if set(train["site_id"]) & set(fold.held):
+        raise LadderError("a held-region station reached the training set")
+
+    held = evaluation[evaluation["site_id"].isin(set(fold.held))].copy()
+    if held.empty:
+        raise LadderError(f"fold {fold.index} scored no held station")
+    held = held.reset_index(drop=True)
+
+    train_anchor = level_anchor_values(train.reset_index(drop=True), preprocessing, horizon)
+    val_anchor = level_anchor_values(
+        validation.reset_index(drop=True), preprocessing, horizon
+    )
+    held_anchor = level_anchor_values(held, preprocessing, horizon)
+
+    train_outcome = train["y"].to_numpy(float)
+    val_outcome = validation["y"].to_numpy(float)
+    if model == "ResidualLightGBM":
+        train_outcome = train_outcome - train_anchor
+        val_outcome = val_outcome - val_anchor
+
+    fitted = _lgb_fit(
+        train[list(columns)], train_outcome,
+        validation[list(columns)], val_outcome,
+        "regression",
+        n_est=V5.BEST_ITER_UPPER_BOUND[horizon],
+        params_override=dict(V5.FROZEN_PARAMS[horizon]),
+    )
+    prediction = np.asarray(
+        fitted.predict(held[list(columns)], num_threads=1), dtype=np.float64
+    )
+    if model == "ResidualLightGBM":
+        prediction = prediction + held_anchor
+    if len(prediction) != len(held) or not np.isfinite(prediction).all():
+        raise LadderError("ladder prediction is non-finite or misaligned")
+
+    shard = pd.DataFrame({
+        "key_id": held["key_id"].to_numpy(),
+        "site_id": held["site_id"].to_numpy(),
+        "issue_date": held["issue_date"].to_numpy(),
+        "target_date": held["target_date"].to_numpy(),
+        "horizon": np.full(len(held), horizon, dtype=np.int16),
+        "level": preprocessing.level_name,
+        "geometry": GEOMETRY,
+        "fold": np.full(len(held), fold.index, dtype=np.int16),
+        "model": model,
+        "analysis_status": STATUS,
+        "y_true": held["y_true"].to_numpy(float),
+        "y_pred": prediction,
+        "y_anchor": held_anchor,
+    })
+    evidence = {
+        "train_rows": len(train),
+        "validation_rows": len(validation),
+        "held_rows": len(held),
+        "features": len(columns),
+        "best_iteration": int(
+            getattr(fitted, "best_iteration_", 0) or V5.BEST_ITER_UPPER_BOUND[horizon]
+        ),
+        "target_kind": "level_anchor_residual" if model == "ResidualLightGBM" else "raw_y",
+        "anchor": level(preprocessing.level_name).anchor,
+    }
+    return shard, evidence
+
+
+def execute(args: argparse.Namespace) -> int:
+    raw_frame, registry, reference = load_inputs()
+    folds = whole_region_folds(registry)
+    if args.folds is not None:
+        folds = [f for f in folds if f.index in set(args.folds)]
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    shard_dir = OUTPUT_DIR / SHARD_DIRNAME
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    manifest: list[dict[str, Any]] = []
+
+    for fold in folds:
+        for level_name in args.levels:
+            for horizon in args.horizons:
+                proof = prove_mask_invariance(raw_frame, fold, level_name, horizon)
+                table, columns, preprocessing = build_design(
+                    raw_frame, fold, level_name, horizon
+                )
+                # Bind against the full frozen namespace: that validator is
+                # what enforces two-sided equality with the formal key
+                # registry, and it only recognises the complete F0 column set.
+                # The level's column subset is applied when the model is fitted.
+                evaluation = V5.bind_exact_evaluation_rows(
+                    table, reference, horizon, V5.FROZEN_BASE_FEATURE_COLUMNS
+                )
+                for model in V5.MODELS:
+                    name = f"{level_name}_{GEOMETRY}_fold{fold.index}_{model}_h{horizon}"
+                    path = shard_dir / f"{name}.parquet"
+                    if path.exists():
+                        print(f"  skip {name} (already written)", flush=True)
+                        continue
+                    shard, evidence = fit_ladder_cell(
+                        table, evaluation, columns, preprocessing,
+                        fold, model, horizon,
+                    )
+                    shard.to_parquet(path, index=False)
+                    manifest.append({
+                        "cell": name, "level": level_name, "geometry": GEOMETRY,
+                        "fold": fold.index, "regions_held": list(fold.regions_held),
+                        "model": model, "horizon": horizon,
+                        "mask_invariance": proof, "fit": evidence,
+                        "shard": path.name,
+                    })
+                    print(f"  {name}: {len(shard)} rows, {evidence['features']} features",
+                          flush=True)
+
+    (OUTPUT_DIR / MANIFEST_FILENAME).write_text(
+        json.dumps({
+            "format": "thermoroute.information-ladder-v6-observed.v1",
+            "status": STATUS,
+            "geometry": GEOMETRY,
+            "levels": list(args.levels),
+            "cells": manifest,
+        }, sort_keys=True, indent=1, default=str) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps({"status": "WRITTEN", "cells": len(manifest)},
+                     sort_keys=True, indent=1))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
@@ -342,7 +498,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps({"mask_invariance": report}, sort_keys=True, indent=1))
         return 0
 
-    raise SystemExit("execution path is added in the next step")
+    return execute(args)
 
 
 if __name__ == "__main__":
