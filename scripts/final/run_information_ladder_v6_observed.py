@@ -60,8 +60,13 @@ from thermoroute.baselines import _lgb_fit
 from thermoroute.information_levels import admissible_columns, level
 
 LEVEL_NAMES = ("L0", "L1", "L2", "L2_U2")
-GEOMETRY = "whole_region"
+GEOMETRIES = ("whole_region", "random_site")
+GEOMETRY = "whole_region"          # default; --geometry selects
 N_FOLDS = 4
+#: Random-site geometry is averaged over seeds, so one seed is never a result.
+#: The protocol pairs the station effect inside each seed and averages the
+#: paired contrasts, never the risks.
+RANDOM_SEEDS = (0, 1, 2, 3, 4)
 OUTPUT_DIR = V5.FINAL_OUTPUT_ROOT / "information_ladder_v6_observed"
 SHARD_DIRNAME = "ladder_shards_v6_observed"
 MANIFEST_FILENAME = "ladder_lineage_manifest_v6_observed.json"
@@ -114,6 +119,41 @@ def whole_region_folds(registry: pd.DataFrame) -> list[Fold]:
     if covered != sorted(everyone):
         raise LadderError("whole-region folds do not partition the cohort")
     return folds
+
+
+def random_site_folds(registry: pd.DataFrame, seed: int) -> list[Fold]:
+    """Four balanced random-site folds, the interpolation-like comparator.
+
+    Held sites are scattered, so a held gauge's neighbours normally remain in
+    training.  Contrasting this with the whole-region packing at the same
+    information level is what isolates spatial geometry from local information.
+    """
+    sites = sorted(str(s).zfill(8) for s in registry["site_no"])
+    rng = np.random.default_rng(seed)
+    order = rng.permutation(len(sites))
+    folds = []
+    for index in range(N_FOLDS):
+        held = sorted(sites[j] for j in order[index::N_FOLDS])
+        folds.append(Fold(
+            index=index,
+            in_fold=tuple(sorted(set(sites) - set(held))),
+            held=tuple(held),
+            regions_held=(f"random_seed{seed}",),
+        ))
+    covered = sorted({s for fold in folds for s in fold.held})
+    if covered != sites:
+        raise LadderError("random-site folds do not partition the cohort")
+    return folds
+
+
+def folds_for(registry: pd.DataFrame, geometry: str, seed: int | None) -> list[Fold]:
+    if geometry == "whole_region":
+        return whole_region_folds(registry)
+    if geometry == "random_site":
+        if seed is None:
+            raise LadderError("random-site geometry requires a seed")
+        return random_site_folds(registry, seed)
+    raise LadderError(f"unknown geometry {geometry!r}")
 
 
 # ------------------------------------------------------- level preprocessing
@@ -300,6 +340,7 @@ def fit_ladder_cell(
     fold: Fold,
     model: str,
     horizon: int,
+    geometry: str,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Fit on in-fold stations only and predict the held region's stations."""
     in_fold = set(fold.in_fold)
@@ -361,7 +402,7 @@ def fit_ladder_cell(
         "target_date": held["target_date"].to_numpy(),
         "horizon": np.full(len(held), horizon, dtype=np.int16),
         "level": preprocessing.level_name,
-        "geometry": GEOMETRY,
+        "geometry": geometry,
         "fold": np.full(len(held), fold.index, dtype=np.int16),
         "model": model,
         "analysis_status": STATUS,
@@ -385,16 +426,22 @@ def fit_ladder_cell(
 
 def execute(args: argparse.Namespace) -> int:
     raw_frame, registry, reference = load_inputs()
-    folds = whole_region_folds(registry)
-    if args.folds is not None:
-        folds = [f for f in folds if f.index in set(args.folds)]
+    geometry = args.geometry
+    seeds: list[int | None] = (
+        [None] if geometry == "whole_region" else list(args.seeds)
+    )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     shard_dir = OUTPUT_DIR / SHARD_DIRNAME
     shard_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, Any]] = []
 
-    for fold in folds:
+    for seed in seeds:
+      folds = folds_for(registry, geometry, seed)
+      if args.folds is not None:
+          folds = [f for f in folds if f.index in set(args.folds)]
+      tag = "" if seed is None else f"_seed{seed}"
+      for fold in folds:
         for level_name in args.levels:
             for horizon in args.horizons:
                 proof = prove_mask_invariance(raw_frame, fold, level_name, horizon)
@@ -409,18 +456,22 @@ def execute(args: argparse.Namespace) -> int:
                     table, reference, horizon, V5.FROZEN_BASE_FEATURE_COLUMNS
                 )
                 for model in V5.MODELS:
-                    name = f"{level_name}_{GEOMETRY}_fold{fold.index}_{model}_h{horizon}"
+                    name = (
+                        f"{level_name}_{geometry}{tag}_fold{fold.index}"
+                        f"_{model}_h{horizon}"
+                    )
                     path = shard_dir / f"{name}.parquet"
                     if path.exists():
                         print(f"  skip {name} (already written)", flush=True)
                         continue
                     shard, evidence = fit_ladder_cell(
                         table, evaluation, columns, preprocessing,
-                        fold, model, horizon,
+                        fold, model, horizon, geometry,
                     )
                     shard.to_parquet(path, index=False)
                     manifest.append({
-                        "cell": name, "level": level_name, "geometry": GEOMETRY,
+                        "cell": name, "level": level_name, "geometry": geometry,
+                        "seed": seed,
                         "fold": fold.index, "regions_held": list(fold.regions_held),
                         "model": model, "horizon": horizon,
                         "mask_invariance": proof, "fit": evidence,
@@ -433,7 +484,8 @@ def execute(args: argparse.Namespace) -> int:
         json.dumps({
             "format": "thermoroute.information-ladder-v6-observed.v1",
             "status": STATUS,
-            "geometry": GEOMETRY,
+            "geometry": geometry,
+            "seeds": [s for s in seeds],
             "levels": list(args.levels),
             "cells": manifest,
         }, sort_keys=True, indent=1, default=str) + "\n",
@@ -453,6 +505,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="restrict to these fold indices (explicit, never implicit)")
     parser.add_argument("--levels", nargs="*", default=list(LEVEL_NAMES))
     parser.add_argument("--horizons", nargs="*", type=int, default=list(V5.HORIZONS))
+    parser.add_argument("--geometry", choices=GEOMETRIES, default="whole_region")
+    parser.add_argument("--seeds", nargs="*", type=int, default=list(RANDOM_SEEDS),
+                        help="random-site split seeds; ignored for whole_region")
     return parser
 
 
