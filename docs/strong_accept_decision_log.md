@@ -1626,3 +1626,78 @@ result required, and the control was passed.
 Requires a protocol version bump? No.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-11 — DLOG-030: corrected L ladder executed; local thermal state dominates
+
+Decision: the 432-cell ladder withdrawn by DLOG-025 is replaced. Local thermal
+state is worth 1.3-1.7 degC under whole-region holdout, and almost all of it is
+the recent water-temperature sequence rather than the station's long-term
+statistics.
+
+Result, raw-target tree, 116 reportable stations, station-first paired medians
+with whole-HUC2 bootstrap intervals:
+
+  L1 - L0      own long-term statistics   0.010 / 0.062 / 0.161 degC at 1/3/7 d
+  L2 - L1      recent temperature sequence 1.707 / 1.201 / 1.169
+  L2 - L0      all local thermal state     1.716 / 1.255 / 1.325
+  L2_U2 - L2   local discharge             0.084 / 0.043 / 0.009
+
+Every L2-L0 interval excludes zero, all 116 stations are worse at every lead,
+and every leave-one-HUC2-out range stays far from zero. Every discharge
+interval covers zero and stations split about evenly.
+
+This reorders the paper. Local thermal state is two to thirteen times the
+realized-future-meteorology value, roughly seventy times the architecture
+effect, and two orders of magnitude above the geometry penalty. The three
+quantities come from separate conditional designs and are not added; the
+ordering is what matters.
+
+Two further readings. Cold-starting a *gauged* site is nearly free -- pooling a
+station's climatology and damped rate costs 0.01-0.16 degC -- while thermally
+ungauged prediction is a different problem, at 1.17-1.71 degC. And discharge
+does not substitute for thermal history: once water temperature is gone,
+removing discharge as well changes almost nothing, so the "hydrology observed"
+rung is barely distinguishable from having no local observation at all.
+
+Lineage, which is the point of the rebuild. Prohibited inputs are dropped from
+the design matrix rather than filled, so invariance holds by construction. A
+proof runs immediately before each cell is fitted, perturbing the held
+stations' own observations and requiring a bit-identical design matrix: all 24
+proofs return exactly zero, and a negative control that re-admits a single
+water-temperature lag is caught with a 147 degC shift. Three guards the old
+ladder lacked fail closed: no imputed issue or target label may enter training
+or validation, train and validation identities may not overlap, and no
+held-region station may reach the training set. Every statistic a level
+constrains -- imputer, climatology, damped rate -- is refitted on in-fold
+stations only.
+
+Two implementation facts recorded because both could have degraded the result
+silently. The evaluation registry covers 116 reportable stations, not the
+120-station cohort, and asserting 120 initially failed closed rather than
+quietly scoring a subset. And bind_exact_evaluation_rows only accepts the
+complete frozen namespace because that validator enforces two-sided equality
+with the formal key registry, so the binding uses the full column set and the
+level's subset is applied at fit time; passing the reduced set would have
+traded away the key-registry check without any visible symptom.
+
+Scope. Whole-region geometry only. The random-site arm and therefore the L-by-G
+interaction are not yet run, so no statement is made here about how the local
+information value depends on spatial geometry. Post-outcome and descriptive
+like every other 2021-2023 result; the F and L axes remain separate conditional
+designs and are never added or divided.
+
+Evidence available before the decision: the 96 create-only ladder shards, their
+lineage manifest with the per-cell mask-invariance proof, and the frozen key
+registry.
+
+Data periods already inspected: 2006-2017 inputs and the already-open 2021-2023
+window. No component, F2, neural, crossed, cohort or audit-window outcome read.
+
+Changes a primary hypothesis? It replaces withdrawn evidence and reorders which
+information source the manuscript treats as dominant.
+
+Requires a protocol version bump? No.
+
+Commit(s): (this worktree)

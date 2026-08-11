@@ -1,0 +1,9 @@
+{
+ "builder_sha256": "5a84951339e19b86f18223d8d13eaee275b37fd7079ed6ecd0c282c0840856b9",
+ "format": "thermoroute.information-ladder-v6-authority.v1.manifest",
+ "ladder_manifest_sha256": "7e2faf01a19608f652377a11749c91628bdc730714fbfa2bde0d68cb325671fb",
+ "outputs_sha256": {
+  "information_ladder_v6_contrasts.parquet": "fa476c581f47f80543f566436c3b7e6099f6d62df69a4d54ef23c0f38207f2ef",
+  "information_ladder_v6_summary.json": "178fffb8a3f4a548f96a31557bc79fbc26398282f91b10d9d29dc13ce2e05500"
+ }
+}

@@ -181,7 +181,7 @@ adaptation is separated from spatial geometry? In which issue-time-identifiable
 hydrologic states does a learned model still add skill beyond the strong
 reference? And — since every model above sees only issue-time information — how
 much predictability is withheld by that restriction rather than by the models,
-which we bound in Section 4.7 with realized future meteorology. The predictor
+which we bound in Section 4.8 with realized future meteorology. The predictor
 whose skill we decompose, ThermoRoute, is described in full in Section 3.1; its
 architecture is the object under test rather than the contribution.
 
@@ -356,7 +356,7 @@ information.](figures/fig02_model_concept.pdf)
 
 **Figure 2. The formulation every compared model shares.** (a) Issue-time
 information: local thermal state, meteorological history, and — only in the
-forcing-regime arm of Section 4.7 — future meteorology (F0 absent, F3 the
+forcing-regime arm of Section 4.8 — future meteorology (F0 absent, F3 the
 realized oracle). (b) The damped-persistence anchor of equation (1), written
 without station and lead indices for legibility, and the two regression
 targets fitted against it. LightGBM, the most accurate model at 1 and 3 days,
@@ -1038,7 +1038,77 @@ favor ThermoRoute. The learned model's incremental value concentrates in rapid
 warming and cooling states and under low thermal anomaly; it is absent on the
 coldest target decile.
 
-### 4.7 What future meteorology would be worth
+### 4.7 What local thermal state is worth
+
+Section 4.5 could not resolve a spatial effect because every arm kept the held
+station's own thermal history, leaving the transferable component worth about
+0.07 °C. This section removes that history instead of the geography, which is
+the contrast the design can actually resolve.
+
+Four nested information levels are fitted under whole-region holdout, so no
+gauge from a held region appears in training and each level withholds one more
+local observation: **L0** keeps everything; **L1** pools the climatology and
+damped rate over training stations, so the target site contributes no long-term
+statistic; **L2** removes every target-site water-temperature input — lags,
+rolling statistics, deltas, their observedness flags, the climatology anomaly
+and the persistence anchor — leaving discharge and meteorology; **L2-U2**
+removes discharge as well.
+
+Prohibited inputs are dropped from the design matrix rather than filled, and
+before each cell is fitted a proof perturbs the held stations' own observations
+and requires a bit-identical design matrix. All 24 proofs return a maximum
+absolute difference of exactly zero; a negative control that re-admits a single
+water-temperature lag is caught with a 147 °C shift, so the proof is not
+vacuous.
+
+**Table 4.15 — value of local thermal information.** Station-first paired
+differences in °C under whole-region holdout, raw-target tree, 116 reportable
+stations; positive means the withheld information was worth that much. CI is a
+10,000-draw whole-HUC2 cluster bootstrap.
+
+| Withheld | Lead | Value (°C) | 95% CI | Stations worse |
+| --- | ---: | ---: | --- | ---: |
+| Own long-term statistics (L1−L0) | 1 d | 0.010 | [0.007, 0.012] | 0.82 |
+| | 3 d | 0.062 | [0.041, 0.072] | 0.91 |
+| | 7 d | 0.161 | [0.139, 0.195] | 0.91 |
+| Recent temperature sequence (L2−L1) | 1 d | 1.707 | [1.346, 2.432] | 1.00 |
+| | 3 d | 1.201 | [0.889, 1.982] | 1.00 |
+| | 7 d | 1.169 | [0.850, 1.638] | 1.00 |
+| **All local thermal state (L2−L0)** | **1 d** | **1.716** | **[1.363, 2.442]** | **1.00** |
+| | **3 d** | **1.255** | **[0.989, 2.064]** | **1.00** |
+| | **7 d** | **1.325** | **[1.092, 1.725]** | **1.00** |
+| Local discharge (L2-U2−L2) | 1 d | 0.084 | [−0.033, 0.227] | 0.55 |
+| | 3 d | 0.043 | [−0.051, 0.180] | 0.54 |
+| | 7 d | 0.009 | [−0.043, 0.116] | 0.53 |
+
+Three things follow, and the first reorders the paper.
+
+**Local thermal state is the dominant information in this problem.** Withholding
+it costs 1.3–1.7 °C, at every lead, at every one of 116 stations, with
+leave-one-HUC2-out ranges that never approach zero. That is two to thirteen
+times the value of realized future meteorology (Section 4.8), roughly seventy
+times the architecture effect of Section 4.3, and two orders of magnitude above
+the geometry penalty of Section 4.5. A study that keeps the target gauge's
+recent readings and then reports a model comparison is comparing models inside
+the regime where the largest available information is already present.
+
+**Almost all of that value is the recent sequence, not the station's long
+history.** Pooling a station's climatology and damped rate over the training
+stations costs 0.01–0.16 °C; removing its recent readings costs 1.17–1.71 °C, a
+factor of ten to one hundred and seventy. Cold-starting a gauged site is
+therefore nearly free, while thermally ungauged prediction is a different
+problem — which is the distinction the transfer literature draws and the one a
+random-site split cannot see.
+
+**Discharge does not substitute for thermal history.** Once water temperature is
+gone, also removing discharge changes station-median RMSE by 0.009–0.084 °C with
+every interval covering zero and stations splitting about evenly. The
+"hydrology observed" rung is, on this cohort, barely distinguishable from having
+no local observation at all.
+
+---
+
+### 4.8 What future meteorology would be worth
 
 Every result above is issue-time-only, so none of it says whether the small
 residual learned gain reflects a limit of the models or a limit of the
@@ -1438,14 +1508,14 @@ Two boundaries define what these findings mean. Every model evaluated here is
 issue-time-only, so all of the above describes a single information regime: the
 one in which recent local thermal history is available and future meteorology
 is not. A separate retrospective analysis on the same cohort and keys
-(Section 4.7) puts an upper bound on what perfect future meteorology could add:
+(Section 4.8) puts an upper bound on what perfect future meteorology could add:
 0.13 °C at one day and 0.54–0.63 °C at three and seven days, an order of
 magnitude above the architecture effect measured under issue-time information.
 That bound is an information ceiling from a realized-weather oracle. A
 placebo sealed before its outcome existed shows it is event-scale weather
 information rather than seasonal phase: deranging the meteorology within each
 station-month, which preserves climate and seasonal phase exactly, removes
-91–100% of the value (Section 4.7). A second sealed control shows the same
+91–100% of the value (Section 4.8). A second sealed control shows the same
 under a one-week displacement of the future, so the model is using exact event
 timing rather than the weather window around it. Reported
 skill for this variable is nonetheless governed jointly by the reference model

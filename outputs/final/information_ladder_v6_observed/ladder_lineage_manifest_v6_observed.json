@@ -1,0 +1,2879 @@
+{
+ "cells": [
+  {
+   "cell": "L0_whole_region_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 798,
+    "features": 210,
+    "held_rows": 30896,
+    "target_kind": "raw_y",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L0_whole_region_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30896,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L0_whole_region_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 497,
+    "features": 210,
+    "held_rows": 30671,
+    "target_kind": "raw_y",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L0_whole_region_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 337,
+    "features": 210,
+    "held_rows": 30671,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L0_whole_region_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 363,
+    "features": 210,
+    "held_rows": 30405,
+    "target_kind": "raw_y",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L0_whole_region_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 362,
+    "features": 210,
+    "held_rows": 30405,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L0_whole_region_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30896,
+    "target_kind": "raw_y",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L1_whole_region_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30896,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L1_whole_region_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 571,
+    "features": 210,
+    "held_rows": 30671,
+    "target_kind": "raw_y",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L1_whole_region_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 564,
+    "features": 210,
+    "held_rows": 30671,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L1_whole_region_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 437,
+    "features": 210,
+    "held_rows": 30405,
+    "target_kind": "raw_y",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L1_whole_region_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 440,
+    "features": 210,
+    "held_rows": 30405,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L1_whole_region_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 574,
+    "features": 176,
+    "held_rows": 30671,
+    "target_kind": "raw_y",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 141754,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_whole_region_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 30671,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 141754,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_whole_region_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 30405,
+    "target_kind": "raw_y",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 140879,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_whole_region_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 30405,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 140879,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_whole_region_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 798,
+    "features": 148,
+    "held_rows": 30896,
+    "target_kind": "raw_y",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 142566,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_U2_whole_region_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 148,
+    "held_rows": 30896,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 142566,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_U2_whole_region_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 30671,
+    "target_kind": "raw_y",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 141754,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_U2_whole_region_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 30671,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 141754,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_U2_whole_region_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 148,
+    "held_rows": 30405,
+    "target_kind": "raw_y",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 140879,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_U2_whole_region_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 148,
+    "held_rows": 30405,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 140879,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "shard": "L2_U2_whole_region_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30931,
+    "target_kind": "raw_y",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L0_whole_region_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30931,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L0_whole_region_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 30729,
+    "target_kind": "raw_y",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L0_whole_region_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 334,
+    "features": 210,
+    "held_rows": 30729,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L0_whole_region_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 439,
+    "features": 210,
+    "held_rows": 30479,
+    "target_kind": "raw_y",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L0_whole_region_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 252,
+    "features": 210,
+    "held_rows": 30479,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L0_whole_region_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 799,
+    "features": 210,
+    "held_rows": 30931,
+    "target_kind": "raw_y",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L1_whole_region_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 30931,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L1_whole_region_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 571,
+    "features": 210,
+    "held_rows": 30729,
+    "target_kind": "raw_y",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L1_whole_region_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 30729,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L1_whole_region_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 440,
+    "features": 210,
+    "held_rows": 30479,
+    "target_kind": "raw_y",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L1_whole_region_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 439,
+    "features": 210,
+    "held_rows": 30479,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L1_whole_region_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 30931,
+    "target_kind": "raw_y",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 141216,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_whole_region_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 30931,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 141216,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_whole_region_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 30729,
+    "target_kind": "raw_y",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 140334,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_whole_region_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 30729,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 140334,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_whole_region_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 30479,
+    "target_kind": "raw_y",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 139421,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_whole_region_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 30479,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 139421,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_whole_region_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 148,
+    "held_rows": 30931,
+    "target_kind": "raw_y",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 141216,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_U2_whole_region_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 797,
+    "features": 148,
+    "held_rows": 30931,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 141216,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_U2_whole_region_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 30729,
+    "target_kind": "raw_y",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 140334,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_U2_whole_region_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 30729,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 140334,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_U2_whole_region_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 148,
+    "held_rows": 30479,
+    "target_kind": "raw_y",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 139421,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_U2_whole_region_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 439,
+    "features": 148,
+    "held_rows": 30479,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 139421,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "shard": "L2_U2_whole_region_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 29937,
+    "target_kind": "raw_y",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L0_whole_region_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 29937,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L0_whole_region_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 379,
+    "features": 210,
+    "held_rows": 29713,
+    "target_kind": "raw_y",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L0_whole_region_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 497,
+    "features": 210,
+    "held_rows": 29713,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L0_whole_region_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 421,
+    "features": 210,
+    "held_rows": 29457,
+    "target_kind": "raw_y",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L0_whole_region_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 370,
+    "features": 210,
+    "held_rows": 29457,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L0_whole_region_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 798,
+    "features": 210,
+    "held_rows": 29937,
+    "target_kind": "raw_y",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L1_whole_region_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 29937,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L1_whole_region_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 29713,
+    "target_kind": "raw_y",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L1_whole_region_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 29713,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L1_whole_region_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 440,
+    "features": 210,
+    "held_rows": 29457,
+    "target_kind": "raw_y",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L1_whole_region_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 440,
+    "features": 210,
+    "held_rows": 29457,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L1_whole_region_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 29937,
+    "target_kind": "raw_y",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 136041,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_whole_region_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 29937,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 136041,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_whole_region_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 29713,
+    "target_kind": "raw_y",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 135083,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_whole_region_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 29713,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 135083,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_whole_region_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 29457,
+    "target_kind": "raw_y",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 134145,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_whole_region_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 29457,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 134145,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_whole_region_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 799,
+    "features": 148,
+    "held_rows": 29937,
+    "target_kind": "raw_y",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 136041,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_U2_whole_region_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 148,
+    "held_rows": 29937,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 255456,
+    "validation_rows": 61728
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 136041,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_U2_whole_region_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 29713,
+    "target_kind": "raw_y",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 135083,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_U2_whole_region_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 29713,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254037,
+    "validation_rows": 61281
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 135083,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_U2_whole_region_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 439,
+    "features": 148,
+    "held_rows": 29457,
+    "target_kind": "raw_y",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 134145,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_U2_whole_region_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 148,
+    "held_rows": 29457,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 134145,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "shard": "L2_U2_whole_region_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 28680,
+    "target_kind": "raw_y",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L0_whole_region_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 799,
+    "features": 210,
+    "held_rows": 28680,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L0_whole_region_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 448,
+    "features": 210,
+    "held_rows": 28526,
+    "target_kind": "raw_y",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L0_whole_region_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 336,
+    "features": 210,
+    "held_rows": 28526,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L0_whole_region_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 436,
+    "features": 210,
+    "held_rows": 28341,
+    "target_kind": "raw_y",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L0_whole_region_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L0_whole_region_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 324,
+    "features": 210,
+    "held_rows": 28341,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L0_whole_region_fold3_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 28680,
+    "target_kind": "raw_y",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L1_whole_region_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 800,
+    "features": 210,
+    "held_rows": 28680,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L1_whole_region_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 28526,
+    "target_kind": "raw_y",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L1_whole_region_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 575,
+    "features": 210,
+    "held_rows": 28526,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L1_whole_region_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 440,
+    "features": 210,
+    "held_rows": 28341,
+    "target_kind": "raw_y",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L1_whole_region_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L1_whole_region_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_damped_persistence",
+    "best_iteration": 439,
+    "features": 210,
+    "held_rows": 28341,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L1",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L1_whole_region_fold3_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 28680,
+    "target_kind": "raw_y",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 123909,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_whole_region_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 176,
+    "held_rows": 28680,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 123909,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_whole_region_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 28526,
+    "target_kind": "raw_y",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 123156,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_whole_region_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 176,
+    "held_rows": 28526,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 123156,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_whole_region_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 28341,
+    "target_kind": "raw_y",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 122297,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_whole_region_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 176,
+    "held_rows": 28341,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 176,
+    "held_rows_checked": 122297,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_whole_region_fold3_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 148,
+    "held_rows": 28680,
+    "target_kind": "raw_y",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 123909,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_U2_whole_region_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 148,
+    "held_rows": 28680,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 265018,
+    "validation_rows": 63019
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 123909,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_U2_whole_region_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 571,
+    "features": 148,
+    "held_rows": 28526,
+    "target_kind": "raw_y",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 123156,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_U2_whole_region_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 148,
+    "held_rows": 28526,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 263428,
+    "validation_rows": 62615
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 123156,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_U2_whole_region_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 148,
+    "held_rows": 28341,
+    "target_kind": "raw_y",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 122297,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_U2_whole_region_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "L2_U2_whole_region_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 148,
+    "held_rows": 28341,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 262008,
+    "validation_rows": 62091
+   },
+   "fold": 3,
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2_U2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 148,
+    "held_rows_checked": 122297,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP",
+     "FLOW"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "04",
+    "05",
+    "06",
+    "10"
+   ],
+   "shard": "L2_U2_whole_region_fold3_ResidualLightGBM_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.information-ladder-v6-observed.v1",
+ "geometry": "whole_region",
+ "levels": [
+  "L0",
+  "L1",
+  "L2",
+  "L2_U2"
+ ],
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_LADDER"
+}
