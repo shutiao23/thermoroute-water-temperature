@@ -367,57 +367,298 @@ def _make_code_spans_breakable(latex: str) -> str:
     )
 
 
-# A column whose widest cell reaches this many characters cannot be trusted to a
-# natural-width ``l`` column: several such columns in one table overrun the text
-# block no matter how many break opportunities the cell content carries, because
-# ``l`` never wraps.  Such columns are promoted to bounded, wrapping ``X``.
-WRAPPING_COLUMN_CHARACTERS = 24
+# A column this wide in points cannot be trusted to a natural-width ``l`` column:
+# several such columns in one table overrun the text block no matter how many
+# break opportunities the cell content carries, because ``l`` never wraps.  Such
+# columns are promoted to bounded, wrapping ``X``.
+WRAPPING_COLUMN_POINTS = 115.0
 
 _UNESCAPED_AMPERSAND = re.compile(r"(?<!\\)&")
 
-# A promoted ``X`` column keeps the alignment Pandoc inferred from the Markdown.
-# The last column is always promoted (tabularx needs at least one ``X``), so a
-# single raggedright constant would silently left-align the final numeric column
-# of every numeric table while its siblings stayed right-aligned.
-_X_COLUMNS = {
-    "l": r">{\raggedright\arraybackslash}X",
-    "c": r">{\centering\arraybackslash}X",
-    "r": r">{\raggedleft\arraybackslash}X",
+# Table geometry, measured from agujournal2025 rather than guessed.  ``\linewidth``
+# in the AGU text block is 397.485pt and ``_fit_longtables`` sets the tabularx
+# target to ``\linewidth-24pt``.
+TABLE_WIDTH_POINTS = 397.485 - 24.0
+
+# ``\tabcolsep`` candidates, widest first.  Each column costs twice this in
+# padding, so a ten-column table pays 60pt at 3pt -- enough, on the metric
+# tables, to decide whether the table fits at all.  The generator takes the
+# widest separation the table can afford rather than one fixed value.
+TABLE_COLUMN_SEPARATIONS = (3.0, 2.0, 1.5)
+
+# Headroom against the character model above.  Greek capitals and the degree
+# sign in the metric headers set wider than the class they are charged to, so
+# the fit is verified against ``Overfull \hbox`` in the LaTeX log, not against
+# the estimate alone; 0.94 is the largest value at which that log is clean.
+TABLE_WIDTH_SAFETY = 0.94
+
+# Per-character advance widths at ``\small`` in this class, solved from measured
+# boxes: ``RMSE 1`` 34.43pt, ``0.813`` 21.07pt, ``DampedPersistence`` 78.76pt,
+# ``PlainCausalTCN-7var`` 89.10pt, ``p (sign flip)`` 47.33pt.  A flat average is
+# not good enough -- capitals run about 6.9pt against 4.35pt for lowercase, so
+# an all-capital header like ``RMSE`` is half again as wide as its character
+# count suggests, which is exactly the cell that kept overflowing.
+_CHARACTER_POINTS = {"upper": 6.9, "lower": 4.35, "digit": 4.7, "space": 2.3}
+_PUNCTUATION_POINTS = 3.1
+
+# The minus sign ``_protect_numeric_signs`` installs is set from cmsy, where it
+# is more than twice the width of the hyphen it replaces.  ``_cell_text`` folds
+# it to this sentinel so the estimate charges for the glyph actually set.
+_MATH_MINUS = "\ue000"  # private use; an escape, never an invisible literal
+_MATH_MINUS_POINTS = 7.0
+
+
+def _text_points(text: str) -> float:
+    """Set width of a string at ``\\small``, by character class."""
+    total = 0.0
+    for character in text:
+        if character == _MATH_MINUS:
+            total += _MATH_MINUS_POINTS
+            continue
+        if character.isspace():
+            total += _CHARACTER_POINTS["space"]
+        elif character.isdigit():
+            total += _CHARACTER_POINTS["digit"]
+        elif not character.isalpha():
+            total += _PUNCTUATION_POINTS
+        elif character.isupper() or not character.isascii():
+            # Non-ASCII letters here are Greek capitals and degree-sign
+            # composites from the metric headers; they set at capital width.
+            total += _CHARACTER_POINTS["upper"]
+        else:
+            total += _CHARACTER_POINTS["lower"]
+    return total
+
+# ``X`` columns share the table's leftover space.  tabularx divides it equally
+# unless each column carries an ``\hsize`` factor, and equal division is what
+# collapsed the 153pt comparison column of the formal-comparison table to the
+# same width as its 29pt neighbour: the unbreakable token ``DampedPersistence``
+# then overprinted the adjacent lead column.  Factors are proportional to
+# measured content and must sum to the number of ``X`` columns.
+MIN_X_WEIGHT = 0.45
+
+# A promoted ``X`` column keeps the alignment Pandoc inferred from the Markdown,
+# so a single raggedright constant would silently left-align a promoted numeric
+# column while its unpromoted siblings stayed right-aligned.
+_X_ALIGNMENTS = {
+    "l": r"\raggedright",
+    "c": r"\centering",
+    "r": r"\raggedleft",
 }
-_X_COLUMN = _X_COLUMNS["l"]
 
 
-def _column_content_widths(columns: str, content: str) -> list[int]:
-    """Widest cell per column, measured over the table's data and header rows."""
-    widths = [0] * len(columns)
+def _x_column(letter: str, weight: float) -> str:
+    """One weighted, wrapping ``X`` column preserving Pandoc's alignment."""
+    return (
+        rf">{{\hsize={weight:.4f}\hsize{_X_ALIGNMENTS[letter]}\arraybackslash}}X"
+    )
+
+
+# Markup that occupies no width, or that stands in for a single printed glyph.
+# ``_cell_width`` has to see through it: measuring the source characters of
+# ``{[}0.081, 0.189{]}`` or ``p (sign flip)`` as written overstates one column
+# and understates its neighbours, and the promotion order below is decided by
+# exactly those comparisons.
+_ZERO_WIDTH_MARKUP = re.compile(
+    r"\\allowbreak\{\}|\\ensuremath|\\mathrm|\\text|[{}$]"
+)
+_SINGLE_GLYPH_MARKUP = re.compile(r"\\textquotesingle|\\[#%&_]|\\\(|\\\)|\\\\")
+
+# A signed or exponent-bearing number, as it appears in a metric cell.  The
+# hyphens inside one are minus signs, not hyphenation points, and TeX breaks
+# lines after a hyphen: in a wrapped column that put the sign of ``-0.000`` on
+# one line and its digits on the next, which reads as a different number.
+#
+# The lookbehind excludes a preceding hyphen so that the ``--`` of a Pandoc en
+# dash is never read as a sign.  Without it ``2006--2015`` in the temporal-roles
+# table became ``2006-<minus>2015``: a hyphen followed by a math minus where the
+# manuscript wrote a date range.
+_NUMERIC_CELL_TOKEN = re.compile(
+    r"(?<![0-9A-Za-z-])[-+]?[0-9][0-9.,]*(?:[eE][-+]?[0-9]+)?(?![0-9A-Za-z])"
+)
+
+
+def _protect_numeric_signs(content: str) -> str:
+    """Make the sign and exponent hyphens of numeric cells unbreakable.
+
+    ``\\ensuremath{-}`` is also the correct glyph: a minus sign is not a hyphen,
+    and the metric tables were setting it as one.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        return match.group(0).replace("-", r"\ensuremath{-}")
+
+    return _NUMERIC_CELL_TOKEN.sub(replace, content)
+
+
+def _cell_text(cell: str) -> str:
+    """Printed text of one cell, with LaTeX markup resolved to its glyphs."""
+    text = cell.replace(r"\ensuremath{-}", _MATH_MINUS)
+    text = _SINGLE_GLYPH_MARKUP.sub("x", text)
+    return _ZERO_WIDTH_MARKUP.sub("", text).strip()
+
+
+def _cell_points(cell: str) -> float:
+    """Set width of one cell."""
+    return _text_points(_cell_text(cell))
+
+
+def _cell_token_points(cell: str) -> float:
+    """Set width of the widest unbreakable run in one cell.
+
+    A wrapped column can never be narrower than its longest token, so this is
+    the floor on what promoting a column to ``X`` can recover.  Spaces, slashes
+    and hyphens before a letter are break opportunities; a hyphen before a digit
+    is a minus sign that ``_protect_numeric_signs`` has already made
+    unbreakable.  ``DampedPersistence`` offers none at all, which is why it needs
+    78.76pt of column no matter how the table is fitted.
+    """
+    tokens = re.split(r"[\s/]+|-(?=[A-Za-z])", _cell_text(cell))
+    return max((_text_points(token) for token in tokens), default=0.0)
+
+
+def _column_content_widths(
+    columns: str, content: str
+) -> tuple[list[float], list[float]]:
+    """Widest cell and widest unbreakable token per column, in points.
+
+    Header and data rows both count.  The header row is frequently the widest --
+    ``RMSE 1`` sets 34.43pt against 21.07pt for ``0.813`` -- and skipping it,
+    which an earlier ``startswith("\\\\")`` guard did because the row opens with
+    an escaped ``\\#``, is what let the formal-comparison table promote only one
+    column and overprint its neighbour.
+    """
+    widths = [0.0] * len(columns)
+    tokens = [0.0] * len(columns)
     for line in content.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("\\"):
+        if not stripped.endswith(r"\\"):
             continue
         cells = _UNESCAPED_AMPERSAND.split(stripped.removesuffix(r"\\"))
         if len(cells) != len(columns):
             continue
         for index, cell in enumerate(cells):
-            widths[index] = max(widths[index], len(cell.strip()))
-    return widths
+            widths[index] = max(widths[index], _cell_points(cell))
+            tokens[index] = max(tokens[index], _cell_token_points(cell))
+    return widths, tokens
 
 
-def _bounded_column_spec(columns: str, content: str) -> str:
+def _wrapping_column_indices(
+    widths: list[float], tokens: list[float], budget: float
+) -> list[int]:
+    """Choose the columns to promote to wrapping ``X`` columns.
+
+    Any column wide enough to need wrapping on its own is promoted.  Then the
+    widest remaining columns are promoted, one at a time, until the table's
+    demand fits ``budget`` -- an unpromoted column costs its widest cell, a
+    promoted one costs only its longest unbreakable token, because the rest
+    wraps.  A table of ten short numeric headers overruns the text block even
+    though no single column is wide, so promoting only the last column (the
+    previous rule) could neither recover that width nor stop a genuinely wide
+    text column from being starved.  tabularx requires at least one ``X``.
+    """
+    order = sorted(range(len(widths)), key=lambda i: widths[i], reverse=True)
+    chosen = {
+        index
+        for index, width in enumerate(widths)
+        if width >= WRAPPING_COLUMN_POINTS
+    }
+
+    def demand() -> float:
+        return sum(
+            tokens[i] if i in chosen else widths[i] for i in range(len(widths))
+        )
+
+    for index in order:
+        if demand() <= budget:
+            break
+        chosen.add(index)
+    if not chosen:
+        chosen = {order[0]}
+    return sorted(chosen)
+
+
+def _table_layout(
+    widths: list[float], tokens: list[float]
+) -> tuple[list[int], float]:
+    """Widest column separation the table can afford, and what wraps under it.
+
+    Padding is charged per column, so a ten-column table spends 60pt of the
+    373pt text block on separation alone at the 3pt default.  Rather than fix
+    that and let the content overflow, the generator tries each separation from
+    widest to narrowest and takes the first under which the table's irreducible
+    demand -- every column wrapped, each still needing its longest token -- fits.
+    """
+    count = len(widths)
+    for separation in TABLE_COLUMN_SEPARATIONS:
+        budget = (TABLE_WIDTH_POINTS - 2 * separation * count) * TABLE_WIDTH_SAFETY
+        if sum(tokens) <= budget:
+            return _wrapping_column_indices(widths, tokens, budget), separation
+    separation = TABLE_COLUMN_SEPARATIONS[-1]
+    budget = (TABLE_WIDTH_POINTS - 2 * separation * count) * TABLE_WIDTH_SAFETY
+    return _wrapping_column_indices(widths, tokens, budget), separation
+
+
+def _x_column_weights(
+    widths: list[float],
+    tokens: list[float],
+    indices: list[int],
+    separation: float,
+) -> list[float]:
+    """``\\hsize`` factors summing to ``len(indices)``, as tabularx requires.
+
+    Each wrapped column is first guaranteed its longest unbreakable token, since
+    below that width its content overprints the next column whatever the table
+    does; the space left over is then shared in proportion to how much each
+    column would still like.  Dividing the leftover equally instead -- the
+    previous behaviour -- gave a 29pt p-value column the same width as a 153pt
+    comparison column.
+    """
+    count = len(indices)
+    chosen = set(indices)
+    fixed = sum(w for i, w in enumerate(widths) if i not in chosen)
+    budget = (
+        TABLE_WIDTH_POINTS - 2 * separation * len(widths)
+    ) * TABLE_WIDTH_SAFETY
+    base = [max(tokens[index], 1.0) for index in indices]
+    want = [max(widths[index] - tokens[index], 0.0) for index in indices]
+    spare = budget - fixed - sum(base)
+    if spare > 0 and sum(want) > 0:
+        alloc = [b + spare * w / sum(want) for b, w in zip(base, want)]
+    else:
+        alloc = list(base)
+    weights = [max(MIN_X_WEIGHT, count * value / sum(alloc)) for value in alloc]
+    scale = count / sum(weights)
+    weights = [weight * scale for weight in weights]
+    # tabularx solves the column widths from the assumption that the factors sum
+    # to the number of ``X`` columns, and the emitted factors are rounded to four
+    # places.  Round here instead of at format time and give the residual to the
+    # last column, so what tabularx reads sums exactly rather than to 6.0001.
+    rounded = [round(weight, 4) for weight in weights[:-1]]
+    rounded.append(round(count - sum(rounded), 4))
+    return rounded
+
+
+def _bounded_column_spec(columns: str, content: str) -> tuple[str, float]:
     """Bound a Pandoc ``lcr`` spec, wrapping every column that needs to wrap.
 
-    The last column is always bounded, which is what the 2019-era conversion did
-    and what tabularx requires (at least one ``X``).  Any other column whose
-    content is wide is bounded as well; leaving them natural-width is what let
-    the formal-comparison table run 155pt past the margin.
+    Leaving wide columns at natural width is what let the formal-comparison
+    table run 155pt past the margin; giving every wrapped column an equal share
+    of the leftover space is what then made its comparison column overprint the
+    lead column.  Both are fixed here: which columns wrap and how tightly the
+    table is set come from ``_table_layout``, and how the wrapped columns divide
+    the leftover comes from ``_x_column_weights``.
     """
-    widths = _column_content_widths(columns, content)
-    last = len(columns) - 1
-    return "".join(
-        _X_COLUMNS[letter]
-        if index == last or widths[index] >= WRAPPING_COLUMN_CHARACTERS
-        else letter
+    widths, tokens = _column_content_widths(columns, content)
+    indices, separation = _table_layout(widths, tokens)
+    weights = dict(
+        zip(indices, _x_column_weights(widths, tokens, indices, separation))
+    )
+    spec = "".join(
+        _x_column(letter, weights[index]) if index in weights else letter
         for index, letter in enumerate(columns)
     )
+    return spec, separation
 
 
 def _fit_longtables(latex: str) -> str:
@@ -434,15 +675,15 @@ def _fit_longtables(latex: str) -> str:
         columns = match.group(1)
         if not columns:
             raise ValueError("Pandoc longtable has no columns")
-        bounded_columns = _bounded_column_spec(columns, match.group(2))
-        content = match.group(2)
+        content = _protect_numeric_signs(match.group(2))
+        bounded_columns, separation = _bounded_column_spec(columns, content)
         content = content.replace("\\endhead\n", "")
         content = content.replace(
             "\\bottomrule\\noalign{}\n\\endlastfoot\n", ""
         ).rstrip()
         return (
             "{\\small\n"
-            "\\setlength{\\tabcolsep}{3pt}\n"
+            f"\\setlength{{\\tabcolsep}}{{{separation:g}pt}}\n"
             "\\renewcommand{\\arraystretch}{1.12}\n"
             "\\noindent\n"
             "\\begin{tabularx}{\\dimexpr\\linewidth-24pt\\relax}"

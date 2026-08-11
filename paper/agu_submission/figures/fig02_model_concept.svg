@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="396pt" height="198.6pt" viewBox="0 0 396 198.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-08-10T22:13:51.060926</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 198.6 
+L 396 198.6 
+L 396 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 3 158.6 
+L 103 158.6 
+Q 106 158.6 106 155.6 
+L 106 25 
+Q 106 22 103 22 
+L 3 22 
+Q 0 22 0 25 
+L 0 155.6 
+Q 0 158.6 3 158.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 115 158.6 
+L 283 158.6 
+Q 286 158.6 286 155.6 
+L 286 25 
+Q 286 22 283 22 
+L 115 22 
+Q 112 22 112 25 
+L 112 155.6 
+Q 112 158.6 115 158.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 295 158.6 
+L 393 158.6 
+Q 396 158.6 396 155.6 
+L 396 25 
+Q 396 22 393 22 
+L 295 22 
+Q 292 22 292 25 
+L 292 155.6 
+Q 292 158.6 295 158.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 3 198.6 
+L 393 198.6 
+Q 396 198.6 396 195.6 
+L 396 167.6 
+Q 396 164.6 393 164.6 
+L 3 164.6 
+Q 0 164.6 0 167.6 
+L 0 195.6 
+Q 0 198.6 3 198.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 7.5 74.2 
+L 98.5 74.2 
+Q 101 74.2 101 71.7 
+L 101 39.5 
+Q 101 37 98.5 37 
+L 7.5 37 
+Q 5 37 5 39.5 
+L 5 71.7 
+Q 5 74.2 7.5 74.2 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #3f4a57; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 7.5 116.4 
+L 98.5 116.4 
+Q 101 116.4 101 113.9 
+L 101 81.7 
+Q 101 79.2 98.5 79.2 
+L 7.5 79.2 
+Q 5 79.2 5 81.7 
+L 5 113.9 
+Q 5 116.4 7.5 116.4 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #3f4a57; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 7.5 158.6 
+L 98.5 158.6 
+Q 101 158.6 101 156.1 
+L 101 123.9 
+Q 101 121.4 98.5 121.4 
+L 7.5 121.4 
+Q 5 121.4 5 123.9 
+L 5 156.1 
+Q 5 158.6 7.5 158.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke-dasharray: 2,1.28; stroke-dashoffset: 0; stroke: #cc79a7; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 119.5 68 
+L 278.5 68 
+Q 281 68 281 65.5 
+L 281 39.5 
+Q 281 37 278.5 37 
+L 119.5 37 
+Q 117 37 117 39.5 
+L 117 65.5 
+Q 117 68 119.5 68 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 119.5 110.2 
+L 180.5 110.2 
+Q 183 110.2 183 107.7 
+L 183 75.5 
+Q 183 73 180.5 73 
+L 119.5 73 
+Q 117 73 117 75.5 
+L 117 107.7 
+Q 117 110.2 119.5 110.2 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 190.5 110.2 
+L 278.5 110.2 
+Q 281 110.2 281 107.7 
+L 281 75.5 
+Q 281 73 278.5 73 
+L 190.5 73 
+Q 188 73 188 75.5 
+L 188 107.7 
+Q 188 110.2 190.5 110.2 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 299.5 65.6 
+L 388.5 65.6 
+Q 391 65.6 391 63.1 
+L 391 39.5 
+Q 391 37 388.5 37 
+L 299.5 37 
+Q 297 37 297 39.5 
+L 297 63.1 
+Q 297 65.6 299.5 65.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 7.5 193.6 
+L 93.75 193.6 
+Q 96.25 193.6 96.25 191.1 
+L 96.25 181.1 
+Q 96.25 178.6 93.75 178.6 
+L 7.5 178.6 
+Q 5 178.6 5 181.1 
+L 5 191.1 
+Q 5 193.6 7.5 193.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #1a1a1a; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 105.75 193.6 
+L 192 193.6 
+Q 194.5 193.6 194.5 191.1 
+L 194.5 181.1 
+Q 194.5 178.6 192 178.6 
+L 105.75 178.6 
+Q 103.25 178.6 103.25 181.1 
+L 103.25 191.1 
+Q 103.25 193.6 105.75 193.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #1a1a1a; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 204 193.6 
+L 290.25 193.6 
+Q 292.75 193.6 292.75 191.1 
+L 292.75 181.1 
+Q 292.75 178.6 290.25 178.6 
+L 204 178.6 
+Q 201.5 178.6 201.5 181.1 
+L 201.5 191.1 
+Q 201.5 193.6 204 193.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #1a1a1a; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 302.25 193.6 
+L 388.5 193.6 
+Q 391 193.6 391 191.1 
+L 391 181.1 
+Q 391 178.6 388.5 178.6 
+L 302.25 178.6 
+Q 299.75 178.6 299.75 181.1 
+L 299.75 191.1 
+Q 299.75 193.6 302.25 193.6 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #ffffff; stroke: #1a1a1a; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="fill: #1a1a1a; font: 700 9px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="0" y="10.299922" transform="rotate(-0 0 10.299922)">Common anchor–residual formulation under matched information</text>
+   </g>
+   <g id="patch_17">
+    <path d="M 103.406512 55.070039 
+Q 108.799916 53.137664 113.503025 52.705149 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #3f4a57; stroke-width: 0.9; stroke-linecap: round"/>
+    <path d="M 111.003218 51.729977 
+L 113.503025 52.705149 
+L 111.223003 54.119892 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #3f4a57; stroke: #3f4a57; stroke-width: 0.9; stroke-linecap: round"/>
+   </g>
+   <g id="patch_18">
+    <path d="M 103.320989 97.089933 
+Q 109.951244 93.388372 114.346474 88.481754 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #3f4a57; stroke-width: 0.9; stroke-linecap: round"/>
+    <path d="M 111.851307 89.468741 
+L 114.346474 88.481754 
+L 113.638963 91.07008 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #3f4a57; stroke: #3f4a57; stroke-width: 0.9; stroke-linecap: round"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 102.771678 138.71353 
+Q 113.884495 119.876522 115.782758 99.098665 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke-dasharray: 2.25,1.44; stroke-dashoffset: 0; stroke: #cc79a7; stroke-width: 0.9; stroke-linecap: round"/>
+    <path d="M 114.36938 101.379534 
+L 115.782758 99.098665 
+L 116.759426 101.597889 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #cc79a7; stroke-dasharray: 2.25,1.44; stroke-dashoffset: 0; stroke: #cc79a7; stroke-width: 0.9; stroke-linecap: round"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 283.298355 51.748334 
+Q 288.694983 48.706827 293.619248 47.072133 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #e69f00; stroke-width: 0.9; stroke-linecap: round"/>
+    <path d="M 290.963404 46.689392 
+L 293.619248 47.072133 
+L 291.719549 48.967164 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #e69f00; stroke: #e69f00; stroke-width: 0.9; stroke-linecap: round"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 282.756537 90.309233 
+Q 291.611418 74.988265 295.434592 58.742611 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
+    <path d="M 293.716717 60.803898 
+L 295.434592 58.742611 
+L 296.052897 61.353684 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #d55e00; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
+   </g>
+   <g id="text_2">
+    <text style="fill: #1a1a1a; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="5" y="175.644375" transform="rotate(-0 5 175.644375)">(d) Evaluation</text>
+   </g>
+   <g id="patch_22">
+    <path d="M 98.24707 186.1 
+Q 99.74878 186.1 100.356062 186.1 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #6e6e6e; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 97.956062 184.9 
+L 100.356062 186.1 
+L 97.956062 187.3 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #6e6e6e; stroke: #6e6e6e; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="patch_23">
+    <path d="M 196.49707 186.1 
+Q 197.99878 186.1 198.606062 186.1 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #6e6e6e; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 196.206062 184.9 
+L 198.606062 186.1 
+L 196.206062 187.3 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #6e6e6e; stroke: #6e6e6e; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="patch_24">
+    <path d="M 294.74707 186.1 
+Q 296.24878 186.1 296.856062 186.1 
+" clip-path="url(#pd7d22c8e39)" style="fill: none; stroke: #6e6e6e; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 294.456062 184.9 
+L 296.856062 186.1 
+L 294.456062 187.3 
+z
+" clip-path="url(#pd7d22c8e39)" style="fill: #6e6e6e; stroke: #6e6e6e; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_3">
+    <text style="fill: #1a1a1a; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="6" y="33.044375" transform="rotate(-0 6 33.044375)">(a) Information inputs</text>
+   </g>
+   <g id="text_4">
+    <text style="fill: #1a1a1a; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="118" y="33.044375" transform="rotate(-0 118 33.044375)">(b) Prediction decomposition</text>
+   </g>
+   <g id="text_5">
+    <text style="fill: #1a1a1a; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="298" y="33.044375" transform="rotate(-0 298 33.044375)">(c) Forecast</text>
+   </g>
+   <g id="text_6">
+    <text style="fill: #3f4a57; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="47.666602" transform="rotate(-0 9.5 47.666602)">Local thermal state</text>
+   </g>
+   <g id="text_7">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 57.686563)">WTEMP history, FLOW,</text>
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 65.489572)">observedness masks</text>
+   </g>
+   <g id="text_8">
+    <text style="fill: #3f4a57; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="89.8625" transform="rotate(-0 9.5 89.8625)">Meteorological history</text>
+   </g>
+   <g id="text_9">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 99.803438)">TEMP, PRCP, RHMEAN,</text>
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 107.606447)">radiation, wind</text>
+   </g>
+   <g id="text_10">
+    <text style="fill: #cc79a7; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="132.066602" transform="rotate(-0 9.5 132.066602)">Future forcing (optional)</text>
+   </g>
+   <g id="text_11">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 142.003438)">F0 absent</text>
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 149.806447)">F3 realized oracle</text>
+   </g>
+   <g id="text_12">
+    <text style="fill: #e69f00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="121.5" y="47.666602" transform="rotate(-0 121.5 47.666602)">Damped-persistence anchor</text>
+   </g>
+   <g id="text_13">
+    <!-- $A = c + \varphi^{\,h}\,(y - c)$ -->
+    <g style="fill: #6e6e6e" transform="translate(121.5 60.24)">
+     <text>
+      <tspan style="font: italic 9px 'Nimbus Sans'" x="0 14.257785 27.012579 42.185215 54.940009" y="-0.1254375000000003">Acφyc</tspan>
+      <tspan style="font: 9px 'Nimbus Sans'" x="7.50239 20.257184 39.188221 48.184614 59.440009" y="-0.1254375000000003">=+(−)</tspan>
+      <tspan style="font: italic 6.3px 'Nimbus Sans'" x="34.214836" y="-3.2203125000000004">h</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_14">
+    <text style="fill: #0072b2; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="121.5" y="83.666602" transform="rotate(-0 121.5 83.666602)">Raw target</text>
+   </g>
+   <g id="text_15">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="121.5" y="93.686563" transform="rotate(-0 121.5 93.686563)">LightGBM</text>
+   </g>
+   <g id="text_16">
+    <text style="fill: #d55e00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="192.5" y="83.666602" transform="rotate(-0 192.5 83.666602)">Anchor residual</text>
+   </g>
+   <g id="text_17">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(192.5 93.686563)">ResidualLightGBM, plain</text>
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(192.5 101.489572)">causal TCN, ThermoRoute</text>
+   </g>
+   <g id="text_18">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(117 121.674543)">Identical keys, identical anchor;</text>
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(117 129.503113)">only the regression target differs.</text>
+   </g>
+   <g id="text_19">
+    <text style="fill: #00706c; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="344" y="47.666602" transform="rotate(-0 344 47.666602)">Point forecast</text>
+   </g>
+   <g id="text_20">
+    <!-- $ŷ = A + r$ -->
+    <g style="fill: #6e6e6e" transform="translate(332.31 57.75)">
+     <text>
+      <tspan style="font: italic 7px 'Nimbus Sans'" x="0 9.920395 21.009781" y="-0.484375">ŷAr</tspan>
+      <tspan style="font: 7px 'Nimbus Sans'" x="4.666199 15.755585" y="-0.484375">=+</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_21">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(297 76.990078)">Raw-target models</text>
+    <!-- predict $ŷ$ directly. -->
+    <g style="fill: #6e6e6e" transform="translate(297 84.973359)">
+     <text>
+      <tspan style="font: 7px 'Nimbus Sans'" x="0 3.891998 6.222992 10.11499 14.006989 15.560974 19.060974 21.006973 26.452972 28.398972 32.29097 33.844955 36.175949 40.067947 43.567947 45.513947 47.067932 50.567932" y="-0.484375">predict  directly.</tspan>
+      <tspan style="font: italic 7px 'Nimbus Sans'" x="22.952972" y="-0.484375">ŷ</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_22">
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(297 99.588573)">ThermoRoute bounds</text>
+    <!-- $|r| &lt; 1$ °C relative to -->
+    <g style="fill: #6e6e6e" transform="translate(297 107.571855)">
+     <text>
+      <tspan style="font: 7px 'Nimbus Sans'" x="0 4.150986 7.137177 12.391373 16.283371 18.22937 21.029358 26.083344 28.029343 30.360336 34.252335 35.80632 39.698318 41.644318 43.198303 46.698303 50.590302 52.536301 54.4823" y="-0.484375">||&lt;1 °C relative to</tspan>
+      <tspan style="font: italic 7px 'Nimbus Sans'" x="1.819992" y="-0.484375">r</tspan>
+     </text>
+    </g>
+    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(297 115.389083)">the anchor only.</text>
+   </g>
+   <g id="text_23">
+    <text style="fill: #1a1a1a; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="50.625" y="187.885" transform="rotate(-0 50.625 187.885)">Identical keys</text>
+   </g>
+   <g id="text_24">
+    <text style="fill: #1a1a1a; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="148.875" y="187.888828" transform="rotate(-0 148.875 187.888828)">RMSE within station</text>
+   </g>
+   <g id="text_25">
+    <text style="fill: #1a1a1a; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="247.125" y="187.888828" transform="rotate(-0 247.125 187.888828)">Paired station contrast</text>
+   </g>
+   <g id="text_26">
+    <text style="fill: #1a1a1a; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle" x="345.375" y="187.888828" transform="rotate(-0 345.375 187.888828)">Median across stations</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pd7d22c8e39">
+   <rect x="0" y="0" width="396" height="198.6"/>
+  </clipPath>
+ </defs>
+</svg>

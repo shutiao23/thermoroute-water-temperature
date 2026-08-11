@@ -351,6 +351,25 @@ contribution: Section 4.3 shows an information-matched plain causal network
 reproduces it to within 0.023 °C, and Section 4.4 quantifies what the
 information set, not the architecture, is worth.
 
+![Common anchor–residual formulation under matched
+information.](figures/fig02_model_concept.pdf)
+
+**Figure 2. The formulation every compared model shares.** (a) Issue-time
+information: local thermal state, meteorological history, and — only in the
+forcing-regime arm of Section 4.7 — future meteorology (F0 absent, F3 the
+realized oracle). (b) The damped-persistence anchor of equation (1), written
+without station and lead indices for legibility, and the two regression
+targets fitted against it. LightGBM, the most accurate model at 1 and 3 days,
+is a *raw-target* model with site identity; ResidualLightGBM, the plain causal
+TCN, and ThermoRoute predict a residual around the same anchor. Anchor, keys,
+and information set are identical across both; only the target differs.
+(c) The point forecast, and the ±1 °C bound that ThermoRoute alone imposes on
+its residual — a bound on deviation from the anchor, not on error. (d) The
+evaluation contract of Section 3.6: one common key registry, RMSE within each
+station, paired station-level contrast, unweighted median across stations. The
+full ThermoRoute dataflow is Figure S3; this figure is structural and carries
+no evidence from either period.
+
 ### 3.2 The reference set
 
 The composition of the reference set is the most consequential methodological
@@ -658,7 +677,7 @@ also determines which model wins.
 
 ![Decomposition of reported skill on the held-out window.](figures/fig03_skill_decomposition.pdf)
 
-**Figure 2. Decomposition of reported skill on the held-out 2021–2023 window
+**Figure 3. Decomposition of reported skill on the held-out 2021–2023 window
 (116 reportable stations, common forecast-key registry).** (a) Station-median
 RMSE at 1-, 3-, and 7-day leads for persistence, damped persistence, LightGBM,
 LSTM, and ThermoRoute; lower is better. (b) Seven-day error-budget
@@ -898,7 +917,7 @@ into the Discussion or the Conclusions.
 ![Spatial transfer under matched random-site and whole-region
 holdouts.](figures/fig05_spatial_transfer.pdf)
 
-**Figure 3. Spatial transfer under matched random-site and whole-region
+**Figure 4. Spatial transfer under matched random-site and whole-region
 holdouts on the independent 2021–2023 window.** (a) The four whole-HUC2-region
 folds on a CONUS outline. (b) Station-median RMSE for the four factorial cells
 (geometry × adaptation) at 1-, 3-, and 7-day leads (station-agnostic LightGBM,
@@ -922,7 +941,7 @@ damped-persistence anchor, $t_{1/2} = \ln(0.5)/\ln(\phi_i)$ — an anomaly
 half-life, not an e-folding time — with a station median of 6.9 days
 (interquartile range 5.0–11.9). The station-level memory/learned decomposition
 of the error budget is consistent with it: at seven days the median memory gain
-is 0.49 °C and the median learned gain 0.07 °C (Figure 2b). Whole-HUC2 cluster
+is 0.49 °C and the median learned gain 0.07 °C (Figure 3b). Whole-HUC2 cluster
 bootstrap intervals separate the two without overlap — [0.386, 0.570] °C for
 the memory gain against [0.057, 0.086] °C for the learned gain — and the
 leave-one-HUC2-out ranges ([0.477, 0.531] and [0.066, 0.074] °C) do not
@@ -1005,7 +1024,7 @@ Points.
 
 ![Hydrologic conditions governing incremental skill.](figures/fig06_hydrologic_mechanism.pdf)
 
-**Figure 4. Hydrologic conditions governing incremental skill (held-out
+**Figure 5. Hydrologic conditions governing incremental skill (held-out
 2021–2023).** (a) Distribution of the station anomaly half-life from the
 official train-fitted damped-persistence anchor (median 6.9 d; an anomaly
 half-life, not an e-folding time). (b) One-day learned gain over damped
@@ -1574,8 +1593,8 @@ S9 is a development-period conformal-calibration sensitivity, labeled as such in
 the figure itself, which must not be compared numerically with any held-out-window
 figure.
 
-Each figure carries evidence from exactly one period. Figure 1 and Figures
-S1–S3 are structural material; Figures 2–4 and Figures S4–S8 and S10 are
+Each figure carries evidence from exactly one period. Figures 1 and 2 and Figures
+S1–S3 are structural material; Figures 3–5 and Figures S4–S8 and S10 are
 held-out-window; Figure S9 is a development-period conformal-calibration
 sensitivity. Each figure states its period inside the figure, and no value from
 one period is compared numerically with a value from another.

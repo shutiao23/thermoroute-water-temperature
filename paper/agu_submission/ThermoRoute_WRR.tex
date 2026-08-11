@@ -344,7 +344,7 @@ same partition.
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrr>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrr>{\hsize=1.0000\hsize\raggedright\arraybackslash}X@{}}
 \toprule\noalign{}
 Role & Dates & Rows & Observed \texttt{WTEMP} & Permitted use \\
 \midrule\noalign{}
@@ -459,6 +459,26 @@ protocol are in Text S3. The architecture is the object under test, not the
 contribution: Section 4.3 shows an information-matched plain causal network
 reproduces it to within 0.023 °C, and Section 4.4 quantifies what the
 information set, not the architecture, is worth.
+
+\begin{figure}[!t]
+\centering
+\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Common anchor--residual formulation under matched information.}]{figures/fig02_model_concept.pdf}}
+\caption{\textbf{The formulation every compared model shares.} (a) Issue-time
+information: local thermal state, meteorological history, and --- only in the
+forcing-regime arm of Section 4.7 --- future meteorology (F0 absent, F3 the
+realized oracle). (b) The damped-persistence anchor of equation (1), written
+without station and lead indices for legibility, and the two regression
+targets fitted against it. LightGBM, the most accurate model at 1 and 3 days,
+is a \emph{raw-target} model with site identity; ResidualLightGBM, the plain causal
+TCN, and ThermoRoute predict a residual around the same anchor. Anchor, keys,
+and information set are identical across both; only the target differs.
+(c) The point forecast, and the ±1 °C bound that ThermoRoute alone imposes on
+its residual --- a bound on deviation from the anchor, not on error. (d) The
+evaluation contract of Section 3.6: one common key registry, RMSE within each
+station, paired station-level contrast, unweighted median across stations. The
+full ThermoRoute dataflow is Figure S3; this figure is structural and carries
+no evidence from either period.}
+\end{figure}
 
 \subsection{The reference set}\label{the-reference-set}
 
@@ -649,7 +669,7 @@ The comparison set contains five head-to-head rows:
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}l>{\raggedright\arraybackslash}Xr>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}l>{\hsize=1.0000\hsize\raggedright\arraybackslash}Xrl@{}}
 \toprule\noalign{}
 \# & Comparison & Lead & Reference margin \\
 \midrule\noalign{}
@@ -720,7 +740,7 @@ identical keys, the same fixed model reports a seven-day median station skill of
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}rrrrr>{\raggedleft\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}rr>{\hsize=1.0000\hsize\raggedleft\arraybackslash}Xrrr@{}}
 \toprule\noalign{}
 Lead & Persistence & Damped persistence & LightGBM & LSTM & ThermoRoute \\
 \midrule\noalign{}
@@ -887,18 +907,18 @@ p-value and Holm p is its Holm adjustment over the five formal tests (Section
 \texttt{scripts/\allowbreak{}final/\allowbreak{}generate\_\allowbreak{}manuscript\_\allowbreak{}tables.py} from \texttt{outputs/\allowbreak{}final/\allowbreak{}}.
 
 {\small
-\setlength{\tabcolsep}{3pt}
+\setlength{\tabcolsep}{1.5pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}r>{\raggedright\arraybackslash}Xlrrrrrr>{\raggedleft\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}r>{\hsize=1.9577\hsize\raggedright\arraybackslash}Xl>{\hsize=0.8525\hsize\raggedleft\arraybackslash}Xrr>{\hsize=0.4485\hsize\raggedleft\arraybackslash}X>{\hsize=0.9199\hsize\raggedleft\arraybackslash}X>{\hsize=0.8214\hsize\raggedleft\arraybackslash}Xr@{}}
 \toprule\noalign{}
 \# & Comparison & Lead & ΔRMSE (°C) & CI low & CI high & Win rate & Stations & p (sign flip) & Holm p \\
 \midrule\noalign{}
-1 & ThermoRoute vs. DampedPersistence & 1 d & -0.129 & -0.199 & -0.076 & 0.90 & 116 & 3.1e-05 & 1.5e-04 \\
-2 & ThermoRoute vs. DampedPersistence & 3 d & -0.108 & -0.143 & -0.073 & 0.91 & 116 & 3.1e-05 & 1.5e-04 \\
-3 & ThermoRoute vs. DampedPersistence & 7 d & -0.069 & -0.086 & -0.057 & 0.95 & 116 & 6.1e-05 & 1.8e-04 \\
+1 & ThermoRoute vs. DampedPersistence & 1 d & \ensuremath{-}0.129 & \ensuremath{-}0.199 & \ensuremath{-}0.076 & 0.90 & 116 & 3.1e\ensuremath{-}05 & 1.5e\ensuremath{-}04 \\
+2 & ThermoRoute vs. DampedPersistence & 3 d & \ensuremath{-}0.108 & \ensuremath{-}0.143 & \ensuremath{-}0.073 & 0.91 & 116 & 3.1e\ensuremath{-}05 & 1.5e\ensuremath{-}04 \\
+3 & ThermoRoute vs. DampedPersistence & 7 d & \ensuremath{-}0.069 & \ensuremath{-}0.086 & \ensuremath{-}0.057 & 0.95 & 116 & 6.1e\ensuremath{-}05 & 1.8e\ensuremath{-}04 \\
 4 & ThermoRoute vs. LightGBM & 3 d & 0.015 & 0.010 & 0.025 & 0.24 & 116 & 1.0e+00 & 1.0e+00 \\
-5 & ThermoRoute vs. LightGBM & 7 d & -0.009 & -0.017 & 0.002 & 0.59 & 116 & 7.4e-02 & 1.5e-01 \\
+5 & ThermoRoute vs. LightGBM & 7 d & \ensuremath{-}0.009 & \ensuremath{-}0.017 & 0.002 & 0.59 & 116 & 7.4e\ensuremath{-}02 & 1.5e\ensuremath{-}01 \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -916,22 +936,22 @@ generated by \texttt{scripts/\allowbreak{}final/\allowbreak{}generate\_\allowbre
 \texttt{outputs/\allowbreak{}final/\allowbreak{}}.
 
 {\small
-\setlength{\tabcolsep}{3pt}
+\setlength{\tabcolsep}{1.5pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrrrrr>{\raggedleft\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=2.8662\hsize\raggedright\arraybackslash}X>{\hsize=0.8371\hsize\raggedleft\arraybackslash}X>{\hsize=0.8371\hsize\raggedleft\arraybackslash}X>{\hsize=0.8371\hsize\raggedleft\arraybackslash}X>{\hsize=0.6642\hsize\raggedleft\arraybackslash}X>{\hsize=0.6642\hsize\raggedleft\arraybackslash}X>{\hsize=0.6642\hsize\raggedleft\arraybackslash}X>{\hsize=0.8766\hsize\raggedleft\arraybackslash}X>{\hsize=0.8766\hsize\raggedleft\arraybackslash}X>{\hsize=0.8767\hsize\raggedleft\arraybackslash}X@{}}
 \toprule\noalign{}
 Model & RMSE 1 & RMSE 3 & RMSE 7 & MAE 1 & MAE 3 & MAE 7 & bias 1 & bias 3 & bias 7 \\
 \midrule\noalign{}
-Persistence & 0.813 & 1.638 & 2.202 & 0.597 & 1.235 & 1.686 & -0.000 & -0.001 & -0.004 \\
-DampedPersistence & 0.789 & 1.454 & 1.773 & 0.591 & 1.100 & 1.340 & -0.029 & -0.076 & -0.143 \\
-Climatology & 1.899 & 1.902 & 1.903 & 1.485 & 1.486 & 1.485 & -0.379 & -0.369 & -0.359 \\
-LightGBM & 0.589 & 1.304 & 1.735 & 0.431 & 0.995 & 1.315 & -0.025 & -0.098 & -0.196 \\
-LSTM & 0.663 & 1.358 & 1.712 & 0.503 & 1.044 & 1.292 & -0.001 & -0.051 & -0.137 \\
-PlainMLP-7var & 0.690 & 1.374 & 1.720 & 0.520 & 1.054 & 1.311 & -0.004 & -0.059 & -0.128 \\
-PlainCausalTCN-7var & 0.646 & 1.330 & 1.710 & 0.477 & 1.021 & 1.299 & 0.000 & -0.031 & -0.122 \\
-Air2stream & 0.719 & 1.459 & 1.825 & 0.559 & 1.115 & 1.366 & -0.020 & -0.110 & -0.189 \\
-ThermoRoute & 0.640 & 1.337 & 1.694 & 0.463 & 1.013 & 1.269 & 0.011 & -0.029 & -0.130 \\
+Persistence & 0.813 & 1.638 & 2.202 & 0.597 & 1.235 & 1.686 & \ensuremath{-}0.000 & \ensuremath{-}0.001 & \ensuremath{-}0.004 \\
+DampedPersistence & 0.789 & 1.454 & 1.773 & 0.591 & 1.100 & 1.340 & \ensuremath{-}0.029 & \ensuremath{-}0.076 & \ensuremath{-}0.143 \\
+Climatology & 1.899 & 1.902 & 1.903 & 1.485 & 1.486 & 1.485 & \ensuremath{-}0.379 & \ensuremath{-}0.369 & \ensuremath{-}0.359 \\
+LightGBM & 0.589 & 1.304 & 1.735 & 0.431 & 0.995 & 1.315 & \ensuremath{-}0.025 & \ensuremath{-}0.098 & \ensuremath{-}0.196 \\
+LSTM & 0.663 & 1.358 & 1.712 & 0.503 & 1.044 & 1.292 & \ensuremath{-}0.001 & \ensuremath{-}0.051 & \ensuremath{-}0.137 \\
+PlainMLP-7var & 0.690 & 1.374 & 1.720 & 0.520 & 1.054 & 1.311 & \ensuremath{-}0.004 & \ensuremath{-}0.059 & \ensuremath{-}0.128 \\
+PlainCausalTCN-7var & 0.646 & 1.330 & 1.710 & 0.477 & 1.021 & 1.299 & 0.000 & \ensuremath{-}0.031 & \ensuremath{-}0.122 \\
+Air2stream & 0.719 & 1.459 & 1.825 & 0.559 & 1.115 & 1.366 & \ensuremath{-}0.020 & \ensuremath{-}0.110 & \ensuremath{-}0.189 \\
+ThermoRoute & 0.640 & 1.337 & 1.694 & 0.463 & 1.013 & 1.269 & 0.011 & \ensuremath{-}0.029 & \ensuremath{-}0.130 \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -1052,7 +1072,7 @@ damped-persistence anchor, \(t_{1/2} = \ln(0.5)/\ln(\phi_i)\) --- an anomaly
 half-life, not an e-folding time --- with a station median of 6.9 days
 (interquartile range 5.0--11.9). The station-level memory/learned decomposition
 of the error budget is consistent with it: at seven days the median memory gain
-is 0.49 °C and the median learned gain 0.07 °C (Figure 2b). Whole-HUC2 cluster
+is 0.49 °C and the median learned gain 0.07 °C (Figure 3b). Whole-HUC2 cluster
 bootstrap intervals separate the two without overlap --- {[}0.386, 0.570{]} °C for
 the memory gain against {[}0.057, 0.086{]} °C for the learned gain --- and the
 leave-one-HUC2-out ranges ({[}0.477, 0.531{]} and {[}0.066, 0.074{]} °C) do not
@@ -1104,27 +1124,27 @@ diagnostics with station-specific signed thresholds. Rows are generated by
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\raggedright\arraybackslash}X>{\raggedleft\arraybackslash}Xr>{\raggedleft\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=0.9031\hsize\raggedright\arraybackslash}X>{\hsize=1.0969\hsize\raggedleft\arraybackslash}Xrr@{}}
 \toprule\noalign{}
 State (7-day keys) & ΔRMSE, ThermoRoute − damped (°C) & stations & median keys \\
 \midrule\noalign{}
-All keys & -0.069 & 116 & 1,060 \\
-issue low anomaly & -0.229 & 105 & 71 \\
-issue high anomaly & -0.080 & 114 & 139 \\
-issue rapid recent warming & -0.088 & 116 & 107 \\
-issue rapid recent cooling & -0.170 & 114 & 99 \\
-issue strong warming pressure & -0.072 & 115 & 111 \\
-issue strong cooling pressure & -0.058 & 116 & 90 \\
-issue low flow & -0.072 & 92 & 143 \\
-issue high flow & -0.060 & 104 & 89 \\
-issue rapid flow rise & -0.054 & 116 & 103 \\
-issue rapid flow recession & -0.072 & 116 & 99 \\
-actual rapid warming & -0.300 & 116 & 109 \\
-actual rapid cooling & -0.184 & 116 & 102 \\
-actual warmest decile & -0.066 & 116 & 141 \\
+All keys & \ensuremath{-}0.069 & 116 & 1,060 \\
+issue low anomaly & \ensuremath{-}0.229 & 105 & 71 \\
+issue high anomaly & \ensuremath{-}0.080 & 114 & 139 \\
+issue rapid recent warming & \ensuremath{-}0.088 & 116 & 107 \\
+issue rapid recent cooling & \ensuremath{-}0.170 & 114 & 99 \\
+issue strong warming pressure & \ensuremath{-}0.072 & 115 & 111 \\
+issue strong cooling pressure & \ensuremath{-}0.058 & 116 & 90 \\
+issue low flow & \ensuremath{-}0.072 & 92 & 143 \\
+issue high flow & \ensuremath{-}0.060 & 104 & 89 \\
+issue rapid flow rise & \ensuremath{-}0.054 & 116 & 103 \\
+issue rapid flow recession & \ensuremath{-}0.072 & 116 & 99 \\
+actual rapid warming & \ensuremath{-}0.300 & 116 & 109 \\
+actual rapid cooling & \ensuremath{-}0.184 & 116 & 102 \\
+actual warmest decile & \ensuremath{-}0.066 & 116 & 141 \\
 actual coldest decile & 0.029 & 109 & 77 \\
-actual high flow & -0.078 & 107 & 87 \\
-actual low flow & -0.078 & 92 & 147 \\
+actual high flow & \ensuremath{-}0.078 & 107 & 87 \\
+actual low flow & \ensuremath{-}0.078 & 92 & 147 \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -1189,7 +1209,7 @@ resolve at α = 0.05 under exact whole-cluster sign-flip enumeration.
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrllr>{\raggedleft\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=2.0841\hsize\raggedright\arraybackslash}Xr>{\hsize=0.7148\hsize\raggedleft\arraybackslash}X>{\hsize=0.7148\hsize\raggedleft\arraybackslash}Xr>{\hsize=0.7432\hsize\raggedright\arraybackslash}X>{\hsize=0.7431\hsize\raggedright\arraybackslash}Xrr@{}}
 \toprule\noalign{}
 Model & Lead & RMSE F0 & RMSE F3 & \(V_F\) & 95\% CI & LOCO range & Win rate & MDE \\
 \midrule\noalign{}
@@ -1252,7 +1272,7 @@ true value, the quantity rules P1--P3 are stated in.
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.12}
 \noindent
-\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}lrrrrr>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=1.3036\hsize\raggedright\arraybackslash}Xrrrr>{\hsize=0.6964\hsize\raggedleft\arraybackslash}Xl@{}}
 \toprule\noalign{}
 Model & Lead & \(V_F\) true & \(V_F\) shuffled & Retained & Placebo worse at & Rule \\
 \midrule\noalign{}
@@ -1274,14 +1294,103 @@ level of a month rather than the sequence of its days --- the longer the lead,
 the more the anchor has decayed and the more even a month-level statement is
 worth.
 
-Two things this still does not establish. It does not attribute the gain to any
+\textbf{What the forcing value is worth as a warning.} A station-median RMSE
+improvement is a statistics result; what a release schedule or a thermal-refuge
+warning acts on is whether a threshold will be crossed. We therefore scored
+both arms on warm-tail exceedance and on signed rapid change, with every
+threshold fitted per station on the 2006--2015 training period only and a
+minimum of ten events per station-cell
+(\texttt{outputs/\allowbreak{}final/\allowbreak{}forcing\_\allowbreak{}event\_\allowbreak{}metrics\_\allowbreak{}summary.parquet}).
+
+The event result is larger in relative terms than the RMSE result. At seven
+days with the raw-target tree, the probability of detection for exceedance of a
+station\textquotesingle s training 95th percentile rises from 0.18 to 0.55, and for rapid
+warming from 0.18 to 0.52; the critical success index roughly triples in both
+cases. Crucially this is not a base-rate trade: the false-alarm ratio \emph{falls}
+at the same time, from 0.36 to 0.20 for the 95th-percentile exceedance and from
+0.43 to 0.21 for rapid cooling. Every station-first paired interval excludes
+zero, and the lead structure matches the RMSE result --- the event gain is small
+at one day and largest at three to seven.
+
+{\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\noindent
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=1.0000\hsize\raggedright\arraybackslash}Xllrr@{}}
+\toprule\noalign{}
+Event (7 d, LightGBM) & POD F0 → F3 & FAR F0 → F3 & ΔCSI & Stations \\
+\midrule\noalign{}
+Warm exceedance, station q90 & 0.59 → 0.77 & 0.24 → 0.15 & +0.155 & 116 \\
+Warm exceedance, station q95 & 0.18 → 0.55 & 0.36 → 0.20 & +0.231 & 114 \\
+Rapid warming & 0.18 → 0.52 & 0.28 → 0.20 & +0.274 & 116 \\
+Rapid cooling & 0.26 → 0.62 & 0.43 → 0.21 & +0.274 & 116 \\
+\bottomrule\noalign{}
+\end{tabularx}
+}
+
+These are deterministic point predictors, so the Brier column that usually
+accompanies such a table is here the misclassification rate of a 0/1 indicator
+and is reported in the artifact rather than the manuscript; it is not a
+reliability result, and none of these models emits a calibrated event
+probability. The comparison is also an oracle bound in event space exactly as
+it is in RMSE space: it states what perfect weather information would be worth
+for warning, not what a forecast product delivers.
+
+\textbf{Which rivers depend on future weather.} The station spread in the forcing
+value is wide --- the middle half runs from 0.30 to 0.86 °C at seven days --- and
+that spread is structured. Against six attributes declared before the
+relationships were inspected, the strongest is the one the physics predicts:
+the anomaly half-life of the station\textquotesingle s own damped anchor, with Spearman
+ρ = −0.49 {[}−0.66, −0.16{]} at seven days under whole-HUC2 resampling. Rivers that
+hold a thermal anomaly for longer carry their own state forward and need
+tomorrow\textquotesingle s weather less. The relationship is strongest at one day (ρ = −0.82)
+and weakens with lead (−0.63, −0.47), which is the expected direction: local
+memory protects a forecast most over the interval it can bridge. Flashier
+rivers depend more on future forcing (discharge coefficient of variation,
+ρ = +0.48 {[}0.26, 0.63{]}), and warmer, lower-latitude stations depend more
+(ρ = +0.33 and −0.44). Catchment area is not resolved (ρ = −0.16, interval
+covering zero).
+
+One of the six is a nuisance control and it is not null: stations with more
+complete training water-temperature records show a smaller forcing value
+(ρ = −0.29 {[}−0.45, −0.07{]}). Part of the apparent physical gradient may
+therefore be a record-quality gradient, and the two cannot be separated on this
+cohort. Latitude and mean annual air temperature are also two views of one
+gradient. We report these as exploratory covariation on a fixed,
+non-probability cohort with about nine effective spatial clusters, not as an
+attribution, and we do not fit a multivariable model the design cannot carry
+(\texttt{outputs/\allowbreak{}final/\allowbreak{}forcing\_\allowbreak{}heterogeneity.parquet}).
+
+\textbf{The model is using exact event timing.} The shuffle cannot separate
+day-to-day correspondence from sub-monthly synoptic persistence, because a
+same-month donor can land within a few days of the true valid time. The second
+sealed control displaces the realized future by a whole week in each direction,
+which leaves climate, near-seasonal phase and local weather persistence intact
+and removes only the exact dates. Keys whose displaced valid time falls outside
+the record are dropped from both shift arms \emph{and} from the true arm, so all
+three are scored on one common shift-registry named separately from the primary
+one.
+
+The forcing value does not survive a week\textquotesingle s displacement either. The +7-day arm
+--- the primary timing control that decision rule P4 is stated in --- retains
+−0.1\%, 0.7\% and 14.0\% of the true value at 1, 3 and 7 days for the raw-target
+tree (−0.5\%, 1.0\% and 13.8\% for the residual-target tree), and is worse than
+the true arm at 90--95\% of stations. The −7-day arm retains essentially nothing
+at any lead; it is the weaker control of the pair, because displacing backwards
+moves the future window toward information already available at issue time, and
+the two are reported separately and never averaged. P4 is satisfied, so the
+lead-structure interpretation above stands.
+
+The residues of the two controls are consistent and mildly informative. At
+seven days the within-month shuffle leaves 8.8\% and the one-week displacement
+14.0\%: displacing by a week preserves more than shuffling within a month
+because synoptic weather is autocorrelated over several days, so the shifted
+window still resembles the true one. Both are small, and the direction is what
+a weather-information reading predicts.
+
+One thing this still does not establish. It does not attribute the gain to any
 particular meteorological variable; the single-component and leave-one-out arms
-are specified in the same sealed protocol and have not been run. And it does
-not separate day-to-day correspondence from sub-monthly synoptic persistence:
-the placebo destroys the exact date pairing, but a donor drawn from the same
-month can still fall within a few days of the true valid time. The ±7-day
-time-shift arm is the control for that, and it is likewise specified and
-unrun.
+are specified in the same sealed protocol and have not been run.
 Nor can the value be divided by an architecture effect from Section 4.3 to form
 a ratio: the two come from different cells of a design that has not been
 crossed, and the interaction between forcing and architecture is unmeasured.
@@ -1503,8 +1612,9 @@ That bound is an information ceiling from a realized-weather oracle. A
 placebo sealed before its outcome existed shows it is event-scale weather
 information rather than seasonal phase: deranging the meteorology within each
 station-month, which preserves climate and seasonal phase exactly, removes
-91--100\% of the value (Section 4.7). Whether the residue at seven days reflects
-exact timing or sub-monthly persistence awaits the time-shift arm. Reported
+91--100\% of the value (Section 4.7). A second sealed control shows the same
+under a one-week displacement of the future, so the model is using exact event
+timing rather than the weather window around it. Reported
 skill for this variable is nonetheless governed jointly by the reference model
 and by the information the model is given, and neither is a property of the
 architecture.
@@ -1649,8 +1759,8 @@ S9 is a development-period conformal-calibration sensitivity, labeled as such in
 the figure itself, which must not be compared numerically with any held-out-window
 figure.
 
-Each figure carries evidence from exactly one period. Figure 1 and Figures
-S1--S3 are structural material; Figures 2--4 and Figures S4--S8 and S10 are
+Each figure carries evidence from exactly one period. Figures 1 and 2 and Figures
+S1--S3 are structural material; Figures 3--5 and Figures S4--S8 and S10 are
 held-out-window; Figure S9 is a development-period conformal-calibration
 sensitivity. Each figure states its period inside the figure, and no value from
 one period is compared numerically with a value from another.

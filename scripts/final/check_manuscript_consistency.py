@@ -325,7 +325,12 @@ def _md_spans(manuscript: str) -> dict[str, str]:
         elif line.startswith("### 4."):
             token = "section_" + line[4:].split()[0].replace(".", "_")
             out[token] = section_text(li, end)
-    for n in (1, 2, 3, 4):
+    # Discover the figure numbers rather than hardcoding a range: the range was
+    # (1, 2, 3, 4), so inserting a figure left the fifth caption unreadable to
+    # the gate and every claim bound to it failed as "not printed" whatever the
+    # caption said.
+    for n in sorted({int(x) for x in re.findall(r"^\*\*Figure (\d+)\.",
+                                                manuscript, re.MULTILINE)}):
         # non-greedy: stop at the FIRST blank line (a greedy `.*` with the
         # `\Z` alternative in the lookahead would swallow the document tail)
         m = re.search(rf"\*\*Figure {n}\..*?(?=\n\n|\Z)", manuscript, re.DOTALL)
