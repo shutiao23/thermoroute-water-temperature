@@ -100,3 +100,4 @@ outputs/final/forcing_summary_v4.json
 outputs/final/ladder_effects.parquet
 outputs/final/ladder_effects_legacy.parquet
 outputs/final/ladder_summary.json
+outputs/final/.watch/
