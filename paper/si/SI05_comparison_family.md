@@ -1,10 +1,14 @@
 # SI05 — comparison family and fill schema
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** filled. The five-row held-out family is reported below from
+`outputs/conventional/cluster_inference_2021_2023.json`; the display geometry,
+estimand and binder schema that precede it remain normative.
 
-This document fixes display geometry for the study's five-row comparison family.
-It reports no effect, performance number, interval, p-value, Holm value or
-decision. Every result-bearing cell is `[pending computation]`.
+This document does two things and the order matters. It first fixes the display
+geometry, estimand and source-to-cell schema for the study's five-row comparison
+family -- none of which depends on an outcome -- and only then reports the
+values those rules resolve to. The schema sections below therefore describe what
+a renderer must satisfy, not what has been rendered.
 
 ## Five-row comparison geometry
 

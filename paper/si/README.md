@@ -1,12 +1,15 @@
 # ThermoRoute supporting-information scaffold
 
-**Status:** scaffold finalized; empirical values `[pending computation]`.
+**Status:** partially filled. SI01 and SI05 now carry bound empirical cells;
+SI02, SI03 and SI15 are normative specifications with no empirical cells by
+design; the remaining documents still hold `[pending computation]` placeholders,
+and each states which receipt or computation would discharge it.
 
-This directory is the supporting-information (SI) scaffold for the conventional
+This directory is the supporting information for the conventional
 comparative-holdout manuscript `paper/ThermoRoute_paper.md`. It reports no
-invented empirical result, rendered figure, or count beyond the frozen
-design/cohort-geometry facts already written in SI01--SI05; every other numeric
-result, score, interval, p-value, or plotted coordinate is a placeholder. This
+invented empirical result, rendered figure, or count: a numeric cell here is
+either bound to a named artifact under `outputs/` or is an explicit
+`[pending computation]` placeholder, never an estimate standing in for one. This
 directory is subordinate to that manuscript and must not revise it.
 
 ## Uniform fill rule
@@ -24,9 +27,13 @@ bound source pointer, a unit, a derivation, and a verified binding to the
 held-out 2021--2023 metric table
 `outputs/conventional/holdout_metrics_2021_2023.csv`.
 
-Numbers already written in SI01--SI05 are frozen design or cohort-geometry
-facts only. Each one names its source and role; none is a performance result.
-All other quantities remain `[pending computation]`.
+Most numbers written in SI01--SI05 are frozen design or cohort-geometry facts,
+and each names its source and role. Two are not, and are labelled as such: the
+SI01 HUC2 projection is registry- and cohort-derived (outcome-free, but a
+derived count rather than a declared one), and the SI05 five-row family is a
+performance result bound to
+`outputs/conventional/cluster_inference_2021_2023.json`. All other quantities
+remain `[pending computation]`.
 
 ## Contents
 

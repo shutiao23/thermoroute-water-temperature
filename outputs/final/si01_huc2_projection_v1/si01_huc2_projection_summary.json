@@ -1,0 +1,111 @@
+{
+ "derivation": "pre-attrition counts from the frozen station registry; reportable counts from stations carrying at least 100 scored keys at every lead in the primary F0 shards",
+ "format": "thermoroute.si01-huc2-projection.v1",
+ "min_keys_per_lead": 100,
+ "outcome_free": true,
+ "rows": [
+  {
+   "binder_row_id": "SI01.HUC2.01",
+   "huc2": "01",
+   "pre_attrition_stations": 5,
+   "reportable_stations": 5
+  },
+  {
+   "binder_row_id": "SI01.HUC2.02",
+   "huc2": "02",
+   "pre_attrition_stations": 13,
+   "reportable_stations": 11
+  },
+  {
+   "binder_row_id": "SI01.HUC2.03",
+   "huc2": "03",
+   "pre_attrition_stations": 14,
+   "reportable_stations": 14
+  },
+  {
+   "binder_row_id": "SI01.HUC2.04",
+   "huc2": "04",
+   "pre_attrition_stations": 10,
+   "reportable_stations": 10
+  },
+  {
+   "binder_row_id": "SI01.HUC2.05",
+   "huc2": "05",
+   "pre_attrition_stations": 10,
+   "reportable_stations": 9
+  },
+  {
+   "binder_row_id": "SI01.HUC2.06",
+   "huc2": "06",
+   "pre_attrition_stations": 2,
+   "reportable_stations": 1
+  },
+  {
+   "binder_row_id": "SI01.HUC2.07",
+   "huc2": "07",
+   "pre_attrition_stations": 8,
+   "reportable_stations": 8
+  },
+  {
+   "binder_row_id": "SI01.HUC2.09",
+   "huc2": "09",
+   "pre_attrition_stations": 2,
+   "reportable_stations": 2
+  },
+  {
+   "binder_row_id": "SI01.HUC2.10",
+   "huc2": "10",
+   "pre_attrition_stations": 7,
+   "reportable_stations": 7
+  },
+  {
+   "binder_row_id": "SI01.HUC2.11",
+   "huc2": "11",
+   "pre_attrition_stations": 4,
+   "reportable_stations": 4
+  },
+  {
+   "binder_row_id": "SI01.HUC2.12",
+   "huc2": "12",
+   "pre_attrition_stations": 5,
+   "reportable_stations": 5
+  },
+  {
+   "binder_row_id": "SI01.HUC2.14",
+   "huc2": "14",
+   "pre_attrition_stations": 8,
+   "reportable_stations": 8
+  },
+  {
+   "binder_row_id": "SI01.HUC2.16",
+   "huc2": "16",
+   "pre_attrition_stations": 3,
+   "reportable_stations": 3
+  },
+  {
+   "binder_row_id": "SI01.HUC2.17",
+   "huc2": "17",
+   "pre_attrition_stations": 26,
+   "reportable_stations": 26
+  },
+  {
+   "binder_row_id": "SI01.HUC2.18",
+   "huc2": "18",
+   "pre_attrition_stations": 3,
+   "reportable_stations": 3
+  }
+ ],
+ "source_bindings": {
+  "registry": {
+   "path": "data_usgs/station_registry_v1.csv",
+   "sha256": "090e7c0daf39ac38ceefeb1af8a12c178283e18347905d8e72ada969ad5460c9"
+  }
+ },
+ "totals": {
+  "huc2_groups": 15,
+  "huc2_groups_with_no_reportable_station": 0,
+  "largest_reportable_share": 0.22413793103448276,
+  "pre_attrition_total": 120,
+  "reportable_total": 116
+ }
+}

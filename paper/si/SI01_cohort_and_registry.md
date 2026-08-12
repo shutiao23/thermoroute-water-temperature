@@ -59,12 +59,43 @@ literal column names in any unread data file.
   superpopulation interpretation.
 - A post-opening count still needs a `value_id`, source pointer, derivation,
   rounding rule and gate role; a number visible in a figure is never self-proving.
-- The following shell is deliberately empty of values:
+- The shell below is now filled, and it is filled from the category these rules
+  permit: both counts are registry- and cohort-derived, not outcome-derived.
+  Pre-attrition counts come from the frozen station registry; reportable counts
+  are the stations carrying at least 100 scored keys at *every* lead in the
+  primary F0 shards — an intersection across leads, not a union, because a
+  station reportable at one day and not at seven is not in the cohort the
+  paper's tables describe. Nothing in this table reads a prediction or a score
+  (`outputs/final/si01_huc2_projection_v1/`,
+  builder `scripts/final/build_si01_huc2_projection.py`).
 
 | HUC2 | pre-attrition station count | reportable station count | binder row ID |
-|---|---|---|---|
-| `[pending computation]` | `[pending computation]` | `[pending computation]` | `[pending computation]` |
+|---|---:|---:|---|
+| 01 | 5 | 5 | `SI01.HUC2.01` |
+| 02 | 13 | 11 | `SI01.HUC2.02` |
+| 03 | 14 | 14 | `SI01.HUC2.03` |
+| 04 | 10 | 10 | `SI01.HUC2.04` |
+| 05 | 10 | 9 | `SI01.HUC2.05` |
+| 06 | 2 | 1 | `SI01.HUC2.06` |
+| 07 | 8 | 8 | `SI01.HUC2.07` |
+| 09 | 2 | 2 | `SI01.HUC2.09` |
+| 10 | 7 | 7 | `SI01.HUC2.10` |
+| 11 | 4 | 4 | `SI01.HUC2.11` |
+| 12 | 5 | 5 | `SI01.HUC2.12` |
+| 14 | 8 | 8 | `SI01.HUC2.14` |
+| 16 | 3 | 3 | `SI01.HUC2.16` |
+| 17 | 26 | 26 | `SI01.HUC2.17` |
+| 18 | 3 | 3 | `SI01.HUC2.18` |
+| **Total** | **120** | **116** | `SI01.HUC2.TOTAL` |
 
 Each projected HUC2 label and count follows the README cell-level binder shape;
 the pre-attrition and reportable counts have distinct `value_id` objects even
 when they share one source registry.
+
+Attrition is not uniform across regions and the paper's inference depends on
+which way it went. Four stations are lost — two from HUC2 02, one each from 05
+and 06 — so the largest region's share of the reportable cohort *rises* from
+21.7% to 22.4%, and HUC2 06 falls to a single station. Attrition therefore
+concentrates the cluster structure slightly rather than balancing it, which is
+the direction that makes whole-HUC2 resampling more conservative, not less. No
+region is emptied.

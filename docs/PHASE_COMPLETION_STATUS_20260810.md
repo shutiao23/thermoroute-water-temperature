@@ -82,16 +82,31 @@ pre-run facts to invariants that outlive the run.
 
 ---
 
-## Running at the time of writing
+## Closed since this document was written (2026-08-11 / 08-12)
 
-- **Phase 2b — ±7-day shift arms** (12 fits). Runner and twelve tests
-  committed; watchdog armed. Closes decision rule P4, the timing-specificity
-  control the shuffle cannot supply.
-- **Phase 7 — forced-hybrid scoring** (~3 h). Calibration is complete and
-  committed: converged in 28 iterations, median α 0.101, air-temperature
-  coefficient 0.818 °C per °C, shortwave 0.641, precipitation and wind ≈ 0. The
-  scorer rolls it forward on the tree arms' own keys under F0 and F3_full to ask
-  whether the trees' forcing value is available to a simple thermal-response law.
+- **Phase 2b — ±7-day shift arms.** Executed; P4 satisfied (DLOG-029).
+- **Phase 2c — component arms.** Executed; the forcing value is future air
+  temperature, 95% of the full oracle at seven days (DLOG-031).
+- **Phase 3 — corrected L ladder.** Executed with a mask-invariance proof that
+  can fail. Local thermal state is worth 1.3–1.7 °C, the dominant information
+  in the problem (DLOG-030).
+- **Phase 6 — F2a.** Executed and scored. An archived fixed-lead temperature
+  forecast recovers 49–62% of the realized-temperature oracle (DLOG-032). The
+  first run of this arm trained on climatology and reported 1.8%; the error and
+  its fix are recorded rather than quietly corrected.
+- **Phase 4, in part — the F×L crossing.** Future weather is worth *less* to a
+  thermally ungauged model, not more: the interaction is −0.076 and −0.147 °C
+  at one and three days with intervals excluding zero (DLOG-032). The two
+  information sources are complements, so the substitution argument for
+  forecasting an ungauged reach fails in the unfavourable direction.
+- **Phase 5 — the plain-TCN arm.** The runner now exists
+  (`scripts/final/run_plain_tcn_arm.py`), is information-matched to the trees by
+  construction rather than by claim, and its causality and namespace partition
+  are unit-tested. Cells are fitting at F0 and F3 across both information
+  levels.
+- **SI01 HUC2 projection.** Filled from the registry and the reportable cohort;
+  attrition concentrates the cluster structure slightly (largest share 21.7% →
+  22.4%) rather than balancing it.
 
 ---
 
@@ -100,11 +115,8 @@ pre-run facts to invariants that outlive the run.
 ### Achievable here, not yet done
 | Item | Cost | Note |
 |---|---|---|
-| Phase 2c — 8 component arms (single + leave-one-out) | 48 fits, ~2 h | Sealed under the same protocol; attributes the forcing value to variables |
-| Phase 3 — corrected L0/L1/L2 ladder, L2-U2 | Large implementation + hours | **The blocker.** Needs L-masking built into the v5 feature path. Deliberately not rushed: a hurried masking implementation is precisely how DLOG-025 destroyed the last ladder |
-| Phase 4 — 48-cell F×L×G×A matrix | Blocked on Phase 3 | Also needs 10-seed geometry and the 24 LightGBM spatial cells |
-| Phase 5 — hard-regime architecture | Blocked | `run_neural_information_regimes.py` imports no `torch` and fits nothing; a real plain-TCN runner does not exist |
-| Phase 6 — F2a temperature-only diagnostic | Moderate | Acquisition is verified and the key registry frozen; needs the matched `F3_temperature_only` arm and the denominator guard |
+| Phase 4 — the remaining matrix cells | Moderate | The tree matrix is complete across F×L×G. The architecture axis is fitted at whole-region holdout only; a TCN under random-site geometry would complete the 48-cell crossing |
+| Phase 10c — a second neural class | Moderate | One network is one draw from "what a deep model does here". A recurrent or attention arm would say whether the architecture result is about sequence models or about this sequence model |
 
 ### Not achievable from this repository
 | Item | Blocker |
@@ -119,7 +131,11 @@ pre-run facts to invariants that outlive the run.
 - **Phase 11 — information-regime rewrite.** The external review's own rule is
   not to rewrite the final Abstract before the 48-cell matrix exists, because
   it would change the paper's central claim a third time. The Abstract was
-  corrected to be defect-free and correctly scoped, not reframed.
+  corrected to be defect-free and correctly scoped, not reframed. That rule is
+  closer to being dischargeable now than it was — the ladder, the F×L crossing
+  and the architecture arm all exist — but the rewrite is a judgement about
+  what the paper is *for*, and it should be made deliberately rather than as
+  the tail end of an execution session.
 
 ---
 
@@ -133,8 +149,10 @@ pre-run facts to invariants that outlive the run.
 - SI: `[pending computation]` cells remain in SI02, SI03, SI04, SI05, SI09,
   SI10, SI14, SI15; SI08 reports nine probability metrics as not computed;
   SI12's qualifier sensitivity is unrecomputed; Figures S4–S10 have no files.
-- 306 MB of placebo shards are tracked in git, consistent with the v5 precedent
-  but worth a deliberate decision.
+- ~~306 MB of placebo shards are tracked in git~~ — decided: shard bytes are
+  excluded and fingerprinted instead. `outputs/final/shard_digest_index.json`
+  carries one SHA-256 per shard, so a rerun is verifiable byte-for-byte while
+  2.8 GB stays out of history.
 
 ## One pattern worth naming
 
