@@ -325,9 +325,12 @@ def fit_cell(
 def execute(args: argparse.Namespace) -> int:
     torch.set_num_threads(1)
     raw_frame, registry, reference = LAD.load_inputs()
-    folds = LAD.whole_region_folds(registry)
-    if args.folds is not None:
-        folds = [f for f in folds if f.index in set(args.folds)]
+    # Random-site geometry carries its own folds per split seed, so the split
+    # seed is part of a cell's identity and appears in the shard name.  Reusing
+    # the whole-region name for a random-site cell would silently overwrite it.
+    split_seeds: list[int | None] = (
+        [None] if args.geometry == "whole_region" else list(args.split_seeds)
+    )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     shard_dir = OUTPUT_DIR / SHARD_DIRNAME
@@ -335,7 +338,12 @@ def execute(args: argparse.Namespace) -> int:
     manifest: list[dict[str, Any]] = []
     suffix = "bounded" if args.bounded else "unbounded"
 
-    for fold in folds:
+    for split_seed in split_seeds:
+      folds = LAD.folds_for(registry, args.geometry, split_seed)
+      if args.folds is not None:
+          folds = [f for f in folds if f.index in set(args.folds)]
+      split_tag = "" if split_seed is None else f"_seed{split_seed}"
+      for fold in folds:
         for level_name in args.levels:
             for horizon in args.horizons:
                 table, columns, preprocessing = LAD.build_design(
@@ -355,7 +363,8 @@ def execute(args: argparse.Namespace) -> int:
                 for seed in args.seeds:
                     prefix = "" if args.forcing == "F0" else f"{args.forcing}_"
                     name = (
-                        f"{prefix}{level_name}_whole_region_fold{fold.index}"
+                        f"{prefix}{level_name}_{args.geometry}{split_tag}"
+                        f"_fold{fold.index}"
                         f"_PlainTCN_{suffix}_seed{seed}_h{horizon}"
                     )
                     path = shard_dir / f"{name}.parquet"
@@ -374,7 +383,7 @@ def execute(args: argparse.Namespace) -> int:
                         "horizon": np.full(len(held), horizon, dtype=np.int16),
                         "level": level_name,
                         "forcing": args.forcing,
-                        "geometry": "whole_region",
+                        "geometry": args.geometry,
                         "fold": np.full(len(held), fold.index, dtype=np.int16),
                         "model": f"PlainTCN_{suffix}",
                         "seed": np.full(len(held), seed, dtype=np.int16),
@@ -384,7 +393,8 @@ def execute(args: argparse.Namespace) -> int:
                     }).to_parquet(path, index=False)
                     manifest.append({
                         "cell": name, "level": level_name, "forcing": args.forcing,
-                        "geometry": "whole_region", "fold": fold.index,
+                        "geometry": args.geometry, "split_seed": split_seed,
+                        "fold": fold.index,
                         "regions_held": list(fold.regions_held),
                         "seed": seed, "horizon": horizon,
                         "model": f"PlainTCN_{suffix}", "shard": path.name,
@@ -436,7 +446,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--horizons", nargs="*", type=int, default=list(V5.HORIZONS))
     parser.add_argument("--forcing", choices=("F0", "F3_full"), default="F0")
     parser.add_argument("--folds", nargs="*", type=int, default=None)
-    parser.add_argument("--seeds", nargs="*", type=int, default=list(FIT_SEEDS))
+    parser.add_argument("--geometry", choices=LAD.GEOMETRIES, default="whole_region")
+    parser.add_argument("--split-seeds", nargs="*", type=int,
+                        default=list(LAD.RANDOM_SEEDS),
+                        help="random-site split seeds; ignored for whole_region")
+    parser.add_argument("--seeds", nargs="*", type=int, default=list(FIT_SEEDS),
+                        help="fit seeds, which are a different axis from the "
+                             "split seeds above")
     parser.add_argument("--bounded", action="store_true")
     parser.add_argument("--manifest-tag", default="")
     return parser
@@ -448,8 +464,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps({
             "levels": args.levels, "horizons": args.horizons,
             "seeds": args.seeds, "bounded": args.bounded,
+            "geometry": args.geometry,
             "cells": len(args.levels) * len(args.horizons) * len(args.seeds)
-                     * (len(args.folds) if args.folds else LAD.N_FOLDS),
+                     * (len(args.folds) if args.folds else LAD.N_FOLDS)
+                     * (1 if args.geometry == "whole_region"
+                        else len(args.split_seeds)),
         }, indent=1))
         return 0
     return execute(args)

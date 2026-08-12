@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 import scripts.final.run_forcing_ladder_v5_observed as V5
+import scripts.final.run_information_ladder_v6_observed as LAD
 import scripts.final.run_plain_tcn_arm as T
 from thermoroute.information_levels import admissible_columns
 
@@ -174,3 +175,39 @@ def test_the_sequence_axis_holds_the_column_it_claims_to() -> None:
             assert seq[:, v_index, l_index].numpy() == pytest.approx(
                 frame[f"{variable}_lag{lag}"].to_numpy(np.float32), rel=1e-6
             )
+
+
+# ------------------------------------------------------------------ geometry
+
+
+def test_a_random_site_cell_cannot_overwrite_a_whole_region_one() -> None:
+    """Random-site folds are per split seed, so the split seed is part of a
+    cell's identity.
+
+    Whole-region fold 0 and random-site seed-3 fold 0 are different holdouts
+    over the same station registry. If the shard name omitted the split seed
+    they would collide, and the second run would silently overwrite the first
+    rather than failing -- the arm's skip-if-present rule would even make it
+    look like a completed cell.
+    """
+    parser = T.build_parser()
+    whole = parser.parse_args(["--execute"])
+    random_site = parser.parse_args(["--execute", "--geometry", "random_site"])
+    assert whole.geometry == "whole_region"
+    assert random_site.split_seeds, "random-site needs split seeds to enumerate folds"
+
+    def name(args, split_seed: int | None) -> str:
+        tag = "" if split_seed is None else f"_seed{split_seed}"
+        return f"L0_{args.geometry}{tag}_fold0_PlainTCN_unbounded_seed0_h1"
+
+    assert name(whole, None) != name(random_site, 3)
+    assert len({name(random_site, s) for s in random_site.split_seeds}) == len(
+        random_site.split_seeds
+    )
+
+
+def test_the_split_seed_and_the_fit_seed_are_different_axes() -> None:
+    """Conflating them would average away the geometry the split seed defines."""
+    args = T.build_parser().parse_args(["--execute", "--geometry", "random_site"])
+    assert list(args.seeds) == list(T.FIT_SEEDS)
+    assert list(args.split_seeds) == list(LAD.RANDOM_SEEDS)
