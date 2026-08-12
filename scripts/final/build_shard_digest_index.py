@@ -43,6 +43,7 @@ SHARD_DIRS = (
     "forcing_components_v5a/component_shards_v5a",
     "forcing_f2a_v5a/f2a_shards_v5a",
     "information_ladder_v6_observed/ladder_shards_v6_observed",
+    "plain_tcn_arm_v1/tcn_shards_v1",
 )
 
 FORMAT = "thermoroute.shard-digest-index.v1"

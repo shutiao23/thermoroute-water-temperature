@@ -1,0 +1,8 @@
+{
+ "builder_sha256": "281f6b73302cdaa2e6c0ecc51dc5cddab866294b0b9735b9a4fc2531130114bc",
+ "format": "thermoroute.f2a-recovery-authority.v1.manifest",
+ "outputs_sha256": {
+  "f2a_recovery_summary.json": "ccc98f7315eb8a18acb9841223f6174b472fafc3718511c2db2ef58bf295f75e",
+  "f2a_recovery_values.parquet": "749dc424ba575a65e31b1eba282b9bc4c4e98be9abc0a44cdc67430ef79c5352"
+ }
+}

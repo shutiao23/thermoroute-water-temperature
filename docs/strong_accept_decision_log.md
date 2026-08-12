@@ -1763,3 +1763,64 @@ interaction between forcing and either local information or architecture is
 claimed. Post-outcome and descriptive; the axes are never added or divided.
 
 Commit(s): (this worktree)
+
+## 2026-08-12 — DLOG-032: what a real forecast recovers, and whether weather substitutes for a gauge
+
+Two arms that were computable from work already on disk but had never been
+scored into authorities, plus the manuscript text they support.
+
+**F2a: about half the temperature oracle survives a real forecast.** The
+recovery fraction is `median_i[R_i(F0) - R_i(F2a)]` over
+`median_i[R_i(F0) - R_i(F3_temperature_only)]`, and it comes out at 49%, 62%
+and 50% at 1, 3 and 7 days for the raw-target tree (49%, 60%, 58% residual).
+The denominator is the realized-temperature arm and never `F3_full`: F2a is a
+temperature-only product, and charging it for four variables it never claimed
+to supply would be arithmetic, not measurement. The component result of
+DLOG-031 is what makes the concession small -- air temperature alone already
+carries 95% of the full oracle at seven days.
+
+No interval is reported on the ratio. Both differences carry whole-HUC2 cluster
+intervals; a quotient of two estimated medians does not, and a delta-method
+band on it would be an interval in name only. The artifact says so in a
+`forbidden` list next to "operational recovery fraction" and "recovery against
+F3_full", so the constraint travels with the number rather than living only in
+prose.
+
+The training error is recorded because it is the natural implementation and it
+is wrong. The forecast archive covers 2021-2023, so a model trained on F2a
+features sees a future-temperature column that is climatology on every training
+row, learns to ignore it, and is unaffected when real forecasts are substituted
+at evaluation. That run reported 1.8% recovery -- a measurement of the mistake.
+Training on realized temperature and substituting the forecast only at
+prediction is both the fix and what an operational system does.
+
+**F-by-L: future weather does not substitute for a local gauge.** Crossing the
+two axes that Sections 4.7 and 4.8 varied separately answers a question the
+paper was inviting and had not asked. Forcing value at L0 is 0.116/0.474/0.580
+degC at 1/3/7 days; at L2 it is 0.038/0.331/0.596. The station-level double
+difference is -0.076 [-0.098, -0.056], -0.147 [-0.193, -0.079] and
++0.016 [-0.035, +0.099].
+
+The sign is the informative part and it is the unfavourable one. Realized
+future weather is worth *less* to a thermally ungauged model, not more, at the
+leads where local state dominates -- it earns its value by correcting a
+trajectory, and with the persistence anchor gone the fallback climatology is
+too coarse to sharpen. The two information sources are complements, so an
+ungauged reach loses 1.3-1.7 degC to the missing gauge and then recovers less
+from forecasts than a gauged site would. Only at seven days do the levels
+converge, and that is also the lead where the archived forecast recovers just
+half the oracle: the regime where forcing substitutes best is the regime where
+it is least attainable.
+
+Scope discipline. Geometry is pinned to whole_region: a three-way contrast is
+not something 116 stations across about nine effective clusters can carry, and
+the L-by-G interaction already has its own authority. Both analyses are
+post-outcome and descriptive, are excluded from the Abstract and Key Points on
+that ground, and the axes are never added or divided.
+
+Artifacts: `outputs/final/f2a_recovery_authority_v1/`,
+`outputs/final/forcing_information_interaction_v1/`.
+Builders: `scripts/final/build_f2a_recovery_authority.py`,
+`scripts/final/build_forcing_information_interaction.py`.
+
+Commit(s): (this worktree)

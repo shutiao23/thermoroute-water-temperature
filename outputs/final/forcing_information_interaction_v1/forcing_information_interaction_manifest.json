@@ -1,0 +1,8 @@
+{
+ "builder_sha256": "96c611677f48882c11752dac07e09729cdb5ecb1483cd4a5b0624ac0dc2dd69f",
+ "format": "thermoroute.forcing-information-interaction.v1.manifest",
+ "outputs_sha256": {
+  "forcing_information_interaction.parquet": "3ff555d25af550292560a651a5534189dfb2ce60699698ae8f012668c9671e65",
+  "forcing_information_interaction_summary.json": "1e877057961856d7f49bc9f688204c4a6a08d6ce07528e2b2c26ba163fc401a9"
+ }
+}

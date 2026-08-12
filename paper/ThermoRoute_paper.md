@@ -1336,11 +1336,120 @@ only variable that is both sufficient on its own and not replaceable by the
 others. Shares therefore exceed 100% in sum and this is not a variance
 decomposition.
 
-What remains unrun under the same seal is the F2b archived-vintage arm, so no
-statement here concerns what an operational forecast would deliver.
-Nor can the value be divided by an architecture effect from Section 4.3 to form
-a ratio: the two come from different cells of a design that has not been
-crossed, and the interaction between forcing and architecture is unmeasured.
+**About half the oracle survives a real forecast.** Everything above is an
+oracle, so the question a practitioner asks — how much of it is attainable —
+needs a forecast in the design, not a reanalysis. The F2a arm supplies one. It
+reproduces the `only_air_temperature` arm exactly, with a single substitution:
+at each valid time the realized air temperature is replaced by an archived
+fixed-lead forecast for that day, and every other meteorological variable stays
+climatological. Its comparator is therefore that same arm, which is why the
+component result above matters operationally: air temperature alone carries 95%
+of the full oracle at seven days, so a temperature-only product is not
+structurally barred from recovering most of what is there.
+
+Training is where the obvious implementation is wrong, and we record the error
+because it is easy to make. The forecast archive covers 2021–2023 only, so a
+model *trained* on F2a features sees a future-temperature column that is
+climatology on every training row; it learns to ignore that column, and
+substituting real forecasts at evaluation then changes nothing. A first run of
+this arm did exactly that and reported 1.8% recovery, which measured the mistake
+rather than the product. The arm therefore trains on realized air temperature
+and substitutes the forecast only when predicting — which is also what an
+operational system does.
+
+**Table 4.16 — what an archived fixed-lead temperature forecast recovers.**
+Station-first values in °C against F0 on 116 reportable stations; the
+denominator is the realized-temperature oracle (`only_air_temperature`), never
+the five-variable F3.
+
+| Model | Lead | Oracle $V$ | Forecast $V$ | Recovery |
+| --- | ---: | ---: | ---: | ---: |
+| LightGBM | 1 d | 0.113 | 0.056 | 49% |
+| LightGBM | 3 d | 0.499 | 0.308 | 62% |
+| LightGBM | 7 d | 0.595 | 0.299 | 50% |
+| ResidualLightGBM | 1 d | 0.111 | 0.054 | 49% |
+| ResidualLightGBM | 3 d | 0.532 | 0.320 | 60% |
+| ResidualLightGBM | 7 d | 0.564 | 0.326 | 58% |
+
+Roughly half to three-fifths of the temperature oracle survives contact with a
+real forecast, and the shortfall grows with lead in the way forecast skill does.
+The ratio is reported as a point estimate: each difference carries its own
+whole-HUC2 cluster interval, but an interval on a quotient of two estimated
+medians would be one in name only.
+
+Three constraints travel with this number and none of them is rhetorical. The
+series is a **fixed-lead composite** — for each valid time, what a run issued
+*h* days earlier said about that day — not a coherent trajectory from one
+initialization and not an as-issued operational archive; the sealed protocol
+forbids both readings. The archive spans 2021–2023 at these stations, so this is
+a measurement of those years, not a climatological expectation. And the arm
+supplies air temperature only, so it is not an estimate of what a full
+operational forcing product would deliver. What remains unrun under the same
+seal is the F2b archived-vintage arm, which is the one that would answer that
+last question.
+
+---
+
+### 4.9 Future weather does not substitute for a local gauge
+
+Sections 4.7 and 4.8 each varied one information axis while holding the other at
+its default, and reported that way they invite a reading neither tested: that
+the two are substitutes, so an ungauged reach could buy back with weather what
+it lost with the sensor. That reading has practical consequences — it is the
+argument for instrumenting a basin with forecasts rather than thermistors — so
+we crossed the axes and asked directly.
+
+The F3 forcing arm was refitted at L0 and at L2 under the same whole-region
+folds, the same mask-invariance proof, and the same level-legal anchor as
+Section 4.7, giving a forcing value at each information level and a
+station-level double difference between them. Because these cells use
+whole-region holdout rather than the split of Section 4.8, the L0 forcing values
+below are slightly smaller than Table 4.13's; the comparison that matters is
+between the two levels within this table, where the folds are identical.
+
+**Table 4.17 — value of realized future meteorology by information level.**
+Station-first paired values in °C under whole-region holdout, raw-target tree,
+116 reportable stations, 10,000-draw whole-HUC2 cluster bootstrap.
+
+| Quantity | 1 d | 3 d | 7 d |
+| --- | ---: | ---: | ---: |
+| Forcing value at L0 (gauged) | 0.116 [0.059, 0.174] | 0.474 [0.299, 0.693] | 0.580 [0.366, 0.779] |
+| Forcing value at L2 (thermally ungauged) | 0.038 [0.020, 0.072] | 0.331 [0.249, 0.496] | 0.596 [0.431, 0.804] |
+| **Interaction (L2 − L0)** | **−0.076 [−0.098, −0.056]** | **−0.147 [−0.193, −0.079]** | **+0.016 [−0.035, +0.099]** |
+
+The interaction is negative at one and three days and its interval excludes zero
+at both, for both target formulations. Future weather is worth *less* to a model
+that has lost the local gauge, not more: at one day it retains a third of its
+gauged value, at three days seven-tenths. Only by seven days do the two levels
+converge, and there the interaction is indistinguishable from zero
+(+0.016 [−0.035, +0.099]).
+
+The mechanism is the one the anchor makes visible. Realized future meteorology
+earns its value by correcting a trajectory, and at short leads the trajectory it
+corrects is the persistence anchor built from the station's own recent readings.
+Remove that anchor and the model falls back on a pooled climatology, which is
+too coarse a starting point for tomorrow's weather to sharpen — there is less
+error of the right kind left to remove. By seven days the anchor has decayed far
+enough that a gauged model is not much better positioned than an ungauged one,
+and the forcing value stops depending on which it is.
+
+This closes the substitution argument in the unfavourable direction. The two
+information sources are complements at the leads where local state dominates,
+so a thermally ungauged reach is harder than either Section 4.7 or Section 4.8
+implies on its own: it loses 1.3–1.7 °C to the missing gauge and then recovers
+less from forecasts than a gauged site would. The one qualification is the
+seven-day cell, where forcing is worth the same either way — which is also the
+lead at which the archived forecast of Section 4.8 recovers only half the
+oracle, so the regime where forcing substitutes best is the regime where it is
+least attainable.
+
+Geometry is held at whole-region throughout. Letting a third axis vary would
+produce a three-way contrast 116 stations across nine effective clusters cannot
+support; the local-information-by-geometry interaction is measured separately in
+Section 4.7. Like that one, this analysis is post-outcome and descriptive, not a
+confirmatory test, and is reported outside the Abstract and Key Points for that
+reason
+(`outputs/final/forcing_information_interaction_v1/`).
 
 ---
 

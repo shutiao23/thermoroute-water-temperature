@@ -1,0 +1,102 @@
+{
+ "authority_status": "SEALED_PRE_OUTCOME_F2A_RECOVERY",
+ "chronology": {
+  "post_outcome": false,
+  "specification_sealed_before_outcome": true
+ },
+ "denominator": "only_air_temperature",
+ "estimand": "median_i[RMSE_i(F0) - RMSE_i(F2a)] divided by median_i[RMSE_i(F0) - RMSE_i(F3_temperature_only)]",
+ "forbidden": [
+  "recovery against F3_full",
+  "operational recovery fraction",
+  "a confidence interval on the ratio"
+ ],
+ "format": "thermoroute.f2a-recovery-authority.v1",
+ "interval_note": "each difference carries a whole-HUC2 cluster bootstrap interval; the ratio is a point estimate because an interval on a quotient of two estimated medians would not be one",
+ "rows": [
+  {
+   "forecast_ci_high": 0.08757777487187104,
+   "forecast_ci_low": 0.034340658657906475,
+   "forecast_station_fraction_positive": 0.75,
+   "forecast_value_degC": 0.05570326853367921,
+   "horizon": 1,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "oracle_ci_high": 0.16895765259493567,
+   "oracle_ci_low": 0.07248994118108532,
+   "oracle_value_degC": 0.11278861771649301,
+   "recovery_fraction": 0.4938731377460064
+  },
+  {
+   "forecast_ci_high": 0.4787841825915997,
+   "forecast_ci_low": 0.21999193068863576,
+   "forecast_station_fraction_positive": 0.896551724137931,
+   "forecast_value_degC": 0.30759137064099157,
+   "horizon": 3,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "oracle_ci_high": 0.6687063899765455,
+   "oracle_ci_low": 0.3632504209251868,
+   "oracle_value_degC": 0.49893908530124675,
+   "recovery_fraction": 0.6164908296476226
+  },
+  {
+   "forecast_ci_high": 0.48341443483992985,
+   "forecast_ci_low": 0.17236907526201506,
+   "forecast_station_fraction_positive": 0.9051724137931034,
+   "forecast_value_degC": 0.2988840117240913,
+   "horizon": 7,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "oracle_ci_high": 0.7600318982117062,
+   "oracle_ci_low": 0.43881598201214866,
+   "oracle_value_degC": 0.594859434363312,
+   "recovery_fraction": 0.502444770072432
+  },
+  {
+   "forecast_ci_high": 0.08883731464478553,
+   "forecast_ci_low": 0.03301231801706561,
+   "forecast_station_fraction_positive": 0.8103448275862069,
+   "forecast_value_degC": 0.05440603940682004,
+   "horizon": 1,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "oracle_ci_high": 0.170552333232453,
+   "oracle_ci_low": 0.07399579296311554,
+   "oracle_value_degC": 0.11080480772736517,
+   "recovery_fraction": 0.49100793117827435
+  },
+  {
+   "forecast_ci_high": 0.485250763245173,
+   "forecast_ci_low": 0.22927715898817824,
+   "forecast_station_fraction_positive": 0.9051724137931034,
+   "forecast_value_degC": 0.31967487499325287,
+   "horizon": 3,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "oracle_ci_high": 0.6688321607733099,
+   "oracle_ci_low": 0.36249516273743265,
+   "oracle_value_degC": 0.5316743050221551,
+   "recovery_fraction": 0.601260719153866
+  },
+  {
+   "forecast_ci_high": 0.48016231374884133,
+   "forecast_ci_low": 0.21781738976347587,
+   "forecast_station_fraction_positive": 0.9051724137931034,
+   "forecast_value_degC": 0.3258071669587098,
+   "horizon": 7,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "oracle_ci_high": 0.726063834002478,
+   "oracle_ci_low": 0.42726746177781816,
+   "oracle_value_degC": 0.5639060394399109,
+   "recovery_fraction": 0.5777685361949868
+  }
+ ],
+ "semantics": {
+  "as_issued_operational_archive": false,
+  "coherent_single_initialization": false,
+  "fixed_lead_composite": true,
+  "forecast_archive_years": "2021-2023"
+ }
+}

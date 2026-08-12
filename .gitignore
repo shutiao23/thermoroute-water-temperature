@@ -111,3 +111,5 @@ outputs/final/forcing_placebo_v5a_shift/placebo_shards_v5a_shift/
 outputs/final/forcing_components_v5a/component_shards_v5a/
 outputs/final/forcing_f2a_v5a/f2a_shards_v5a/
 outputs/final/information_ladder_v6_observed/ladder_shards_v6_observed/
+outputs/final/plain_tcn_arm_v1/tcn_shards_v1/
+outputs/final/.tcnlogs/

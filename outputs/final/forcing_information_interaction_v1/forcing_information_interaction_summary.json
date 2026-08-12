@@ -1,0 +1,214 @@
+{
+ "authority_status": "POST_OUTCOME_OBSERVED_LINEAGE_INTERACTION",
+ "chronology": {
+  "confirmatory": false,
+  "post_outcome": true
+ },
+ "estimand": "station-level double difference of paired F0-minus-F3 contrasts across information levels, medianed once at the end",
+ "format": "thermoroute.forcing-information-interaction.v1",
+ "geometry": "whole_region",
+ "reading": {
+  "negative": "forcing complements it; the ungauged case is harder than either axis alone implies",
+  "positive": "forcing substitutes for the lost local gauge"
+ },
+ "rows": [
+  {
+   "ci_high": 0.17411478398974634,
+   "ci_low": 0.058944379216541054,
+   "horizon": 1,
+   "median_degC": 0.11558928136160915,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L0",
+   "station_fraction_positive": 0.8620689655172413
+  },
+  {
+   "ci_high": 0.07167739014953456,
+   "ci_low": 0.019854793402965143,
+   "horizon": 1,
+   "median_degC": 0.038258408391832255,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L2",
+   "station_fraction_positive": 0.6810344827586207
+  },
+  {
+   "ci_high": -0.056319247235091185,
+   "ci_low": -0.09798995692930901,
+   "horizon": 1,
+   "loco_max": -0.074774880458572,
+   "loco_min": -0.07846008315859895,
+   "loco_sign_stable": true,
+   "median_degC": -0.07559926716007567,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.1810344827586207
+  },
+  {
+   "ci_high": 0.6926165427393389,
+   "ci_low": 0.2994646355696752,
+   "horizon": 3,
+   "median_degC": 0.4743342462799207,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L0",
+   "station_fraction_positive": 0.9051724137931034
+  },
+  {
+   "ci_high": 0.4961578032599361,
+   "ci_low": 0.24886052485687982,
+   "horizon": 3,
+   "median_degC": 0.33087216124808216,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L2",
+   "station_fraction_positive": 0.8793103448275862
+  },
+  {
+   "ci_high": -0.07927014577512492,
+   "ci_low": -0.19301678644709797,
+   "horizon": 3,
+   "loco_max": -0.14195272034483153,
+   "loco_min": -0.16443359090361598,
+   "loco_sign_stable": true,
+   "median_degC": -0.1474236392727683,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.23275862068965517
+  },
+  {
+   "ci_high": 0.7794917586059199,
+   "ci_low": 0.3656535375274109,
+   "horizon": 7,
+   "median_degC": 0.5800890149368317,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L0",
+   "station_fraction_positive": 0.9137931034482759
+  },
+  {
+   "ci_high": 0.803869200643986,
+   "ci_low": 0.43110629841392,
+   "horizon": 7,
+   "median_degC": 0.5957907838268431,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L2",
+   "station_fraction_positive": 0.9310344827586207
+  },
+  {
+   "ci_high": 0.09854045757448737,
+   "ci_low": -0.03522742523215894,
+   "horizon": 7,
+   "loco_max": 0.04627343265912254,
+   "loco_min": 0.013168013674005996,
+   "loco_sign_stable": true,
+   "median_degC": 0.016203301527943803,
+   "model": "LightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.5258620689655172
+  },
+  {
+   "ci_high": 0.16231175702038933,
+   "ci_low": 0.06530016875174072,
+   "horizon": 1,
+   "median_degC": 0.11252750021445523,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L0",
+   "station_fraction_positive": 0.8706896551724138
+  },
+  {
+   "ci_high": 0.07483827809357235,
+   "ci_low": 0.03078522570968234,
+   "horizon": 1,
+   "median_degC": 0.04340119515204499,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L2",
+   "station_fraction_positive": 0.7241379310344828
+  },
+  {
+   "ci_high": -0.04431448352095546,
+   "ci_low": -0.0975252127524201,
+   "horizon": 1,
+   "loco_max": -0.07737686963421839,
+   "loco_min": -0.09396851934978531,
+   "loco_sign_stable": true,
+   "median_degC": -0.07997537790777545,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.14655172413793102
+  },
+  {
+   "ci_high": 0.6792962314566348,
+   "ci_low": 0.28948902890249517,
+   "horizon": 3,
+   "median_degC": 0.49920975914324905,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L0",
+   "station_fraction_positive": 0.8793103448275862
+  },
+  {
+   "ci_high": 0.5017120699307243,
+   "ci_low": 0.277315761263909,
+   "horizon": 3,
+   "median_degC": 0.35570671552562383,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L2",
+   "station_fraction_positive": 0.853448275862069
+  },
+  {
+   "ci_high": -0.03711049325745752,
+   "ci_low": -0.18845508137972578,
+   "horizon": 3,
+   "loco_max": -0.09348762677097688,
+   "loco_min": -0.1644596311931712,
+   "loco_sign_stable": true,
+   "median_degC": -0.11261872690489222,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.3017241379310345
+  },
+  {
+   "ci_high": 0.7266502507792949,
+   "ci_low": 0.38548501301389815,
+   "horizon": 7,
+   "median_degC": 0.557812905723863,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L0",
+   "station_fraction_positive": 0.896551724137931
+  },
+  {
+   "ci_high": 0.809593356065855,
+   "ci_low": 0.43373301184361424,
+   "horizon": 7,
+   "median_degC": 0.5857806347396624,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "forcing_value_at_L2",
+   "station_fraction_positive": 0.9137931034482759
+  },
+  {
+   "ci_high": 0.10971161995206824,
+   "ci_low": -0.01113447086364805,
+   "horizon": 7,
+   "loco_max": 0.07955062820669834,
+   "loco_min": 0.02138499117232029,
+   "loco_sign_stable": true,
+   "median_degC": 0.047063611613622935,
+   "model": "ResidualLightGBM",
+   "n_stations": 116,
+   "quantity": "interaction_L2_minus_L0",
+   "station_fraction_positive": 0.646551724137931
+  }
+ ]
+}
