@@ -1,0 +1,73 @@
+{
+ "architecture": {
+  "batch": 4096,
+  "bound_degC": 1.0,
+  "channels": 32,
+  "dilations": [
+   1,
+   2,
+   4
+  ],
+  "epochs": 40,
+  "kernel": 3,
+  "kind": "plain causal TCN over the lag axis",
+  "learning_rate": 0.003,
+  "model_selection": "lowest in-fold validation MSE across epochs",
+  "receptive_field_positions": 15
+ },
+ "cells": [
+  {
+   "cell": "F3_full_L2_whole_region_fold2_PlainTCN_unbounded_seed2_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 6.72506856918335,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29457,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 12.07812786102295,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 252635,
+    "validation_rows": 60737
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "01",
+    "02",
+    "07",
+    "09",
+    "16"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_whole_region_fold2_PlainTCN_unbounded_seed2_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.plain-tcn-arm.v1",
+ "information_matching": "the same frozen tabular namespace the tree arms consume, under the same level mask; lag columns reshaped into the sequence axis, all remaining columns entering as static features. Missing cells are set to the training mean, which gives the network strictly less than LightGBM's learned NaN branch.",
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_ARCHITECTURE_ARM"
+}

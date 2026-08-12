@@ -1,0 +1,9 @@
+{
+ "builder_sha256": "a79b674a0c91f15dd6ace4b7375e79a7deeb9ab5ee2bb3f9d0f96b077ecc7524",
+ "format": "thermoroute.architecture-authority.v1.manifest",
+ "outputs_sha256": {
+  "architecture_effects.parquet": "8ab26454699092c571afa497c0ed6ed72ac8e83ce0c7c15b925711a528328f3b",
+  "architecture_summary.json": "93a77b9b3c687dcb908d032d6f779fb8910c8fd3eac0f9647eac690165a5dfc1"
+ },
+ "runner_sha256": "56f6c264674400da51ffede9568000b43b67fc0bf101fd0b4dddac343f6e0cfb"
+}

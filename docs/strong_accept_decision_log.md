@@ -1824,3 +1824,84 @@ Builders: `scripts/final/build_f2a_recovery_authority.py`,
 `scripts/final/build_forcing_information_interaction.py`.
 
 Commit(s): (this worktree)
+
+## 2026-08-12 — DLOG-033: the architecture axis, and the claim it could have broken
+
+Phase 5 needed a second model class that sees exactly what the trees see.
+`run_neural_information_regimes.py` was supposed to be it: 4,602 lines
+importing no deep-learning library and fitting nothing. It is replaced by
+`scripts/final/run_plain_tcn_arm.py`, which is small on purpose.
+
+**Information matching is structural, not asserted.** The frozen tabular
+namespace is already a lag window, so its lag columns become the sequence axis
+of the convolution and every other column enters as a static feature at the
+head. A test requires the partition to be exhaustive at every information
+level: no column lost, none invented. That is a stronger guarantee than "we
+gave both models the same features", because it is checkable and it fails.
+
+Two design details are recorded because both were nearly wrong. The dilations
+started at (1, 2), giving a receptive field of seven positions against an
+eight-position lag grid -- causal, and blind to the oldest observation a tree
+can split on. That is an information mismatch dressed up as an architecture,
+and the test written to check the claim is what caught it; the run was
+restarted with (1, 2, 4). Second, causality is tested on the convolution trunk
+rather than on `forward`, which reads only the newest position and would pass
+any kernel at all.
+
+**The result the paper's central claim rests on.** At L0 under issue-time
+information -- the cell every published daily water-temperature comparison
+occupies -- the two model classes differ by at most 0.009 degC at any lead,
+against station-median errors of 0.53-1.74 degC. Roughly one two-hundredth of
+what withholding local thermal state costs, an order of magnitude below three
+days of future weather. The claim was falsifiable here and it survived.
+
+**Two interactions, and they point opposite ways.** Remove the local gauge and
+the tree wins by 0.02-0.19 degC; the architecture-by-information double
+difference is +0.183 [0.118, 0.273] at one day, LOCO-stable. The estimator
+starts to matter exactly where information is scarce, which is the mirror of
+DLOG-032's F-by-L result and the regime a transfer study is actually in.
+
+Give the model perfect future weather at L0 and the sign reverses: -0.033
+[-0.059, -0.011] at three days, -0.096 [-0.177, -0.038] at seven, with the
+architecture-by-forcing double difference negative and resolved at all three
+leads. A convolution over a forcing sequence extracts more from a full future
+trajectory than axis-aligned splits do. This is the only cell in the paper
+where architecture earns a resolvable gain, it is worth about a sixth of the
+forcing value it exploits, and it requires an oracle -- so it is an argument
+for sequence models conditional on good forcing, not in the benchmarked regime.
+
+**A design rule the paper can now state.** The +/-1 degC residual bound costs
+0.009 degC at L0/F0 and 0.22-0.60 degC at L2. At L0 the anchor is the station's
+own damped persistence and rarely needs more than a degree of correction; at L2
+it is a pooled climatology that can sit several degrees away, so bounding the
+correction bounds the achievable accuracy. Constraining a residual is safe
+exactly to the extent that what it is a residual *of* is already close.
+
+**An operational failure, and what it cost.** Eight extra workers were launched
+to shorten the second wave and collided with the pool on the same manifest
+tags. The later process skipped shards already written and then wrote a
+manifest describing only what it had fitted, leaving 44 shards with no lineage
+entry. All 288 read back complete with no NaN, but a fit whose evidence is gone
+is not a fit that can be defended, so the 44 were hashed, deleted and refitted
+under unique tags. Every one came back byte-identical, which repairs the record
+and incidentally demonstrates the arm is deterministic.
+`scripts/final/consolidate_tcn_lineage.py` now merges the per-worker manifests
+and reports the two gap directions separately, because a shard with no entry
+and an entry with no shard are different problems.
+
+Earlier in the same run 48 concurrent workers had been OOM-killed down to 25
+with no log output; the pool is bounded and watched now. Both failures share a
+cause -- adding parallelism without asking what the added workers would
+contend for.
+
+Scope. Whole-region holdout only, so nothing here concerns random-site splits.
+One network is one draw from "what a deep model does here"; a recurrent or
+attention arm would be needed to say whether these results are about sequence
+models or about this one. Post-outcome and descriptive, excluded from the
+Abstract and Key Points on that ground.
+
+Artifacts: `outputs/final/architecture_authority_v1/`,
+`outputs/final/plain_tcn_arm_v1/tcn_lineage_manifest_consolidated_v1.json`.
+Manuscript: Section 4.10.
+
+Commit(s): (this worktree)

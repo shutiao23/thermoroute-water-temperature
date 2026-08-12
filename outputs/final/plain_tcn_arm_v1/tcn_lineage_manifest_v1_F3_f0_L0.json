@@ -1,0 +1,455 @@
+{
+ "architecture": {
+  "batch": 4096,
+  "bound_degC": 1.0,
+  "channels": 32,
+  "dilations": [
+   1,
+   2,
+   4
+  ],
+  "epochs": 40,
+  "kernel": 3,
+  "kind": "plain causal TCN over the lag axis",
+  "learning_rate": 0.003,
+  "model_selection": "lowest in-fold validation MSE across epochs",
+  "receptive_field_positions": 15
+ },
+ "cells": [
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed0_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 37,
+    "best_validation_mse": 0.22469139099121094,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30896,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 6.2213335037231445,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed0_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed1_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 34,
+    "best_validation_mse": 0.22446954250335693,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30896,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 5.9461846351623535,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed1_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed2_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 34,
+    "best_validation_mse": 0.22198575735092163,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30896,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 6.259448528289795,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed2_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed0_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 29,
+    "best_validation_mse": 0.554853081703186,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30671,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 9.65877914428711,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed0_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed1_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 35,
+    "best_validation_mse": 0.5651014447212219,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30671,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 9.294011116027832,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed1_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed2_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 35,
+    "best_validation_mse": 0.5586671829223633,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30671,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 9.383563995361328,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 247390,
+    "validation_rows": 62200
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed2_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed0_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 37,
+    "best_validation_mse": 0.9130916595458984,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30405,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 9.980504989624023,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed0_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed1_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 30,
+    "best_validation_mse": 0.924160897731781,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30405,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 9.509511947631836,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed1_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed2_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_epoch": 39,
+    "best_validation_mse": 0.9345384836196899,
+    "bounded": false,
+    "features_total": 220,
+    "held_rows": 30405,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 10.42517375946045,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP",
+     "WTEMP"
+    ],
+    "static_features": 164,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 245915,
+    "validation_rows": 61666
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L0",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L0_whole_region_fold0_PlainTCN_unbounded_seed2_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.plain-tcn-arm.v1",
+ "information_matching": "the same frozen tabular namespace the tree arms consume, under the same level mask; lag columns reshaped into the sequence axis, all remaining columns entering as static features. Missing cells are set to the training mean, which gives the network strictly less than LightGBM's learned NaN branch.",
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_ARCHITECTURE_ARM"
+}

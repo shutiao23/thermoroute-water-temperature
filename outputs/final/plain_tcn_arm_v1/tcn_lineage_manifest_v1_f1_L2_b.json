@@ -1,0 +1,464 @@
+{
+ "architecture": {
+  "batch": 4096,
+  "bound_degC": 1.0,
+  "channels": 32,
+  "dilations": [
+   1,
+   2,
+   4
+  ],
+  "epochs": 40,
+  "kernel": 3,
+  "kind": "plain causal TCN over the lag axis",
+  "learning_rate": 0.003,
+  "model_selection": "lowest in-fold validation MSE across epochs",
+  "receptive_field_positions": 15
+ },
+ "cells": [
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed0_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 12.61423397064209,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30931,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 0,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed0_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed1_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 32,
+    "best_validation_mse": 12.606359481811523,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30931,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 1,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed1_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed2_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 12.591291427612305,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30931,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 249792,
+    "validation_rows": 63189
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 2,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed2_h1.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed0_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 27,
+    "best_validation_mse": 12.92831802368164,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30729,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 0,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed0_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed1_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 12.887215614318848,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30729,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 1,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed1_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed2_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 12.889193534851074,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30729,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 248320,
+    "validation_rows": 62748
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 2,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed2_h3.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed0_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 13.248881340026855,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30479,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 0,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed0_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed1_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 33,
+    "best_validation_mse": 13.223356246948242,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30479,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 1,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed1_h7.parquet"
+  },
+  {
+   "cell": "L2_whole_region_fold1_PlainTCN_bounded_seed2_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 13.214500427246094,
+    "bounded": true,
+    "features_total": 176,
+    "held_rows": 30479,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 1.0,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 128,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 246908,
+    "validation_rows": 62205
+   },
+   "fold": 1,
+   "forcing": "F0",
+   "geometry": "whole_region",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_bounded",
+   "regions_held": [
+    "03",
+    "12",
+    "14",
+    "18"
+   ],
+   "seed": 2,
+   "shard": "L2_whole_region_fold1_PlainTCN_bounded_seed2_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.plain-tcn-arm.v1",
+ "information_matching": "the same frozen tabular namespace the tree arms consume, under the same level mask; lag columns reshaped into the sequence axis, all remaining columns entering as static features. Missing cells are set to the training mean, which gives the network strictly less than LightGBM's learned NaN branch.",
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_ARCHITECTURE_ARM"
+}

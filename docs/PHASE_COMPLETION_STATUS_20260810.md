@@ -99,11 +99,13 @@ pre-run facts to invariants that outlive the run.
   at one and three days with intervals excluding zero (DLOG-032). The two
   information sources are complements, so the substitution argument for
   forecasting an ungauged reach fails in the unfavourable direction.
-- **Phase 5 — the plain-TCN arm.** The runner now exists
-  (`scripts/final/run_plain_tcn_arm.py`), is information-matched to the trees by
-  construction rather than by claim, and its causality and namespace partition
-  are unit-tested. Cells are fitting at F0 and F3 across both information
-  levels.
+- **Phase 5 — the plain-TCN arm.** Complete: 288 cells at F0 and F3 across both
+  information levels, both residual variants and three fit seeds. At L0 under
+  issue-time information the model class is worth at most 0.009 °C, which is
+  the paper's central claim surviving a test that could have broken it. At L2
+  the tree wins by 0.02–0.19 °C, and given perfect future weather at L0 the
+  network wins by 0.03–0.10 °C — the estimator matters where information is
+  scarce or unusually rich, and nowhere in between (DLOG-033).
 - **SI01 HUC2 projection.** Filled from the registry and the reportable cohort;
   attrition concentrates the cluster structure slightly (largest share 21.7% →
   22.4%) rather than balancing it.
@@ -115,7 +117,7 @@ pre-run facts to invariants that outlive the run.
 ### Achievable here, not yet done
 | Item | Cost | Note |
 |---|---|---|
-| Phase 4 — the remaining matrix cells | Moderate | The tree matrix is complete across F×L×G. The architecture axis is fitted at whole-region holdout only; a TCN under random-site geometry would complete the 48-cell crossing |
+| Phase 4 — the remaining matrix cells | Moderate | The tree matrix is complete across F×L×G and the architecture axis is complete across F×L. What is missing is architecture crossed with *geometry*: the TCN is fitted at whole-region holdout only, so no statement covers random-site splits |
 | Phase 10c — a second neural class | Moderate | One network is one draw from "what a deep model does here". A recurrent or attention arm would say whether the architecture result is about sequence models or about this sequence model |
 
 ### Not achievable from this repository

@@ -739,6 +739,12 @@ matters and the components layered on top of it do not. These are five-seed
 deletion and intervention sensitivities on paired keys; they do not prove
 component necessity.
 
+This section asks whether one deep architecture beats another deep architecture
+on the held-out window. Section 4.10 asks a different and larger question — how
+much the *model class* is worth against a gradient-boosted tree, and whether
+that answer changes once local information or future forcing is varied — and
+finds that it does change, which is why the two sections are not redundant.
+
 ### 4.4 Held-out 2021–2023 evaluation
 
 The held-out 2021–2023 evaluation applies the model suite and comparison set of
@@ -1450,6 +1456,98 @@ Section 4.7. Like that one, this analysis is post-outcome and descriptive, not a
 confirmatory test, and is reported outside the Abstract and Key Points for that
 reason
 (`outputs/final/forcing_information_interaction_v1/`).
+
+---
+
+### 4.10 The model class matters only where the information does not
+
+Every contrast to this point varies information and holds the model class
+fixed. This one does the reverse, and it is the contrast on which the paper's
+central claim can fail: if the estimator, rather than the information available
+at issue time, were what bounds skill here, this section would show it.
+
+A plain causal temporal convolutional network is fitted in each cell of the
+crossing. Information matching is structural rather than asserted. The frozen
+tabular namespace the trees consume is already a lag window, so its lag columns
+become the sequence axis of the convolution and every remaining column enters as
+a static feature at the head; the partition is exhaustive at every information
+level, and a test fails if any column is lost or invented. The dilations span
+the whole eight-position lag grid, because a stack reaching back only seven
+positions would be causal *and* blind to the oldest observation a tree can split
+on — an information mismatch dressed up as an architecture. Level masks, folds,
+evaluation keys and the level-legal anchor are the tree arms' own. The network's
+one disadvantage is that LightGBM routes missing values down a learned branch
+and a dense network cannot, so missing cells take the training mean; on this
+panel that affects no cell, and where it would, it can only understate the
+network.
+
+Three fit seeds are paired inside each seed before averaging, and the comparator
+is the residual-target tree, which adds its prediction to the same anchor. The
+network is therefore compared with the tree that shares its target formulation,
+not the one that does not. Positive means the network is worse.
+
+**Table 4.18 — architecture penalty across the crossing.** Station-first paired
+differences in °C, TCN minus residual tree, whole-region holdout, 116
+reportable stations, 10,000-draw whole-HUC2 cluster bootstrap.
+
+| Information | Forcing | 1 d | 3 d | 7 d |
+| --- | --- | ---: | ---: | ---: |
+| L0 (gauged) | F0 | +0.009 [0.001, 0.014] | +0.006 [−0.001, 0.012] | −0.002 [−0.009, 0.009] |
+| L0 (gauged) | F3 | −0.007 [−0.018, 0.000] | −0.033 [−0.059, −0.011] | −0.096 [−0.177, −0.038] |
+| L2 (ungauged) | F0 | +0.185 [0.115, 0.281] | +0.085 [0.007, 0.180] | +0.022 [−0.105, 0.171] |
+| L2 (ungauged) | F3 | +0.124 [0.077, 0.275] | +0.121 [0.050, 0.285] | +0.106 [−0.109, 0.392] |
+
+**In the regime this literature reports, the model class is worth about a
+hundredth of a degree.** At L0 under issue-time information — the cell every
+published daily water-temperature comparison occupies — the two model classes
+differ by at most 0.009 °C at any lead, against station-median errors of
+0.53–1.74 °C. That is roughly one two-hundredth of what withholding local
+thermal state costs (Section 4.7) and an order of magnitude below the value of
+three days of future weather (Section 4.8). The claim was falsifiable and it
+survived: a different model family, given the same inputs, lands in the same
+place.
+
+**Where information is scarce, the estimator starts to matter.** Remove the
+local gauge and the tree wins by 0.02–0.19 °C, and the station-level
+architecture-by-information double difference is +0.183 [0.118, 0.273] at one
+day with a leave-one-HUC2-out range that keeps its sign. This is the mirror of
+Section 4.9 and points the same way: the thermally ungauged case is not the
+gauged case with a constant added. It is a regime where the choice of estimator
+stops being a rounding error, and it is the regime a transfer study is actually
+in.
+
+**Given perfect future weather, the sequence model is the better one.** At L0
+with F3 the sign reverses and resolves: −0.033 [−0.059, −0.011] at three days
+and −0.096 [−0.177, −0.038] at seven, and the architecture-by-forcing double
+difference is negative at all three leads (−0.015, −0.037, −0.104, every
+interval excluding zero, every leave-one-HUC2-out range keeping its sign). A
+convolution over a forcing sequence extracts more from a full future
+meteorological trajectory than axis-aligned splits do. This is the one cell in
+the paper where architecture earns a resolvable gain, and it is worth naming
+precisely what it is worth: about a sixth of the forcing value it is exploiting,
+in a cell that requires an oracle. It is an argument for sequence models
+*conditional on good forcing*, not an argument for them in the regime the
+literature benchmarks.
+
+**The residual bound is nearly free when the anchor is good and expensive when
+it is not.** The same ±1 °C algebraic limit the manuscript's constrained model
+uses costs 0.009 °C at L0/F0 and 0.22–0.60 °C at L2. The reason is mechanical:
+at L0 the anchor is the station's own damped persistence and a correction of
+more than a degree is rarely needed, while at L2 the anchor is a pooled
+climatology that can sit several degrees from the truth, so a bound on the
+correction is a bound on the achievable accuracy. Constraining a residual is
+safe exactly to the extent that the thing it is a residual *of* is already
+close, which is a design rule this paper can now state rather than assume.
+
+Scope. Whole-region holdout only; the architecture axis is not crossed with
+geometry, so no statement here concerns random-site splits. One network is one
+draw from "what a deep model does here" — a recurrent or attention arm would be
+needed to say whether these results are about sequence models or about this
+sequence model. The 288 cells are deterministic: 44 were refitted after a
+lineage-record collision and every one reproduced byte-for-byte. Post-outcome
+and descriptive, like Sections 4.7–4.9, and excluded from the Abstract and Key
+Points on that ground
+(`outputs/final/architecture_authority_v1/`).
 
 ---
 
