@@ -1,0 +1,79 @@
+{
+ "cells": [
+  {
+   "cell": "F3_full_L2_whole_region_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 30896,
+    "target_kind": "raw_y",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 142566,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": null,
+   "shard": "F3_full_L2_whole_region_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_whole_region_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 30896,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248984,
+    "validation_rows": 62612
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "whole_region",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 142566,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "11",
+    "17"
+   ],
+   "seed": null,
+   "shard": "F3_full_L2_whole_region_fold0_ResidualLightGBM_h1.parquet"
+  }
+ ],
+ "format": "thermoroute.information-ladder-v6-observed.v1",
+ "geometry": "whole_region",
+ "levels": [
+  "L2"
+ ],
+ "seeds": [
+  null
+ ],
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_LADDER"
+}

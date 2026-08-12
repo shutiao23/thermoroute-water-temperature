@@ -101,3 +101,13 @@ outputs/final/ladder_effects.parquet
 outputs/final/ladder_effects_legacy.parquet
 outputs/final/ladder_summary.json
 outputs/final/.watch/
+
+# Prediction shards: deterministically regenerable, and 87% of each file is
+# identity repeated once per row. Their SHA-256 fingerprints live in
+# outputs/final/shard_digest_index.json, which is what makes a rerun verifiable;
+# the bytes themselves only take up space. Same rule as predictions.parquet.
+outputs/final/forcing_placebo_v5a/placebo_shards_v5a_shuffle/
+outputs/final/forcing_placebo_v5a_shift/placebo_shards_v5a_shift/
+outputs/final/forcing_components_v5a/component_shards_v5a/
+outputs/final/forcing_f2a_v5a/f2a_shards_v5a/
+outputs/final/information_ladder_v6_observed/ladder_shards_v6_observed/

@@ -1,0 +1,1430 @@
+{
+ "cells": [
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 29468,
+    "target_kind": "raw_y",
+    "train_rows": 264734,
+    "validation_rows": 62758
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 799,
+    "features": 220,
+    "held_rows": 29468,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 264734,
+    "validation_rows": 62758
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 29260,
+    "target_kind": "raw_y",
+    "train_rows": 263164,
+    "validation_rows": 62344
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 29260,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 263164,
+    "validation_rows": 62344
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 29033,
+    "target_kind": "raw_y",
+    "train_rows": 261664,
+    "validation_rows": 61806
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 29033,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 261664,
+    "validation_rows": 61806
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold0_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 29468,
+    "target_kind": "raw_y",
+    "train_rows": 264734,
+    "validation_rows": 62758
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 125242,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold0_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold0_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 29468,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 264734,
+    "validation_rows": 62758
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 125242,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold0_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold0_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 29260,
+    "target_kind": "raw_y",
+    "train_rows": 263164,
+    "validation_rows": 62344
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 124425,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold0_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold0_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 29260,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 263164,
+    "validation_rows": 62344
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 124425,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold0_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold0_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 29033,
+    "target_kind": "raw_y",
+    "train_rows": 261664,
+    "validation_rows": 61806
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 123618,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold0_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold0_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 29033,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 261664,
+    "validation_rows": 61806
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 123618,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold0_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 30198,
+    "target_kind": "raw_y",
+    "train_rows": 248864,
+    "validation_rows": 62496
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 30198,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248864,
+    "validation_rows": 62496
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 29969,
+    "target_kind": "raw_y",
+    "train_rows": 247356,
+    "validation_rows": 62087
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 29969,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247356,
+    "validation_rows": 62087
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 29701,
+    "target_kind": "raw_y",
+    "train_rows": 245924,
+    "validation_rows": 61567
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 29701,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245924,
+    "validation_rows": 61567
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold1_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 799,
+    "features": 186,
+    "held_rows": 30198,
+    "target_kind": "raw_y",
+    "train_rows": 248864,
+    "validation_rows": 62496
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 142116,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold1_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold1_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 30198,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248864,
+    "validation_rows": 62496
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 142116,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold1_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold1_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 574,
+    "features": 186,
+    "held_rows": 29969,
+    "target_kind": "raw_y",
+    "train_rows": 247356,
+    "validation_rows": 62087
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 141206,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold1_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold1_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 29969,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247356,
+    "validation_rows": 62087
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 141206,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold1_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold1_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 29701,
+    "target_kind": "raw_y",
+    "train_rows": 245924,
+    "validation_rows": 61567
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 140266,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold1_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold1_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 29701,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245924,
+    "validation_rows": 61567
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 140266,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold1_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 29365,
+    "target_kind": "raw_y",
+    "train_rows": 256981,
+    "validation_rows": 63143
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 29365,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 256981,
+    "validation_rows": 63143
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 29150,
+    "target_kind": "raw_y",
+    "train_rows": 255471,
+    "validation_rows": 62715
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 29150,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 255471,
+    "validation_rows": 62715
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 28905,
+    "target_kind": "raw_y",
+    "train_rows": 254028,
+    "validation_rows": 62189
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 28905,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254028,
+    "validation_rows": 62189
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold2_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 799,
+    "features": 186,
+    "held_rows": 29365,
+    "target_kind": "raw_y",
+    "train_rows": 256981,
+    "validation_rows": 63143
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 132517,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold2_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold2_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 29365,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 256981,
+    "validation_rows": 63143
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 132517,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold2_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold2_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 29150,
+    "target_kind": "raw_y",
+    "train_rows": 255471,
+    "validation_rows": 62715
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 131645,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold2_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold2_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 29150,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 255471,
+    "validation_rows": 62715
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 131645,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold2_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold2_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 28905,
+    "target_kind": "raw_y",
+    "train_rows": 254028,
+    "validation_rows": 62189
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 130747,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold2_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold2_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 28905,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 254028,
+    "validation_rows": 62189
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 130747,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold2_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 31413,
+    "target_kind": "raw_y",
+    "train_rows": 248671,
+    "validation_rows": 62151
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 800,
+    "features": 220,
+    "held_rows": 31413,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248671,
+    "validation_rows": 62151
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 31260,
+    "target_kind": "raw_y",
+    "train_rows": 247184,
+    "validation_rows": 61698
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 575,
+    "features": 220,
+    "held_rows": 31260,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247184,
+    "validation_rows": 61698
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 31043,
+    "target_kind": "raw_y",
+    "train_rows": 245850,
+    "validation_rows": 61137
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L0_random_site_seed4_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "per_station_damped_persistence",
+    "best_iteration": 440,
+    "features": 220,
+    "held_rows": 31043,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245850,
+    "validation_rows": 61137
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L0",
+   "mask_invariance": {
+    "applicable": false,
+    "reason": "level hides no local observation"
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L0_random_site_seed4_fold3_ResidualLightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold3_LightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 31413,
+    "target_kind": "raw_y",
+    "train_rows": 248671,
+    "validation_rows": 62151
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 143857,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold3_LightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold3_ResidualLightGBM_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 800,
+    "features": 186,
+    "held_rows": 31413,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 248671,
+    "validation_rows": 62151
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 143857,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold3_ResidualLightGBM_h1.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold3_LightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 31260,
+    "target_kind": "raw_y",
+    "train_rows": 247184,
+    "validation_rows": 61698
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 143051,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold3_LightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold3_ResidualLightGBM_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 575,
+    "features": 186,
+    "held_rows": 31260,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 247184,
+    "validation_rows": 61698
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 143051,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold3_ResidualLightGBM_h3.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold3_LightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 31043,
+    "target_kind": "raw_y",
+    "train_rows": 245850,
+    "validation_rows": 61137
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 142111,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "LightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold3_LightGBM_h7.parquet"
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed4_fold3_ResidualLightGBM_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_iteration": 440,
+    "features": 186,
+    "held_rows": 31043,
+    "target_kind": "level_anchor_residual",
+    "train_rows": 245850,
+    "validation_rows": 61137
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "mask_invariance": {
+    "applicable": true,
+    "columns_checked": 186,
+    "held_rows_checked": 142111,
+    "max_abs_difference": 0.0,
+    "perturbed_variables": [
+     "WTEMP"
+    ]
+   },
+   "model": "ResidualLightGBM",
+   "regions_held": [
+    "random_seed4"
+   ],
+   "seed": 4,
+   "shard": "F3_full_L2_random_site_seed4_fold3_ResidualLightGBM_h7.parquet"
+  }
+ ],
+ "format": "thermoroute.information-ladder-v6-observed.v1",
+ "geometry": "random_site",
+ "levels": [
+  "L0",
+  "L2"
+ ],
+ "seeds": [
+  4
+ ],
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_LADDER"
+}
