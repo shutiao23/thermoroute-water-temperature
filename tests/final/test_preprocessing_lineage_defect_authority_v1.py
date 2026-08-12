@@ -441,7 +441,16 @@ def test_path_replacement_during_capture_is_rejected(
             self.handle.close()
 
     monkeypatch.setattr(authority.os, "fdopen", SwapAfterRead)
-    with pytest.raises(authority.LineageAuthorityError, match="path changed"):
+    # Two guards can catch this swap and which one fires is a timing race, so
+    # the test pins the rejection rather than the guard.  ``os.replace``
+    # unlinks the old target, and that link-count change updates the open
+    # inode's ctime; if the kernel has applied it by the time the second
+    # ``fstat`` runs, the stat-signature guard rejects first ("changed while
+    # being captured"), otherwise the lstat guard does ("path changed while
+    # being captured").  Asserting on one of them made this test fail about a
+    # third of the time while the security property held every time.
+    with pytest.raises(authority.LineageAuthorityError,
+                       match="(path )?changed while being captured"):
         authority._read_stable_regular(target, root=repository, label="TOCTOU input")
 
 
