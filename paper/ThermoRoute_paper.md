@@ -1514,7 +1514,8 @@ day with a leave-one-HUC2-out range that keeps its sign. This is the mirror of
 Section 4.9 and points the same way: the thermally ungauged case is not the
 gauged case with a constant added. It is a regime where the choice of estimator
 stops being a rounding error, and it is the regime a transfer study is actually
-in.
+in. Whether that is about the missing information or about the spatial
+extrapolation the holdout bundles with it is settled below; it is the former.
 
 **Given perfect future weather, the sequence model is the better one.** At L0
 with F3 the sign reverses and resolves: −0.033 [−0.059, −0.011] at three days
@@ -1539,14 +1540,52 @@ correction is a bound on the achievable accuracy. Constraining a residual is
 safe exactly to the extent that the thing it is a residual *of* is already
 close, which is a design rule this paper can now state rather than assume.
 
-Scope. Whole-region holdout only; the architecture axis is not crossed with
-geometry, so no statement here concerns random-site splits. One network is one
-draw from "what a deep model does here" — a recurrent or attention arm would be
-needed to say whether these results are about sequence models or about this
-sequence model. The 288 cells are deterministic: 44 were refitted after a
-lineage-record collision and every one reproduced byte-for-byte. Post-outcome
-and descriptive, like Sections 4.7–4.9, and excluded from the Abstract and Key
-Points on that ground
+**None of this is an artifact of how the holdout was drawn.** The results above
+use whole-region holdout, while the literature the first of them speaks to
+overwhelmingly uses random splits — so the null was, until this point, measured
+outside the geometry of the papers it addresses. Repeating the arm under
+random-site holdout, with the network contrast formed inside each of five split
+seeds against the tree fitted on that seed's own folds, closes that gap and
+answers a second question the whole-region design confounds.
+
+**Table 4.19 — architecture penalty under both spatial geometries.**
+Station-first paired differences in °C, TCN minus residual tree, F0, 116
+reportable stations.
+
+| Information | Geometry | 1 d | 3 d | 7 d |
+| --- | --- | ---: | ---: | ---: |
+| L0 | whole-region | +0.009 [0.001, 0.014] | +0.006 [−0.001, 0.012] | −0.002 [−0.009, 0.009] |
+| L0 | random-site | +0.008 [0.003, 0.012] | +0.003 [−0.008, 0.007] | +0.001 [−0.007, 0.012] |
+| L2 | whole-region | +0.185 [0.115, 0.281] | +0.085 [0.007, 0.180] | +0.022 [−0.105, 0.171] |
+| L2 | random-site | +0.110 [0.071, 0.229] | +0.095 [0.051, 0.197] | +0.038 [−0.022, 0.073] |
+
+The L0 rows are the same number twice, and the architecture-by-geometry double
+difference confirms it: −0.002, −0.004 and +0.004 °C, the middle one resolved
+only in the sense that four thousandths of a degree can be. The null therefore
+holds in the split design the literature uses, which is where it needed to
+hold.
+
+The L2 rows answer the more interesting question. Whole-region holdout withholds
+the local gauge *and* extrapolates in space, and a geometry penalty of similar
+size to the architecture penalty appears there (Section 4.7), so the two could
+have been one phenomenon. They are not. Random-site holdout at L2 keeps the
+gauge missing and hands the near neighbours back, and the architecture penalty
+survives — 0.110 and 0.095 °C at one and three days, both intervals excluding
+zero — with an architecture-by-geometry interaction covering zero at every lead.
+The architecture-by-information interaction is positive and resolved under both
+geometries (+0.183 and +0.103 at one day, +0.086 and +0.104 at three). What
+makes the estimator start to matter is the missing local information, not the
+spatial extrapolation that the whole-region design happens to bundle with it
+(`outputs/final/architecture_geometry_interaction_v1/`).
+
+Scope. One network is one draw from "what a deep model does here" — a recurrent
+or attention arm would be needed to say whether these results are about sequence
+models or about this sequence model. The geometry arm is F0 only; crossing
+forcing, information and geometry with architecture at once is a contrast 116
+stations across about nine effective clusters cannot carry. The 648 cells are
+deterministic: 44 were refitted after a lineage-record collision and every one
+reproduced byte-for-byte. Post-outcome and descriptive, like Sections 4.7–4.9,
+and excluded from the Abstract and Key Points on that ground
 (`outputs/final/architecture_authority_v1/`).
 
 ---

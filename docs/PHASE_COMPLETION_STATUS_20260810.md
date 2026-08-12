@@ -106,6 +106,12 @@ pre-run facts to invariants that outlive the run.
   the tree wins by 0.02–0.19 °C, and given perfect future weather at L0 the
   network wins by 0.03–0.10 °C — the estimator matters where information is
   scarce or unusually rich, and nowhere in between (DLOG-033).
+- **Phase 5b — the geometry crossing.** 360 further cells at random-site
+  holdout. The L0 null is unchanged (+0.008/+0.003/+0.001 °C), so it now applies
+  to the split design the literature actually uses; and the L2 architecture
+  penalty survives (+0.110/+0.095 °C at 1 and 3 days), which establishes it is
+  about missing local information rather than the spatial extrapolation that
+  whole-region holdout bundles with it (DLOG-034).
 - **SI01 HUC2 projection.** Filled from the registry and the reportable cohort;
   attrition concentrates the cluster structure slightly (largest share 21.7% →
   22.4%) rather than balancing it.
@@ -117,7 +123,7 @@ pre-run facts to invariants that outlive the run.
 ### Achievable here, not yet done
 | Item | Cost | Note |
 |---|---|---|
-| Phase 4 — the remaining matrix cells | Moderate | The tree matrix is complete across F×L×G and the architecture axis is complete across F×L. What is missing is architecture crossed with *geometry*: the TCN is fitted at whole-region holdout only, so no statement covers random-site splits |
+| Phase 4 | **done** | The tree matrix is complete across F×L×G; the architecture axis is complete across F×L at whole-region holdout and across L×G at F0. The only uncrossed corner is F×G×A simultaneously, which 116 stations across ~9 effective clusters cannot carry and which is declined rather than pending |
 | Phase 10c — a second neural class | Moderate | One network is one draw from "what a deep model does here". A recurrent or attention arm would say whether the architecture result is about sequence models or about this sequence model |
 
 ### Not achievable from this repository

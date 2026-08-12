@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 import scripts.final.build_architecture_authority as A
+import scripts.final.build_architecture_geometry_interaction as G
 import scripts.final.run_plain_tcn_arm as TCN
 
 
@@ -149,3 +150,71 @@ def test_the_shard_naming_agrees_with_what_the_runner_writes() -> None:
     assert A._prefix("F0") == ""
     assert A._prefix("F3_full") == "F3_full_"
     assert A.TCN_SHARDS == TCN.OUTPUT_DIR / TCN.SHARD_DIRNAME
+
+
+# ---------------------------------------------------- architecture x geometry
+
+
+def test_the_geometry_interaction_pairs_inside_each_split_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A network fitted on split seed 2's folds must be compared with the tree
+    fitted on split seed 2's folds.
+
+    Pooling risks across split seeds first and differencing afterwards compares
+    two models that were never held out on the same stations. The construction
+    below makes the two orders disagree: each split seed is easy for the tree on
+    one half of the cohort and hard on the other, and the network tracks it.
+    Paired inside the seed the penalty is a constant; pooled first it is not.
+    """
+    half = np.array([1.0] * 10 + [3.0] * 10)
+    other = np.array([3.0] * 10 + [1.0] * 10)
+    by_seed = {0: half, 1: other, 2: half, 3: other, 4: half}
+
+    def tree(level, horizon, split_seed):
+        if split_seed is None:
+            return pd.Series(np.full(20, 1.0), index=INDEX)
+        return pd.Series(by_seed[split_seed], index=INDEX)
+
+    def tcn(level, horizon, split_seed, fit_seed):
+        base = (np.full(20, 1.0) if split_seed is None else by_seed[split_seed])
+        return pd.Series(base + 0.5, index=INDEX)
+
+    monkeypatch.setattr(G, "_tree", tree)
+    monkeypatch.setattr(G, "_tcn", tcn)
+    monkeypatch.setattr(G.L.V5, "HORIZONS", [7])
+    monkeypatch.setattr(G, "huc2_cluster_map", lambda registry: CLUSTERS)
+    monkeypatch.setattr(G, "load_station_registry", lambda path: None)
+
+    rows = {(r["quantity"], r["level"], r["geometry"]): r for r in G.build_rows()}
+    penalty = rows["architecture_penalty_tcn_minus_tree", "L0", "random_site"]
+    assert penalty["median_degC"] == pytest.approx(0.5)
+    assert penalty["station_fraction_positive"] == 1.0
+    interaction = rows["interaction_random_minus_region", "L0",
+                       "random_site-whole_region"]
+    assert interaction["median_degC"] == pytest.approx(0.0)
+
+
+def test_whole_region_and_random_site_read_different_shards() -> None:
+    """The split seed must reach the filename, or the two geometries collide.
+
+    Both calls are expected to fail on a nonexistent lead; the point is *which*
+    path each one reports missing. If the seed were dropped from the name they
+    would name the same file, and the builder would compare a geometry against
+    itself while looking like it had done the crossing.
+    """
+    paths = []
+    for split_seed in (None, 3):
+        with pytest.raises(G.ARCH.ArchitectureError, match="missing shard") as caught:
+            G._tcn("L0", 999, split_seed, 0)
+        paths.append(str(caught.value))
+    assert "whole_region" in paths[0] and "seed3" not in paths[0]
+    assert "random_site_seed3" in paths[1]
+    assert paths[0] != paths[1]
+
+
+def test_the_geometry_arm_is_forcing_free_by_declaration() -> None:
+    """Crossing all four axes is a contrast this cohort cannot carry, so the
+    builder pins F0 rather than leaving it to the caller."""
+    assert G.FORCING == "F0"
+    assert G.VARIANT == "unbounded"

@@ -1905,3 +1905,67 @@ Artifacts: `outputs/final/architecture_authority_v1/`,
 Manuscript: Section 4.10.
 
 Commit(s): (this worktree)
+
+## 2026-08-12 — DLOG-034: the architecture null holds under the geometry the literature uses
+
+DLOG-033 stated its headline null -- the model class is worth at most
+0.009 degC once local information is present -- under whole-region holdout. The
+papers that null speaks to overwhelmingly use random splits, so the evidence
+against architecture mattering was not in the geometry of the work it
+criticises. That is a hole a referee finds in one reading. The arm was repeated
+at random-site holdout: 360 further cells, five split seeds, both information
+levels, three leads, three fit seeds, F0.
+
+**The null holds and its scope widens.** At L0 the penalty is +0.008, +0.003
+and +0.001 degC at 1/3/7 days against +0.009, +0.006 and -0.002 at
+whole-region. The architecture-by-geometry double difference is -0.002, -0.004
+and +0.004 degC; the middle one technically excludes zero, with an upper bound
+of -4e-6, which is resolved only in the sense that four thousandths of a degree
+can be. The claim now applies directly to the split design being criticised
+rather than to a stricter one nobody uses.
+
+**The L2 architecture penalty is about missing information, not extrapolation.**
+This is the question the whole-region design could not answer and the reason
+the run was worth two hours. Whole-region holdout removes the local gauge *and*
+extrapolates in space, and Section 4.7's geometry penalty at L2 (+0.127) is the
+same size as DLOG-033's architecture penalty at L2 (+0.185), so the two could
+have been one phenomenon reported twice. Random-site holdout separates them: it
+keeps the gauge missing and hands the near neighbours back, and the
+architecture penalty survives at 0.110 and 0.095 degC at one and three days
+with intervals excluding zero, while the architecture-by-geometry interaction
+covers zero at every lead. The architecture-by-information interaction is
+positive and resolved under both geometries (+0.183 and +0.103 at one day,
++0.086 and +0.104 at three).
+
+Had this gone the other way -- the L2 gap collapsing under random-site --
+Section 4.10 would have needed rewriting from "the estimator matters where
+information is scarce" to "the estimator matters under spatial extrapolation",
+which is a materially different claim about when to prefer one model class.
+The section was written before the run and did not need changing, but it was
+genuinely at risk.
+
+Method note. Random-site aggregation is seed-first and the distinction is
+load-bearing here rather than decorative: the network contrast is formed inside
+each split seed, against the tree fitted on that same seed's folds, and only
+then averaged over split and fit seeds. Pooling risks across split seeds first
+would compare a network and a tree that were never held out on the same
+stations.
+
+Engineering note. The split seed is now part of a cell's identity and of its
+shard name, with a test for it. Random-site folds are drawn per split seed, so
+whole-region fold 0 and random-site seed-3 fold 0 are different holdouts over
+the same registry; a shard name omitting the seed would have let the second
+silently overwrite the first, and the skip-if-present rule would then have made
+the collision look like a completed cell. Worker count was capped at ten and
+the watchdog now warns below 8 GB free, after two earlier runs lost workers to
+the OOM killer with no log output.
+
+Scope. F0 only. Crossing forcing, information and geometry with architecture at
+once is a contrast 116 stations across about nine effective clusters cannot
+carry. Post-outcome and descriptive; excluded from the Abstract and Key Points.
+
+Artifacts: `outputs/final/architecture_geometry_interaction_v1/`.
+Builder: `scripts/final/build_architecture_geometry_interaction.py`.
+Manuscript: Section 4.10, Table 4.19.
+
+Commit(s): (this worktree)

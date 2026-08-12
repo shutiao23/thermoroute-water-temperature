@@ -280,7 +280,7 @@ adaptation is separated from spatial geometry? In which issue-time-identifiable
 hydrologic states does a learned model still add skill beyond the strong
 reference? And --- since every model above sees only issue-time information --- how
 much predictability is withheld by that restriction rather than by the models,
-which we bound in Section 4.7 with realized future meteorology. The predictor
+which we bound in Section 4.8 with realized future meteorology. The predictor
 whose skill we decompose, ThermoRoute, is described in full in Section 3.1; its
 architecture is the object under test rather than the contribution.
 
@@ -465,7 +465,7 @@ information set, not the architecture, is worth.
 \pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Common anchor--residual formulation under matched information.}]{figures/fig02_model_concept.pdf}}
 \caption{\textbf{The formulation every compared model shares.} (a) Issue-time
 information: local thermal state, meteorological history, and --- only in the
-forcing-regime arm of Section 4.7 --- future meteorology (F0 absent, F3 the
+forcing-regime arm of Section 4.8 --- future meteorology (F0 absent, F3 the
 realized oracle). (b) The damped-persistence anchor of equation (1), written
 without station and lead indices for legibility, and the two regression
 targets fitted against it. LightGBM, the most accurate model at 1 and 3 days,
@@ -1177,6 +1177,106 @@ warming and cooling states and under low thermal anomaly; it is absent on the
 coldest target decile.}
 \end{figure}
 
+\subsection{What local thermal state is worth}\label{what-local-thermal-state-is-worth}
+
+Section 4.5 could not resolve a spatial effect because every arm kept the held
+station\textquotesingle s own thermal history, leaving the transferable component worth about
+0.07 °C. This section removes that history instead of the geography, which is
+the contrast the design can actually resolve.
+
+Four nested information levels are fitted under whole-region holdout, so no
+gauge from a held region appears in training and each level withholds one more
+local observation: \textbf{L0} keeps everything; \textbf{L1} pools the climatology and
+damped rate over training stations, so the target site contributes no long-term
+statistic; \textbf{L2} removes every target-site water-temperature input --- lags,
+rolling statistics, deltas, their observedness flags, the climatology anomaly
+and the persistence anchor --- leaving discharge and meteorology; \textbf{L2-U2}
+removes discharge as well.
+
+Prohibited inputs are dropped from the design matrix rather than filled, and
+before each cell is fitted a proof perturbs the held stations\textquotesingle{} own observations
+and requires a bit-identical design matrix. All 24 proofs return a maximum
+absolute difference of exactly zero; a negative control that re-admits a single
+water-temperature lag is caught with a 147 °C shift, so the proof is not
+vacuous.
+
+\textbf{Table 4.15 --- value of local thermal information.} Station-first paired
+differences in °C under whole-region holdout, raw-target tree, 116 reportable
+stations; positive means the withheld information was worth that much. CI is a
+10,000-draw whole-HUC2 cluster bootstrap.
+
+{\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\noindent
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=1.0000\hsize\raggedright\arraybackslash}Xrrlr@{}}
+\toprule\noalign{}
+Withheld & Lead & Value (°C) & 95\% CI & Stations worse \\
+\midrule\noalign{}
+Own long-term statistics (L1−L0) & 1 d & 0.010 & {[}0.007, 0.012{]} & 0.82 \\
+& 3 d & 0.062 & {[}0.041, 0.072{]} & 0.91 \\
+& 7 d & 0.161 & {[}0.139, 0.195{]} & 0.91 \\
+Recent temperature sequence (L2−L1) & 1 d & 1.707 & {[}1.346, 2.432{]} & 1.00 \\
+& 3 d & 1.201 & {[}0.889, 1.982{]} & 1.00 \\
+& 7 d & 1.169 & {[}0.850, 1.638{]} & 1.00 \\
+\textbf{All local thermal state (L2−L0)} & \textbf{1 d} & \textbf{1.716} & \textbf{{[}1.363, 2.442{]}} & \textbf{1.00} \\
+& \textbf{3 d} & \textbf{1.255} & \textbf{{[}0.989, 2.064{]}} & \textbf{1.00} \\
+& \textbf{7 d} & \textbf{1.325} & \textbf{{[}1.092, 1.725{]}} & \textbf{1.00} \\
+Local discharge (L2-U2−L2) & 1 d & 0.084 & {[}−0.033, 0.227{]} & 0.55 \\
+& 3 d & 0.043 & {[}−0.051, 0.180{]} & 0.54 \\
+& 7 d & 0.009 & {[}−0.043, 0.116{]} & 0.53 \\
+\bottomrule\noalign{}
+\end{tabularx}
+}
+
+Three things follow, and the first reorders the paper.
+
+\textbf{Local thermal state is the dominant information in this problem.} Withholding
+it costs 1.3--1.7 °C, at every lead, at every one of 116 stations, with
+leave-one-HUC2-out ranges that never approach zero. That is two to thirteen
+times the value of realized future meteorology (Section 4.8), roughly seventy
+times the architecture effect of Section 4.3, and two orders of magnitude above
+the geometry penalty of Section 4.5. A study that keeps the target gauge\textquotesingle s
+recent readings and then reports a model comparison is comparing models inside
+the regime where the largest available information is already present.
+
+\textbf{Almost all of that value is the recent sequence, not the station\textquotesingle s long
+history.} Pooling a station\textquotesingle s climatology and damped rate over the training
+stations costs 0.01--0.16 °C; removing its recent readings costs 1.17--1.71 °C, a
+factor of ten to one hundred and seventy. Cold-starting a gauged site is
+therefore nearly free, while thermally ungauged prediction is a different
+problem --- which is the distinction the transfer literature draws and the one a
+random-site split cannot see.
+
+\textbf{Discharge does not substitute for thermal history.} Once water temperature is
+gone, also removing discharge changes station-median RMSE by 0.009--0.084 °C with
+every interval covering zero and stations splitting about evenly. The
+"hydrology observed" rung is, on this cohort, barely distinguishable from having
+no local observation at all.
+
+\textbf{Spatial geometry matters, but only once local history is gone.} Section 4.5
+measured a geometry penalty of 0.004--0.009 °C and could not resolve it. Running
+the same four levels under random-site holdout as well, with the station
+contrast formed inside each of five split seeds and the paired contrasts then
+averaged, shows why: the penalty is 0.006--0.014 °C at L0 and 0.073--0.129 °C at
+L2, about thirteen times larger. The station-level double difference --- the
+geometry penalty at L2 minus the penalty at L0 --- is +0.066 to +0.124 °C, and
+every whole-HUC2 interval excludes zero at every model and lead, with
+leave-one-HUC2-out ranges that keep their sign.
+
+This is the interaction the transfer literature\textquotesingle s concern predicts, and it
+reconciles Section 4.5 with that concern rather than contradicting it. A
+random-site split in a dense network measures something closer to interpolation
+than transfer, but the cost of that substitution is invisible while the held
+gauge still supplies its own thermal history: the model barely needs its
+neighbours. Remove the history and the neighbours start to matter. A study
+reporting spatial generalization from random splits at a gauged site is
+therefore not merely optimistic by a small margin; it is measuring a quantity
+whose sensitivity to the split design is itself conditional on how much local
+information the model retains.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
 \subsection{What future meteorology would be worth}\label{what-future-meteorology-would-be-worth}
 
 Every result above is issue-time-only, so none of it says whether the small
@@ -1388,12 +1488,161 @@ because synoptic weather is autocorrelated over several days, so the shifted
 window still resembles the true one. Both are small, and the direction is what
 a weather-information reading predicts.
 
-One thing this still does not establish. It does not attribute the gain to any
-particular meteorological variable; the single-component and leave-one-out arms
-are specified in the same sealed protocol and have not been run.
-Nor can the value be divided by an architecture effect from Section 4.3 to form
-a ratio: the two come from different cells of a design that has not been
-crossed, and the interaction between forcing and architecture is unmeasured.
+\textbf{The forcing value is future air temperature.} The last sealed arms attribute
+it. A component arm gives the selected variable its realized future values and
+every other meteorological variable its training climatology, so exactly one
+variable carries event-scale information; the complementary family does the
+reverse. Both are reported because the variables are correlated and neither
+family alone is honest.
+
+At seven days, air temperature alone recovers 0.595 °C of the 0.627 °C full
+value (95\%), while withholding air temperature and giving everything else its
+realized future retains only 0.129 °C (21\%). Withholding radiation,
+precipitation or humidity-and-wind instead costs nothing measurable: each
+\texttt{without} arm returns 0.62 °C, indistinguishable from the full value. The same
+ordering holds at one and three days, where air temperature alone recovers 87\%
+and 92\%.
+
+The two families together say more than either does alone. Radiation and
+humidity-and-wind are individually informative --- 0.105 and 0.117 °C on their
+own --- but entirely substitutable, which is what a correlated predictor looks
+like when the variable it tracks is still available. Air temperature is the
+only variable that is both sufficient on its own and not replaceable by the
+others. Shares therefore exceed 100\% in sum and this is not a variance
+decomposition.
+
+\textbf{About half the oracle survives a real forecast.} Everything above is an
+oracle, so the question a practitioner asks --- how much of it is attainable ---
+needs a forecast in the design, not a reanalysis. The F2a arm supplies one. It
+reproduces the \texttt{only\_\allowbreak{}air\_\allowbreak{}temperature} arm exactly, with a single substitution:
+at each valid time the realized air temperature is replaced by an archived
+fixed-lead forecast for that day, and every other meteorological variable stays
+climatological. Its comparator is therefore that same arm, which is why the
+component result above matters operationally: air temperature alone carries 95\%
+of the full oracle at seven days, so a temperature-only product is not
+structurally barred from recovering most of what is there.
+
+Training is where the obvious implementation is wrong, and we record the error
+because it is easy to make. The forecast archive covers 2021--2023 only, so a
+model \emph{trained} on F2a features sees a future-temperature column that is
+climatology on every training row; it learns to ignore that column, and
+substituting real forecasts at evaluation then changes nothing. A first run of
+this arm did exactly that and reported 1.8\% recovery, which measured the mistake
+rather than the product. The arm therefore trains on realized air temperature
+and substitutes the forecast only when predicting --- which is also what an
+operational system does.
+
+\textbf{Table 4.16 --- what an archived fixed-lead temperature forecast recovers.}
+Station-first values in °C against F0 on 116 reportable stations; the
+denominator is the realized-temperature oracle (\texttt{only\_\allowbreak{}air\_\allowbreak{}temperature}), never
+the five-variable F3.
+
+{\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\noindent
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=1.0000\hsize\raggedright\arraybackslash}Xrrrr@{}}
+\toprule\noalign{}
+Model & Lead & Oracle \(V\) & Forecast \(V\) & Recovery \\
+\midrule\noalign{}
+LightGBM & 1 d & 0.113 & 0.056 & 49\% \\
+LightGBM & 3 d & 0.499 & 0.308 & 62\% \\
+LightGBM & 7 d & 0.595 & 0.299 & 50\% \\
+ResidualLightGBM & 1 d & 0.111 & 0.054 & 49\% \\
+ResidualLightGBM & 3 d & 0.532 & 0.320 & 60\% \\
+ResidualLightGBM & 7 d & 0.564 & 0.326 & 58\% \\
+\bottomrule\noalign{}
+\end{tabularx}
+}
+
+Roughly half to three-fifths of the temperature oracle survives contact with a
+real forecast, and the shortfall grows with lead in the way forecast skill does.
+The ratio is reported as a point estimate: each difference carries its own
+whole-HUC2 cluster interval, but an interval on a quotient of two estimated
+medians would be one in name only.
+
+Three constraints travel with this number and none of them is rhetorical. The
+series is a \textbf{fixed-lead composite} --- for each valid time, what a run issued
+\emph{h} days earlier said about that day --- not a coherent trajectory from one
+initialization and not an as-issued operational archive; the sealed protocol
+forbids both readings. The archive spans 2021--2023 at these stations, so this is
+a measurement of those years, not a climatological expectation. And the arm
+supplies air temperature only, so it is not an estimate of what a full
+operational forcing product would deliver. What remains unrun under the same
+seal is the F2b archived-vintage arm, which is the one that would answer that
+last question.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\subsection{Future weather does not substitute for a local gauge}\label{future-weather-does-not-substitute-for-a-local-gauge}
+
+Sections 4.7 and 4.8 each varied one information axis while holding the other at
+its default, and reported that way they invite a reading neither tested: that
+the two are substitutes, so an ungauged reach could buy back with weather what
+it lost with the sensor. That reading has practical consequences --- it is the
+argument for instrumenting a basin with forecasts rather than thermistors --- so
+we crossed the axes and asked directly.
+
+The F3 forcing arm was refitted at L0 and at L2 under the same whole-region
+folds, the same mask-invariance proof, and the same level-legal anchor as
+Section 4.7, giving a forcing value at each information level and a
+station-level double difference between them. Because these cells use
+whole-region holdout rather than the split of Section 4.8, the L0 forcing values
+below are slightly smaller than Table 4.13\textquotesingle s; the comparison that matters is
+between the two levels within this table, where the folds are identical.
+
+\textbf{Table 4.17 --- value of realized future meteorology by information level.}
+Station-first paired values in °C under whole-region holdout, raw-target tree,
+116 reportable stations, 10,000-draw whole-HUC2 cluster bootstrap.
+
+{\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\noindent
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=1.2680\hsize\raggedright\arraybackslash}X>{\hsize=0.7320\hsize\raggedleft\arraybackslash}Xrr@{}}
+\toprule\noalign{}
+Quantity & 1 d & 3 d & 7 d \\
+\midrule\noalign{}
+Forcing value at L0 (gauged) & 0.116 {[}0.059, 0.174{]} & 0.474 {[}0.299, 0.693{]} & 0.580 {[}0.366, 0.779{]} \\
+Forcing value at L2 (thermally ungauged) & 0.038 {[}0.020, 0.072{]} & 0.331 {[}0.249, 0.496{]} & 0.596 {[}0.431, 0.804{]} \\
+\textbf{Interaction (L2 − L0)} & \textbf{−0.076 {[}−0.098, −0.056{]}} & \textbf{−0.147 {[}−0.193, −0.079{]}} & \textbf{+0.016 {[}−0.035, +0.099{]}} \\
+\bottomrule\noalign{}
+\end{tabularx}
+}
+
+The interaction is negative at one and three days and its interval excludes zero
+at both, for both target formulations. Future weather is worth \emph{less} to a model
+that has lost the local gauge, not more: at one day it retains a third of its
+gauged value, at three days seven-tenths. Only by seven days do the two levels
+converge, and there the interaction is indistinguishable from zero
+(+0.016 {[}−0.035, +0.099{]}).
+
+The mechanism is the one the anchor makes visible. Realized future meteorology
+earns its value by correcting a trajectory, and at short leads the trajectory it
+corrects is the persistence anchor built from the station\textquotesingle s own recent readings.
+Remove that anchor and the model falls back on a pooled climatology, which is
+too coarse a starting point for tomorrow\textquotesingle s weather to sharpen --- there is less
+error of the right kind left to remove. By seven days the anchor has decayed far
+enough that a gauged model is not much better positioned than an ungauged one,
+and the forcing value stops depending on which it is.
+
+This closes the substitution argument in the unfavourable direction. The two
+information sources are complements at the leads where local state dominates,
+so a thermally ungauged reach is harder than either Section 4.7 or Section 4.8
+implies on its own: it loses 1.3--1.7 °C to the missing gauge and then recovers
+less from forecasts than a gauged site would. The one qualification is the
+seven-day cell, where forcing is worth the same either way --- which is also the
+lead at which the archived forecast of Section 4.8 recovers only half the
+oracle, so the regime where forcing substitutes best is the regime where it is
+least attainable.
+
+Geometry is held at whole-region throughout. Letting a third axis vary would
+produce a three-way contrast 116 stations across nine effective clusters cannot
+support; the local-information-by-geometry interaction is measured separately in
+Section 4.7. Like that one, this analysis is post-outcome and descriptive, not a
+confirmatory test, and is reported outside the Abstract and Key Points for that
+reason
+(\texttt{outputs/\allowbreak{}final/\allowbreak{}forcing\_\allowbreak{}information\_\allowbreak{}interaction\_\allowbreak{}v1/\allowbreak{}}).
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -1605,14 +1854,14 @@ Two boundaries define what these findings mean. Every model evaluated here is
 issue-time-only, so all of the above describes a single information regime: the
 one in which recent local thermal history is available and future meteorology
 is not. A separate retrospective analysis on the same cohort and keys
-(Section 4.7) puts an upper bound on what perfect future meteorology could add:
+(Section 4.8) puts an upper bound on what perfect future meteorology could add:
 0.13 °C at one day and 0.54--0.63 °C at three and seven days, an order of
 magnitude above the architecture effect measured under issue-time information.
 That bound is an information ceiling from a realized-weather oracle. A
 placebo sealed before its outcome existed shows it is event-scale weather
 information rather than seasonal phase: deranging the meteorology within each
 station-month, which preserves climate and seasonal phase exactly, removes
-91--100\% of the value (Section 4.7). A second sealed control shows the same
+91--100\% of the value (Section 4.8). A second sealed control shows the same
 under a one-week displacement of the future, so the model is using exact event
 timing rather than the weather window around it. Reported
 skill for this variable is nonetheless governed jointly by the reference model
