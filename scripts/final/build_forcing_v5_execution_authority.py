@@ -168,6 +168,10 @@ def _capture_base_authorities() -> dict[str, V5._BoundFile]:
             category="governance authority",
         )
     )
+    # Living documents: bound and recorded, not compared. See
+    # V5.RECORDED_GOVERNANCE_PATHS for why a byte pin on an append-only log is
+    # a binding that guarantees its own failure.
+    captured.update(V5._capture_recorded(V5.RECORDED_GOVERNANCE_PATHS))
     captured.update(
         _capture_declared(
             V5.PINNED_DEPENDENCY_PATHS,

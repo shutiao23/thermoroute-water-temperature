@@ -118,6 +118,7 @@ EXPECTED_CAPTURE_ROLES = frozenset(
     {
         *V5.PINNED_INPUT_PATHS,
         *V5.PINNED_GOVERNANCE_PATHS,
+        *V5.RECORDED_GOVERNANCE_PATHS,
         *V5.PINNED_DEPENDENCY_PATHS,
         "defect_authority_manifest",
         "defect_authority_report",
@@ -623,6 +624,7 @@ def _expected_execution_binding_paths() -> dict[str, Path]:
     paths: dict[str, Path] = {
         **dict(V5.PINNED_INPUT_PATHS),
         **dict(V5.PINNED_GOVERNANCE_PATHS),
+        **dict(V5.RECORDED_GOVERNANCE_PATHS),
         **dict(V5.PINNED_DEPENDENCY_PATHS),
         "defect_authority_manifest": V5.DEFECT_AUTHORITY_MANIFEST,
         "defect_authority_report": V5.DEFECT_AUTHORITY_REPORT,

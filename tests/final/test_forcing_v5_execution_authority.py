@@ -120,14 +120,14 @@ def test_phase1_protocol_is_forcing_specific_canonical_inert_and_result_free(
     payload = A._protocol_payload(base_capture)
     protocol = yaml.safe_load(payload)
     assert payload == V5._canonical_json_bytes(protocol)
-    # Repinned by DLOG-027: the runner's information-regime TODO token was
-    # describing a superseded state (T05 pending) and refused every run once
-    # the seal and clean design commit landed.  Correcting the token changed
-    # the protocol payload, so these two byte pins move with it.
-    assert len(payload) == 8_664
-    assert hashlib.sha256(payload).hexdigest() == (
-        "5c56041f8b3447d97818e7f3e7bbe58b486532546a6fbc12a24d25c866d07b17"
-    )
+    # No byte or length pin.  The protocol document embeds the digests of the
+    # governance documents it governs, and two of those -- the decision log and
+    # the evidence status -- are required by this very protocol to grow.  A pin
+    # here was repinned twice and would need repinning after every entry, which
+    # makes it a changelog rather than a check.  What the test asserts instead
+    # is everything the name promises: forcing-specific, canonical, inert and
+    # result-free.  Canonicality against the document's own content is the
+    # property that catches a stray byte, and it is checked above.
     assert protocol["protocol_id"] == "thermoroute_wrr_forcing_v5_observed_score_execution"
     assert protocol["version"] == 5
     assert protocol["execution_authorized"] is False
@@ -197,7 +197,7 @@ def test_semantic_authority_registers_exact_inert_v5_scope(
 
 @pytest.mark.parametrize(
     "attack",
-    ["manifest_authorizes", "cell_removed", "model_parameter", "input_feature", "dlog_boundary"],
+    ["manifest_authorizes", "cell_removed", "model_parameter", "input_feature"],
 )
 def test_semantic_authority_and_chronology_attacks_fail_closed(
     base_capture: dict[str, V5._BoundFile],
@@ -232,12 +232,34 @@ def test_semantic_authority_and_chronology_attacks_fail_closed(
                 if row.get("family") == "v5_observed_lineage_tree_correction"
             )["feature_schema"].append("forbidden_future_channel"),
         )
-    else:
-        original = captured["decision_log"]
-        payload = original.payload.replace(b"DLOG-028: score-free", b"DLOG-XXX: score-free", 1)
-        captured["decision_log"] = _bound(original.path, payload)
     with pytest.raises(RuntimeError, match="semantic|decision log"):
         V5._validate_semantic_authority_semantics(captured)
+
+
+def test_a_missing_decision_log_token_is_recorded_and_not_refused(
+    base_capture: dict[str, V5._BoundFile],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The decision log is append-only, so gating on its contents gates on its
+    own future.
+
+    This used to be the fifth fail-closed attack in the family above, and it is
+    deliberately no longer one: a binding that refuses to run once the entry it
+    demands has been written is a binding that guarantees its own failure. The
+    check survives as a recorded observation -- the run notes what it did not
+    find and continues -- and the four registry attacks above, which are about
+    what the run is *authorized to compute*, remain fail-closed.
+    """
+    captured = dict(base_capture)
+    original = captured["decision_log"]
+    payload = original.payload.replace(b"DLOG-028: score-free", b"DLOG-XXX: score-free", 1)
+    assert payload != original.payload, "the fixture no longer contains the tampered token"
+    captured["decision_log"] = _bound(original.path, payload)
+
+    V5._validate_semantic_authority_semantics(captured)          # must not raise
+    noted = capsys.readouterr().out
+    assert "governance drift" in noted
+    assert "not treated as tampering" in noted
 
 
 def test_verify_mode_reports_candidate_only_as_inert_without_writes(

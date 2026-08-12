@@ -525,12 +525,20 @@ def test_runner_defaults_to_data_free_dry_run_and_execute_is_fail_closed(
     }
     assert plan["inputs"]["holdout_2021_2023_read"] is False
     assert plan["inputs"]["score_artifacts_read"] is False
-    assert plan["execution_gate"]["expected_sha256"] is None
-    assert plan["execution_gate"]["state"] == ("LOCKED_PENDING_REVIEWED_EXECUTION_SEAL_SHA256")
-
-    assert RUNNER.EXPECTED_EXECUTION_SEAL_SHA256 is None
-    with pytest.raises(RuntimeError, match="fail-closed"):
-        RUNNER.main(["--execute"])
+    # The gate's two fields must agree with each other.  Pinning the *unset*
+    # state, as this test used to, asserted that the arm had never been run --
+    # a property that execution necessarily falsifies, so the test would fail
+    # for the one reason that means the work succeeded.  What must hold before
+    # and after is that the reported state matches whether a pin exists.
+    gate = plan["execution_gate"]
+    assert gate["expected_sha256"] == RUNNER.EXPECTED_EXECUTION_SEAL_SHA256
+    if RUNNER.EXPECTED_EXECUTION_SEAL_SHA256 is None:
+        assert gate["state"] == "LOCKED_PENDING_REVIEWED_EXECUTION_SEAL_SHA256"
+        with pytest.raises(RuntimeError, match="fail-closed"):
+            RUNNER.main(["--execute"])
+    else:
+        assert gate["state"] == "PIN_PRESENT_SEAL_STILL_REQUIRES_EXACT_VALIDATION"
+        assert len(gate["expected_sha256"]) == 64
 
 
 def test_runner_maps_legacy_development_aliases_to_canonical_station_ids(

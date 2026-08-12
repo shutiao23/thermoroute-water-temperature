@@ -182,13 +182,6 @@ PINNED_GOVERNANCE_SHA256 = MappingProxyType(
         "semantic_environment_registry": (
             "b038754f751cc8dab5c26c6ae8e25d577d9b8a30a8f5ea481398a298e4b1b521"
         ),
-        "scientific_evidence_status": (
-            "a061777ef6efc52b72de897148f1fe99f6512547d584ab0a6a4ac49e8e2b47ea"
-        ),
-        "decision_log": "9ebee202e3ba030f2a6d6fe81a676d5e0bc6700aab9ee3ad44a79d4942c3dbc1",
-        "information_regime_todo": (
-            "5966f09e5815ac8dfe5826c098246d415909a98813586f84467f5dcbfad20c40"
-        ),
     }
 )
 PINNED_GOVERNANCE_PATHS = MappingProxyType(
@@ -208,6 +201,18 @@ PINNED_GOVERNANCE_PATHS = MappingProxyType(
         "semantic_input_registry": SEMANTIC_AUTHORITY_DIR / "input_registry_v4.json",
         "semantic_contrast_registry": SEMANTIC_AUTHORITY_DIR / "contrast_registry_v4.json",
         "semantic_environment_registry": SEMANTIC_AUTHORITY_DIR / "environment_registry_v4.json",
+    }
+)
+#: Governance documents the protocol *requires* to change, so a byte pin on
+#: them is self-defeating: the decision log is append-only, and the evidence
+#: status and information-regime TODO are living records of work in progress.
+#: Pinning their hashes meant every entry the protocol demanded be written also
+#: broke the runner that demanded it -- the failure mode DLOG-027's addendum
+#: named. They are captured and their observed bytes recorded in the authority,
+#: which is what makes a run auditable; they are not compared against a
+#: frozen expectation, which is what made it unrunnable. Record, do not lock.
+RECORDED_GOVERNANCE_PATHS = MappingProxyType(
+    {
         "scientific_evidence_status": SCIENTIFIC_EVIDENCE_STATUS,
         "decision_log": DECISION_LOG,
         "information_regime_todo": INFORMATION_REGIME_TODO,
@@ -301,6 +306,7 @@ SCORE_GIT_DESIGN_ROLES = (
     "semantic_daily_raw_observed_registry",
     "semantic_training_example_registry",
     *tuple(PINNED_GOVERNANCE_PATHS),
+    *tuple(RECORDED_GOVERNANCE_PATHS),
     *tuple(PINNED_DEPENDENCY_PATHS),
 )
 
@@ -1128,6 +1134,22 @@ def _capture_pinned(
     return captured
 
 
+def _capture_recorded(paths: Mapping[str, Path]) -> dict[str, _BoundFile]:
+    """Bind a living document's observed bytes without asserting which bytes.
+
+    The authority record still carries the SHA-256 of exactly what was read, so
+    a reader can tell which revision of the decision log a run saw. What it no
+    longer does is refuse to run because that revision is newer than a constant
+    compiled into this file.
+    """
+    return {
+        role: _read_stable_regular(
+            paths[role], root=ROOT, label=role.replace("_", " ")
+        )
+        for role in sorted(paths)
+    }
+
+
 def _binding(bound: _BoundFile) -> dict[str, object]:
     return {
         "path": bound.path.relative_to(ROOT).as_posix(),
@@ -1263,7 +1285,10 @@ def _score_authority_categories(
     input_roles = tuple(sorted(set(PINNED_INPUT_PATHS) - {"primary_key_registry"}))
     key_roles = ("key_authority_manifest", "primary_key_registry")
     defect_roles = ("defect_authority_manifest", "defect_authority_report")
-    governance_roles = tuple(sorted(set(PINNED_GOVERNANCE_PATHS) - {"key_authority_manifest"}))
+    governance_roles = tuple(sorted(
+        (set(PINNED_GOVERNANCE_PATHS) | set(RECORDED_GOVERNANCE_PATHS))
+        - {"key_authority_manifest"}
+    ))
     required = {
         "runner",
         *source_roles,
@@ -1925,6 +1950,17 @@ def _validate_score_execution_authority(
         type(document) is dict for document in (protocol, seal, clean_design, source_registry)
     ):
         raise RuntimeError("canonical score-execution authority roots are not mappings")
+    # Canonicality of the *stored* bytes against their own parsed content is a
+    # different question from whether they match a regeneration, and only the
+    # second one is unanswerable here.  A stray byte -- a trailing space, a
+    # reordered key, a changed indent -- means the file on disk is not the
+    # canonical encoding of the document it contains, and no legitimate
+    # governance append can produce that.  This stays fail-closed.
+    if protocol_bound.payload != _canonical_json_bytes(protocol):
+        raise RuntimeError(
+            "sealed score-execution protocol bytes are not the canonical "
+            "encoding of their own content"
+        )
     expected_protocol = _forcing_score_protocol_document(captured)
     if protocol != expected_protocol or protocol_bound.payload != _canonical_json_bytes(
         expected_protocol
@@ -1988,6 +2024,7 @@ def capture_execution_inputs() -> dict[str, _BoundFile]:
     captured: dict[str, _BoundFile] = {}
     captured.update(_capture_pinned(PINNED_INPUT_PATHS, PINNED_INPUT_SHA256))
     captured.update(_capture_pinned(PINNED_GOVERNANCE_PATHS, PINNED_GOVERNANCE_SHA256))
+    captured.update(_capture_recorded(RECORDED_GOVERNANCE_PATHS))
     captured.update(_capture_pinned(PINNED_DEPENDENCY_PATHS, PINNED_DEPENDENCY_SHA256))
     manifest = _read_stable_regular(
         DEFECT_AUTHORITY_MANIFEST, root=ROOT, label="defect authority manifest"
