@@ -31,9 +31,16 @@ split seed, against the tree fitted on that same seed's folds, and only then
 averaged. Pooling risks across split seeds first would compare a network and a
 tree that were never held out on the same stations.
 
-F0 only. The forcing axis is crossed with architecture at whole-region holdout
-in Section 4.10; crossing all three at once is a contrast 116 stations across
-about nine effective clusters cannot carry.
+The forcing axis is included, which an earlier version of this note said the
+cohort could not carry. That was asserted rather than measured, and measuring
+it showed the assertion was wrong at L0 and right at L2. The minimum detectable
+effect for the two-way architecture-by-geometry contrast is 0.003-0.005 degC at
+L0 and 0.064-0.190 degC at L2, and the reason for the forty-fold gap is the
+result itself: at L0 every station's penalty sits against zero with almost no
+spread, so the sign-flip test is powerful, while at L2 the penalty varies widely
+across stations and the same test is not. "Unresolvable" and "zero" therefore
+mean opposite things in the two rows, and the triple difference is reported with
+its own MDE at every cell so a reader can tell which one they are looking at.
 """
 
 from __future__ import annotations
@@ -59,6 +66,7 @@ import scripts.final.run_plain_tcn_arm as TCN
 from thermoroute.significance import (
     cluster_bootstrap_paired_effect,
     cluster_inference_sensitivity,
+    cluster_sign_flip_pvalue,
 )
 from thermoroute.spatial import huc2_cluster_map, load_station_registry
 
@@ -69,7 +77,7 @@ DEFAULT_OUT = L.V5.FINAL_OUTPUT_ROOT / "architecture_geometry_interaction_v1"
 FORMAT = "thermoroute.architecture-geometry-interaction.v1"
 STATUS = "POST_OUTCOME_OBSERVED_LINEAGE_INTERACTION"
 LEVELS = ("L0", "L2")
-FORCING = "F0"
+FORCINGS = ("F0", "F3_full")
 VARIANT = "unbounded"
 COMPARATOR = ARCH.COMPARATOR
 N_BOOT, BOOT_SEED = 10_000, 0
@@ -87,37 +95,48 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _tree(level: str, horizon: int, split_seed: int | None) -> pd.Series:
+def _stem(level: str, forcing: str, split_seed: int | None) -> str:
+    prefix = "" if forcing == "F0" else f"{forcing}_"
     tag = "" if split_seed is None else f"_seed{split_seed}"
     geometry = "whole_region" if split_seed is None else "random_site"
+    return f"{prefix}{level}_{geometry}{tag}"
+
+
+def _tree(
+    level: str, forcing: str, horizon: int, split_seed: int | None
+) -> pd.Series:
+    stem = _stem(level, forcing, split_seed)
     return ARCH._read([
-        TREE_SHARDS / f"{level}_{geometry}{tag}_fold{fold}"
-                      f"_{COMPARATOR}_h{horizon}.parquet"
+        TREE_SHARDS / f"{stem}_fold{fold}_{COMPARATOR}_h{horizon}.parquet"
         for fold in range(L.N_FOLDS)
     ])
 
 
-def _tcn(level: str, horizon: int, split_seed: int | None, fit_seed: int) -> pd.Series:
-    tag = "" if split_seed is None else f"_seed{split_seed}"
-    geometry = "whole_region" if split_seed is None else "random_site"
+def _tcn(
+    level: str, forcing: str, horizon: int, split_seed: int | None, fit_seed: int
+) -> pd.Series:
+    stem = _stem(level, forcing, split_seed)
     return ARCH._read([
-        TCN_SHARDS / f"{level}_{geometry}{tag}_fold{fold}"
+        TCN_SHARDS / f"{stem}_fold{fold}"
                      f"_PlainTCN_{VARIANT}_seed{fit_seed}_h{horizon}.parquet"
         for fold in range(L.N_FOLDS)
     ])
 
 
-def _cell(level: str, horizon: int) -> dict[str, Any]:
-    """Every risk series this level and lead needs, keyed by split seed."""
-    risks: dict[Any, Any] = {"region": {"tree": _tree(level, horizon, None)}}
-    risks["region"]["tcn"] = {
-        f: _tcn(level, horizon, None, f) for f in TCN.FIT_SEEDS
+def _cell(level: str, forcing: str, horizon: int) -> dict[str, Any]:
+    """Every risk series this cell needs, keyed by split seed."""
+    risks: dict[Any, Any] = {
+        "region": {
+            "tree": _tree(level, forcing, horizon, None),
+            "tcn": {f: _tcn(level, forcing, horizon, None, f) for f in TCN.FIT_SEEDS},
+        },
+        "random": {},
     }
-    risks["random"] = {}
     for split_seed in L.RANDOM_SEEDS:
         risks["random"][split_seed] = {
-            "tree": _tree(level, horizon, split_seed),
-            "tcn": {f: _tcn(level, horizon, split_seed, f) for f in TCN.FIT_SEEDS},
+            "tree": _tree(level, forcing, horizon, split_seed),
+            "tcn": {f: _tcn(level, forcing, horizon, split_seed, f)
+                    for f in TCN.FIT_SEEDS},
         }
     return risks
 
@@ -152,15 +171,47 @@ def _penalties(
     return region, random
 
 
+def minimum_detectable_effect(
+    values: np.ndarray, groups: np.ndarray, *, alpha: float = 0.05
+) -> float:
+    """Smallest constant effect this cohort's cluster structure can resolve.
+
+    The observed vector is centred and then shifted until the whole-cluster
+    sign-flip tail clears ``alpha``.  Centring first makes the answer a property
+    of the dependence structure rather than of the effect that happens to be
+    there, so it is comparable across cells and answers "could we have seen it"
+    rather than "did we".
+
+    This is the number that separates the two ways an interval can cover zero.
+    A cell whose MDE is far below the effect being looked for is evidence of
+    absence; a cell whose MDE is above it is absence of evidence, and reporting
+    them the same way would be the more damaging of the two errors.
+    """
+    centred = values - float(np.median(values))
+    def tail(shift: float) -> float:
+        return cluster_sign_flip_pvalue(centred - shift, groups, statistic="median")
+    low, high = 0.0, max(1.0, 4.0 * float(np.std(values)))
+    if tail(high) > alpha:
+        return float("nan")
+    for _ in range(40):
+        mid = 0.5 * (low + high)
+        if tail(mid) <= alpha:
+            high = mid
+        else:
+            low = mid
+    return high
+
+
 def _summarise(
     values: np.ndarray, groups: np.ndarray, quantity: str, level: str,
-    geometry: str, horizon: int, *, with_loco: bool = False,
+    geometry: str, horizon: int, *, forcing: str = "F0",
+    with_loco: bool = False, with_mde: bool = False,
 ) -> dict[str, Any]:
     boot = cluster_bootstrap_paired_effect(
         values, groups, statistic="median", n_boot=N_BOOT, seed=BOOT_SEED)
     row = {
         "quantity": quantity, "level": level, "geometry": geometry,
-        "horizon": int(horizon),
+        "forcing": forcing, "horizon": int(horizon),
         "median_degC": float(np.median(values)),
         "ci_low": boot["ci_low"], "ci_high": boot["ci_high"],
         "station_fraction_positive": float(np.mean(values > 0)),
@@ -173,6 +224,18 @@ def _summarise(
             "loco_max": sens["loco_effect_max"],
             "loco_sign_stable": bool(sens["loco_direction_stable"]),
         })
+    if with_mde:
+        mde = minimum_detectable_effect(values, groups)
+        row["mde_degC"] = mde
+        # Deliberately not called "resolvable".  This compares the observed
+        # magnitude with what the cohort could detect, which is a statement
+        # about power, not about this effect: a cell can clear its own MDE and
+        # still have an interval covering zero, and at L2/7d one does.  The
+        # interval remains the inference; this field only tells a reader
+        # whether a null there is evidence of absence or absence of evidence.
+        row["magnitude_at_or_above_mde"] = (
+            bool(abs(row["median_degC"]) >= mde) if mde == mde else False
+        )
     return row
 
 
@@ -182,34 +245,64 @@ def build_rows() -> list[dict[str, Any]]:
     )
     rows: list[dict[str, Any]] = []
     for horizon in L.V5.HORIZONS:
-        cells = {level: _cell(level, horizon) for level in LEVELS}
+        cells = {
+            (level, forcing): _cell(level, forcing, horizon)
+            for level in LEVELS for forcing in FORCINGS
+        }
         index = None
         for risks in cells.values():
             shared = _shared(risks)
             index = shared if index is None else index.intersection(shared)
         groups = index.map(clusters).to_numpy()
 
-        penalty: dict[tuple[str, str], np.ndarray] = {}
-        for level in LEVELS:
-            region, random = _penalties(cells[level], index)
-            penalty[level, "whole_region"] = region
-            penalty[level, "random_site"] = random
-            rows.append(_summarise(
-                region, groups, "architecture_penalty_tcn_minus_tree",
-                level, "whole_region", horizon))
-            rows.append(_summarise(
-                random, groups, "architecture_penalty_tcn_minus_tree",
-                level, "random_site", horizon))
-            rows.append(_summarise(
-                random - region, groups, "interaction_random_minus_region",
-                level, "random_site-whole_region", horizon, with_loco=True))
+        penalty: dict[tuple[str, str, str], np.ndarray] = {}
+        for (level, forcing), risks in cells.items():
+            region, random = _penalties(risks, index)
+            penalty[level, forcing, "whole_region"] = region
+            penalty[level, forcing, "random_site"] = random
+            for geometry, values in (("whole_region", region),
+                                     ("random_site", random)):
+                rows.append(_summarise(
+                    values, groups, "architecture_penalty_tcn_minus_tree",
+                    level, geometry, horizon, forcing=forcing, with_mde=True))
 
-        # does the architecture-by-information effect itself survive the split?
-        for geometry in ("whole_region", "random_site"):
+        for level in LEVELS:
+            for forcing in FORCINGS:
+                rows.append(_summarise(
+                    penalty[level, forcing, "random_site"]
+                    - penalty[level, forcing, "whole_region"],
+                    groups, "interaction_random_minus_region", level,
+                    "random_site-whole_region", horizon, forcing=forcing,
+                    with_loco=True, with_mde=True))
+            # does the network's F3 advantage depend on the split design?
+            for geometry in ("whole_region", "random_site"):
+                rows.append(_summarise(
+                    penalty[level, "F3_full", geometry]
+                    - penalty[level, "F0", geometry],
+                    groups, "interaction_F3_minus_F0", level, geometry,
+                    horizon, forcing="F3_full-F0",
+                    with_loco=True, with_mde=True))
+            # the triple difference: does architecture-by-forcing move with
+            # geometry?  Reported with its MDE at every cell, because at L2 the
+            # question is whether the cohort could have answered it at all.
+            triple = (
+                (penalty[level, "F3_full", "random_site"]
+                 - penalty[level, "F3_full", "whole_region"])
+                - (penalty[level, "F0", "random_site"]
+                   - penalty[level, "F0", "whole_region"])
+            )
             rows.append(_summarise(
-                penalty["L2", geometry] - penalty["L0", geometry], groups,
-                "interaction_L2_minus_L0", "L2-L0", geometry, horizon,
-                with_loco=True))
+                triple, groups, "triple_difference_AxFxG", level,
+                "random_site-whole_region", horizon,
+                forcing="F3_full-F0", with_loco=True, with_mde=True))
+
+        for forcing in FORCINGS:
+            for geometry in ("whole_region", "random_site"):
+                rows.append(_summarise(
+                    penalty["L2", forcing, geometry]
+                    - penalty["L0", forcing, geometry],
+                    groups, "interaction_L2_minus_L0", "L2-L0", geometry,
+                    horizon, forcing=forcing, with_loco=True, with_mde=True))
     return rows
 
 
@@ -222,9 +315,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows = build_rows()
     table = pd.DataFrame(rows)
     if args.print_only:
-        print(table[["quantity", "level", "geometry", "horizon", "median_degC",
-                     "ci_low", "ci_high", "station_fraction_positive"]]
-              .to_string(index=False))
+        print(table[["quantity", "level", "geometry", "forcing", "horizon",
+                     "median_degC", "ci_low", "ci_high", "mde_degC",
+                     "magnitude_at_or_above_mde"]].to_string(index=False))
         return 0
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "format": FORMAT,
         "authority_status": STATUS,
         "comparator": COMPARATOR,
-        "forcing": FORCING,
+        "forcings": list(FORCINGS),
         "variant": VARIANT,
         "orientation": "positive means the network is worse than the tree",
         "seed_aggregation": (
@@ -249,6 +342,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "whether the architecture penalty that appears at L2 under "
             "whole-region holdout is about scarce local information or about "
             "spatial extrapolation, which that geometry confounds"
+        ),
+        "mde_semantics": (
+            "mde_degC is the smallest constant effect this cohort's whole-HUC2 "
+            "dependence structure resolves at alpha = 0.05, obtained by "
+            "centring the observed vector and shifting until the sign-flip "
+            "tail clears alpha. It answers 'could we have seen it', not 'did "
+            "we'; the cluster bootstrap interval is the inference. A null "
+            "whose MDE lies far below the effect sought is evidence of "
+            "absence, and one whose MDE lies above it is absence of evidence."
         ),
         "chronology": {"post_outcome": True, "confirmatory": False},
         "rows": rows,

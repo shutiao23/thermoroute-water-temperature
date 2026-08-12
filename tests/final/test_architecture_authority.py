@@ -171,12 +171,12 @@ def test_the_geometry_interaction_pairs_inside_each_split_seed(
     other = np.array([3.0] * 10 + [1.0] * 10)
     by_seed = {0: half, 1: other, 2: half, 3: other, 4: half}
 
-    def tree(level, horizon, split_seed):
+    def tree(level, forcing, horizon, split_seed):
         if split_seed is None:
             return pd.Series(np.full(20, 1.0), index=INDEX)
         return pd.Series(by_seed[split_seed], index=INDEX)
 
-    def tcn(level, horizon, split_seed, fit_seed):
+    def tcn(level, forcing, horizon, split_seed, fit_seed):
         base = (np.full(20, 1.0) if split_seed is None else by_seed[split_seed])
         return pd.Series(base + 0.5, index=INDEX)
 
@@ -206,15 +206,84 @@ def test_whole_region_and_random_site_read_different_shards() -> None:
     paths = []
     for split_seed in (None, 3):
         with pytest.raises(G.ARCH.ArchitectureError, match="missing shard") as caught:
-            G._tcn("L0", 999, split_seed, 0)
+            G._tcn("L0", "F0", 999, split_seed, 0)
         paths.append(str(caught.value))
     assert "whole_region" in paths[0] and "seed3" not in paths[0]
     assert "random_site_seed3" in paths[1]
     assert paths[0] != paths[1]
 
 
-def test_the_geometry_arm_is_forcing_free_by_declaration() -> None:
-    """Crossing all four axes is a contrast this cohort cannot carry, so the
-    builder pins F0 rather than leaving it to the caller."""
-    assert G.FORCING == "F0"
+def test_the_forcing_axis_is_crossed_rather_than_declined() -> None:
+    """An earlier version pinned F0 on the assertion that the cohort could not
+    carry a three-way contrast. It can at L0; the MDE says where it cannot."""
+    assert set(G.FORCINGS) == {"F0", "F3_full"}
     assert G.VARIANT == "unbounded"
+
+
+def test_the_mde_is_a_property_of_the_dependence_structure_not_the_effect() -> None:
+    """Centring first is what makes MDEs comparable across cells.
+
+    Two vectors with identical spread and cluster structure must report the same
+    MDE even when their locations differ by orders of magnitude -- otherwise
+    "could we have seen it" would be contaminated by "did we". Eight clusters,
+    because the sign-flip floor is 2^-K and two clusters could never clear 0.05.
+    """
+    rng = np.random.default_rng(0)
+    noise = rng.normal(scale=0.05, size=40)
+    groups = np.repeat([f"c{i}" for i in range(8)], 5)
+    near_zero = G.minimum_detectable_effect(noise, groups)
+    shifted = G.minimum_detectable_effect(noise + 5.0, groups)
+    assert np.isfinite(near_zero)
+    assert near_zero == pytest.approx(shifted, rel=1e-9)
+
+
+def test_the_misleading_field_name_does_not_come_back() -> None:
+    """`resolvable` read as "this effect is established" beside a null."""
+    rng = np.random.default_rng(1)
+    values = rng.normal(loc=0.4, scale=0.05, size=40)
+    groups = np.repeat([f"c{i}" for i in range(8)], 5)
+    row = G._summarise(values, groups, "q", "L", "G", 7, with_mde=True)
+    assert "resolvable" not in row
+    assert "magnitude_at_or_above_mde" in row and "mde_degC" in row
+
+
+def test_clearing_the_mde_is_not_the_same_as_excluding_zero() -> None:
+    """The flag is about power and the interval is the inference.
+
+    Checked against the artifact rather than a synthetic vector, because the
+    case is marginal by nature and constructing it by hand would only prove the
+    construction. The L2 seven-day triple difference is the real instance: its
+    magnitude clears its own MDE while its interval covers zero, which is
+    exactly the pair a field called `resolvable` would have misreported.
+    """
+    frame_path = G.DEFAULT_OUT / "architecture_geometry_interaction.parquet"
+    if not frame_path.exists():
+        pytest.skip("interaction authority not built in this tree")
+    table = pd.read_parquet(frame_path)
+    assert "resolvable" not in table.columns
+    assert {"mde_degC", "magnitude_at_or_above_mde"} <= set(table.columns)
+
+    row = table[(table["quantity"] == "triple_difference_AxFxG")
+                & (table["level"] == "L2")
+                & (table["horizon"] == 7)].iloc[0]
+    assert abs(row["median_degC"]) >= row["mde_degC"]
+    assert bool(row["magnitude_at_or_above_mde"]) is True
+    assert row["ci_low"] < 0.0 < row["ci_high"], (
+        "this row is the reason the flag is not called 'resolvable'"
+    )
+
+
+def test_the_l0_three_way_null_is_backed_by_power() -> None:
+    """A null only means something next to what the design could have seen."""
+    frame_path = G.DEFAULT_OUT / "architecture_geometry_interaction.parquet"
+    if not frame_path.exists():
+        pytest.skip("interaction authority not built in this tree")
+    table = pd.read_parquet(frame_path)
+    rows = table[(table["quantity"] == "triple_difference_AxFxG")
+                 & (table["level"] == "L0")]
+    assert len(rows) == 3
+    assert (rows["median_degC"].abs() < rows["mde_degC"]).all(), (
+        "an L0 triple difference above its MDE would make this an unresolved "
+        "effect rather than evidence of absence"
+    )
+    assert ((rows["ci_low"] < 0.0) & (rows["ci_high"] > 0.0)).all()

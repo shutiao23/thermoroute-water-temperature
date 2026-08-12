@@ -112,6 +112,11 @@ pre-run facts to invariants that outlive the run.
   penalty survives (+0.110/+0.095 °C at 1 and 3 days), which establishes it is
   about missing local information rather than the spatial extrapolation that
   whole-region holdout bundles with it (DLOG-034).
+- **Phase 5c — the three-way.** 360 further cells (F3 × random-site). The one
+  architecture win in the paper is geometry-independent: the triple difference
+  is +0.001/+0.005/−0.005 °C at L0, each below its own MDE, so evidence of
+  absence rather than absence of evidence. At L2 the cohort cannot resolve a
+  three-way contrast and that is reported as a power limit (DLOG-035).
 - **SI01 HUC2 projection.** Filled from the registry and the reportable cohort;
   attrition concentrates the cluster structure slightly (largest share 21.7% →
   22.4%) rather than balancing it.
@@ -123,7 +128,7 @@ pre-run facts to invariants that outlive the run.
 ### Achievable here, not yet done
 | Item | Cost | Note |
 |---|---|---|
-| Phase 4 | **done** | The tree matrix is complete across F×L×G; the architecture axis is complete across F×L at whole-region holdout and across L×G at F0. The only uncrossed corner is F×G×A simultaneously, which 116 stations across ~9 effective clusters cannot carry and which is declined rather than pending |
+| Phase 4 | **done** | Fully crossed: F×L×G for the trees, F×L×G for the architecture axis, 1,008 TCN cells. The three-way A×F×G is measured rather than declined — an earlier note here said the cohort could not carry it, which was asserted without measuring. It carries it at L0 (MDE 0.006–0.018 °C) and does not at L2 (MDE 0.017–0.069 °C), and both are reported with their MDEs |
 | Phase 10c — a second neural class | Moderate | One network is one draw from "what a deep model does here". A recurrent or attention arm would say whether the architecture result is about sequence models or about this sequence model |
 
 ### Not achievable from this repository

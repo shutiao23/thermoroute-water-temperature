@@ -1969,3 +1969,55 @@ Builder: `scripts/final/build_architecture_geometry_interaction.py`.
 Manuscript: Section 4.10, Table 4.19.
 
 Commit(s): (this worktree)
+
+## 2026-08-12 — DLOG-035: the three-way, and a claim I made without measuring
+
+DLOG-034 closed with the statement that the F-by-G-by-A crossing was declined
+because "116 stations across about nine effective clusters cannot carry a
+three-way contrast". That was asserted, not measured. Measuring it showed the
+assertion was wrong at L0 and right at L2, which is a difference the paper had
+no way to state until the number existed.
+
+**Minimum detectable effect, and why it is reported per cell.** Centring each
+observed contrast and shifting it until the whole-cluster sign-flip tail clears
+alpha gives the smallest constant effect this dependence structure resolves. At
+L0 that is 0.003-0.005 degC for the two-way architecture-by-geometry contrast;
+at L2 it is 0.064-0.190 degC. The forty-fold gap is the result restated rather
+than a property of the design: at L0 every station's architecture penalty sits
+against zero with almost no spread, so the sign-flip test is powerful, while at
+L2 the penalty varies widely across stations and the same test on the same 15
+regions is not. High resolution at L0 is a *consequence* of the effect being
+absent.
+
+**The three-way at L0 is a null with power behind it.** The one resolvable
+architecture advantage in the paper -- the network beating the tree given
+perfect future weather -- barely moves across split designs: -0.015, -0.037,
+-0.104 degC at whole-region against -0.015, -0.035, -0.124 at random-site. The
+triple difference is +0.001, +0.005 and -0.005 degC, each below its own MDE of
+0.006, 0.012 and 0.018. An effect of six thousandths of a degree would have been
+visible and none is. Evidence of absence.
+
+**At L2 it is absence of evidence.** Triple difference -0.012, -0.046, -0.065
+degC against MDEs of 0.017, 0.069, 0.063, every interval covering zero. The
+cohort cannot resolve a three-way contrast in the ungauged regime, and that is
+reported as a power limit rather than as a null.
+
+**A field name that would have caused the error it was meant to prevent.** The
+flag comparing observed magnitude against MDE was first called `resolvable`. It
+is a statement about power, not about the effect: at L2/7d the magnitude
+(-0.065) clears its MDE (0.063) while the interval is [-0.187, 0.022] and covers
+zero, so `resolvable: true` sat beside a null. A reader would have taken the
+effect as established. Renamed `magnitude_at_or_above_mde`, with the artifact
+stating that the interval is the inference and the MDE only distinguishes the
+two kinds of null. Of the two errors available here -- overstating power and
+understating it -- the first is the damaging one, and the field as named invited
+exactly that.
+
+Scope. The crossing is now complete: 1,008 TCN cells over F x L x G, with the
+trees already complete over the same axes. What remains genuinely open is a
+second neural class; one network is one draw from "what a deep model does here".
+
+Artifacts: `outputs/final/architecture_geometry_interaction_v1/` (66 rows, each
+with its own MDE). Manuscript: Section 4.10, Table 4.19.
+
+Commit(s): (this worktree)

@@ -1548,22 +1548,27 @@ random-site holdout, with the network contrast formed inside each of five split
 seeds against the tree fitted on that seed's own folds, closes that gap and
 answers a second question the whole-region design confounds.
 
-**Table 4.19 — architecture penalty under both spatial geometries.**
-Station-first paired differences in °C, TCN minus residual tree, F0, 116
-reportable stations.
+**Table 4.19 — architecture penalty across the full crossing.** Station-first
+paired differences in °C, TCN minus residual tree, 116 reportable stations. MDE
+is the smallest constant effect this cohort's whole-HUC2 dependence structure
+resolves at α = 0.05.
 
-| Information | Geometry | 1 d | 3 d | 7 d |
-| --- | --- | ---: | ---: | ---: |
-| L0 | whole-region | +0.009 [0.001, 0.014] | +0.006 [−0.001, 0.012] | −0.002 [−0.009, 0.009] |
-| L0 | random-site | +0.008 [0.003, 0.012] | +0.003 [−0.008, 0.007] | +0.001 [−0.007, 0.012] |
-| L2 | whole-region | +0.185 [0.115, 0.281] | +0.085 [0.007, 0.180] | +0.022 [−0.105, 0.171] |
-| L2 | random-site | +0.110 [0.071, 0.229] | +0.095 [0.051, 0.197] | +0.038 [−0.022, 0.073] |
+| Information | Forcing | Geometry | 1 d | 3 d | 7 d |
+| --- | --- | --- | ---: | ---: | ---: |
+| L0 | F0 | whole-region | +0.009 [0.001, 0.014] | +0.006 [−0.001, 0.012] | −0.002 [−0.009, 0.009] |
+| L0 | F0 | random-site | +0.008 [0.003, 0.012] | +0.003 [−0.008, 0.007] | +0.001 [−0.007, 0.012] |
+| L0 | F3 | whole-region | −0.007 [−0.018, 0.000] | −0.033 [−0.059, −0.011] | −0.096 [−0.177, −0.038] |
+| L0 | F3 | random-site | −0.006 [−0.015, −0.003] | −0.034 [−0.056, −0.014] | −0.122 [−0.175, −0.048] |
+| L2 | F0 | whole-region | +0.185 [0.115, 0.281] | +0.085 [0.007, 0.180] | +0.022 [−0.105, 0.171] |
+| L2 | F0 | random-site | +0.110 [0.071, 0.229] | +0.095 [0.051, 0.197] | +0.038 [−0.022, 0.073] |
+| L2 | F3 | whole-region | +0.124 [0.077, 0.275] | +0.121 [0.050, 0.285] | +0.106 [−0.109, 0.392] |
+| L2 | F3 | random-site | +0.119 [0.045, 0.242] | +0.120 [0.065, 0.181] | +0.060 [−0.018, 0.116] |
 
-The L0 rows are the same number twice, and the architecture-by-geometry double
-difference confirms it: −0.002, −0.004 and +0.004 °C, the middle one resolved
-only in the sense that four thousandths of a degree can be. The null therefore
-holds in the split design the literature uses, which is where it needed to
-hold.
+The L0/F0 rows are the same number twice, and the architecture-by-geometry
+double difference confirms it: −0.002, −0.004 and +0.004 °C, the middle one
+resolved only in the sense that four thousandths of a degree can be. The null
+therefore holds in the split design the literature uses, which is where it
+needed to hold.
 
 The L2 rows answer the more interesting question. Whole-region holdout withholds
 the local gauge *and* extrapolates in space, and a geometry penalty of similar
@@ -1578,13 +1583,36 @@ makes the estimator start to matter is the missing local information, not the
 spatial extrapolation that the whole-region design happens to bundle with it
 (`outputs/final/architecture_geometry_interaction_v1/`).
 
+**The one architecture win is geometry-independent, and that null has power
+behind it.** The F3 rows of Table 4.19 carry the paper's only resolvable
+architecture advantage, and it barely moves across the split design: −0.015,
+−0.037 and −0.104 °C at whole-region against −0.015, −0.035 and −0.124 °C at
+random-site. The triple difference — whether the architecture-by-forcing
+interaction itself depends on geometry — is +0.001, +0.005 and −0.005 °C, and
+each of those sits *below* the minimum detectable effect for its own cell
+(0.006, 0.012 and 0.018 °C). This is the distinction that matters for reading a
+null: an effect of 0.006 °C would have been visible and none is there, so this
+is evidence of absence rather than absence of evidence.
+
+At L2 the same triple difference is −0.012, −0.046 and −0.065 °C against minimum
+detectable effects of 0.017, 0.069 and 0.063 °C, and every interval covers zero.
+There the honest statement is the opposite one: the cohort cannot resolve a
+three-way contrast in the ungauged regime, and we report that as a power limit
+rather than as a null. Reporting the two the same way would be the more damaging
+of the two available errors, so every cell of the artifact carries its own MDE.
+
+The forty-fold spread in those MDEs — 0.004 °C at L0, up to 0.19 °C at L2 — is
+itself the result restated. At L0 every station's architecture penalty sits
+against zero with almost no spread, so the whole-cluster sign-flip test is
+powerful; at L2 the penalty varies widely across stations, and the same test on
+the same 15 regions is not. High resolution at L0 is a consequence of the
+effect's being absent, not an independent virtue of the design.
+
 Scope. One network is one draw from "what a deep model does here" — a recurrent
 or attention arm would be needed to say whether these results are about sequence
-models or about this sequence model. The geometry arm is F0 only; crossing
-forcing, information and geometry with architecture at once is a contrast 116
-stations across about nine effective clusters cannot carry. The 648 cells are
-deterministic: 44 were refitted after a lineage-record collision and every one
-reproduced byte-for-byte. Post-outcome and descriptive, like Sections 4.7–4.9,
+models or about this sequence model. The 1,008 cells are deterministic: 44 were
+refitted after a lineage-record collision and every one reproduced
+byte-for-byte. Post-outcome and descriptive, like Sections 4.7–4.9,
 and excluded from the Abstract and Key Points on that ground
 (`outputs/final/architecture_authority_v1/`).
 

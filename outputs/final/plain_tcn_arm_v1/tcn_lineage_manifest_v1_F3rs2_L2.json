@@ -1,0 +1,1715 @@
+{
+ "architecture": {
+  "batch": 4096,
+  "bound_degC": 1.0,
+  "channels": 32,
+  "dilations": [
+   1,
+   2,
+   4
+  ],
+  "epochs": 40,
+  "kernel": 3,
+  "kind": "plain causal TCN over the lag axis",
+  "learning_rate": 0.003,
+  "model_selection": "lowest in-fold validation MSE across epochs",
+  "receptive_field_positions": 15
+ },
+ "cells": [
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed0_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 6.043086051940918,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 30065,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 17.393157958984375,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 258941,
+    "validation_rows": 62746
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed0_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed1_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 37,
+    "best_validation_mse": 5.867241382598877,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 30065,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 15.61294937133789,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 258941,
+    "validation_rows": 62746
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed1_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed2_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 5.690543174743652,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 30065,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 16.32282066345215,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 258941,
+    "validation_rows": 62746
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed2_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed0_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 37,
+    "best_validation_mse": 5.689333438873291,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29851,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 15.908958435058594,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 257440,
+    "validation_rows": 62328
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed0_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed1_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 5.764697551727295,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29851,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 15.581419944763184,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 257440,
+    "validation_rows": 62328
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed1_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed2_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 5.535805702209473,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29851,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 17.897653579711914,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 257440,
+    "validation_rows": 62328
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed2_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed0_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 37,
+    "best_validation_mse": 6.06623649597168,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29619,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.635360717773438,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 256005,
+    "validation_rows": 61796
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed0_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed1_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 5.603376865386963,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29619,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 18.635272979736328,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 256005,
+    "validation_rows": 61796
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed1_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed2_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.053993225097656,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29619,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 18.160951614379883,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 256005,
+    "validation_rows": 61796
+   },
+   "fold": 0,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold0_PlainTCN_unbounded_seed2_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed0_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.549847602844238,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29510,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 18.712663650512695,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 247601,
+    "validation_rows": 62334
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed0_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed1_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.578498363494873,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29510,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 22.63603973388672,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 247601,
+    "validation_rows": 62334
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed1_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed2_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 37,
+    "best_validation_mse": 6.658957004547119,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29510,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 14.9761962890625,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 247601,
+    "validation_rows": 62334
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed2_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed0_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 6.659058570861816,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29346,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 17.9448184967041,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 246107,
+    "validation_rows": 61888
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed0_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed1_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 29,
+    "best_validation_mse": 6.8605732917785645,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29346,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 18.947978973388672,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 246107,
+    "validation_rows": 61888
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed1_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed2_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 6.768665313720703,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29346,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 16.41417694091797,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 246107,
+    "validation_rows": 61888
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed2_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed0_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.911592960357666,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29130,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 16.92185401916504,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 244694,
+    "validation_rows": 61344
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed0_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed1_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.840852737426758,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29130,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.144737243652344,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 244694,
+    "validation_rows": 61344
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed1_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed2_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 37,
+    "best_validation_mse": 6.8506178855896,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29130,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 15.735004425048828,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 244694,
+    "validation_rows": 61344
+   },
+   "fold": 1,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold1_PlainTCN_unbounded_seed2_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed0_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 6.460391044616699,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29000,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.553876876831055,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 259489,
+    "validation_rows": 62978
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed0_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed1_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.685327053070068,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29000,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.02358627319336,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 259489,
+    "validation_rows": 62978
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed1_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed2_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 6.620392322540283,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 29000,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.70564079284668,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 259489,
+    "validation_rows": 62978
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed2_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed0_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.3734612464904785,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 28761,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.182231903076172,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 258037,
+    "validation_rows": 62579
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed0_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed1_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.4403862953186035,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 28761,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.874343872070312,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 258037,
+    "validation_rows": 62579
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed1_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed2_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 6.381319522857666,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 28761,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.557424545288086,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 258037,
+    "validation_rows": 62579
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed2_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed0_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 6.5146636962890625,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 28477,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.454933166503906,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 256703,
+    "validation_rows": 62050
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed0_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed1_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 35,
+    "best_validation_mse": 6.67781925201416,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 28477,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 22.03847885131836,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 256703,
+    "validation_rows": 62050
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed1_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed2_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 6.387614727020264,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 28477,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.913349151611328,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 256703,
+    "validation_rows": 62050
+   },
+   "fold": 2,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold2_PlainTCN_unbounded_seed2_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed0_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 4.755746841430664,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31869,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 21.478090286254883,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 253219,
+    "validation_rows": 62490
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed0_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed1_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 34,
+    "best_validation_mse": 4.950188636779785,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31869,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.857725143432617,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 253219,
+    "validation_rows": 62490
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed1_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed2_h1",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 4.873874187469482,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31869,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.8250789642334,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 253219,
+    "validation_rows": 62490
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 1,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed2_h1.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed0_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 4.785669326782227,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31681,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 21.416170120239258,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 251591,
+    "validation_rows": 62049
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed0_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed1_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 39,
+    "best_validation_mse": 4.943796157836914,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31681,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.808635711669922,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 251591,
+    "validation_rows": 62049
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed1_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed2_h3",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 37,
+    "best_validation_mse": 4.7665510177612305,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31681,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.47877311706543,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 251591,
+    "validation_rows": 62049
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 3,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed2_h3.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed0_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 36,
+    "best_validation_mse": 5.0812883377075195,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31456,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.863792419433594,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 250064,
+    "validation_rows": 61509
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 0,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed0_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed1_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 4.882381439208984,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31456,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 20.82906150817871,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 250064,
+    "validation_rows": 61509
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 1,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed1_h7.parquet",
+   "split_seed": 2
+  },
+  {
+   "cell": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed2_h7",
+   "fit": {
+    "anchor": "training_pooled_climatology_only",
+    "best_epoch": 38,
+    "best_validation_mse": 4.576320171356201,
+    "bounded": false,
+    "features_total": 186,
+    "held_rows": 31456,
+    "lags_oldest_first": [
+     14,
+     10,
+     7,
+     5,
+     3,
+     2,
+     1,
+     0
+    ],
+    "max_abs_residual": 19.79477882385254,
+    "sequence_variables": [
+     "DH",
+     "FLOW",
+     "PRCP",
+     "RHMEAN",
+     "TEMP",
+     "WDSP"
+    ],
+    "static_features": 138,
+    "target_kind": "level_anchor_residual",
+    "train_cells_mean_imputed_fraction": 0.0,
+    "train_rows": 250064,
+    "validation_rows": 61509
+   },
+   "fold": 3,
+   "forcing": "F3_full",
+   "geometry": "random_site",
+   "horizon": 7,
+   "level": "L2",
+   "model": "PlainTCN_unbounded",
+   "regions_held": [
+    "random_seed2"
+   ],
+   "seed": 2,
+   "shard": "F3_full_L2_random_site_seed2_fold3_PlainTCN_unbounded_seed2_h7.parquet",
+   "split_seed": 2
+  }
+ ],
+ "format": "thermoroute.plain-tcn-arm.v1",
+ "information_matching": "the same frozen tabular namespace the tree arms consume, under the same level mask; lag columns reshaped into the sequence axis, all remaining columns entering as static features. Missing cells are set to the training mean, which gives the network strictly less than LightGBM's learned NaN branch.",
+ "status": "POST_OUTCOME_OBSERVED_LINEAGE_ARCHITECTURE_ARM"
+}
