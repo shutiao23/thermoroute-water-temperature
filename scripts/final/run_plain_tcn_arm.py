@@ -26,14 +26,29 @@ only seven of the eight positions would be causal *and* blind to the oldest
 observation the trees can split on, which is an information mismatch dressed up
 as an architecture.
 
-Two matching concessions are recorded rather than hidden.  LightGBM routes NaN
-down a learned branch; a dense network cannot, so missing cells are set to the
-training mean after standardisation.  That gives the network *less* to work with
-than the trees, so it cannot inflate the architecture contrast in the network's
-favour, and the affected fraction is written into the manifest.  Second, a
-variable whose lag set is only partly admissible at some level would give the
-convolution a ragged history, so its surviving columns are demoted to static
-features -- still visible, just not convolved.
+Three matching concessions are recorded rather than hidden, and the order below
+is the order of how much they actually bind.
+
+*The training budget*, which is the one that bit.  Both model classes get a
+fixed budget, but a fixed budget is not a matched one: LightGBM stops at its own
+best iteration while the network stops at whichever epoch the clock allows.
+Under the original 40-epoch budget the median best epoch was 9-23 at L0 and 37
+at L2, with a third of L2 cells still improving at the cap -- so the budget was
+tight exactly where the arm claims the tree wins.  ``--epochs`` and
+``--patience`` exist for that reason, the manifest records both and whether a
+fit stopped at its budget, and the L2 sensitivity is scored in
+``check_tcn_convergence_sensitivity.py``.
+
+*Missing values.*  LightGBM routes NaN down a learned branch; a dense network
+cannot, so missing cells are set to the training mean after standardisation.
+This is recorded and then does not bind: the imputed fraction is 0.0 in all
+1,008 cells, because the feature path imputes upstream.  It was described here
+as "the network's one disadvantage" while the budget above went unmentioned,
+which had the concession section pointing at the harmless one.
+
+*Ragged lag sets.*  A variable whose lag set is only partly admissible at some
+level would give the convolution an uneven history, so its surviving columns
+are demoted to static features -- still visible, just not convolved.
 
 Level masking reuses :mod:`thermoroute.information_levels` unchanged, the
 residual is added to the level-legal anchor, and the bounded variant applies the

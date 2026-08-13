@@ -16,11 +16,11 @@ than a claim about its importance.
 ## Key Points
 
 1. Withholding a gauge's own recent water temperature costs 1.3-1.7 °C; changing
-   the model class costs under 0.01 °C at the same sites
+   the model class costs under 0.01 °C at the same sites.
 2. Future weather is worth 0.13-0.63 °C and worth less, not more, once the local
-   gauge is gone, so the two are complements
+   gauge is gone, so the two are complements.
 3. Seven-day skill of +0.250 against persistence falls to +0.038 against damped
-   persistence; the information results are descriptive
+   persistence; the information results are descriptive.
 
 ## What a reader can check, and where
 

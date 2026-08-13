@@ -1,0 +1,195 @@
+{
+ "format": "thermoroute.tcn-convergence-sensitivity.v1",
+ "primary_budget": {
+  "epochs": 40,
+  "patience": 0
+ },
+ "question": "whether the L2 architecture penalty reflects the model class or the 40-epoch training budget that bound there",
+ "rows": [
+  {
+   "ci_high": 0.014256431761247468,
+   "ci_low": 0.0011565015810104569,
+   "horizon": 1,
+   "level": "L0",
+   "median_degC": 0.009439283522651554,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "budget_40"
+  },
+  {
+   "ci_high": 0.014256431761247468,
+   "ci_low": 0.0011565015810104569,
+   "horizon": 1,
+   "level": "L0",
+   "median_degC": 0.009439283522651554,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "patience_300"
+  },
+  {
+   "ci_high": 0.0,
+   "ci_low": 0.0,
+   "horizon": 1,
+   "level": "L0",
+   "median_degC": 0.0,
+   "n_stations": 116,
+   "quantity": "change_from_longer_training",
+   "training": "patience_300 - budget_40"
+  },
+  {
+   "ci_high": 0.011705052466979615,
+   "ci_low": -0.0012093013688125134,
+   "horizon": 3,
+   "level": "L0",
+   "median_degC": 0.006024801292034347,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "budget_40"
+  },
+  {
+   "ci_high": 0.011705052466979615,
+   "ci_low": -0.0012093013688125134,
+   "horizon": 3,
+   "level": "L0",
+   "median_degC": 0.006024801292034347,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "patience_300"
+  },
+  {
+   "ci_high": 0.0,
+   "ci_low": 0.0,
+   "horizon": 3,
+   "level": "L0",
+   "median_degC": 0.0,
+   "n_stations": 116,
+   "quantity": "change_from_longer_training",
+   "training": "patience_300 - budget_40"
+  },
+  {
+   "ci_high": 0.009227724630368325,
+   "ci_low": -0.008561516968757621,
+   "horizon": 7,
+   "level": "L0",
+   "median_degC": -0.002151866415455099,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "budget_40"
+  },
+  {
+   "ci_high": 0.009227724630368325,
+   "ci_low": -0.008561516968757621,
+   "horizon": 7,
+   "level": "L0",
+   "median_degC": -0.002151866415455099,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "patience_300"
+  },
+  {
+   "ci_high": 0.0,
+   "ci_low": 0.0,
+   "horizon": 7,
+   "level": "L0",
+   "median_degC": 0.0,
+   "n_stations": 116,
+   "quantity": "change_from_longer_training",
+   "training": "patience_300 - budget_40"
+  },
+  {
+   "ci_high": 0.2811093023269774,
+   "ci_low": 0.11507686185849415,
+   "horizon": 1,
+   "level": "L2",
+   "median_degC": 0.1849661418512133,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "budget_40"
+  },
+  {
+   "ci_high": 0.34093506913239224,
+   "ci_low": 0.09011004092948675,
+   "horizon": 1,
+   "level": "L2",
+   "median_degC": 0.24906491857541338,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "patience_300"
+  },
+  {
+   "ci_high": 0.19367462168971114,
+   "ci_low": -0.12308726914951018,
+   "horizon": 1,
+   "level": "L2",
+   "median_degC": 0.07201630518166433,
+   "n_stations": 116,
+   "quantity": "change_from_longer_training",
+   "training": "patience_300 - budget_40"
+  },
+  {
+   "ci_high": 0.18026679753969152,
+   "ci_low": 0.007078197378354023,
+   "horizon": 3,
+   "level": "L2",
+   "median_degC": 0.08535946500467917,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "budget_40"
+  },
+  {
+   "ci_high": 0.2230913911304356,
+   "ci_low": 0.017727429760772573,
+   "horizon": 3,
+   "level": "L2",
+   "median_degC": 0.15186727796136817,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "patience_300"
+  },
+  {
+   "ci_high": 0.1105121505714588,
+   "ci_low": -0.050927152005167564,
+   "horizon": 3,
+   "level": "L2",
+   "median_degC": 0.03863191143545467,
+   "n_stations": 116,
+   "quantity": "change_from_longer_training",
+   "training": "patience_300 - budget_40"
+  },
+  {
+   "ci_high": 0.17106086970002257,
+   "ci_low": -0.10535690993764613,
+   "horizon": 7,
+   "level": "L2",
+   "median_degC": 0.02171850375910774,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "budget_40"
+  },
+  {
+   "ci_high": 0.2800653588609861,
+   "ci_low": -0.13257630487509564,
+   "horizon": 7,
+   "level": "L2",
+   "median_degC": 0.0653587159515899,
+   "n_stations": 116,
+   "quantity": "architecture_penalty_tcn_minus_tree",
+   "training": "patience_300"
+  },
+  {
+   "ci_high": 0.12171248475996616,
+   "ci_low": -0.017478444325469557,
+   "horizon": 7,
+   "level": "L2",
+   "median_degC": 0.02710467360776725,
+   "n_stations": 116,
+   "quantity": "change_from_longer_training",
+   "training": "patience_300 - budget_40"
+  }
+ ],
+ "sensitivity_budget": {
+  "epochs": 300,
+  "patience": 20
+ },
+ "unchanged": "folds, fit seeds, evaluation keys, anchor, comparator"
+}

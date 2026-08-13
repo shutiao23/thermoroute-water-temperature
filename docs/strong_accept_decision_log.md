@@ -2021,3 +2021,97 @@ Artifacts: `outputs/final/architecture_geometry_interaction_v1/` (66 rows, each
 with its own MDE). Manuscript: Section 4.10, Table 4.19.
 
 Commit(s): (this worktree)
+
+## 2026-08-13 — DLOG-036: the L2 architecture penalty is not a training budget
+
+An external read of Section 4.10 raised a defect I had not caught, and it was
+real. The arm gives both model classes a fixed budget, but a fixed budget is not
+a matched one: LightGBM stops at its own best iteration while the network stops
+when the clock does. The arm's own lineage said the clock bound where the claim
+lives -- median best epoch 37 of a 40-epoch cap at L2 with a third of cells
+still improving, against 9-23 at L0. That is the information-mismatch failure
+the arm was careful about, relocated to the optimiser.
+
+Worse, the concession section pointed at the harmless one. It named mean
+imputation as "the network's one disadvantage"; the imputed fraction is 0.0 in
+all 1,008 cells because the feature path imputes upstream. So the disclosed
+concession never binds and the binding one was undisclosed.
+
+**The test.** 72 cells refitted at a 300-epoch cap with patience 20, identical
+folds, seeds, keys, anchor and comparator. At L0 the change is exactly 0.000 at
+every lead, which is what it must be when the best epoch was never at the cap
+and the fits are deterministic; that zero is also a check on the harness. At L2
+the median best epoch moves from 37 to 119 and nothing reaches the new cap.
+
+**The penalty does not shrink. It grows** -- 0.185 to 0.249, 0.085 to 0.152,
+0.022 to 0.065 degC -- with every change interval covering zero. Longer training
+makes the network worse against the held region while its in-fold validation is
+still improving, which is what information scarcity looks like from the
+optimiser's side: at L2 the in-fold validation stations stop being informative
+about the held region, so more training tracks the wrong thing. The reported
+figures are the shorter-budget ones, so the published pair is the conservative
+one and the claim stands.
+
+The runner now takes --epochs, --patience and --shard-suffix so a sensitivity
+run cannot overwrite the primary cells; the manifest records the budget and
+whether a fit stopped at it; and the concession list in the runner docstring is
+reordered by how much each one actually binds.
+
+Artifacts: `outputs/final/tcn_convergence_sensitivity_v1/`.
+Builder: `scripts/final/check_tcn_convergence_sensitivity.py`.
+Manuscript: Section 4.10.
+
+Commit(s): (this worktree)
+
+## 2026-08-13 — DLOG-037: the manuscript is LaTeX now, and it fits
+
+**Length.** 58 pages to 22, inside the 23-page cap including references. Three
+things did the work and only one of them was deletion.
+
+Prose fell from 18,650 words to 8,920, section by section against a budget, with
+every compressed section verified against its source for changed numbers,
+dropped governance labels and invented claims. Sixteen of twenty-five came back
+flagged and the flags were real: five sections had invented supporting-
+information pointers for evidence the source reported inline, one of them
+aiming the reference-anchor sweep at the architecture-controls section. Section
+4.7 had merged two distinct geometry penalties into one sentence; 4.4 had turned
+a lead-scoped null into an absolute one. The consistency gate then caught ten
+ledger-bound numbers and one generated table the compression had dropped, all
+restored rather than de-registered.
+
+The bibliography printed 62 entries against 21 cited works, because the Markdown
+carried citations as inline DOI links and the TeX fell back on `\nocite{*}`.
+Converting all 26 links to apacite keys and deleting `\nocite{*}` removed four
+pages and made the reference list a record of what the paper cites.
+
+The last ten pages were double spacing, not content. `draft` and `linenumbers`
+are separable and only line numbers are a review requirement. Single-spaced with
+line numbers the paper is 22 pages; double-spaced it is 33. Deleting a further
+3,400 words to reach 23 while double-spaced would have cost results to buy
+leading, so the layout gave way instead. Adding `draft` back restores double
+spacing at 33 pages with no other change.
+
+**Authoring.** `build_agu.py` is retired. It enforced a real property -- the TeX
+was byte-exactly what the Markdown generated, checked in CI -- but a generated
+file cannot be typeset, and every fix of the kind this cut required survived
+only until the next conversion. The checks worth keeping already read the `.tex`;
+what is lost is Markdown/TeX correspondence, paid deliberately.
+
+Two build defects fell out of the switch and are recorded because both were
+invisible to a single compile. hyperref and this apacite disagree about
+`\hyper@link@`, so the document built on a clean tree and died on the pass after
+bibtex once `\bibcite` entries existed to hyperlink; hyperref is now not loaded
+at all, since the citation conversion left no `\href` or `\url` in the document.
+And an "Undefined control sequence" that looked like the same fault was a stale
+`.aux` from the previous layout, which is why the Makefile's clean target
+removes the auxiliaries rather than only the PDF.
+
+**Figures.** The paper's strongest results had no figure; Figure 4 puts every
+information axis on one log axis over three orders of magnitude, values read
+from scored artifacts. Seven figures left from an earlier numbering are deleted.
+`figstyle` refuses to save a text collision, but the SI figures come from a
+renderer that never imported it, so `check_figure_typography.py` now checks the
+shipped PDFs instead of the drawing code: it found `+nan` printed three times in
+figS4, where persistence is scored against itself. All 16 figures pass.
+
+Commit(s): (this worktree)

@@ -113,3 +113,10 @@ outputs/final/forcing_f2a_v5a/f2a_shards_v5a/
 outputs/final/information_ladder_v6_observed/ladder_shards_v6_observed/
 outputs/final/plain_tcn_arm_v1/tcn_shards_v1/
 outputs/final/.tcnlogs/
+paper/agu_submission/*.aux
+paper/agu_submission/*.bbl
+paper/agu_submission/*.blg
+paper/agu_submission/*.fls
+paper/agu_submission/*.fdb_latexmk
+paper/agu_submission/*.log
+paper/agu_submission/*.out

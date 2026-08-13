@@ -16,11 +16,11 @@ ORCID, affiliation number, and institutional e-mail address]
 ## Key Points
 
 - Withholding a gauge's own recent water temperature costs 1.3-1.7 °C; changing
-  the model class costs under 0.01 °C at the same sites
+  the model class costs under 0.01 °C at the same sites.
 - Future weather is worth 0.13-0.63 °C and worth less, not more, once the local
-  gauge is gone, so the two are complements
+  gauge is gone, so the two are complements.
 - Seven-day skill of +0.250 against persistence falls to +0.038 against damped
-  persistence; the information results are descriptive
+  persistence; the information results are descriptive.
 
 ## Abstract
 
@@ -683,6 +683,20 @@ local gauge and the tree wins by 0.02–0.19 °C, with the
 architecture-by-information interaction positive and resolved under both
 geometries. What makes the estimator matter is the missing local information,
 not the spatial extrapolation the whole-region design bundles with it.
+
+That result depends on the network having been trained far enough, and its own
+lineage said it had not: under the shared 40-epoch budget the median best epoch
+at L2 was 37, with a third of cells still improving at the cap, while L0
+converged well inside it. A budget that binds only where the claim lives is the
+information-mismatch failure relocated to the optimiser, so the L2 cells were
+refitted with a 300-epoch cap and patience 20. The median best epoch moves to
+119 and nothing reaches the new cap, and the penalty does not shrink — it grows,
+to 0.249, 0.152 and 0.065 °C, with every change interval covering zero. Longer
+training makes the network worse against the held region while its in-fold
+validation still improves, which is what an information-scarce regime looks
+like from the optimiser's side. The reported figures are the shorter-budget
+ones, so they are the conservative pair
+(`outputs/final/tcn_convergence_sensitivity_v1/`).
 
 **Given perfect future weather, the sequence model is the better one.** At L0
 with F3 the sign reverses, to −0.096 [−0.177, −0.038] at seven days. That is the
