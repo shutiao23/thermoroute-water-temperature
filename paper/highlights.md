@@ -15,12 +15,12 @@ than a claim about its importance.
 
 ## Key Points
 
-1. Confirmatory: seven-day skill of +0.250 against persistence falls to +0.038
-   against damped persistence on identical keys.
-2. Descriptive: withholding a gauge's own recent water temperature from the
-   inputs costs 1.3-1.7 °C; the model class costs under 0.01 °C.
-3. Descriptive: future weather is worth 0.13-0.63 °C, and worth less once the
-   local gauge is gone, so the two are complements.
+1. Confirmatory: seven-day skill falls from +0.250 against persistence to +0.038
+   against damped persistence, and every model collapses alike.
+2. Confirmatory: a hybrid reporting +0.218 against persistence is
+   indistinguishable from the damped baseline; the reference set the sign.
+3. Confirmatory: keys a model may decline are 17-25% harder than the keys it
+   keeps, across six models from persistence to deep learning.
 
 ## What a reader can check, and where
 

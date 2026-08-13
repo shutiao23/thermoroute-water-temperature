@@ -97,13 +97,16 @@ def render(paired: pd.DataFrame, family: Sequence[dict]) -> pd.DataFrame:
         for ci, m in zip(out.ci_high_c, out.margin_c)
     ]
     out["holm_significant"] = out.holm_p <= 0.05
+    # "SUPPORTED" reads as "the candidate won", which is not what a
+    # non-inferiority row establishes -- row 4 meets its margin at a lead where
+    # the tree is the better model. The wording states what was actually met.
     out["decision"] = np.where(
         out.holm_significant & out.ci_below_margin,
-        "SUPPORTED",
+        "Meets margin",
         np.where(
             out.holm_significant | out.ci_below_margin,
-            "EVIDENCE_CONFLICT_NOT_SUPPORTED",
-            "NOT_SUPPORTED",
+            "Evidence conflict",
+            "Does not meet margin",
         ),
     )
     return out

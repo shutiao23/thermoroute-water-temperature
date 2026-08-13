@@ -219,7 +219,7 @@
 - claim_id: RQ4_RAPID_WARMING_7D_DELTA
   status: DESCRIPTIVE_PROVISIONAL
   used_in:
-  - section_4_5
+  - si11
   source_table: outputs/final/hydrologic_state_effects.parquet
   filter:
     period: 2021-2023
@@ -337,7 +337,6 @@
   status: POST_OUTCOME_PROMOTED
   used_in:
   - abstract
-  - key_point_1
   - section_4_6
   source_table: outputs/final/information_ladder_v6_authority_v1/information_ladder_v6_contrasts.parquet
   filter:
@@ -350,7 +349,6 @@
   status: POST_OUTCOME_PROMOTED
   used_in:
   - abstract
-  - key_point_1
   - section_4_6
   source_table: outputs/final/architecture_geometry_interaction_v1/architecture_geometry_interaction.parquet
   filter:
@@ -365,7 +363,6 @@
   status: POST_OUTCOME_PROMOTED
   used_in:
   - abstract
-  - key_point_1
   - section_4_6
   source_table: outputs/final/forcing_information_interaction_v1/forcing_information_interaction.parquet
   filter:

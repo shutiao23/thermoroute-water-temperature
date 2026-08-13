@@ -1,0 +1,18 @@
+{
+  "horizon": 7,
+  "skill_vs_persistence_range": [
+    0.21768322185029132,
+    0.2496899406608487
+  ],
+  "skill_vs_damped_range": [
+    -0.011043628625113655,
+    0.03818980085109841
+  ],
+  "spread_vs_persistence": 0.03200671881055739,
+  "spread_vs_damped": 0.049233429476212065,
+  "spread_ratio_damped_over_persistence": 1.5382217017500857,
+  "models_changing_sign": [
+    "Air2stream"
+  ],
+  "n_models": 6
+}

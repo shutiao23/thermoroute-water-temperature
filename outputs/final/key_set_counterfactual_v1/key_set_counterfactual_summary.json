@@ -1,0 +1,16 @@
+{
+  "incomplete_model": "Air2stream",
+  "n_keys_complete": 358807,
+  "n_keys_declined": 2676,
+  "declined_share": 0.0074580484773151025,
+  "difficulty_ratio_range": [
+    1.171101012422345,
+    1.251951034750112
+  ],
+  "difficulty_ratio_median": 1.2074933871359859,
+  "sites_touched": 9,
+  "sites_total": 118,
+  "declined_share_of_sites": 0.07627118644067797,
+  "max_declined_at_one_site": 1314,
+  "interpretation": "Every witness model scores worse on the declined keys than on the rest, so the subset a complete-case convention would have handed the incomplete model is measurably easier than the registry it was drawn from. The common-key rule removes that advantage by construction; this is its size."
+}

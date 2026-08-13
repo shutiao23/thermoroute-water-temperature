@@ -4,25 +4,25 @@
 
 | # | Reference | Lead | Margin (°C) | ΔRMSE (°C) | 95% CI | Win rate | Holm p | Sealed decision |
 | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- |
-| 1 | DampedPersistence | 1 d | +0.00 | -0.129 | [-0.199, -0.076] | 0.90 | 1.5e-04 | SUPPORTED |
-| 2 | DampedPersistence | 3 d | +0.00 | -0.108 | [-0.143, -0.074] | 0.91 | 1.5e-04 | SUPPORTED |
-| 3 | DampedPersistence | 7 d | +0.00 | -0.069 | [-0.084, -0.057] | 0.95 | 1.8e-04 | SUPPORTED |
-| 4 | LightGBM | 3 d | +0.05 | 0.015 | [0.010, 0.025] | 0.24 | 1.8e-04 | SUPPORTED |
-| 5 | LightGBM | 7 d | +0.05 | -0.009 | [-0.017, 0.003] | 0.59 | 1.8e-04 | SUPPORTED |
+| 1 | DampedPersistence | 1 d | +0.00 | -0.129 | [-0.199, -0.076] | 0.90 | 1.5e-04 | Meets margin |
+| 2 | DampedPersistence | 3 d | +0.00 | -0.108 | [-0.143, -0.074] | 0.91 | 1.5e-04 | Meets margin |
+| 3 | DampedPersistence | 7 d | +0.00 | -0.069 | [-0.084, -0.057] | 0.95 | 1.8e-04 | Meets margin |
+| 4 | LightGBM | 3 d | +0.05 | 0.015 | [0.010, 0.025] | 0.24 | 1.8e-04 | Meets margin |
+| 5 | LightGBM | 7 d | +0.05 | -0.009 | [-0.017, 0.003] | 0.59 | 1.8e-04 | Meets margin |
 
 ### Table 4.7a — Accuracy (RMSE, MAE, bias)
 
-| Model | RMSE 1 d | RMSE 3 d | RMSE 7 d |
-| --- | ---: | ---: | ---: |
-| Persistence | 0.813 | 1.638 | 2.202 |
-| DampedPersistence | 0.789 | 1.454 | 1.773 |
-| Climatology | 1.899 | 1.902 | 1.903 |
-| LightGBM | 0.589 | 1.304 | 1.735 |
-| LSTM | 0.663 | 1.358 | 1.712 |
-| PlainMLP-7var | 0.690 | 1.374 | 1.720 |
-| PlainCausalTCN-7var | 0.646 | 1.330 | 1.710 |
-| Air2stream | 0.719 | 1.459 | 1.825 |
-| ThermoRoute | 0.640 | 1.337 | 1.694 |
+| Model | RMSE 1 d | RMSE 3 d | RMSE 7 d | Skill 7 d vs. persistence | Skill 7 d vs. damped |
+| --- | ---: | ---: | ---: | --- | --- |
+| Persistence | 0.813 | 1.638 | 2.202 | — | — |
+| DampedPersistence | 0.789 | 1.454 | 1.773 | — | — |
+| Climatology | 1.899 | 1.902 | 1.903 | — | — |
+| LightGBM | 0.589 | 1.304 | 1.735 | +0.248 [+0.230, +0.263] | +0.030 [+0.027, +0.037] |
+| LSTM | 0.663 | 1.358 | 1.712 | +0.244 [+0.225, +0.256] | +0.028 [+0.027, +0.034] |
+| PlainMLP-7var | 0.690 | 1.374 | 1.720 | +0.243 [+0.220, +0.255] | +0.023 [+0.020, +0.032] |
+| PlainCausalTCN-7var | 0.646 | 1.330 | 1.710 | +0.246 [+0.223, +0.258] | +0.028 [+0.024, +0.034] |
+| Air2stream | 0.719 | 1.459 | 1.825 | +0.218 [+0.167, +0.233] | -0.011 [-0.031, +0.007] |
+| ThermoRoute | 0.640 | 1.337 | 1.694 | +0.250 [+0.235, +0.268] | +0.038 [+0.033, +0.046] |
 
 ### Table 4.12 — Hydrologic states (7-day keys)
 

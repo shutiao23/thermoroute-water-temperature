@@ -94,16 +94,41 @@ def accuracy_rows(station: pd.DataFrame, models: list[str]) -> list[list[str]]:
 
 
 def table_4_7a(station: pd.DataFrame) -> str:
+    """Every model's accuracy AND what it reports against each reference.
+
+    These were two tables. Merging them is not only a page saved: the paper's
+    central claim is that a reported number depends on its denominator, and that
+    claim is checkable in one glance only when the accuracy and the two skill
+    columns sit on the same row. Reading down a column compares models; reading
+    across a row shows what the reference alone does to one fitted object.
+
+    MAE and bias are the same rows in SI07 and are not repeated.
+    """
+    matrix = pd.read_parquet(
+        FINAL / "reference_matrix_v1" / "reference_matrix.parquet")
+    at7 = matrix[matrix.horizon == 7].set_index(["model", "reference"])
+
     models = ["Persistence", "DampedPersistence", "Climatology", "LightGBM",
               "LSTM", "PlainMLP-7var", "PlainCausalTCN-7var", "Air2stream",
               "ThermoRoute"]
-    # RMSE only.  The MAE and bias columns are the same numbers as SI07, which
-    # is defined as the all-model scores on the exact common keys, and every
-    # claim in the manuscript is an RMSE claim.  Ten columns of which six are
-    # duplicated elsewhere is a page the main text cannot afford.
-    header = ["Model"] + [f"RMSE {h} d" for h in (1, 3, 7)]
-    rows = [header] + [r[:4] for r in accuracy_rows(station, models)]
-    return md_table(rows, ["l", "r", "r", "r"])
+
+    def skill(model: str, reference: str) -> str:
+        # A reference has no skill against itself, and climatology is not one of
+        # the two denominators under test; an em dash says so rather than a zero.
+        if (model, reference) not in at7.index:
+            return "—"
+        row = at7.loc[(model, reference)]
+        return (f"{row.median_station_skill:+.3f} "
+                f"[{row.skill_ci_low:+.3f}, {row.skill_ci_high:+.3f}]")
+
+    header = ["Model"] + [f"RMSE {h} d" for h in (1, 3, 7)] \
+        + ["Skill 7 d vs. persistence", "Skill 7 d vs. damped"]
+    rows = [header]
+    for cells in accuracy_rows(station, models):
+        model = cells[0]
+        rows.append(cells[:4] + [skill(model, "Persistence"),
+                                 skill(model, "DampedPersistence")])
+    return md_table(rows, ["l", "r", "r", "r", "l", "l"])
 
 
 def skill_rows(effects: pd.DataFrame, models: list[str]) -> list[list[str]]:
