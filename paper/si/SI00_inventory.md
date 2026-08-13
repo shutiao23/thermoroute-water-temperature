@@ -38,6 +38,13 @@ unbound result cell is `[pending computation]`.
 | SI14 | missingness/failure shell | attrition and failure-case schemas | post hoc threshold selection or omitted failures |
 | SI15 | reproduction shell | required hashes, commands, environment and parity fields | one-click or independent-replay claims without receipts |
 | SI16 | rights/data-dictionary shell, **plus the full redistribution class enumeration relocated from the main text** | decision fields, units, release routing, the four classes defaulting to exclusion and the two excluded outright, and the exact scope of the MIT licence | redistribution approval or FAIR completion |
+| SI19 | development-period spatial analysis and robustness probes relocated from manuscript §§4.4–4.5 | development-window skill ladders and robustness probes, each labelled development-period | any development-period value compared numerically with a held-out-window value |
+
+There is no SI17 or SI18, and the gap is deliberate rather than an omission:
+SI19 was numbered to match the relocation batch it came from, and renumbering it
+now would break the two citations it already carries in the manuscript. The
+inventory says so here because a reader who counts the sections will otherwise
+go looking for two documents that were never written.
 
 ## Evidence routing
 

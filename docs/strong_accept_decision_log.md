@@ -2115,3 +2115,33 @@ shipped PDFs instead of the drawing code: it found `+nan` printed three times in
 figS4, where persistence is scored against itself. All 16 figures pass.
 
 Commit(s): (this worktree)
+
+## 2026-08-13 — DLOG-038: erratum on the duplicated DLOG-027 and DLOG-028 ids
+
+Two identifiers were each used twice, on different days, for unrelated entries:
+
+| id | 2026-08-09 entry | 2026-08-10 entry |
+|---|---|---|
+| DLOG-027 | F2b remains planned-degraded; primary scope is 48 F0/F3 cells | forcing-v5 inference authority, claim-status quarantine, manuscript scope correction |
+| DLOG-028 | score-free semantic registries v4 authority frozen | shuffled-forcing placebo executed under a pre-outcome seal; P1 satisfied |
+
+This is recorded rather than repaired, because repairing it would break
+something real. `scripts/final/run_forcing_ladder_v5_observed.py` asserts on the
+literal bytes `DLOG-028: score-free semantic registries v4 authority frozen` as
+part of its governance check, so renumbering the 2026-08-09 entry fails the
+runner; and renumbering the 2026-08-10 entry would leave every citation of it --
+in the manuscript, the protocols, and DLOG-029 onward -- pointing at a number
+that no longer exists. An append-only log cannot be renumbered after the fact
+without invalidating the references that make it worth keeping.
+
+**Disambiguation rule.** Cite a duplicated id by date: "DLOG-027 (2026-08-09)"
+for the F2b scope entry, "DLOG-027 (2026-08-10)" for the inference authority.
+Where an existing citation is ambiguous the intended referent is the later entry
+in every case, because the earlier pair predate the work that cites them. The
+one explicit exception is the runner's byte pin, which is the 2026-08-09
+semantic-registries entry.
+
+Ids DLOG-029 onward are unique. Nothing in the numbering carries meaning beyond
+ordering, so the duplication costs disambiguation and nothing else.
+
+Commit(s): (this worktree)

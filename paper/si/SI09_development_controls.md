@@ -49,8 +49,23 @@ cache may substitute for a bound receipt.
 Figure S10 is the graphical reading of the registered architecture interventions
 and the bounded-deviation audit. Its control rows must agree with this table in
 identity, seed, budget, and receipt status; this SI is the development-period
-companion table to Figure S10. Figure S10 is POST-gated and blocked on the
-test-window evaluation receipt, so no coordinate in it is available yet.
+companion table to Figure S10.
+
+Figure S10 was for a long time described here as "POST-gated and blocked on the
+test-window evaluation receipt, so no coordinate in it is available yet". That
+was true when written and stopped being true when the held-out evaluation of
+manuscript Section 4.4 ran; the blocker outlived the block. The figure is now
+rendered from `outputs/final/paired_effects.parquet` on the held-out 2021–2023
+window by `paper/si/figures/render_figS10_architecture_controls.py`, so it
+carries held-out coordinates while this table remains the development-period
+companion. The two must not be read as the same period, and neither value may be
+compared numerically with the other.
+
+What it shows: of the six one-factor controls, only removing the temporal
+encoder separates from the rest, and every other deletion or intervention sits
+within a few hundredths of a degree of the full model. These remain deletion and
+intervention sensitivities on paired keys; they do not establish that any
+component is necessary.
 
 The POST evidence chain must bind authorization → frozen suite → all required
 stage receipts → predictions/metrics → displayed value. Partial members, failed

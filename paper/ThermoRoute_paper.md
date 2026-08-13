@@ -693,9 +693,11 @@ classes differ by at most 0.009 °C at any lead, against station-median errors o
 this literature uses.
 
 **Where information is scarce, the estimator starts to matter.** Remove the
-local gauge and the tree wins by 0.02–0.19 °C, with the
-architecture-by-information interaction positive and resolved under both
-geometries. What makes the estimator matter is the missing local information,
+local gauge and the tree wins by 0.02–0.19 °C. The architecture-by-information
+interaction is positive in all six geometry-by-lead cells and resolved in three
+of them — at one day under both holdouts and at three days under random-site —
+while the two seven-day cells and whole-region at three days have intervals
+covering zero. What makes the estimator matter is the missing local information,
 not the spatial extrapolation the whole-region design bundles with it.
 
 That result depends on the network having been trained far enough, and its own

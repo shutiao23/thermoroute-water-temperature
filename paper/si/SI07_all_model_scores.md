@@ -20,8 +20,10 @@ model omission rejects the POST build.
 The frozen model registry for the temporal cohort is the six primary models
 **plus** the seven one-factor architecture controls, so this table carries a row
 for each of the thirteen, on one exact common key set, with the controls
-labelled exploratory. Figure S10 is the graphical reading of the control rows;
-it must agree with this table in value, unit, and rounding.
+labelled exploratory. Figure S10 is the graphical reading of the control rows on
+the held-out window
+(`paper/si/figures/render_figS10_architecture_controls.py`); it must agree with
+this table in value, unit, and rounding wherever the two report the same period.
 
 ## Discharge-channel ablation (Major Comment 7 retraining test)
 
