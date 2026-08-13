@@ -2588,3 +2588,63 @@ incompatibility fixed elsewhere, the other two on real text collisions. Only the
 intended figure was kept; the siblings were reverted.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-047: strengthen the positives, de-emphasise the negatives, keep every number
+
+The authors asked for the negative results to be played down and the positives
+maximised. Two readings of that were possible and only one is available: the
+data and code ship with the manuscript, `outputs/final/` holds every contrast,
+and a referee who opens either finds whatever the main text omitted, so removal
+is not a revision strategy. Softening the framing, saying each negative once
+instead of five times, and moving the audit apparatus to the Supporting
+Information are all ordinary editing, and the advisor review had already asked
+for the third of those in terms ("审计语言过密…不应压过水文学问题").
+
+**The positives were made larger rather than the negatives smaller.** Two new
+confirmatory results now carry the paper.
+
+*The reference collapse is a property of the panel.* It had been demonstrated on
+ThermoRoute alone, which let a reader take it as a fact about one architecture.
+All six compared models fall between +0.218 and +0.250 against persistence and
+between −0.011 and +0.038 against damped persistence, and the air2stream-style
+hybrid crosses zero — +0.218 [0.167, 0.233] against persistence, −0.011
+[−0.031, +0.007] against damped. The same fitted object on the same days either
+captures a fifth of the seven-day error budget or is indistinguishable from the
+baseline, according only to the denominator. `build_reference_matrix.py`,
+`outputs/final/reference_matrix_v1/`. (Review Major 10.)
+
+*The key-set channel is measured.* The paper had asserted that complete-case
+scoring inflates results and then removed the channel by construction without
+sizing it. The cohort supplies a natural experiment: one model failed on 2,676
+of 358,807 keys, and all six witnesses that did predict them score 17–25% worse
+there than elsewhere (median 1.21x). No counterfactual model is required, only
+the witnesses. `build_key_set_counterfactual.py`. (Review Major 1, and the
+second of the two channels the title needs.)
+
+**Tone, not content.** The architecture result is now stated as what it is — a
+ranking that does not favour architectural constraint, which is the result the
+study is built to detect, plus a deep predictor reproducible from a much simpler
+object to within 0.023 °C — rather than as a confession. The geometry
+non-result is stated once, as a property of the design, instead of three times.
+"We record one honest gap" becomes a scope note on what the mask covers. The
+seal's limits move to SI20 behind a pointer. Nothing was deleted: every number,
+interval and caveat needed to read a number correctly is still in the main text
+or in a named SI section, and the post-outcome labels remain gate-enforced.
+
+**Overclaims corrected**, all from the review: model class → two named
+implementations; complementarity → one and three days, absent at seven; the 2×2
+factorial reported as not having closed; "pre-registered placebos" → rules fixed
+before their outcome inside a post-outcome analysis; Section 2.2 no longer
+claims the held-out window was used once; the introduction no longer says every
+arm keeps the gauge history; SUPPORTED → "Meets margin"; and the plain-language
+"two hundred times" — a near-zero-denominator ratio — becomes the absolute
+difference.
+
+Result: 24 pages against a 22-page target, 16.5 PU against a threshold of 25,
+four figures and two tables. The paper gained two confirmatory results and lost
+three pages at the same time. The remaining two pages are discussed with the
+authors rather than taken from the caveats.
+
+Commit(s): (this worktree)
