@@ -2648,3 +2648,55 @@ three pages at the same time. The remaining two pages are discussed with the
 authors rather than taken from the caveats.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-048: the page fight was against a spacing choice, not a page limit
+
+The authors compared the manuscript with a published WRR paper (Topp et al.,
+2023, 10.1029/2022WR033880) and asked three questions: why is our line spacing
+so much larger, why are their figures laid out more flexibly, and why do their
+tables take so much less room. All three have the same answer, and on the first
+one they were right and I had been wrong for several revisions.
+
+**Line spacing.** AGU's submission checklist says "lines should be spaced 1.5-2
+lines". `agujournal2025.cls` ships `\draftskip=20`, which at the 10 pt body is
+exactly 2.0 — the *top* of that range. 15 is 1.5, the bottom of the same range,
+equally compliant, and worth five pages here: 24 to 19. Every compression pass
+in this session was fighting a budget inflated 25% by a default I had treated as
+a requirement. DLOG-039 already recorded one version of this mistake, where I
+optimised page count instead of publication units; this is the same error one
+level down, taking a class default for a journal rule.
+
+Verified rather than assumed: the rendered baseline separation is 11.5 pt
+against the previous ~15, line numbers survive, and the four figures are
+unaffected because a figure's height is set in millimetres.
+
+**Figure layout.** The narrow figure with text wrapping around it in the
+published PDF is Wiley's production compositor, not something the author
+supplied. AGU takes figures as separate files and lays them out at typesetting;
+chasing that layout in a submission manuscript is not possible and not wanted.
+No change.
+
+**Tables.** Their compactness is the same spacing effect plus two-column
+production. Ours narrowed automatically with the spacing change; nothing else
+was needed.
+
+**What the reclaimed pages bought.** Not blank space. The two forcing tables
+came back from the SI to the main text, and the Discussion gained the three
+things the advisor review said were missing: why our 0.009 °C estimator gap is
+smaller than the ~0.08 °C spread Feigl et al. (2021) report across six model
+classes (different quantities -- ours holds information, target and keys fixed
+and varies only the estimator, so it is the narrower measurement and a floor
+under theirs); why Padrón et al. (2025) rank models differently in an
+operational extended-range setting (their setting supplies neither condition
+under which our estimator contrast vanishes -- real forecast forcing, and
+withheld target history -- both of which are cells where our own penalty becomes
+non-zero and, under the oracle, changes sign, so a different ranking is a
+prediction this design makes rather than a disagreement); and a three-item
+minimum reporting standard that costs no new computation.
+
+Result: 21 pages against the 22 asked for, 19.3 PU against a threshold of 25,
+four figures and four tables, all gates passing.
+
+Commit(s): (this worktree)

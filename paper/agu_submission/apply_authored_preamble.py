@@ -48,7 +48,17 @@ EDITS: tuple[tuple[str, str, str], ...] = (
         "% already inside the real limit at full double spacing, and the\n"
         "% single-spaced build traded a required format for a metric the\n"
         "% publisher does not use.\n"
-        "\\documentclass[draft,linenumbers]{agujournal2025}",
+        "%\n"
+        "% The spacing itself is a choice inside the option, not fixed by it.\n"
+        "% AGU asks for \"lines spaced 1.5-2 lines\"; agujournal2025.cls ships\n"
+        "% \\draftskip=20, which at the 10pt body is exactly 2.0 and the top of\n"
+        "% that range. 15 is 1.5, the bottom of the same range and equally\n"
+        "% compliant, and it is worth about five pages here. The class reads\n"
+        "% \\draftskip inside \\normalsize, so the counter is set before the\n"
+        "% first \\normalsize rather than after \\begin{document}.\n"
+        "\\documentclass[draft,linenumbers]{agujournal2025}\n"
+        "\\draftskip=15\n"
+        "\\makeatletter\\normalsize\\makeatother",
     ),
     (
         "hyperref",

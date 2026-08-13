@@ -516,10 +516,35 @@ instrumented: a station with no thermal record has no target to score against.
 three and seven**, three to four times each cell's minimum detectable effect,
 and is event-scale weather information rather than seasonal phase: a placebo
 whose rules were fixed before its outcome existed retains 0.0–8.8% of the value,
-and it is almost entirely air temperature. Crossed with L its marginal value is
-*lower* once local observations are withheld, but only at short leads
-(Table S20.2) — a statistical interaction within the evaluated design, not a
-general property of the two information sources.
+and it is almost entirely air temperature. 
+
+**Table 3 — value of realized future meteorology.** Station-first forcing value
+$V_F = \mathrm{median}_i[\mathrm{RMSE}_i(F0) - \mathrm{RMSE}_i(F3)]$ in °C; CI
+is a 10,000-draw whole-HUC2 cluster bootstrap and MDE the smallest effect this
+cohort's cluster structure resolves at α = 0.05.
+
+| Model | Lead | RMSE F0 | RMSE F3 | $V_F$ | 95% CI | MDE |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| LightGBM | 1 d | 0.614 | 0.451 | 0.130 | [0.081, 0.189] | 0.031 |
+| LightGBM | 3 d | 1.330 | 0.765 | 0.542 | [0.415, 0.721] | 0.152 |
+| LightGBM | 7 d | 1.742 | 1.063 | 0.627 | [0.423, 0.803] | 0.172 |
+| ResidualLightGBM | 1 d | 0.606 | 0.446 | 0.125 | [0.084, 0.183] | 0.028 |
+| ResidualLightGBM | 3 d | 1.327 | 0.752 | 0.578 | [0.406, 0.704] | 0.160 |
+| ResidualLightGBM | 7 d | 1.722 | 1.087 | 0.605 | [0.445, 0.795] | 0.151 |
+
+Crossed with L its marginal value is *lower* once local observations are
+withheld, but only at short leads (Table 4) — a statistical interaction within
+the evaluated design, not a general property of the two information sources.
+
+**Table 4 — value of realized future meteorology by information level.**
+Station-first paired values in °C under whole-region holdout, 116 reportable
+stations, 10,000-draw whole-HUC2 cluster bootstrap.
+
+| Forcing value | 1 d | 3 d | 7 d |
+| --- | ---: | ---: | ---: |
+| At L0, gauged | 0.116 [0.059, 0.174] | 0.474 [0.299, 0.693] | 0.580 [0.366, 0.779] |
+| At L2, obs. withheld | 0.038 [0.020, 0.072] | 0.331 [0.249, 0.496] | 0.596 [0.431, 0.804] |
+| **Interaction, L2 − L0** | **−0.076 [−0.098, −0.056]** | **−0.147 [−0.193, −0.079]** | **+0.016 [−0.035, +0.099]** |
 
 **The estimator matters only where the information does not.** At L0 the tree
 and the network differ by at most 0.009 °C at any lead against station-median
@@ -573,6 +598,37 @@ of stations do not meet that bar, and the cohort was never exchangeable across
 regions. Usual practice would report a station-level interval, and nothing in
 such a paper would tell a reader the effective cluster count is under ten — the
 difference is disclosure rather than the data or the model.
+
+**Why our estimator gap is smaller than published comparisons, and why an
+operational study would rank differently.** Two recent results are the right
+external checks on ours and neither contradicts it. Feigl et al. (2021) compare
+six model classes on Austrian catchments and report a median RMSE spread between
+them of order 0.08 °C, where our L0 contrast between two implementations is
+0.009 °C. The two numbers measure different things: theirs spans a wider set of
+model families each tuned in its own way, ours holds the information set, the
+regression target and the key registry fixed and varies only the estimator, so
+ours is the narrower quantity and should be smaller. Read together they say the
+same thing — the estimator is not where the difficulty lies — with ours putting a
+floor under how small the gap becomes once the controls are matched.
+
+Padrón et al. (2025) forecast stream temperature at extended range with archived
+weather and find model choice mattering more than we do, and the reason is
+visible in our own axes. Their setting supplies neither of the two conditions
+under which our estimator contrast vanishes: their forcing is a real forecast
+rather than issue-time-only information, and their harder cases withhold the
+target site's history. Both of those are cells where our own estimator penalty
+becomes non-zero and, given the oracle, changes sign. An operational study
+should therefore expect a different ranking from ours, and that is a prediction
+this design makes rather than a disagreement.
+
+**What this implies for reporting.** Three things would make published river
+temperature results comparable at negligible cost: quote skill against a damped
+anchor alongside the naive one, since the pair costs one extra column and is
+what separates the models; state how many keys each model actually scored, since
+a model that declines the hard days is credited for an easier subset; and
+declare whether preprocessing statistics were fitted before or across the
+evaluated interval. None requires new computation, and the first two are what
+this study measures.
 
 The study is narrow by construction: a common-key clustered benchmark of point
 predictors at gauged sites, not an attempt to replace process-based thermal
