@@ -93,6 +93,21 @@ def _load():
     return registry, sm, skill, paired, mech, st, rt, geo
 
 
+# ``include_groups=False`` is a pandas >= 2.2 keyword.  This tree pins pandas
+# 2.1.4, where it is forwarded to the applied function instead and raises
+# TypeError -- which killed the whole figure run at figure 3, leaving figures 4
+# to 6 as whatever bytes an older run had left on disk.  A figure set that is
+# partly stale while the command reports success is worse than one that fails,
+# so the call site is made compatible rather than the environment pinned harder.
+_DROPS_KEYS = tuple(int(v) for v in pd.__version__.split(".")[:2]) >= (2, 2)
+
+
+def _apply(grouped, func):
+    """groupby.apply that excludes the grouping columns on either pandas."""
+    return grouped.apply(func, include_groups=False) if _DROPS_KEYS \
+        else grouped.apply(func)
+
+
 def _conus(ax):
     geo = json.loads(GEO.read_text())
     for feat in geo["features"]:
@@ -106,6 +121,33 @@ def _conus(ax):
             xs = [p[0] for p in ring]
             ys = [p[1] for p in ring]
             ax.plot(xs, ys, color="#BBBBBB", lw=0.4, solid_capstyle="round")
+
+
+def _graticule(ax):
+    """Label the map axes in degrees.
+
+    AGU asks every map to carry latitude and longitude, and both CONUS panels
+    were drawn with `set_xticks([])`.  A reader could not place a site except by
+    recognising the coastline, and a reader outside North America could not do
+    even that.  Ticks are drawn only where they fall inside the current limits,
+    so this stays correct if the extent changes.
+    """
+    lon = [t for t in (-120, -110, -100, -90, -80, -70) if
+           ax.get_xlim()[0] <= t <= ax.get_xlim()[1]]
+    lat = [t for t in (25, 30, 35, 40, 45) if
+           ax.get_ylim()[0] <= t <= ax.get_ylim()[1]]
+    ax.set_xticks(lon)
+    ax.set_yticks(lat)
+    ax.set_xticklabels([f"{abs(t)}°W" for t in lon], fontsize=6.0)
+    ax.set_yticklabels([f"{t}°N" for t in lat], fontsize=6.0)
+    ax.tick_params(axis="both", length=1.6, width=0.4, pad=1.2,
+                   colors=figstyle.MUTED)
+    for name in ("top", "right"):
+        ax.spines[name].set_visible(False)
+    for name in ("left", "bottom"):
+        ax.spines[name].set_visible(True)
+        ax.spines[name].set_linewidth(0.4)
+        ax.spines[name].set_color("#BBBBBB")
 
 
 def _region_folds(registry):
@@ -154,10 +196,7 @@ def fig1(registry, *rest):
                      edgecolor="none", zorder=3)
     ax_a.set_xlim(-125, -66)
     ax_a.set_ylim(24.5, 49.5)
-    ax_a.set_xticks([])
-    ax_a.set_yticks([])
-    for sp in ax_a.spines.values():
-        sp.set_visible(False)
+    _graticule(ax_a)
     figstyle.panel_label(ax_a, "(a) 120 sites, 4 whole-region folds")
 
     # Segment widths are proportional to their span in years, so 2018 is one
@@ -305,9 +344,8 @@ def fig3(registry, sm, skill, paired, mech, *rest):
         ends.append((ys[-1], LABEL[model], colour))
     a2s = pd.read_parquet(CONV / "air2stream_2021_2023.parquet")
     a2s["site_id"] = a2s["site_id"].astype(str).str.zfill(8)
-    a2s_rmse = a2s.groupby("horizon").apply(
-        lambda g: np.sqrt(np.mean((g.y_pred - g.y_true) ** 2)),
-        include_groups=False)
+    a2s_rmse = _apply(a2s.groupby("horizon"),
+                      lambda g: np.sqrt(np.mean((g.y_pred - g.y_true) ** 2)))
     ax_a.plot((1, 3, 7), [a2s_rmse[h] for h in (1, 3, 7)], marker="P", ms=3.5,
               lw=1.1, color=figstyle.WONG["purple"],
               markeredgecolor="white", markeredgewidth=0.4)
@@ -445,10 +483,7 @@ def fig5(registry, sm, skill, paired, mech, st, rt, geo):
                      edgecolor="none", zorder=3)
     ax_a.set_xlim(-125, -66)
     ax_a.set_ylim(24.5, 49.5)
-    ax_a.set_xticks([])
-    ax_a.set_yticks([])
-    for sp in ax_a.spines.values():
-        sp.set_visible(False)
+    _graticule(ax_a)
     figstyle.panel_label(ax_a, "(a) Four whole-region folds")
 
     ax_b = fig.add_subplot(gs[0, 1])
@@ -485,10 +520,8 @@ def fig5(registry, sm, skill, paired, mech, st, rt, geo):
         g = rt[(rt.arm == arm) & (rt.horizon == 3)].dropna(subset=["nearest_km"])
         ax_c.scatter(g.nearest_km, g.rmse - g.rmse_damped, s=6, color=colour,
                      marker=marker, alpha=0.5, edgecolor="none")
-        b = g.groupby(pd.qcut(g.nearest_km, 5), group_keys=False).apply(
-            lambda x: pd.Series({"x": x.nearest_km.median(),
-                                 "y": (x.rmse - x.rmse_damped).median()}),
-            include_groups=False)
+        b = _apply(g.groupby(pd.qcut(g.nearest_km, 5), group_keys=False),
+                   lambda x: pd.Series({"x": x.nearest_km.median(), "y": (x.rmse - x.rmse_damped).median()}))
         ax_c.plot(b.x, b.y, color=colour, lw=1.6, marker="D", ms=3,
                   markeredgecolor="white",
                   label="Random held-site" if arm == "random" else "Whole-region")

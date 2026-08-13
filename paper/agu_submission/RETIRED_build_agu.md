@@ -4,6 +4,18 @@
 file from `paper/ThermoRoute_paper.md` and will silently destroy any typesetting
 work. Build with `make` in this directory.
 
+**Exception, taken once, on 2026-08-13 (DLOG-042).** The advisor-review revision
+changed roughly twenty passages of prose, and at that moment the `.tex` held no
+hand-authored layout to destroy: the seven `{\small}` table blocks are generator
+output from `_fit_longtables`, and the only authored edits were the preamble and
+the citation migration, each with its own script. Regenerating and re-applying
+those two was strictly safer than hand-porting twenty edits into 1,148 lines.
+The rule stands from the next typesetting fix onward — and the reason it stands
+is that the next such fix is the first thing a regeneration would silently
+delete. If you are about to make this exception again, check first that the file
+still contains nothing but generator output plus the two scripted edits; the
+moment that stops being true, the exception stops being available.
+
 ## Why it existed
 
 The generator enforced something real. Markdown was the single prose source, the

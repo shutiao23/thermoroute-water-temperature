@@ -221,6 +221,66 @@ def check_promoted_claims_disclose_their_status(
     return problems
 
 
+#: Sentences that assert a result is absent from a headline span.  Written as
+#: one pattern rather than a list of literals because the real manuscript used
+#: the conjoined form -- "outside the Abstract and Key Points" -- which a list
+#: of single-span literals matches only half of, and half a match here means
+#: the Key Points half of the contradiction goes unreported.
+_DENIAL_RE = re.compile(
+    r"(?:rather than in|outside|excluded from|not in|withheld from)\s+the\s+"
+    r"(abstract|key points)"
+    r"(?:\s+(?:and|or|nor)\s+(?:the\s+)?(abstract|key points))?",
+    re.IGNORECASE,
+)
+#: Which ledger span each denial target names.
+_DENIAL_SPANS = {"abstract": "abstract", "key points": "key_point_1"}
+
+
+def check_placement_denials_are_true(
+    manuscript: str, spans: dict[str, str], ledger: list[dict]) -> list[str]:
+    """A sentence saying "reported outside the Abstract" must be true.
+
+    This is the check that was missing.  Three sections said their results were
+    withheld from the Abstract and the Key Points on evidence-grade grounds
+    while those very results were the Abstract's core, and every existing gate
+    passed: `check_promoted_claims_disclose_their_status` looks for the *word*
+    "descriptive", and the word was present in both places.  A manuscript can
+    therefore be fully labelled and still lie about where its labels apply.
+
+    The failure mode is ordinary rather than exotic.  The placement sentences
+    were written when the results genuinely were confined to Section 4, the
+    results were later promoted on request, and nothing connected the promotion
+    to the sentences that described the old arrangement.  Prose that describes
+    the document's own structure goes stale exactly like a stale comment, and
+    it is worth strictly more than a comment because a referee reads it as a
+    statement about the authors' discipline.
+
+    So the rule is: if the manuscript denies that a post-outcome result appears
+    in a headline span, and a POST_OUTCOME_PROMOTED claim is registered as used
+    in that span, the denial is false and the gate fails.  Weakening this to a
+    warning would defeat it -- the whole point is that the contradiction is
+    invisible to a reader who trusts either half.
+    """
+    problems: list[str] = []
+    promoted_spans = {
+        span
+        for c in ledger
+        if c.get("status") == "POST_OUTCOME_PROMOTED"
+        for span in (c.get("used_in") or [])
+    }
+    for match in _DENIAL_RE.finditer(manuscript):
+        named = [g.lower() for g in match.groups() if g]
+        for name in named:
+            span = _DENIAL_SPANS[name]
+            if span in promoted_spans:
+                problems.append(
+                    f"the manuscript says {match.group(0).strip()!r}, but a "
+                    f"POST_OUTCOME_PROMOTED claim is registered as used in "
+                    f"{span!r}; the placement sentence contradicts the ledger, "
+                    "so one of the two is out of date")
+    return problems
+
+
 #: A withdrawn number or forbidden phrase may still be *narrated* — the
 #: decision-log chronology in SI04 has to say what was withdrawn, and the
 #: Limitations have to say what F3 is not.  A line carrying one of these
@@ -426,20 +486,29 @@ def _md_spans(manuscript: str) -> dict[str, str]:
         m = re.search(rf"\*\*Figure {n}\..*?(?=\n\n|\Z)", manuscript, re.DOTALL)
         if m:
             out[f"figure_{n}"] = m.group(0)
-    start = manuscript.find("**Table 4.6 ")
-    if start >= 0:
+    # Find the caption by walking back from the generated-block marker rather
+    # than by matching a hard-coded "**Table 4.6 ".  Renumbering the tables to a
+    # contiguous 1-5 would otherwise have made this `find` return -1 and
+    # switched the whole table-of-record check off in silence -- the same
+    # failure mode as the exemption hole, reintroduced by a cosmetic edit.
+    MARKER = "<!-- TABLE 4.6 (generated) -->"
+    gen = manuscript.find(MARKER)
+    if gen < 0:
+        out["table_4_6"] = ""  # loud: every bound claim now fails as unprinted
+        return out
+    cap_start = manuscript.rfind("\n\n**Table ", 0, gen)
+    if cap_start >= 0:
+        start = cap_start + 2
         cap_end = manuscript.find("\n\n", start)
         if cap_end < 0:
             cap_end = len(manuscript)
         cap = manuscript[start:cap_end]
-        gen = manuscript.find("<!-- TABLE 4.6 (generated) -->", cap_end)
-        if gen >= 0:
-            # the generated block follows the marker after a blank line; rows
-            # are contiguous pipe-lines
-            m = re.search(r"\n\|[^\n]*\n(?:\|[^\n]*\n)+",
-                          manuscript[gen + len("<!-- TABLE 4.6 (generated) -->"):])
-            if m:
-                cap += m.group(0)
+        # the generated block follows the marker after a blank line; rows
+        # are contiguous pipe-lines
+        m = re.search(r"\n\|[^\n]*\n(?:\|[^\n]*\n)+",
+                      manuscript[gen + len(MARKER):])
+        if m:
+            cap += m.group(0)
         out["table_4_6"] = cap
     return out
 
@@ -541,9 +610,18 @@ def check_generated_tables() -> list[str]:
     if not GENERATED.exists():
         return ["generated tables file missing; run generate_manuscript_tables.py"]
     generated = GENERATED.read_text(encoding="utf-8")
+    # A generated table has to match the generator wherever it is *published*,
+    # and the Supporting Information is published.  Searching only the main text
+    # made relocating a table to the SI indistinguishable from deleting it: the
+    # hydrologic-state table moved to SI11 on the reviewer's own recommendation
+    # and this check called it missing.  The property worth enforcing is that no
+    # shipped copy of a generated table drifts from the generator, not that
+    # every table lives in the main text.
     manuscript = MANUSCRIPT.read_text(encoding="utf-8")
+    for _si in sorted((ROOT / "paper" / "si").glob("SI*.md")):
+        manuscript += "\n" + _si.read_text(encoding="utf-8")
     # every generated table block (contiguous pipe-lines) must appear
-    # verbatim in the manuscript (whitespace-normalised).  finditer with a
+    # verbatim in that corpus (whitespace-normalised).  finditer with a
     # non-capturing group is used so the FULL block is matched: with a
     # capturing group, re.findall returns only the group (the block's last
     # line), which would validate a single row per table.
@@ -619,6 +697,8 @@ def main() -> int:
     problems += check_claim_status(ledger)
     problems += check_promoted_claims_disclose_their_status(
         _md_spans(manuscript), ledger)
+    problems += check_placement_denials_are_true(
+        manuscript, _md_spans(manuscript), ledger)
     problems += check_highlights_match_the_key_points(manuscript)
     problems += check_quarantined_content(documents)
     problems += check_provisional_not_in_headlines(manuscript, resolved)

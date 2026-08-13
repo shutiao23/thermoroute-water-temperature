@@ -4,8 +4,11 @@
 `outputs/final/`. Every result in this section is **post-outcome and
 descriptive**: the 2021–2023 window was already open and earlier results had
 been inspected when these arms were specified. They are not confirmatory tests,
-and the manuscript reports them as descriptive in the Abstract and Key Points
-for that reason.
+and the manuscript labels them descriptive at every point of use, including the
+Abstract and the Key Points. An earlier revision of both this file and the
+manuscript said these results were reported *outside* the Abstract and Key
+Points; that had stopped being true when three of them were promoted, and the
+correction is recorded as DLOG-040.
 
 This section exists because manuscript Sections 4.7–4.10 are the largest effects
 the study measured and, until it was written, cited artifact paths and nothing
@@ -202,3 +205,43 @@ byte-for-byte against the one these numbers were computed from.
   deep model does on this panel.
 * The forcing and information axes are separate conditional designs. They are
   compared and never summed.
+
+## 9. Evidence grade of every headline number
+
+Section 4 of the manuscript states that three evidence grades are used and that
+this table maps each headline number to its grade. This is that table. It exists
+because a label applied in prose is only as good as the reader's ability to
+check it against something, and because the failure it guards against has
+already happened once here: three sections asserted that the descriptive results
+were withheld from the Abstract and the Key Points while those results were the
+Abstract's core, and no gate caught it (DLOG-040).
+
+**Grades.** *Confirmatory* means the hypothesis, estimand, margin, and decision
+rule were fixed and sealed before the 2021–2023 outcomes were requested.
+*Development diagnostic* means the value comes from the 2019–2020 partition,
+which participated in cohort construction. *Post-outcome descriptive* means the
+analysis was specified after the held-out window had been opened.
+
+| Headline number | Grade | Specification fixed | Artifact |
+|---|---|---|---|
+| Seven-day skill +0.250 vs persistence, +0.038 vs damped | confirmatory | `route_a_confirmatory_v1.json`, sealed 2026-07-22 | `outputs/final/paired_effects.parquet` |
+| Five sealed tests, each at its registered margin | confirmatory | same seal; margins 0.00 and +0.05 °C | `outputs/final/sealed_confirmatory_family_v1/` |
+| LightGBM lowest RMSE at 1 d and 3 d (0.589, 1.304 °C) | confirmatory | same seal; model suite frozen | `outputs/final/station_metrics_2021_2023.csv` |
+| Anchor variants move 7 d skill from +0.025 to +0.063 | development diagnostic | seven variants predeclared (DLOG-001) | `outputs/final/anchor_sensitivity.parquet` |
+| Plain TCN reproduces the architecture to 0.023 °C | development diagnostic | control matrix in protocol v1 | `outputs/final/architecture_authority_v1/` |
+| Region-minus-random penalty 0.006–0.009 °C, unresolved | post-outcome descriptive | DLOG-005, 2026-08-08, holdout already read | `outputs/final/spatial_effects.parquet` |
+| Withholding local thermal state costs 1.3–1.7 °C | post-outcome descriptive | DLOG-013 protocol v2, then re-run under DLOG-025 lineage repair | `outputs/final/information_ladder_v6_authority_v1/` |
+| Realized future meteorology worth 0.13–0.63 °C | post-outcome descriptive | DLOG-020/022, withdrawn and re-established after DLOG-025 | `outputs/final/forcing_regime_v5_observed_inference_authority_v1/` |
+| Placebos retain 0–14% of the forcing value | post-outcome descriptive, sealed design | `wrr_forcing_placebo_protocol_v5a_seal.json`, sealed before the placebo outcome existed | `outputs/final/forcing_placebo_v5a_authority_v1/` |
+| Forcing × information interaction −0.076, −0.147 °C | post-outcome descriptive | specified after both axes were read | `outputs/final/forcing_information_interaction_v1/` |
+| Estimator penalty ≤0.009 °C at L0, 0.02–0.19 °C at L2 | post-outcome descriptive | specified after the L axis was read | `outputs/final/architecture_geometry_interaction_v1/` |
+
+**What the confirmatory grade rests on, and what it does not.** The seal is
+repository-internal Git ancestry and SHA-256 evidence. Its own
+`prelabel_attestation` block records that there is no external timestamp, no
+public pre-registration, and no independent custodian or WORM storage, and its
+scope field states that the evidence is sufficient for an honest owner and is
+not proof against a repository owner rewriting history. A referee can audit the
+chronology; a referee cannot be given proof of it from inside this repository.
+That limitation is stated in the manuscript rather than left for a reader to
+infer.

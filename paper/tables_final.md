@@ -2,13 +2,13 @@
 
 ### Table 4.6 — paired comparisons on the held-out window
 
-| # | Comparison | Lead | ΔRMSE (°C) | CI low | CI high | Win rate | Stations | p (sign flip) | Holm p |
-| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | ThermoRoute vs. DampedPersistence | 1 d | -0.129 | -0.199 | -0.076 | 0.90 | 116 | 3.1e-05 | 1.5e-04 |
-| 2 | ThermoRoute vs. DampedPersistence | 3 d | -0.108 | -0.143 | -0.073 | 0.91 | 116 | 3.1e-05 | 1.5e-04 |
-| 3 | ThermoRoute vs. DampedPersistence | 7 d | -0.069 | -0.086 | -0.057 | 0.95 | 116 | 6.1e-05 | 1.8e-04 |
-| 4 | ThermoRoute vs. LightGBM | 3 d | 0.015 | 0.010 | 0.025 | 0.24 | 116 | 1.0e+00 | 1.0e+00 |
-| 5 | ThermoRoute vs. LightGBM | 7 d | -0.009 | -0.017 | 0.002 | 0.59 | 116 | 7.4e-02 | 1.5e-01 |
+| # | Reference | Lead | Margin (°C) | ΔRMSE (°C) | 95% CI | Win rate | Holm p | Sealed decision |
+| ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- |
+| 1 | DampedPersistence | 1 d | +0.00 | -0.129 | [-0.199, -0.076] | 0.90 | 1.5e-04 | SUPPORTED |
+| 2 | DampedPersistence | 3 d | +0.00 | -0.108 | [-0.143, -0.074] | 0.91 | 1.5e-04 | SUPPORTED |
+| 3 | DampedPersistence | 7 d | +0.00 | -0.069 | [-0.084, -0.057] | 0.95 | 1.8e-04 | SUPPORTED |
+| 4 | LightGBM | 3 d | +0.05 | 0.015 | [0.010, 0.025] | 0.24 | 1.8e-04 | SUPPORTED |
+| 5 | LightGBM | 7 d | +0.05 | -0.009 | [-0.017, 0.003] | 0.59 | 1.8e-04 | SUPPORTED |
 
 ### Table 4.7a — Accuracy (RMSE, MAE, bias)
 

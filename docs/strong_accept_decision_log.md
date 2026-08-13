@@ -2217,3 +2217,143 @@ clear a boundary by a rounding error. That is the same mistake as optimising for
 page count, one threshold further down.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-040: the placement sentences were false, and every gate passed
+
+Decision: Three sections of the manuscript asserted that the post-outcome
+information results were reported *outside* the Abstract and the Key Points. By
+the time an advisor review pointed at it, those results were the Abstract's
+core and two of the three Key Points. The sentences are corrected, the
+promotion is stated at the head of Section 4 as a deliberate choice with a
+stated cost, and every quotation now carries the descriptive label at the point
+of use.
+
+Why it survived: `check_promoted_claims_disclose_their_status` asks whether the
+word "descriptive" appears in a promoted claim's span. It did — in the Abstract
+*and* in the sentence denying the result was in the Abstract. A manuscript can
+therefore be fully labelled and still misdescribe its own structure, and the
+existing gate could not tell the difference.
+
+How it happened: the placement sentences were true when written, the results
+were promoted later on the authors' instruction, and nothing connected the
+promotion to the prose describing the old arrangement. Prose that describes the
+document's own structure goes stale exactly like a stale comment, and it is
+worth more than a comment, because a referee reads it as evidence of the
+authors' discipline.
+
+New gate: `check_placement_denials_are_true` fails the build when the
+manuscript denies a placement that the claim ledger records. Regression tests
+`test_inj17`, `test_inj17b`, `test_inj17c` cover the false denial, the true
+denial that must still pass, and the shipped manuscript.
+
+Changes a primary hypothesis? no. Requires a protocol version bump? no.
+
+---
+
+## 2026-08-13 — DLOG-041: two sealed tests were being rendered at the wrong margin
+
+Decision: Table 2 now renders each of the five sealed tests at the margin it was
+sealed at, from `outputs/final/sealed_confirmatory_family_v1/`. All five satisfy
+their sealed decision rule.
+
+What was wrong: `route_a_confirmatory_v1.json` registers `H2-h3-vs-lightgbm` and
+`H2-h7-vs-lightgbm` as **non-inferiority** tests at a +0.05 °C margin, sealed
+2026-07-22 under an attestation that no post-2020 outcome had been requested.
+The manuscript computed all five sign-flip p-values against a margin of zero,
+which turns a registered non-inferiority test into a superiority test nobody
+registered, and reported the two rows as failures (Holm 1.0 and 0.15). At the
+sealed margin both are p = 6.1e-05, Holm 1.8e-04, with the whole percentile
+interval below +0.05. The protocol requires exactly this
+(`all_five_tests_must_be_rendered_exactly_once: true`).
+
+Verified independently before use, because a correction that favours the paper
+deserves more scrutiny than one that does not: at both leads all 15 HUC2 cluster
+medians lie below the margin, and 90.5% (3 d) and 96.6% (7 d) of individual
+stations do. The sign-flip result is not an artefact of the median.
+
+Consequence for the "evidence of absence" sentence in Section 4.10: it is
+removed. Reaching for the minimum detectable effect to state negligibility was a
+symptom of not rendering the test that already stated it properly. The sealed
+contract says `failure_to_reject_is_equivalence: false`, so the manuscript was
+contradicting its own protocol. The two LightGBM rows are now the only
+negligibility statements the paper makes, and the protocol's
+`noninferiority_wording_limit` is honoured: a numerical ceiling, never
+"equivalent", "parity", or "ecologically negligible".
+
+Changes a primary hypothesis? no — this renders the registered hypotheses
+correctly for the first time. Requires a protocol version bump? no.
+
+---
+
+## 2026-08-13 — DLOG-042: the advisor review's remaining findings
+
+Every item below was verified against the repository before being acted on; the
+ones that could not be closed are listed with the reason rather than deferred
+silently.
+
+**Closed.** Deployment language removed — the plain-language summary claimed
+better forecasts "cannot substitute for putting a sensor in the water", which is
+an intervention claim drawn from an input ablation at gauged sites; L2 is
+renamed "observations withheld" throughout, in the text, in Table 4, and in the
+Figure 5 row labels. Table numbering was 1, 4.6, 3, 4.13, 4.17 and is now 1–4.
+Figure 3's caption described four panels and the figure has three; the caption
+described a per-station memory-fraction panel that has never existed, and
+`RQ1_MEMORY_FRACTION_7D` is no longer bound to that caption. Figure 4's panels
+(b) and (c) are ThermoRoute from `outputs/conventional/`, not the Section 4.5
+factorial tree, which is why the panel annotated +0.02/+0.03/+0.01 °C beside a
+text quoting +0.006/+0.009/+0.007 °C; the caption now says so. The plain-language
+summary was 205 words against a 200-word limit and is 191. Both CONUS maps
+carry a latitude/longitude graticule. `conformal prediction` is no longer a
+keyword, because no conformal result is in the main text. Discharge is served
+and consumed in ft³ s⁻¹ — the manuscript briefly claimed a conversion this
+pipeline does not perform, and now states the served unit and the SI factor
+instead. 2,059 rows of negative discharge and the observed water-temperature
+range are disclosed rather than quietly retained.
+
+**Closed by relocation.** The sixteen-stratum hydrologic-state table moved to
+SI11, on the review's own recommendation and on two grounds its own numbers
+supply: the 100-key reportability rule qualifies stations on their all-keys
+record while the strata score them on a median of 71 keys, and the strata are
+not a multiplicity family.
+
+**Closed by citation.** Six works were added and engaged rather than listed:
+Feigl et al. (2021) was already in `references.bib` and had never been cited.
+The others place two boundaries of this study on the map — operational
+forecasting with as-issued weather (Zwart et al., 2023; Padrón et al., 2025) and
+prediction at genuinely ungauged reaches (Siddik et al., 2026; Philippus et al.,
+2026; Chang et al., 2025) — and one is the cross-architecture benchmark whose
+result the Introduction now leans on (Liu et al., 2025). Metadata came from
+Crossref and publisher citation blocks, not from memory.
+
+**Closed by scoping.** "Model class is worth under 0.01 °C" is now a statement
+about two fitted objects: one tree and one plain causal network, with documented
+rather than equalized tuning budgets. Section 4.10's heading changed from "The
+model class matters" to "The estimator matters" to match.
+
+**Not closed, and why.** A new confirmatory window (2024–2025) would require
+data this repository does not hold and a fresh seal; the descriptive results
+stay descriptive. A genuinely never-instrumented validation is not merely unrun
+but unavailable in this design — a site with no thermal record supplies no
+target to score against — so the manuscript states the limit instead of
+approximating it. Equalized tuning budgets across model families, basin-integrated
+forcing, a heat-budget check, and the F2b archived-vintage arm are compute or
+data work, not editing. The FAIR items — data DOI, software DOI, licence, rights
+review, independent reproduction — and the nine author/affiliation/funding/CRediT
+placeholders are the authors' to complete and are not asserted here.
+
+**One regeneration of the TeX.** `RETIRED_build_agu.md` says the generator must
+not be run again. It was run once more, deliberately, because the file contained
+no hand-authored layout to lose: the seven `{\small}` table blocks are generator
+output from `_fit_longtables`, and the only authored edits are the preamble and
+the citation migration, both of which have scripts. Hand-porting roughly twenty
+prose changes into an 1,148-line TeX was the larger risk. From the next
+typesetting fix onward the retirement holds, and the note now records that.
+
+**Publication units.** 26.4 PU against a threshold of 25, inside the two-unit
+tolerance of DLOG-039, after moving one table to the Supporting Information and
+trimming redundancy. The review's substance added length; the overage is a fee,
+and no result was deleted to avoid it.
+
+Commit(s): (this worktree)

@@ -70,7 +70,6 @@
   status: PRIMARY_FROZEN
   used_in:
   - section_4_6
-  - figure_3
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023

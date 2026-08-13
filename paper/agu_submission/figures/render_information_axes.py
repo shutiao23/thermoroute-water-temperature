@@ -109,10 +109,12 @@ def collect() -> pd.DataFrame:
 
     rows: list[dict[str, object]] = []
 
-    def add(group, label, value, low, high, *, post, mde=np.nan):
+    def add(group, label, value, low, high, *, post, mde=np.nan,
+            interval="cluster bootstrap"):
         rows.append({"group": group, "label": label, "value": float(value),
                      "low": float(low), "high": float(high),
-                     "post_outcome": bool(post), "mde": float(mde)})
+                     "post_outcome": bool(post), "mde": float(mde),
+                     "interval_kind": interval})
 
     # --- information the model is given about the river itself
     for contrast, label in (("L2-L0", "All local thermal state"),
@@ -135,28 +137,49 @@ def collect() -> pd.DataFrame:
     add("Future weather", "Realized future meteorology (oracle)",
         row["median_degC"], row["ci_low"], row["ci_high"], post=True)
     row = _one(fxl, quantity="forcing_value_at_L2", model=TREE, horizon=LEAD)
-    add("Future weather", "Realized future meteorology, ungauged",
+    add("Future weather", "Realized future meteorology, observations withheld",
         row["median_degC"], row["ci_low"], row["ci_high"], post=True)
 
     # --- how the holdout was drawn
     for quantity, label in (("geometry_penalty_at_L0", "Spatial holdout, gauged"),
-                            ("geometry_penalty_at_L2", "Spatial holdout, ungauged")):
+                            ("geometry_penalty_at_L2", "Spatial holdout, obs. withheld")):
         row = _one(geom, quantity=quantity, model=TREE, horizon=LEAD)
         add("Study design", label, row["median_degC"],
             row["ci_low"], row["ci_high"], post=True)
 
     # --- which model class
-    for level, label in (("L0", "Model class, gauged"),
-                         ("L2", "Model class, ungauged")):
+    for level, label in (("L0", "Estimator, gauged"),
+                         ("L2", "Estimator, observations withheld")):
         row = _one(arch, quantity="architecture_penalty_tcn_minus_tree",
                    level=level, geometry="whole_region", forcing="F0", horizon=LEAD)
         add("Estimator", label, row["median_degC"], row["ci_low"], row["ci_high"],
             post=True, mde=row["mde_degC"])
     row = _one(arch, quantity="architecture_penalty_tcn_minus_tree",
                level="L0", geometry="whole_region", forcing="F3_full", horizon=LEAD)
-    add("Estimator", "Model class, gauged + oracle forcing",
+    add("Estimator", "Estimator, gauged + oracle forcing",
         row["median_degC"], row["ci_low"], row["ci_high"],
         post=True, mde=row["mde_degC"])
+
+    # --- how the reference itself was built
+    #
+    # Reviewer point M06: every other row on this axis is conditional on one
+    # anchor, and the anchor is a fitted object whose construction moves the
+    # seven-day headline by a factor of 2.4.  Leaving that off the figure let a
+    # reader compare an estimator effect against a forcing effect without
+    # seeing that the reference specification is larger than either.  The bar
+    # is the range across the seven predeclared one-factor variants, NOT a
+    # bootstrap interval, and it is flagged as such in the data file.
+    anchor = _read(FINAL / "anchor_sensitivity.parquet")
+    anchor = anchor[anchor["horizon"] == LEAD]
+    if anchor.empty:
+        raise FigureDataError("no anchor variants at this lead")
+    base = float(anchor.loc[anchor.variant == "baseline",
+                            "median_station_delta_rmse"].iloc[0])
+    add("Study design", "Reference construction (7 anchor variants)",
+        base,
+        float(anchor.median_station_delta_rmse.min()),
+        float(anchor.median_station_delta_rmse.max()),
+        post=False, interval="range over predeclared anchor variants")
 
     frame = pd.DataFrame(rows)
     if frame.empty:

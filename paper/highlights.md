@@ -15,22 +15,27 @@ than a claim about its importance.
 
 ## Key Points
 
-1. Withholding a gauge's own recent water temperature costs 1.3-1.7 °C; changing
-   the model class costs under 0.01 °C at the same sites.
-2. Future weather is worth 0.13-0.63 °C and worth less, not more, once the local
-   gauge is gone, so the two are complements.
-3. Seven-day skill of +0.250 against persistence falls to +0.038 against damped
-   persistence; the information results are descriptive.
+1. Confirmatory: seven-day skill of +0.250 against persistence falls to +0.038
+   against damped persistence on identical keys.
+2. Descriptive: withholding a gauge's own recent water temperature from the
+   inputs costs 1.3-1.7 °C; the model class costs under 0.01 °C.
+3. Descriptive: future weather is worth 0.13-0.63 °C, and worth less once the
+   local gauge is gone, so the two are complements.
 
 ## What a reader can check, and where
 
 | Key Point | Checkable assertion | Where it is specified |
 |---|---|---|
-| 1 | Withholding every target-site water-temperature input (level L2 against L0) under whole-region holdout costs a station-first paired median of 1.716, 1.255 and 1.325 °C at 1, 3 and 7 days, positive at all 116 reportable stations; the plain causal TCN differs from the residual tree by at most 0.009 °C at the same level | §4.7, §4.10 of the manuscript; `outputs/final/information_ladder_v6_authority_v1/`, `outputs/final/architecture_geometry_interaction_v1/` |
-| 2 | Realized future meteorology is worth 0.130-0.627 °C against F0; the station-level double difference of that value between L2 and L0 is −0.076 and −0.147 °C at 1 and 3 days, both intervals excluding zero, so the value falls rather than rises when the gauge is removed | §4.8, §4.9 of the manuscript; `outputs/final/forcing_information_interaction_v1/` |
-| 3 | Skill is `1 − RMSE(candidate)/RMSE(reference)`, dimensionless, defined at manuscript equation (10), on one common key set over the held-out 2021–2023 window | §3.6, §4.4 of the manuscript; SI05, SI07 |
+| 1 | Skill is `1 − RMSE(candidate)/RMSE(reference)`, dimensionless, defined at manuscript equation (10), on one common key set over the held-out 2021–2023 window | §3.6, §4.4 of the manuscript; SI05, SI07 |
+| 2 | Withholding every target-site water-temperature input (level L2 against L0) under whole-region holdout costs a station-first paired median of 1.716, 1.255 and 1.325 °C at 1, 3 and 7 days, positive at all 116 reportable stations; the plain causal TCN differs from the residual tree by at most 0.009 °C at the same level | §4.7, §4.10 of the manuscript; `outputs/final/information_ladder_v6_authority_v1/`, `outputs/final/architecture_geometry_interaction_v1/` |
+| 3 | Realized future meteorology is worth 0.130-0.627 °C against F0; the station-level double difference of that value between L2 and L0 is −0.076 and −0.147 °C at 1 and 3 days, both intervals excluding zero, so the value falls rather than rises when the gauge's readings are withheld | §4.8, §4.9 of the manuscript; `outputs/final/forcing_information_interaction_v1/` |
 
-Key Point 3 is the confirmatory result: its comparison was fixed before the
-held-out window opened. Key Points 1 and 2 are post-outcome and descriptive,
-which is why Key Point 3 says so — the disclosure is load-bearing and the
-consistency gate fails if it is removed.
+Key Point 1 is the confirmatory result: its comparison was fixed before the
+held-out window opened. Key Points 2 and 3 are post-outcome and descriptive, and
+each now says so in its own first word rather than relying on a disclosure
+carried by a neighbouring point. That change followed a real failure: three
+sections of the manuscript stated that these results were reported *outside* the
+Abstract and Key Points while they were the Abstract's core, and every gate
+passed because the word "descriptive" appeared on both sides of the
+contradiction. `check_placement_denials_are_true` now fails the build when the
+manuscript denies a placement the claim ledger records.

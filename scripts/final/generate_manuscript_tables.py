@@ -44,32 +44,36 @@ def f2(value: float) -> str:
 
 
 def table_4_6(station: pd.DataFrame, effects: pd.DataFrame) -> str:
-    contrasts = [
-        ("ThermoRoute", "DampedPersistence", 1, "1 d"),
-        ("ThermoRoute", "DampedPersistence", 3, "3 d"),
-        ("ThermoRoute", "DampedPersistence", 7, "7 d"),
-        ("ThermoRoute", "LightGBM", 3, "3 d"),
-        ("ThermoRoute", "LightGBM", 7, "7 d"),
-    ]
-    import json
-    inference = json.loads(
-        (FINAL / "cluster_inference_2021_2023.json").read_text(encoding="utf-8"))
-    rows = [["#", "Comparison", "Lead", "ΔRMSE (°C)", "CI low", "CI high",
-             "Win rate", "Stations", "p (sign flip)", "Holm p"]]
-    for i, (cand, ref, h, lead) in enumerate(contrasts, start=1):
-        g = effects[(effects.candidate == cand) & (effects.reference == ref)
-                    & (effects.horizon == h)]
-        record = inference.get(f"{cand}|{ref}|{h}", {})
-        p_flip = record.get("p_cluster_sign_flip", np.nan)
-        holm = record.get("holm_p", np.nan)
-        rows.append([str(i), f"{cand} vs. {ref}", lead,
-                     f3(g.delta_rmse.median()),
-                     f3(record.get("ci_low", np.nan)),
-                     f3(record.get("ci_high", np.nan)),
-                     f"{np.mean(g.delta_rmse < 0):.2f}", str(len(g)),
-                     f"{p_flip:.1e}" if np.isfinite(float(p_flip)) else "—",
-                     f"{holm:.1e}" if np.isfinite(float(holm)) else "—"])
-    return md_table(rows, ["r", "l", "l", "r", "r", "r", "r", "r", "r", "r"])
+    """The five sealed tests, each at the margin it was sealed at.
+
+    This used to test all five rows against zero, which silently converted the
+    two H2 rows from the non-inferiority tests they were registered as into
+    superiority tests they were not, and reported them as failures.  The margin
+    is part of the hypothesis, so it belongs in the table: a row's p-value means
+    nothing without the margin it was computed against.
+    """
+    sealed = pd.read_parquet(
+        FINAL / "sealed_confirmatory_family_v1" / "sealed_confirmatory_family.parquet")
+    # Nine columns, not thirteen.  A first version carried the test id, the full
+    # candidate-vs-reference string, both interval bounds, the station count and
+    # the unadjusted p as separate columns; at the AGU text width the columns
+    # collided into each other and the table was unreadable in the PDF while
+    # looking fine in Markdown.  The candidate is ThermoRoute on every row and
+    # the station count is 116 on every row, so both belong in the caption; the
+    # test ids and unadjusted p-values are in the artifact.
+    rows = [["#", "Reference", "Lead", "Margin (°C)", "ΔRMSE (°C)", "95% CI",
+             "Win rate", "Holm p", "Sealed decision"]]
+    for i, r in enumerate(sealed.itertuples(), start=1):
+        g = effects[(effects.candidate == r.candidate)
+                    & (effects.reference == r.reference)
+                    & (effects.horizon == r.horizon)]
+        rows.append([
+            str(i), r.reference, f"{r.horizon} d", f"{r.margin_c:+.2f}",
+            f3(r.effect_c), f"[{f3(r.ci_low_c)}, {f3(r.ci_high_c)}]",
+            f"{np.mean(g.delta_rmse < 0):.2f}",
+            f"{r.holm_p:.1e}", r.decision,
+        ])
+    return md_table(rows, ["r", "l", "l", "r", "r", "l", "r", "r", "l"])
 
 
 def accuracy_rows(station: pd.DataFrame, models: list[str]) -> list[list[str]]:

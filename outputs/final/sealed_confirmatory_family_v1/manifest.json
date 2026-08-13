@@ -1,0 +1,17 @@
+{
+  "protocol_id": "route-a-confirmatory-v1",
+  "seal_status": "SEALED_PRELABEL_OUTCOMES_NOT_ACQUIRED",
+  "seal_recorded_date": "2026-07-22",
+  "prelabel_attestation": {
+    "post_2020_wtemp_requested_or_inspected": false,
+    "post_2020_flow_or_wlevel_requested_or_inspected": false,
+    "confirmation_outcome_artifact_present": false,
+    "external_timestamp_or_public_preregistration": false,
+    "independent_custodian_or_worm_storage": false,
+    "scope": "repository-internal Git and SHA-256 evidence for an honest owner; not proof against owner-controlled history rewriting"
+  },
+  "margin_rationale": "+0.05 degrees C was fixed before confirmation outcomes as a strict numerical ceiling on allowable degradation in the station-median RMSE difference. It is not derived from sensor precision, biological response, water-quality regulation, or a stakeholder utility function, and therefore carries no ecological or regulatory importance claim.",
+  "wording_limit": "H2 may say only that the result satisfies the predeclared +0.05 C numerical non-inferiority bound; it may not say equivalent, parity, equally good, ecologically negligible, or regulatorily acceptable",
+  "source": "outputs/final/paired_effects.parquet",
+  "n_tests": 5
+}

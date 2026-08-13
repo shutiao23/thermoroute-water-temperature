@@ -219,15 +219,49 @@ def test_table_4_12_all_keys_matches_paired_effects():
     assert f"{int(median_keys):,}" == "1,060"
 
 
-def test_table_4_6_p_value_columns():
+def test_table_4_6_renders_each_test_at_its_sealed_margin():
+    """The margin is part of the hypothesis, so it belongs in the table.
+
+    This test used to pin a ten-column table whose p-values were all computed
+    against zero.  That silently converted the two H2 rows -- registered in
+    `route_a_confirmatory_v1.json` as non-inferiority tests at +0.05 degC -- into
+    superiority tests nobody registered, and reported them as failures.  What is
+    pinned now is that each row is tested at the margin the protocol seals it
+    at, which is the property that was actually violated (DLOG-041).
+    """
     import json
 
     import scripts.final.generate_manuscript_tables as T
     station = pd.read_parquet("outputs/final/station_metrics.parquet")
     effects = pd.read_parquet("outputs/final/paired_effects.parquet")
     table = T.table_4_6(station, effects)
-    assert "p (sign flip)" in table and "Holm p" in table
-    assert "| 3 | ThermoRoute vs. DampedPersistence | 7 d | -0.069 | -0.086 | -0.057 | 0.95 | 116 | 6.1e-05 | 1.8e-04 |" in table
+    assert "Margin (°C)" in table
+    # The unadjusted p-value moved out of the table when it was compacted to
+    # nine columns to stop the PDF columns overprinting each other; the
+    # decision rule uses the Holm value, and the raw one is in the artifact.
+    assert "Holm p" in table and "Sealed decision" in table
+
+    with open("protocols/route_a_confirmatory_v1.json", encoding="utf-8") as fh:
+        family = json.load(fh)["primary_inference_contract"]["confirmatory_family"]
+    rendered = pd.read_parquet(
+        "outputs/final/sealed_confirmatory_family_v1/"
+        "sealed_confirmatory_family.parquet")
+    assert len(rendered) == len(family) == 5
+    for sealed, row in zip(family, rendered.itertuples()):
+        assert row.test_id == sealed["test_id"]
+        assert row.margin_c == float(sealed["margin_c"]), sealed["test_id"]
+
+    h2 = rendered[rendered.margin_c > 0]
+    assert len(h2) == 2 and set(h2.kind) == {"non-inferiority"}
+    # The regression itself: testing these rows against zero gave p = 1.0 and
+    # p = 0.074.  At the sealed margin they are three orders of magnitude
+    # smaller, so a value anywhere near the old ones means the margin was
+    # dropped again somewhere between the protocol and the table.
+    assert (h2.p_sign_flip_at_margin < 1e-3).all(), h2.p_sign_flip_at_margin.tolist()
+    assert (h2.ci_high_c < h2.margin_c).all()
+    assert set(rendered.decision) == {"SUPPORTED"}
+
+    assert "| 3 | DampedPersistence | 7 d | +0.00 | -0.069 |" in table
     with open("outputs/final/cluster_inference_2021_2023.json", encoding="utf-8") as fh:
         inference = json.load(fh)
     rec = inference["ThermoRoute|DampedPersistence|7"]

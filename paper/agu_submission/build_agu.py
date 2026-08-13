@@ -66,6 +66,12 @@ REQUIRED_STATUS_TEXT = (
 # (``\keypoints{}{}{}``) rather than the ``keypoints`` environment of
 # ``agujournal2019.cls``.  The arity is fixed by the class, so KEYPOINT_COUNT is
 # not free: ``_render`` re-asserts it before formatting the macro call.
+# AGU caps the abstract at 250 words and the plain-language summary at 200.
+# Both were checked by eye until 2026-08-13, and both had drifted over: the PLS
+# to 205 words, and the abstract to 289 after a revision added three sentences.
+# A limit nobody measures is a limit nobody meets.
+ABSTRACT_WORD_LIMIT = 250
+PLS_WORD_LIMIT = 200
 KEYPOINT_LIMIT = 140
 KEYPOINT_COUNT = 3
 KEYPOINTS_MACRO_ARITY = 3
@@ -129,6 +135,9 @@ UNICODE_DECLARATIONS: dict[int, str] = {
     0x00B2: r"\textsuperscript{2}",
     0x00B3: r"\textsuperscript{3}",
     0x00B7: r"\ensuremath{\cdot}",
+    # ft^3 s^-1 in Section 2.3, and Padron in the reference list.
+    0x00B9: r"\textsuperscript{1}",
+    0x00F3: r"\'o",
     0x00D7: r"\ensuremath{\times}",
     0x00E9: r"\'e",
     0x00FC: r"\"u",
@@ -152,6 +161,7 @@ UNICODE_DECLARATIONS: dict[int, str] = {
     0x2016: r"\ensuremath{\|}",
     0x2026: r"\ldots{}",
     0x2074: r"\textsuperscript{4}",
+    0x2075: r"\textsuperscript{5}",
     0x2081: r"\ensuremath{_1}",
     0x2113: r"\ensuremath{\ell}",
     0x2192: r"\ensuremath{\rightarrow}",
@@ -292,6 +302,31 @@ def _extract_keypoints(markdown: str) -> tuple[str, ...]:
     return tuple(items)
 
 
+def _check_front_matter_lengths(markdown: str) -> None:
+    """Abstract <= 250 words, plain-language summary <= 200.
+
+    Counted on the Markdown, between the same markers the manuscript uses, so
+    the number matches what an editor counts rather than what a `wc -w` of the
+    whole file reports.
+    """
+    for name, start, end, limit in (
+        ("Abstract", "## Abstract", "**Plain Language Summary.**",
+         ABSTRACT_WORD_LIMIT),
+        ("Plain Language Summary", "**Plain Language Summary.**",
+         "**Keywords:**", PLS_WORD_LIMIT),
+    ):
+        i = markdown.find(start)
+        j = markdown.find(end, i + len(start)) if i >= 0 else -1
+        if i < 0 or j < 0:
+            raise ValueError(f"cannot locate the {name} to count its words")
+        words = len(markdown[i + len(start):j].split())
+        if words > limit:
+            raise ValueError(
+                f"{name} is {words} words against the {limit}-word AGU limit; "
+                f"cut {words - limit}"
+            )
+
+
 def _validate_markdown(markdown: str) -> None:
     folded = markdown.casefold()
     for phrase in BANNED_PHRASES:
@@ -313,6 +348,7 @@ def _validate_markdown(markdown: str) -> None:
             "CSV or state the quantity as not reported"
         )
     _extract_keypoints(markdown)
+    _check_front_matter_lengths(markdown)
     violations = [
         label for label, pattern in WITHDRAWN_PATTERNS.items()
         if pattern.search(markdown)
@@ -372,6 +408,9 @@ def _make_code_spans_breakable(latex: str) -> str:
 # break opportunities the cell content carries, because ``l`` never wraps.  Such
 # columns are promoted to bounded, wrapping ``X``.
 WRAPPING_COLUMN_POINTS = 115.0
+# Two columns within this much of each other hold the same kind of content --
+# three intervals, three RMSE values -- and should wrap together or not at all.
+_SIBLING_COLUMN_TOLERANCE_POINTS = 2.0
 
 _UNESCAPED_AMPERSAND = re.compile(r"(?<!\\)&")
 
@@ -556,8 +595,19 @@ def _wrapping_column_indices(
     though no single column is wide, so promoting only the last column (the
     previous rule) could neither recover that width nor stop a genuinely wide
     text column from being starved.  tabularx requires at least one ``X``.
+
+    Ties in width are broken toward the leftmost column, and that matters more
+    than it looks.  In Table 4 the three numeric columns hold cells of identical
+    length, the widest-first sort picked the first of them, and it became the
+    table's only ``X`` -- so the two plain ``r`` columns took their natural
+    width and the ``X`` absorbed what little was left, wrapping one interval
+    over three lines while its neighbours sat on one.  A wrapped number is
+    worse than a wrapped phrase: the reader has to reassemble "0.116" and
+    "[0.059," and "0.174]" into a value.  Tie-breaking toward the leading text
+    column puts the slack where wrapping is harmless.
     """
-    order = sorted(range(len(widths)), key=lambda i: widths[i], reverse=True)
+    order = sorted(range(len(widths)),
+                   key=lambda i: (widths[i], -i), reverse=True)
     chosen = {
         index
         for index, width in enumerate(widths)
@@ -575,6 +625,21 @@ def _wrapping_column_indices(
         chosen.add(index)
     if not chosen:
         chosen = {order[0]}
+
+    # Stopping the moment the demand fits dumps the whole shortfall on the last
+    # column promoted.  In Table 4 that was one of three numeric columns of
+    # identical natural width: it alone shrank by 60pt and wrapped each interval
+    # over three lines while its two siblings sat unwrapped on one.  Promote the
+    # columns that match it in width so they share the loss instead -- three
+    # columns wrapping to two lines each reads as a table, one column wrapping
+    # to three reads as a mistake.
+    if chosen:
+        widest = max(widths[i] for i in chosen)
+        chosen |= {
+            index
+            for index, width in enumerate(widths)
+            if abs(width - widest) <= _SIBLING_COLUMN_TOLERANCE_POINTS
+        }
     return sorted(chosen)
 
 

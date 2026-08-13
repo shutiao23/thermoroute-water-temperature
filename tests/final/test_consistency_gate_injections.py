@@ -231,3 +231,34 @@ def test_inj16_not_used_claim_still_carrying_spans():
 
 def test_every_shipped_claim_declares_a_valid_status():
     assert G.check_claim_status(G.load_ledger()) == []
+
+
+def test_inj17_a_placement_denial_that_the_ledger_contradicts():
+    """The defect that shipped: "reported outside the Abstract" while in it.
+
+    Every gate passed on the real manuscript in that state, because the checks
+    that existed asked whether the word "descriptive" was present -- and it
+    was, in both the Abstract and the section denying it was in the Abstract.
+    """
+    ledger = [{"claim_id": "X", "status": "POST_OUTCOME_PROMOTED",
+               "used_in": ["abstract", "key_point_1"]}]
+    doc = ("This analysis is post-outcome and descriptive, and is reported "
+           "outside the Abstract and Key Points for that reason.")
+    problems = G.check_placement_denials_are_true(doc, {}, ledger)
+    assert any("contradicts the ledger" in p for p in problems)
+    assert any("'abstract'" in p for p in problems)
+    assert any("'key_point_1'" in p for p in problems)
+
+
+def test_inj17b_a_placement_denial_that_is_true_passes():
+    """A result genuinely confined to Section 4 may say so."""
+    ledger = [{"claim_id": "X", "status": "DESCRIPTIVE_PROVISIONAL",
+               "used_in": ["section_4_9"]}]
+    doc = "It is reported outside the Abstract and Key Points for that reason."
+    assert G.check_placement_denials_are_true(doc, {}, ledger) == []
+
+
+def test_inj17c_the_shipped_manuscript_makes_no_false_placement_denial():
+    manuscript = G.MANUSCRIPT.read_text(encoding="utf-8")
+    assert G.check_placement_denials_are_true(
+        manuscript, G._md_spans(manuscript), G.load_ledger()) == []
