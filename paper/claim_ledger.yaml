@@ -212,7 +212,6 @@
   status: PRIMARY_FROZEN
   used_in:
   - section_4_6
-  - figure_5
   source_table: outputs/final/basin_attributes.parquet
   filter:
     stat: half_life_days

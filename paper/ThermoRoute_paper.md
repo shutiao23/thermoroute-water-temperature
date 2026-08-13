@@ -441,6 +441,24 @@ resolve at α = 0.05 is larger than the effect observed, so it is underpowered
 rather than null. The damped-persistence rows sit at three to seven times the
 smallest detectable effect, so the family is read row by row.
 
+**Table 1 — every model on the common held-out keys.** Station-median RMSE, MAE
+and bias in °C at each lead, 116 reportable stations, identical
+station/date/horizon keys for every row.
+
+<!-- TABLE all-model scores (generated) -->
+
+| Model | RMSE 1 | RMSE 3 | RMSE 7 | MAE 1 | MAE 3 | MAE 7 | bias 1 | bias 3 | bias 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | 0.813 | 1.638 | 2.202 | 0.597 | 1.235 | 1.686 | -0.000 | -0.001 | -0.004 |
+| DampedPersistence | 0.789 | 1.454 | 1.773 | 0.591 | 1.100 | 1.340 | -0.029 | -0.076 | -0.143 |
+| Climatology | 1.899 | 1.902 | 1.903 | 1.485 | 1.486 | 1.485 | -0.379 | -0.369 | -0.359 |
+| LightGBM | 0.589 | 1.304 | 1.735 | 0.431 | 0.995 | 1.315 | -0.025 | -0.098 | -0.196 |
+| LSTM | 0.663 | 1.358 | 1.712 | 0.503 | 1.044 | 1.292 | -0.001 | -0.051 | -0.137 |
+| PlainMLP-7var | 0.690 | 1.374 | 1.720 | 0.520 | 1.054 | 1.311 | -0.004 | -0.059 | -0.128 |
+| PlainCausalTCN-7var | 0.646 | 1.330 | 1.710 | 0.477 | 1.021 | 1.299 | 0.000 | -0.031 | -0.122 |
+| Air2stream | 0.719 | 1.459 | 1.825 | 0.559 | 1.115 | 1.366 | -0.020 | -0.110 | -0.189 |
+| ThermoRoute | 0.640 | 1.337 | 1.694 | 0.463 | 1.013 | 1.269 | 0.011 | -0.029 | -0.130 |
+
 **Table 4.6 — paired comparisons on the held-out window.** Station-level ΔRMSE
 (°C, negative favors ThermoRoute) for the frozen five-test family of Section
 3.6; cluster-bootstrap intervals over whole HUC2 regions, Holm-adjusted
@@ -474,7 +492,7 @@ The development-period whole-region finding (SI19) is re-tested on the independe
 
 The pooled arm is defective: its preprocessing reused fold 0's statistics across folds 1–3, whose held-out stations lie inside fold 0's training set (a recorded defect, DLOG-012). We report no adaptation main effect from it, and no number from it is carried into the Discussion or the Conclusions.
 
-![Spatial transfer under matched holdouts.](figures/fig05_spatial_transfer.pdf)
+![Spatial transfer under matched holdouts.](figures/fig04_spatial_transfer.pdf)
 
 **Figure 4. Spatial transfer under matched random-site and whole-region holdouts on the independent 2021–2023 window** (panel detail and pooled-arm station-set caveats in SI11).
 
@@ -512,10 +530,6 @@ are not.
 | actual low flow | -0.078 | 92 | 147 |
 
 **Retrospective outcome-conditioned diagnostics.** Stratifying by the target outcome — retrospective, not an issue-time state — days that subsequently warm rapidly reach −0.30 °C at seven days, and days that subsequently cool rapidly −0.18 °C. On the coldest target decile the anchor alone is marginally better (+0.03 °C), the only stratum in which the learned correction does not pay for itself. Those strata select the days on which a damped anchor must fail, and a manager cannot identify them at issue time; we read them as a diagnostic of where the anchor is weak rather than an operational benefit.
-
-![Hydrologic conditions governing incremental skill.](figures/fig06_hydrologic_mechanism.pdf)
-
-**Figure 5. Hydrologic conditions governing incremental skill (held-out 2021–2023).** (a) Station anomaly half-life, median 6.9 d. (b) One-day learned gain versus log half-life. (c) Issue-time-identifiable states; (d) retrospective outcome-conditioned strata; negative values favor ThermoRoute.
 
 ### 4.7 What local thermal state is worth
 
@@ -707,6 +721,17 @@ detectable effect (0.006, 0.012 and 0.018 °C), so it is evidence of absence; at
 L2 the same three-way contrast is underpowered, and we report that as a power
 limit rather than as a null.
 
+![Effect sizes across the study's axes.](figures/fig05_information_axes.pdf)
+
+**Figure 5. What each axis of the study is worth, at seven days.** Station-first
+paired effects in °C on a log axis, damped-residual tree throughout, with
+whole-HUC2 cluster-bootstrap intervals; open markers are negative effects
+plotted at their magnitude, and the tick marks the minimum detectable effect
+where one is defined. Local observation, future weather, study design and the
+estimator span three orders of magnitude. The axes are separate conditional
+designs and are compared, never summed. Every row is post-outcome and
+descriptive.
+
 Post-outcome and descriptive, and excluded from the Abstract and Key Points on
 that ground.
 
@@ -897,33 +922,23 @@ administration, funding acquisition. The signed intake form is
 
 ## Supporting Information
 
-Supporting Information accompanies this manuscript and contains: the cohort and
-registry description with the candidate-rejection ledger (SI01); the issue-time
-information boundary and the product-compatibility bridge (SI02); model equations
-and unit conventions (SI03); the analysis protocol, redesign chronology and
-decision log (SI04); the comparison set and its fields (SI05–SI06); all-model scores on the
-exact common keys, including the fitted air2stream-style hybrid reference with its parameter ranges and
-official-variant caveat (SI07); probability and
-reliability schemas and the full measured degenerate-interval table (SI08); architecture and
-information-matched controls with seed and budget provenance and their
-independent-window re-test (SI09); the temporal
-coverage audit (SI10); the matched spatial factorial, local-adaptation policy,
-repeated-split distribution and the
-cluster geometry at HUC2, HUC4, HUC6, and HUC8 (SI11); outcome quality control
-and qualifier evidence (SI12); the history-dependent external arm (SI13);
-missingness and failure cases with the key-history completeness strata (SI14);
-reproduction hashes, commands, and
-environment parity fields, including the results-authority commands and manifest (SI15); and the rights and data dictionary (SI16).
+Supporting Information contains the cohort and registry description with the
+candidate-rejection ledger (SI01); the issue-time information boundary and the
+product-compatibility bridge (SI02); model equations and unit conventions
+(SI03); the analysis protocol, redesign chronology and decision log (SI04); the
+comparison set and its fields (SI05–SI06); all-model scores on the exact common
+keys, including the fitted air2stream-style hybrid reference (SI07);
+probability and reliability schemas with the measured degenerate-interval table
+(SI08); architecture and information-matched controls with seed and budget
+provenance (SI09); the temporal coverage audit (SI10); the matched spatial
+factorial and the cluster geometry at HUC2 through HUC8 (SI11); outcome quality
+control and qualifier evidence (SI12); the history-dependent external arm
+(SI13); missingness and failure cases (SI14); reproduction hashes, commands and
+environment parity fields (SI15); and the rights and data dictionary (SI16).
 
-Supporting figures accompany these sections: Figures S1–S3 describe the cohort
-geometry, the temporal roles and issue-time information boundary, and the model
-and calibration dataflow; Figures S4–S8 and S10 expand Section 4.4; and Figure
-S9 is a development-period conformal-calibration sensitivity, labeled as such in
-the figure itself, which must not be compared numerically with any held-out-window
-figure.
+Figures S1–S3 describe the cohort geometry, the temporal roles and issue-time
+boundary, and the model and calibration dataflow; Figures S4–S8 expand Section
+4.4 and the hydrologic-state mechanism of Section 4.6; Figure S9 is a development-period conformal-calibration sensitivity,
+labelled as such in the figure, and must not be compared numerically with any
+held-out-window figure.
 
-Each figure carries evidence from exactly one period. Figures 1 and 2 and Figures
-S1–S3 are structural material; Figures 3–5 and Figures S4–S8 and S10 are
-held-out-window; Figure S9 is a development-period conformal-calibration
-sensitivity. Each figure states its period inside the figure, and no value from
-one period is compared numerically with a value from another.

@@ -552,8 +552,18 @@ def check_generated_tables() -> list[str]:
         norm = "\n".join(line.strip() for line in block.splitlines())
         norm = norm.replace("\u2013", "-").replace("−", "-")
         if norm and norm not in manuscript.replace("\u2013", "-").replace("−", "-"):
-            # skip blocks whose model rows are not yet in the manuscript
+            # This exemption existed for a model whose rows were generated
+            # before the manuscript discussed it.  It is keyed on a row *inside*
+            # the block, so when an edit removed the last mention of that model
+            # the exemption silently switched off the check for the whole table
+            # -- which is how a nine-row table of record went missing from the
+            # manuscript while this gate reported success.  It now says so.
             if "PlainCausalTCN-7var" in block and "PlainCausalTCN-7var" not in manuscript:
+                problems.append(
+                    "generated table block is absent from the manuscript and was "
+                    "exempted because it carries a PlainCausalTCN-7var row that "
+                    "the manuscript no longer mentions; either restore the table "
+                    "or retire the exemption:\n" + block[:200])
                 continue
             problems.append(f"generated table block not in manuscript:\n{block[:300]}")
     return problems

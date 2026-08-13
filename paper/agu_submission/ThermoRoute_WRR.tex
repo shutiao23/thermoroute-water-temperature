@@ -1,22 +1,21 @@
-% ``linenumbers'' without ``draft''.  The two are separable and only one of
-% them is a review requirement: linenumbers gives referees something to cite,
-% while draft additionally double-spaces the body.  Double-spaced, this
-% manuscript is 33 pages; single-spaced with line numbers it is 22, inside the
-% 23-page cap, and no content differs between them.  Reaching 23 by deleting a
-% further 3,400 words would have cost results rather than leading.  If the
-% editor requires double spacing, add ``draft'' back and the paper grows to 33
-% pages without any other change.
+% ``linenumbers'' without ``draft''.  The two are separable and only
+% one is a review requirement: linenumbers gives referees something to
+% cite, draft additionally double-spaces the body.  Double-spaced this
+% manuscript is 33 pages; single-spaced with line numbers it is inside
+% the 23-page cap, and no content differs between them.  Add ``draft''
+% back if the editor requires double spacing.
 \documentclass[linenumbers]{agujournal2025}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs,longtable,array,tabularx}
 \usepackage{rotating}
 \usepackage{url,xurl}
-% hyperref is deliberately NOT loaded.  pandoc pulled it in for the inline DOI
-% links, and those are gone: every citation is now a real apacite key and the
-% document contains no \href or \url at all.  Keeping it was not free -- this
-% apacite and this hyperref disagree about \hyper@link@, so the build succeeded
-% on a clean tree and then died on the pass after bibtex, once \bibcite entries
-% existed for apacite to hyperlink.  An unused package that breaks the second
+% hyperref is deliberately NOT loaded.  pandoc pulled it in for the
+% inline DOI links, and those are gone: every citation is a real
+% apacite key and the document contains no \href or \url at all.
+% Keeping it was not free -- this apacite and this hyperref disagree
+% about \hyper@link@, so the build succeeded on a clean tree and then
+% died on the pass after bibtex, once \bibcite entries existed for
+% apacite to hyperlink.  An unused package that breaks the second
 % build is worse than no package.
 \providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 \providecommand{\ph}[1]{\texttt{\textless{}\textless{}#1\textgreater{}\textgreater{}}}
@@ -582,6 +581,31 @@ resolve at α = 0.05 is larger than the effect observed, so it is underpowered
 rather than null. The damped-persistence rows sit at three to seven times the
 smallest detectable effect, so the family is read row by row.
 
+\textbf{Table 1 --- every model on the common held-out keys.} Station-median RMSE, MAE
+and bias in °C at each lead, 116 reportable stations, identical
+station/\allowbreak date/\allowbreak horizon keys for every row.
+
+{\small
+\setlength{\tabcolsep}{1.5pt}
+\renewcommand{\arraystretch}{1.12}
+\noindent
+\begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}>{\hsize=2.8662\hsize\raggedright\arraybackslash}X>{\hsize=0.8371\hsize\raggedleft\arraybackslash}X>{\hsize=0.8371\hsize\raggedleft\arraybackslash}X>{\hsize=0.8371\hsize\raggedleft\arraybackslash}X>{\hsize=0.6642\hsize\raggedleft\arraybackslash}X>{\hsize=0.6642\hsize\raggedleft\arraybackslash}X>{\hsize=0.6642\hsize\raggedleft\arraybackslash}X>{\hsize=0.8766\hsize\raggedleft\arraybackslash}X>{\hsize=0.8766\hsize\raggedleft\arraybackslash}X>{\hsize=0.8767\hsize\raggedleft\arraybackslash}X@{}}
+\toprule\noalign{}
+Model & RMSE 1 & RMSE 3 & RMSE 7 & MAE 1 & MAE 3 & MAE 7 & bias 1 & bias 3 & bias 7 \\
+\midrule\noalign{}
+Persistence & 0.813 & 1.638 & 2.202 & 0.597 & 1.235 & 1.686 & \ensuremath{-}0.000 & \ensuremath{-}0.001 & \ensuremath{-}0.004 \\
+DampedPersistence & 0.789 & 1.454 & 1.773 & 0.591 & 1.100 & 1.340 & \ensuremath{-}0.029 & \ensuremath{-}0.076 & \ensuremath{-}0.143 \\
+Climatology & 1.899 & 1.902 & 1.903 & 1.485 & 1.486 & 1.485 & \ensuremath{-}0.379 & \ensuremath{-}0.369 & \ensuremath{-}0.359 \\
+LightGBM & 0.589 & 1.304 & 1.735 & 0.431 & 0.995 & 1.315 & \ensuremath{-}0.025 & \ensuremath{-}0.098 & \ensuremath{-}0.196 \\
+LSTM & 0.663 & 1.358 & 1.712 & 0.503 & 1.044 & 1.292 & \ensuremath{-}0.001 & \ensuremath{-}0.051 & \ensuremath{-}0.137 \\
+PlainMLP-7var & 0.690 & 1.374 & 1.720 & 0.520 & 1.054 & 1.311 & \ensuremath{-}0.004 & \ensuremath{-}0.059 & \ensuremath{-}0.128 \\
+PlainCausalTCN-7var & 0.646 & 1.330 & 1.710 & 0.477 & 1.021 & 1.299 & 0.000 & \ensuremath{-}0.031 & \ensuremath{-}0.122 \\
+Air2stream & 0.719 & 1.459 & 1.825 & 0.559 & 1.115 & 1.366 & \ensuremath{-}0.020 & \ensuremath{-}0.110 & \ensuremath{-}0.189 \\
+ThermoRoute & 0.640 & 1.337 & 1.694 & 0.463 & 1.013 & 1.269 & 0.011 & \ensuremath{-}0.029 & \ensuremath{-}0.130 \\
+\bottomrule\noalign{}
+\end{tabularx}
+}
+
 \textbf{Table 4.6 --- paired comparisons on the held-out window.} Station-level ΔRMSE
 (°C, negative favors ThermoRoute) for the frozen five-test family of Section
 3.6; cluster-bootstrap intervals over whole HUC2 regions, Holm-adjusted
@@ -622,7 +646,7 @@ The pooled arm is defective: its preprocessing reused fold 0\textquotesingle s s
 
 \begin{figure}[!t]
 \centering
-\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Spatial transfer under matched holdouts.}]{figures/fig05_spatial_transfer.pdf}}
+\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Spatial transfer under matched holdouts.}]{figures/fig04_spatial_transfer.pdf}}
 \caption{\textbf{Spatial transfer under matched random-site and whole-region holdouts on the independent 2021--2023 window} (panel detail and pooled-arm station-set caveats in SI11).}
 \end{figure}
 
@@ -667,12 +691,6 @@ actual low flow & \ensuremath{-}0.078 & 92 & 147 \\
 }
 
 \textbf{Retrospective outcome-conditioned diagnostics.} Stratifying by the target outcome --- retrospective, not an issue-time state --- days that subsequently warm rapidly reach −0.30 °C at seven days, and days that subsequently cool rapidly −0.18 °C. On the coldest target decile the anchor alone is marginally better (+0.03 °C), the only stratum in which the learned correction does not pay for itself. Those strata select the days on which a damped anchor must fail, and a manager cannot identify them at issue time; we read them as a diagnostic of where the anchor is weak rather than an operational benefit.
-
-\begin{figure}[!t]
-\centering
-\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Hydrologic conditions governing incremental skill.}]{figures/fig06_hydrologic_mechanism.pdf}}
-\caption{\textbf{Hydrologic conditions governing incremental skill (held-out 2021--2023).} (a) Station anomaly half-life, median 6.9 d. (b) One-day learned gain versus log half-life. (c) Issue-time-identifiable states; (d) retrospective outcome-conditioned strata; negative values favor ThermoRoute.}
-\end{figure}
 
 \subsection{What local thermal state is worth}\label{what-local-thermal-state-is-worth}
 
@@ -859,6 +877,20 @@ architecture-by-information interaction positive and resolved under both
 geometries. What makes the estimator matter is the missing local information,
 not the spatial extrapolation the whole-region design bundles with it.
 
+That result depends on the network having been trained far enough, and its own
+lineage said it had not: under the shared 40-epoch budget the median best epoch
+at L2 was 37, with a third of cells still improving at the cap, while L0
+converged well inside it. A budget that binds only where the claim lives is the
+information-mismatch failure relocated to the optimiser, so the L2 cells were
+refitted with a 300-epoch cap and patience 20. The median best epoch moves to
+119 and nothing reaches the new cap, and the penalty does not shrink --- it grows,
+to 0.249, 0.152 and 0.065 °C, with every change interval covering zero. Longer
+training makes the network worse against the held region while its in-fold
+validation still improves, which is what an information-scarce regime looks
+like from the optimiser\textquotesingle s side. The reported figures are the shorter-budget
+ones, so they are the conservative pair
+(\texttt{outputs/\allowbreak{}final/\allowbreak{}tcn\_\allowbreak{}convergence\_\allowbreak{}sensitivity\_\allowbreak{}v1/\allowbreak{}}).
+
 \textbf{Given perfect future weather, the sequence model is the better one.} At L0
 with F3 the sign reverses, to −0.096 {[}−0.177, −0.038{]} at seven days. That is the
 paper\textquotesingle s one resolvable architecture gain, and it requires an oracle: an argument
@@ -867,6 +899,19 @@ literature benchmarks. The L0 triple difference sits below each cell\textquotesi
 detectable effect (0.006, 0.012 and 0.018 °C), so it is evidence of absence; at
 L2 the same three-way contrast is underpowered, and we report that as a power
 limit rather than as a null.
+
+\begin{figure}[!t]
+\centering
+\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Effect sizes across the study\textquotesingle s axes.}]{figures/fig05_information_axes.pdf}}
+\caption{\textbf{What each axis of the study is worth, at seven days.} Station-first
+paired effects in °C on a log axis, damped-residual tree throughout, with
+whole-HUC2 cluster-bootstrap intervals; open markers are negative effects
+plotted at their magnitude, and the tick marks the minimum detectable effect
+where one is defined. Local observation, future weather, study design and the
+estimator span three orders of magnitude. The axes are separate conditional
+designs and are compared, never summed. Every row is post-outcome and
+descriptive.}
+\end{figure}
 
 Post-outcome and descriptive, and excluded from the Abstract and Key Points on
 that ground.
@@ -1058,47 +1103,33 @@ administration, funding acquisition. The signed intake form is
 
 \section*{Supporting Information}
 
-Supporting Information accompanies this manuscript and contains: the cohort and
-registry description with the candidate-rejection ledger (SI01); the issue-time
-information boundary and the product-compatibility bridge (SI02); model equations
-and unit conventions (SI03); the analysis protocol, redesign chronology and
-decision log (SI04); the comparison set and its fields (SI05--SI06); all-model scores on the
-exact common keys, including the fitted air2stream-style hybrid reference with its parameter ranges and
-official-variant caveat (SI07); probability and
-reliability schemas and the full measured degenerate-interval table (SI08); architecture and
-information-matched controls with seed and budget provenance and their
-independent-window re-test (SI09); the temporal
-coverage audit (SI10); the matched spatial factorial, local-adaptation policy,
-repeated-split distribution and the
-cluster geometry at HUC2, HUC4, HUC6, and HUC8 (SI11); outcome quality control
-and qualifier evidence (SI12); the history-dependent external arm (SI13);
-missingness and failure cases with the key-history completeness strata (SI14);
-reproduction hashes, commands, and
-environment parity fields, including the results-authority commands and manifest (SI15); and the rights and data dictionary (SI16).
+Supporting Information contains the cohort and registry description with the
+candidate-rejection ledger (SI01); the issue-time information boundary and the
+product-compatibility bridge (SI02); model equations and unit conventions
+(SI03); the analysis protocol, redesign chronology and decision log (SI04); the
+comparison set and its fields (SI05--SI06); all-model scores on the exact common
+keys, including the fitted air2stream-style hybrid reference (SI07);
+probability and reliability schemas with the measured degenerate-interval table
+(SI08); architecture and information-matched controls with seed and budget
+provenance (SI09); the temporal coverage audit (SI10); the matched spatial
+factorial and the cluster geometry at HUC2 through HUC8 (SI11); outcome quality
+control and qualifier evidence (SI12); the history-dependent external arm
+(SI13); missingness and failure cases (SI14); reproduction hashes, commands and
+environment parity fields (SI15); and the rights and data dictionary (SI16).
 
-Supporting figures accompany these sections: Figures S1--S3 describe the cohort
-geometry, the temporal roles and issue-time information boundary, and the model
-and calibration dataflow; Figures S4--S8 and S10 expand Section 4.4; and Figure
-S9 is a development-period conformal-calibration sensitivity, labeled as such in
-the figure itself, which must not be compared numerically with any held-out-window
-figure.
-
-Each figure carries evidence from exactly one period. Figures 1 and 2 and Figures
-S1--S3 are structural material; Figures 3--5 and Figures S4--S8 and S10 are
-held-out-window; Figure S9 is a development-period conformal-calibration
-sensitivity. Each figure states its period inside the figure, and no value from
-one period is compared numerically with a value from another.
+Figures S1--S3 describe the cohort geometry, the temporal roles and issue-time
+boundary, and the model and calibration dataflow; Figures S4--S8 expand Section
+4.4 and the hydrologic-state mechanism of Section 4.6; Figure S9 is a development-period conformal-calibration sensitivity,
+labelled as such in the figure, and must not be compared numerically with any
+held-out-window figure.
 
 % BIBLIOGRAPHY.  agujournal2025.cls loads apacite and sets
 % \bibliographystyle{apacite} itself, so no \bibliographystyle is emitted here
 % and no separate .bst has to be vendored.
 %
-% The conversion the old TODO here asked for is done: every in-text citation is
-% a real \cite or \citeA key and \nocite{*} is gone, so this list is what the
-% paper cites rather than everything in ../references.bib.  That was 62 printed
-% entries against 21 cited works.  Adding a citation now means adding the key
-% here in the TeX, which is also what makes a deleted last citation drop its
-% entry instead of lingering.
+% Conversion done: every citation is a real \cite or \citeA key and
+% \nocite{*} is gone, so this list is the works the paper actually cites
+% rather than every entry in ../references.bib.
 \bibliography{../references}
 
 \end{document}

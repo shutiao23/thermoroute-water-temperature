@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Figure 4: the information budget, on one axis.
+r"""Figure 5: what each axis of the study is worth, on one scale.
 
 The paper's central claim is that what a model is *given* at issue time, not
 which model it is, sets the achievable skill on this problem. That claim is
@@ -7,6 +7,12 @@ currently spread across four result sections and a dozen tables, and a reader
 has to hold nine numbers in their head to see it. It is really one picture:
 every quantity the study can vary, plotted on a common log axis, spanning three
 orders of magnitude with the estimator at the bottom.
+
+It is deliberately not called a budget.  A budget implies the parts sum to a
+whole, and these do not: the forcing and information axes are separate
+conditional designs whose component shares already exceed 100%, and the
+manuscript's consistency gate rejects the word for exactly that reason.  The
+figure compares magnitudes; it does not decompose one.
 
 Design choices worth stating, because each one is a way the figure could
 mislead.
@@ -252,8 +258,8 @@ def render(frame: pd.DataFrame):
 def main() -> int:
     frame = collect()
     fig = render(frame)
-    figstyle.save(fig, "fig04_information_budget", OUT)
-    frame.to_csv(OUT / "fig04_information_budget_data.csv", index=False)
+    figstyle.save(fig, "fig05_information_axes", OUT)
+    frame.to_csv(OUT / "fig05_information_axes_data.csv", index=False)
     print(frame.to_string(index=False))
     return 0
 

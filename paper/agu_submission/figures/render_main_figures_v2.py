@@ -502,7 +502,7 @@ def fig5(registry, sm, skill, paired, mech, st, rt, geo):
     ax_c.legend(loc="lower left", fontsize=7.5, frameon=False, handlelength=1.4)
     ax_c.grid(axis="x", color="#DDDDDD", lw=0.4)
 
-    save(fig, "fig05_spatial_transfer")
+    save(fig, "fig04_spatial_transfer")
 
 
 def fig6(registry, sm, skill, paired, mech, st, rt, geo):
