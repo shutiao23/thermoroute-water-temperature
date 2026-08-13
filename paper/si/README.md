@@ -56,12 +56,14 @@ remain `[pending computation]`.
 | `SI14_missingness_failures.md` | missingness, attrition and failure-case projection (result cells pending) | bound attrition/failure-case evidence |
 | `SI15_reproduction_hashes.md` | commands, environment and immutable binding projection | replay and reproduction receipts |
 | `SI16_rights_data_dictionary.md` | rights-decision and machine-readable data-dictionary routing | qualified rights decisions and release manifest |
+| `SI20_information_arms.md` | method and estimands for the local-information, forcing, geometry and architecture arms of §§4.7–4.10 | scored authorities under `outputs/final/`; every result post-outcome and descriptive |
 | `SI19_development_spatial_and_robustness.md` | development-period spatial analysis and robustness probes relocated from manuscript §§4.4–4.5 | development-window evidence only; never compared numerically with a held-out value |
 
-The numbering jumps from SI16 to SI19 and there is no SI17 or SI18. SI19 took
+The numbering jumps from SI16 to SI19 and there is no SI17 or SI18; SI20 was
+added last and continues from SI19. SI19 took
 its number from the relocation batch that produced it, and the manuscript
-already cites it twice, so renumbering would cost two live cross-references to
-buy tidiness. The gap is noted here so a reader who counts does not go looking.
+already cites it three times, so renumbering would cost three live
+cross-references to buy tidiness. The gap is noted here so a reader who counts does not go looking.
 
 ## Evidence boundary
 

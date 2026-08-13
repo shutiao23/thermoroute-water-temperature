@@ -872,9 +872,11 @@ classes differ by at most 0.009 °C at any lead, against station-median errors o
 this literature uses.
 
 \textbf{Where information is scarce, the estimator starts to matter.} Remove the
-local gauge and the tree wins by 0.02--0.19 °C, with the
-architecture-by-information interaction positive and resolved under both
-geometries. What makes the estimator matter is the missing local information,
+local gauge and the tree wins by 0.02--0.19 °C. The architecture-by-information
+interaction is positive in all six geometry-by-lead cells and resolved in three
+of them --- at one day under both holdouts and at three days under random-site ---
+while the two seven-day cells and whole-region at three days have intervals
+covering zero. What makes the estimator matter is the missing local information,
 not the spatial extrapolation the whole-region design bundles with it.
 
 That result depends on the network having been trained far enough, and its own
@@ -1115,7 +1117,10 @@ provenance (SI09); the temporal coverage audit (SI10); the matched spatial
 factorial and the cluster geometry at HUC2 through HUC8 (SI11); outcome quality
 control and qualifier evidence (SI12); the history-dependent external arm
 (SI13); missingness and failure cases (SI14); reproduction hashes, commands and
-environment parity fields (SI15); and the rights and data dictionary (SI16).
+environment parity fields (SI15); the rights and data dictionary (SI16); the development-period spatial analyses
+and robustness probes relocated from the main text (SI19); and the method,
+estimands and sealing of the local-information, forcing, geometry and
+architecture arms of Sections 4.7--4.10 (SI20).
 
 Figures S1--S3 describe the cohort geometry, the temporal roles and issue-time
 boundary, and the model and calibration dataflow; Figures S4--S8 expand Section

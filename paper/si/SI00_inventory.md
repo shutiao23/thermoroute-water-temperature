@@ -38,11 +38,12 @@ unbound result cell is `[pending computation]`.
 | SI14 | missingness/failure shell | attrition and failure-case schemas | post hoc threshold selection or omitted failures |
 | SI15 | reproduction shell | required hashes, commands, environment and parity fields | one-click or independent-replay claims without receipts |
 | SI16 | rights/data-dictionary shell, **plus the full redistribution class enumeration relocated from the main text** | decision fields, units, release routing, the four classes defaulting to exclusion and the two excluded outright, and the exact scope of the MIT licence | redistribution approval or FAIR completion |
+| SI20 | the information arms of §§4.7–4.10: masking proof, estimands, sealing, MDE semantics, architecture matching | method, estimand and sealing of the L/F/G/A arms and the authority for each | that any §4.7–4.10 result is confirmatory |
 | SI19 | development-period spatial analysis and robustness probes relocated from manuscript §§4.4–4.5 | development-window skill ladders and robustness probes, each labelled development-period | any development-period value compared numerically with a held-out-window value |
 
 There is no SI17 or SI18, and the gap is deliberate rather than an omission:
 SI19 was numbered to match the relocation batch it came from, and renumbering it
-now would break the two citations it already carries in the manuscript. The
+now would break the three citations it already carries in the manuscript. The
 inventory says so here because a reader who counts the sections will otherwise
 go looking for two documents that were never written.
 
@@ -66,7 +67,7 @@ exists.
 
 ## Figure inventory
 
-**Fourteen** figures accompany the submission: four main-text figures and ten
+**Fifteen** figures accompany the submission: five main-text figures and ten
 supporting figures. The authoritative manifest is
 `paper/FIGURE_REDRAW_SPEC.md` §4–§5, with the reassignment record in its §6.4 and
 in `docs/PAPER_FIGURE_SI_RECONCILIATION.md`.
@@ -79,8 +80,9 @@ the SI file set and the figure set cannot drift apart unnoticed.
 |---|---|---|---|---|
 | Fig. 1 | station map, cohort geometry, persistence challenge | `PRE_MATERIALIZED` | draft structural | SI01, SI11 |
 | Fig. 2 | how baseline choice changes reported skill | `POST_TEMPLATE_ONLY` | target | SI06, SI07 |
-| Fig. 3 | how the spatial partition changes the transfer conclusion | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **development 2019–2020** | SI01, SI13 |
-| Fig. 4 | regional/seasonal heterogeneity and what coverage costs | `POST_TEMPLATE_ONLY` | target | SI08, SI10, SI11 |
+| Fig. 3 | decomposition of reported skill on the held-out window | `POST_TEMPLATE_ONLY` | target 2021–2023 | SI06, SI07 |
+| Fig. 4 | spatial transfer under matched random-site and whole-region holdouts | `POST_TEMPLATE_ONLY` | target 2021–2023 | SI11 |
+| Fig. 5 | what each axis of the study is worth, on one scale | `POST_TEMPLATE_ONLY` | target 2021–2023, post-outcome | SI07, SI09, SI11 |
 | Fig. S1 | cohort selection and registry geometry | `PRE_MATERIALIZED` | draft cohort geometry | SI01 |
 | Fig. S2 | chronology and issue-time/product boundary | `PRE_MATERIALIZED` | draft boundary | SI02 |
 | Fig. S3 | full model, bounded correction, and calibration dataflow | `PRE_MATERIALIZED_DESIGN` | draft model design | SI03 |
@@ -92,8 +94,9 @@ the SI file set and the figure set cannot drift apart unnoticed.
 | Fig. S9 *(optional)* | development-period conformal calibration sensitivity | `POST_TEMPLATE_ONLY_DEVELOPMENT` | **development 2019–2020** | SI08 |
 | Fig. S10 | registered architecture interventions and the bounded-deviation audit | `POST_TEMPLATE_ONLY` | target | SI07, SI09 |
 
-Eleven of these — Figures 2–4 and S4–S10 — are POST-gated and are blocked on the
-test-window evaluation receipt. Figures S1–S3 are already materialized and carry no
+Eleven of these — Figures 2–5 and S4–S10 — are POST-gated. They were blocked on
+the test-window evaluation receipt, which has since been produced, so all eleven
+are now rendered; Figures S1–S3 are already materialized and carry no
 evaluation-period coordinate. **Figure 1's committed bytes are stale**: the
 2026-08-06 restructure replaced its bounded-correction panel with the station
 map, so the artifact must be re-rendered before submission.
@@ -140,7 +143,7 @@ figure above, whose ids and `state` tokens must equal this table's.
    invalid for a multi-value row.
 7. SI08 carries no development-period probability metric. The development-period
    probabilistic stage is not produced for this submission; its disposition and
-   the measured facts are recorded in SI08 §Stage-19 and in
+   the measured facts are recorded in SI08 §3 (measured facts in §3.1) and in
    `docs/STAGE19_DEGENERATE_INTERVAL_DISPOSITION_20260805.md`. The target-period
    metrics that SI08 projects come from the trusted scorer inside the one-time
    opening, not from that stage.

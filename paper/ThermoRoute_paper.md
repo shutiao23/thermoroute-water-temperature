@@ -936,7 +936,10 @@ provenance (SI09); the temporal coverage audit (SI10); the matched spatial
 factorial and the cluster geometry at HUC2 through HUC8 (SI11); outcome quality
 control and qualifier evidence (SI12); the history-dependent external arm
 (SI13); missingness and failure cases (SI14); reproduction hashes, commands and
-environment parity fields (SI15); and the rights and data dictionary (SI16).
+environment parity fields (SI15); the rights and data dictionary (SI16); the development-period spatial analyses
+and robustness probes relocated from the main text (SI19); and the method,
+estimands and sealing of the local-information, forcing, geometry and
+architecture arms of Sections 4.7–4.10 (SI20).
 
 Figures S1–S3 describe the cohort geometry, the temporal roles and issue-time
 boundary, and the model and calibration dataflow; Figures S4–S8 expand Section
