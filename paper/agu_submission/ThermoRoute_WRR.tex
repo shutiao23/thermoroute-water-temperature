@@ -377,7 +377,7 @@ The residual comes from a strictly left-looking temporal convolutional encoder
 over a 14-lag window, with a horizon-conditioned variable/lag router, a
 three-expert mixture, and a \(\pm1\,{}^\circ\)C algebraic bound on the deviation
 from the anchor. One model serves all three leads; 38,505 trainable parameters;
-five seeds averaged (Text S3, Figure S11). The architecture is the object under
+five seeds averaged (Text S3, Figure 2). The architecture is the object under
 test rather than the contribution: Section 4.2 shows an information-matched
 plain causal network reproduces it to within 0.023 °C.
 
@@ -635,7 +635,7 @@ The development-period whole-region finding (SI19) is re-tested on the
 independent window with a matched 2×2 factorial separating spatial geometry from
 local adaptation: station-agnostic trees under four leave-HUC2-region folds and
 four balanced random folds over five split seeds, crossed with local and pooled
-preprocessing (protocol v1; SI11, Figure S12). The design moves the median
+preprocessing (protocol v1; SI11, Figure S11). The design moves the median
 nearest-training-gauge distance from 60 to 263 km, and the region-minus-random
 paired penalty for the raw-target tree is +0.006, +0.009 and +0.007 °C.
 
@@ -768,16 +768,20 @@ sealed contract records that failure to reject is not equivalence.
 \pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Effect sizes across the study\textquotesingle s axes.}]{figures/fig05_information_axes.pdf}}
 \caption{\textbf{What each axis of the study is worth, at seven days.} Station-first
 paired effects in °C on a log axis, damped-residual tree throughout; open markers
-are negative effects plotted at their magnitude, and the tick marks the minimum
-detectable effect where one is defined. Local observation, future weather, study
-design and the estimator span three orders of magnitude. The axes are separate
-conditional designs and are compared, never summed. Every row is post-outcome
-and descriptive except the last, and every bar is a cluster-bootstrap interval
-except the last: \emph{reference construction} is the range across the seven
-predeclared anchor variants of Section 4.1 --- a spread over specifications, not a
-sampling interval. It is on this axis because every other row is conditional on
-one anchor while the anchor is itself a fitted object, and it says how much of
-the figure is a property of the reference rather than of the river.}
+are negative effects plotted at their magnitude, bars that reach the 0.001 floor
+are intervals spanning zero, and the tick marks the minimum detectable effect
+where one is defined. Within \emph{Future weather (oracle)} and \emph{Estimator} the row
+label gives only what distinguishes it --- "gauged" is L0 and "observations
+withheld" is L2 --- and the bracket carries the rest, so \emph{Estimator} rows are the
+plain causal network minus the tree. Local observation, future weather, study
+design and the estimator span three orders of magnitude on one continuous axis;
+the axes are separate conditional designs and are compared, never summed. Every
+row is post-outcome and descriptive except \emph{reference construction}, whose bar is
+also the one interval that is not a cluster bootstrap: it is the range across the
+seven predeclared anchor variants of Section 4.1, a spread over specifications.
+It is on this axis because every other row is conditional on one anchor while the
+anchor is itself a fitted object, and it says how much of the figure is a
+property of the reference rather than of the river.}
 \end{figure}
 
 \section{Discussion}\label{discussion}
@@ -923,7 +927,7 @@ evidence-grade table and relocated objects of the Section 4.6 arms.
 
 Figures S1--S3 give cohort geometry, temporal roles and model dataflow; S4--S8
 expand Sections 4.3 and 4.5; S9 is a development-period conformal sensitivity not
-comparable with any held-out figure; S10 the architecture controls; S12 the
+comparable with any held-out figure; S10 the architecture controls; S11 the
 matched spatial-transfer panels, relocated because they show a different model
 from the section that cites them and an effect the design cannot resolve.
 

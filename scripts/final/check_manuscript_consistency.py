@@ -236,6 +236,59 @@ _DENIAL_RE = re.compile(
 _DENIAL_SPANS = {"abstract": "abstract", "key points": "key_point_1"}
 
 
+def check_cross_references_resolve(manuscript: str) -> list[str]:
+    """Every "Figure N" / "Table N" the text cites must actually exist.
+
+    Two stale cross-references shipped in one day. Renumbering Section 4 left
+    claims pointing at sections that had been merged away, and moving the
+    model-concept figure to the Supporting Information and then back to the main
+    text left Section 3.1 citing "Figure S11" after that SI entry was deleted --
+    a pointer to nothing, in the sentence that tells a reader where the model is
+    drawn. Neither was caught by anything; both were caught by a human reading
+    the PDF.
+
+    A cross-reference is the one kind of prose that has a checkable referent, so
+    it should never be the reader's job to discover it is broken. Main-text
+    numbers resolve against captions in this file; S-numbers resolve against SI
+    headings or a shipped figS*.pdf, because SI01-S10 are described in the SI
+    inventory rather than captioned in a heading.
+    """
+    problems: list[str] = []
+    fig_defs = {int(m) for m in re.findall(r"^\*\*Figure (\d+)\.", manuscript, re.M)}
+    tab_defs = {int(m) for m in re.findall(r"^\*\*Table (\d+) ", manuscript, re.M)}
+
+    si_text = ""
+    for path in sorted((ROOT / "paper" / "si").glob("SI*.md")):
+        si_text += path.read_text(encoding="utf-8")
+    si_fig = {int(m) for m in re.findall(r"Figure S(\d+)", si_text)}
+    si_fig |= {int(m) for m in re.findall(r"figS0*(\d+)",
+               " ".join(q.name for q in (ROOT / "paper" / "agu_submission"
+                                         / "figures").glob("figS*.pdf")))}
+    si_tab = set(re.findall(r"Table (S[\d.]+)", si_text))
+
+    for num in sorted({int(m) for m in re.findall(r"(?<!\*\*)Figure (\d+)\b", manuscript)}):
+        if num not in fig_defs:
+            problems.append(f"text cites 'Figure {num}' but no such caption exists")
+    for num in sorted({int(m) for m in re.findall(r"(?<!\*\*)Table (\d+)\b", manuscript)}):
+        if num not in tab_defs:
+            problems.append(f"text cites 'Table {num}' but no such caption exists")
+    for num in sorted({int(m) for m in re.findall(r"Figures? S(\d+)", manuscript)}):
+        if num not in si_fig:
+            problems.append(
+                f"text cites 'Figure S{num}' but the Supporting Information "
+                "defines no such figure")
+    for ref in sorted(set(re.findall(r"Table (S[\d.]+)", manuscript))):
+        if ref not in si_tab:
+            problems.append(f"text cites 'Table {ref}' but the SI defines no such table")
+
+    # A gap in either series is the defect the advisor review filed as M14.
+    for name, defs in (("Figure", fig_defs), ("Table", tab_defs)):
+        if defs and sorted(defs) != list(range(1, max(defs) + 1)):
+            problems.append(
+                f"main-text {name} numbering is not contiguous: {sorted(defs)}")
+    return problems
+
+
 def check_used_in_spans_exist(spans: dict[str, str], ledger: list[dict]) -> list[str]:
     """Every ``used_in`` token must name a section the manuscript still has.
 
@@ -724,6 +777,7 @@ def main() -> int:
     problems += check_claim_status(ledger)
     problems += check_promoted_claims_disclose_their_status(
         _md_spans(manuscript), ledger)
+    problems += check_cross_references_resolve(manuscript)
     problems += check_used_in_spans_exist(_md_spans(manuscript), ledger)
     problems += check_placement_denials_are_true(
         manuscript, _md_spans(manuscript), ledger)

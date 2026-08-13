@@ -252,7 +252,7 @@ The main text was cut to 23 pages, and four objects moved here rather than being
 deleted. Nothing below is new; each is the version the manuscript carried, with
 its original caption.
 
-### Figure S12 — spatial transfer under matched holdouts
+### Figure S11 — spatial transfer under matched holdouts
 
 `paper/agu_submission/figures/fig04_spatial_transfer.pdf`. (a) The four
 whole-HUC2 folds. Panels (b) and (c) show **ThermoRoute** under the earlier

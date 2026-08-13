@@ -62,7 +62,9 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "paper"))
 import figstyle  # noqa: E402
 
+import matplotlib  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.transforms as mtransforms  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
 OUT = ROOT / "paper" / "agu_submission" / "figures"
@@ -187,102 +189,259 @@ def collect() -> pd.DataFrame:
     return frame
 
 
+# ---------------------------------------------------------------- geometry
+W_MM = figstyle.FULL_MM          # 139.7, mandatory
+H_MM = 56.7                      # the number this candidate is competing on
+
+PITCH_MM = 3.4                   # centre-to-centre, rows inside a group
+GROUP_GAP_MM = 1.7               # extra space between groups
+PAD_TOP_MM = 1.5                 # air above the top row
+PAD_BOT_MM = 2.0                 # air below the bottom row (keeps descenders
+                                 # off the x spine)
+
+M_LEFT_MM = 1.2                  # canvas edge -> group name
+GUTTER_MM = 2.6                  # group name -> row label column
+TICKPAD_MM = 1.3                 # row label -> axis spine
+M_RIGHT_MM = 1.6
+M_TOP_MM = 0.8
+M_BOTTOM_MM = 9.9                # tick labels + axis label + one-line legend
+
+FS_LABEL = 7.0                   # row labels
+FS_GROUP = 7.0                   # group names (bold)
+FS_TICK = 7.0
+FS_AXIS = 7.2
+FS_LEGEND = 6.8                  # smallest type in the figure; floor is 6.0
+
+FLOOR = 1e-3
+XMAX = 2.6
+
 GROUP_COLOUR = {
     "Local observation": figstyle.SERIES["ThermoRoute"],
     "Future weather": figstyle.SERIES["LightGBM"],
     "Study design": figstyle.SERIES["LSTM"],
     "Estimator": figstyle.SERIES["Persistence"],
 }
-FLOOR = 1e-3        # left edge of the log axis, below every measured quantity
+GROUP_ORDER = ["Local observation", "Future weather", "Study design", "Estimator"]
+
+# The group name absorbs the noun the rows used to repeat; the row keeps the
+# part that actually varies.  Nothing here changes what a row means.
+GROUP_TITLE = {
+    "Local observation": "Local\nobservation",
+    "Future weather": "Future weather\n(oracle)",
+    "Study design": "Study\ndesign",
+    "Estimator": "Estimator\n(TCN - tree)",
+}
+SHORT = {
+    "All local thermal state": "All local thermal state",
+    "Recent temperature sequence": "Recent temperature sequence",
+    "Own long-term statistics": "Own long-term statistics",
+    "Local discharge": "Local discharge",
+    "Realized future meteorology (oracle)": "gauged",
+    "Realized future meteorology, observations withheld": "observations withheld",
+    "Spatial holdout, gauged": "Spatial holdout, gauged",
+    "Spatial holdout, obs. withheld": "Spatial holdout, obs. withheld",
+    "Reference construction (7 anchor variants)": "Reference construction (7 anchors)",
+    "Estimator, gauged": "gauged",
+    "Estimator, observations withheld": "observations withheld",
+    "Estimator, gauged + oracle forcing": "gauged + oracle forcing",
+}
+
+
+def _darken(hex_colour: str, factor: float = 0.70) -> tuple[float, float, float]:
+    """A darker tint of the group colour, for the group name only.
+
+    The row labels inside "Future weather" and "Estimator" say only what
+    distinguishes them, so the group name is now load-bearing text rather than
+    decoration -- and Wong's sky blue at 7 pt on white is about 2.2:1, which is
+    fine for a 1.5 pt rule and marginal for a word a reader has to read.  The
+    rule and the markers keep the exact palette colour; only the text is
+    darkened, so the hue still ties the name to its block.
+    """
+    from matplotlib.colors import to_rgb
+    return tuple(c * factor for c in to_rgb(hex_colour))
+
+
+def layout(frame: pd.DataFrame):
+    """Row centres in millimetres, measured up from the bottom row."""
+    pos: dict[int, float] = {}
+    blocks: list[tuple[str, float, float]] = []
+    y = 0.0
+    for group in reversed(GROUP_ORDER):             # first group ends up on top
+        idx = list(frame.index[frame["group"] == group])
+        lo = y
+        for i in reversed(idx):
+            pos[i] = y
+            y += PITCH_MM
+        blocks.append((group, lo, y - PITCH_MM))
+        y += GROUP_GAP_MM
+    top = y - GROUP_GAP_MM - PITCH_MM
+    return pos, blocks, top
 
 
 def render(frame: pd.DataFrame):
     figstyle.use()
-    fig, ax = plt.subplots(
-        figsize=figstyle.figsize(height_mm=104.0), constrained_layout=True
-    )
+    fig = plt.figure(figsize=figstyle.figsize(W_MM, H_MM), constrained_layout=False)
+    # The rc default is constrained layout; this figure places its one axes by
+    # measured millimetres instead, so the engine is switched off explicitly
+    # rather than left half-enabled (which warns on save and owns nothing).
+    fig.set_layout_engine("none")
 
-    # Lay the rows out with a spacer above each group and the group name written
-    # into that spacer.  A first attempt put rotated group names in the left
-    # margin; the collision gate rejected it, because at this width the margin
-    # belongs to the row labels and nothing else fits there.
-    groups: list[str] = []
-    for group in frame["group"]:
-        if group not in groups:
-            groups.append(group)
+    pos, blocks, top = layout(frame)
+    axes_h_mm = top + PAD_TOP_MM + PAD_BOT_MM
+    if abs((M_TOP_MM + axes_h_mm + M_BOTTOM_MM) - H_MM) > 0.05:
+        raise SystemExit(
+            f"vertical budget does not close: {M_TOP_MM + axes_h_mm + M_BOTTOM_MM:.2f}"
+            f" mm of content in a {H_MM:.2f} mm figure"
+        )
 
-    positions: dict[int, float] = {}
-    headers: list[tuple[float, str]] = []
-    y = 0.0
-    for group in reversed(groups):                 # first group ends up on top
-        block = frame.index[frame["group"] == group]
-        for index in reversed(list(block)):
-            positions[index] = y
-            y += 1.0
-        headers.append((y - 0.5, group))
-        y += 1.15
+    # Provisional rectangle; the left edge is re-derived from measured text below.
+    ax = fig.add_axes([0.45, M_BOTTOM_MM / H_MM, 0.5, axes_h_mm / H_MM])
 
     ticks, labels = [], []
-    for index, ypos in positions.items():
-        row = frame.loc[index]
+    for i in frame.index:
+        row = frame.loc[i]
+        y = pos[i]
         colour = GROUP_COLOUR[row["group"]]
         value, low, high = row["value"], row["low"], row["high"]
         negative = value < 0
-        # magnitudes on a log axis; the sign is carried by the marker, not lost
         mag = max(abs(value), FLOOR)
         lo, hi = sorted((abs(low), abs(high)))
-        if low <= 0.0 <= high:      # interval spans the origin: draw to the floor
+        if low <= 0.0 <= high:          # spans the origin: draw down to the floor
             lo = FLOOR
         lo, hi = max(lo, FLOOR), max(hi, FLOOR * 1.02)
-        ax.plot([lo, hi], [ypos, ypos], color=colour, lw=1.7,
+        ax.plot([lo, hi], [y, y], color=colour, lw=1.5,
                 solid_capstyle="butt", zorder=2)
-        ax.plot([mag], [ypos], marker="o", ms=4.4, zorder=4,
-                color="white" if negative else colour,
-                markeredgecolor=colour, markeredgewidth=1.3)
         if np.isfinite(row["mde"]):
-            ax.plot([row["mde"]], [ypos], marker="|", ms=8, color="0.35",
-                    markeredgewidth=1.2, zorder=3)
-        ticks.append(ypos)
-        labels.append(row["label"])
-
-    for ypos, group in headers:
-        ax.text(FLOOR * 1.06, ypos, group, ha="left", va="center",
-                color=GROUP_COLOUR[group], fontsize=plt.rcParams["axes.labelsize"])
+            ax.plot([row["mde"]], [y], marker="|", ms=6.0, color="0.35",
+                    markeredgewidth=1.1, zorder=3)
+        ax.plot([mag], [y], marker="o", ms=3.8, zorder=4,
+                color="white" if negative else colour,
+                markeredgecolor=colour, markeredgewidth=1.15)
+        ticks.append(y)
+        labels.append(SHORT[row["label"]])
 
     ax.set_yticks(ticks)
-    ax.set_yticklabels(labels)
-    ax.set_ylim(-0.8, y - 0.4)
+    ax.set_yticklabels(labels, fontsize=FS_LABEL)
+    ax.set_ylim(-PAD_BOT_MM, top + PAD_TOP_MM)
     ax.set_xscale("log")
-    ax.set_xlim(FLOOR, 6.0)
-    ax.set_xlabel("effect on station-median RMSE at 7 d (°C, log scale)")
-    ax.grid(axis="x", which="major", color="0.88", lw=0.6)
+    ax.set_xlim(FLOOR, XMAX)
+    ax.set_xticks([1e-3, 1e-2, 1e-1, 1.0])
+    ax.set_xticklabels(["0.001", "0.01", "0.1", "1"], fontsize=FS_TICK)
+    ax.set_xlabel("effect on station-median RMSE at 7 d (°C, log scale)",
+                  fontsize=FS_AXIS, labelpad=1.6)
+    ax.grid(axis="x", which="major", color="0.88", lw=0.5)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="y", length=0)
+    ax.tick_params(axis="y", length=0, pad=TICKPAD_MM / 25.4 * 72.0)
+    ax.tick_params(axis="x", pad=1.4)
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
 
+    # Group names: x fixed in figure fractions (independent of the axes rect),
+    # y in data millimetres so each name sits on the centre of its own block.
+    fig_x_data_y = mtransforms.blended_transform_factory(fig.transFigure, ax.transData)
+    group_texts = []
+    for group, lo, hi in blocks:
+        colour = GROUP_COLOUR[group]
+        t = ax.text(0.0, 0.5 * (lo + hi), GROUP_TITLE[group], transform=fig_x_data_y,
+                    ha="right", va="center", fontsize=FS_GROUP, fontweight="bold",
+                    color=_darken(colour), linespacing=1.05, clip_on=False)
+        group_texts.append(t)
+        ax.plot([0.0, 0.0], [lo - 0.45 * PITCH_MM, hi + 0.45 * PITCH_MM],
+                transform=fig_x_data_y, color=colour, lw=1.0,
+                solid_capstyle="butt", clip_on=False, zorder=1)
+
     handles = [
-        Line2D([], [], marker="o", ls="none", color="0.35", ms=4.4,
-               label="positive: withholding it costs skill"),
-        Line2D([], [], marker="o", ls="none", mfc="white", mec="0.35", ms=4.4,
-               markeredgewidth=1.3, label="negative: magnitude plotted"),
-        Line2D([], [], marker="|", ls="none", color="0.35", ms=8,
-               markeredgewidth=1.2, label="minimum detectable effect"),
+        Line2D([], [], marker="o", ls="none", color="0.35", ms=3.8,
+               label="filled: positive (withholding it costs skill)"),
+        Line2D([], [], marker="o", ls="none", mfc="white", mec="0.35", ms=3.8,
+               markeredgewidth=1.15, label="open: negative, magnitude plotted"),
+        Line2D([], [], marker="|", ls="none", color="0.35", ms=6.0,
+               markeredgewidth=1.1, label="minimum detectable effect"),
     ]
-    # Below the axes rather than inside them: at lower right the legend sat on
-    # top of the estimator rows, which are the ones a reader most needs to see.
-    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.14),
-              ncol=3, frameon=False, columnspacing=1.4,
-              fontsize=plt.rcParams["legend.fontsize"], handletextpad=0.4,
-              borderaxespad=0.0)
-    return fig
+    # borderpad is 0.4 font-units by default, which reserves ~1.7 mm of blank
+    # frame around a frameless legend -- pure loss at this height.
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.005),
+               ncol=3, frameon=False, columnspacing=1.3, handletextpad=0.35,
+               handlelength=1.1, fontsize=FS_LEGEND, borderaxespad=0.0,
+               borderpad=0.1)
+
+    # ---- measure, then set the left margin to exactly what the text needs
+    fig.canvas.draw()
+    rend = fig.canvas.get_renderer()
+    px_per_mm = fig.dpi / 25.4
+
+    label_w = max(t.get_window_extent(renderer=rend).width
+                  for t in ax.get_yticklabels()) / px_per_mm
+    group_w = max(t.get_window_extent(renderer=rend).width
+                  for t in group_texts) / px_per_mm
+
+    group_right_mm = M_LEFT_MM + group_w
+    left_mm = group_right_mm + GUTTER_MM + label_w + TICKPAD_MM
+    ax.set_position([left_mm / W_MM, M_BOTTOM_MM / H_MM,
+                     (W_MM - M_RIGHT_MM - left_mm) / W_MM, axes_h_mm / H_MM])
+    for t in group_texts:
+        t.set_x(group_right_mm / W_MM)
+    for line in ax.lines:
+        if line.get_transform() is fig_x_data_y:
+            line.set_xdata([(group_right_mm + 0.5 * GUTTER_MM) / W_MM] * 2)
+
+    report = {
+        "label_col_mm": label_w,
+        "group_col_mm": group_w,
+        "axes_left_mm": left_mm,
+        "data_col_mm": W_MM - M_RIGHT_MM - left_mm,
+        "row_pitch_mm": PITCH_MM,
+    }
+    return fig, report
+
+
+def _ordered(frame: pd.DataFrame) -> pd.DataFrame:
+    """Group the rows and check every label has a short form.
+
+    `collect()` appends the anchor-variant row last even though its group is
+    "Study design", so file order is not group order and the layout must not
+    trust it.  The SHORT check is a hard failure rather than a fallback: a new
+    row silently keeping its long label would push the label column wider and
+    quietly undo the height this layout exists for.
+    """
+    missing = sorted(set(frame["label"]) - set(SHORT))
+    if missing:
+        raise SystemExit(f"labels with no short form: {missing}")
+    unknown = sorted(set(frame["group"]) - set(GROUP_ORDER))
+    if unknown:
+        raise SystemExit(f"rows in an unplaced group: {unknown}")
+    frame = frame.copy()
+    frame["_g"] = frame["group"].map(GROUP_ORDER.index)
+    return frame.sort_values("_g", kind="stable").reset_index(drop=True)
 
 
 def main() -> int:
     frame = collect()
-    fig = render(frame)
-    figstyle.save(fig, "fig05_information_axes", OUT)
+    fig, report = render(_ordered(frame))
+
+    # figstyle's strict gate does not inspect figure-level legends, so the
+    # legend is checked against the canvas here rather than assumed to fit.
+    fig.canvas.draw()
+    rend = fig.canvas.get_renderer()
+    w, h = fig.canvas.get_width_height()
+    for leg in fig.legends:
+        b = leg.get_window_extent(renderer=rend)
+        if b.x0 < -0.5 or b.x1 > w + 0.5 or b.y0 < -0.5 or b.y1 > h + 0.5:
+            raise SystemExit(f"legend runs off the canvas: {b} vs {(w, h)}")
+
+    # This figure places its one axes by measured millimetres, so constrained
+    # layout must stay off.  Turning it off on the Figure is not enough: the rc
+    # default is on, and matplotlib re-attaches an engine to the figure between
+    # the first and second savefig, so the PDF was being laid out by an engine
+    # the PNG never saw -- which is exactly the "no gridspecs with layoutgrids"
+    # warning.  Disable it for the duration of the write instead.
+    with matplotlib.rc_context({"figure.constrained_layout.use": False}):
+        figstyle.save(fig, "fig05_information_axes", OUT)
     frame.to_csv(OUT / "fig05_information_axes_data.csv", index=False)
+    print(f"figure: {fig.get_size_inches()[0]*25.4:.1f} x "
+          f"{fig.get_size_inches()[1]*25.4:.1f} mm")
+    for k, v in report.items():
+        print(f"  {k:>16s}: {v:.2f}" if isinstance(v, float) else f"  {k:>16s}: {v}")
     print(frame.to_string(index=False))
     return 0
 

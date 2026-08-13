@@ -1153,6 +1153,7 @@ import textwrap as _tw
 import numpy as _np
 import pandas as _pd
 import matplotlib
+import matplotlib.ticker
 matplotlib.use("Agg")
 import matplotlib.pyplot as _plt
 from matplotlib.patches import Patch as _Patch
@@ -1776,6 +1777,21 @@ def render_figS6(metrics, summary, out_dir):
     ax_a.invert_yaxis()
     ax_a.set_xscale("log")
     ax_a.set_xlim(50, max(counts) * 9)
+    # Plain decimal ticks, not 10^n.  Matplotlib sets a mathtext exponent at
+    # 0.7x the base size, so a 7.5 pt "10^2" puts 5.25 pt digits on the page --
+    # under the 6.0 pt floor, and invisible to a checker that measures word
+    # bounding boxes because the exponent is inside a 7.5 pt word.  These counts
+    # are site counts in the hundreds and thousands; they read better as
+    # numerals anyway.
+    # Explicit ticks, not a formatter over the default locator: LogLocator emits
+    # decades beyond the view limits, and those labels are still text artists,
+    # so formatting them produced "1,000,000" and "10,000,000" off the right
+    # edge and the collision gate rightly rejected the figure.
+    decades = [10 ** k for k in range(2, 6)]
+    ticks = [t for t in decades if 50 <= t <= max(counts) * 9]
+    ax_a.set_xticks(ticks)
+    ax_a.set_xticklabels([f"{t:,}" for t in ticks])
+    ax_a.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     ax_a.set_xlabel("count (log scale)")
     _panel_label(ax_a, f"(a) Attrition: {n_panel} \u2192 {n_scored} \u2192 {n_reportable} sites")
     for bar, count in zip(bars, counts):

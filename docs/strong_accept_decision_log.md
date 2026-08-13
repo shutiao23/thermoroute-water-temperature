@@ -2462,3 +2462,129 @@ property worth enforcing is that no shipped copy of a generated table drifts fro
 the generator, not that every table lives in the main text.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-044: rotating Figure 4 does not save space; tightening it does
+
+Question from the authors: would turning the information-axes figure on its side
+save space? Five layouts were built at the AGU text width and measured from the
+PDFs rather than argued about.
+
+| layout | height | vs baseline |
+|---|---:|---:|
+| baseline (shipped) | 104.0 mm | — |
+| rotated, wrapped horizontal labels | 70.0 mm | −34 mm |
+| labels inside the axes | 69.0 mm | −35 mm, rejected |
+| **tightened, same orientation** | **56.7 mm** | **−47 mm** |
+| two columns of six | 47.5 mm | −56 mm |
+
+**Rotating loses.** It is the worst of the three viable candidates, and it gets
+even to 70 mm only by abbreviating "Local discharge" to "Local flow (Q)" and
+"Realized future meteorology, observations withheld" to "Realized (obs.
+withheld)". The reason is geometric and was predictable before anything was
+drawn: the longest label is 50 characters, about 64 mm at 7.5 pt, so standing it
+upright costs 45 mm of height at 45° and 64 mm at 90° — most of what the twelve
+stacked rows cost in the first place. Twelve categories across 139.7 mm give
+11.6 mm per slot, and the longest single *word*, "observations", is 15.2 mm, so
+horizontal labels under a rotated chart do not fit a slot even unwrapped. A
+horizontal dot chart is the layout that matches long category names to the
+direction text runs; this figure was already in the orientation its data wants.
+
+Rotation also damages the reading: intervals that span zero are drawn to the
+0.001 floor, which reads as "wide uncertainty" horizontally and as a tall spike
+vertically, dominating the panel.
+
+**What was actually wasting the space** was not orientation. The baseline spent
+four blank rows writing group names into the data column, and printed "Realized
+future meteorology" twice at full length. The adopted layout puts the group names
+in their own left gutter as coloured brackets, and lets the rows underneath carry
+only what distinguishes them — "gauged" and "observations withheld" under
+"Future weather (oracle)" and under "Estimator (TCN − tree)". The longest label
+falls from 50 characters to 34, which is what buys the gutter back. The axis also
+stopped at 6 °C when the largest interval end is 2.05.
+
+**Two columns was rejected despite being shortest.** Splitting the rows across
+two panels means two axes, and this figure's whole argument is that the effects
+span three orders of magnitude on one scale. Nine millimetres is not worth making
+the reader transfer between axes to see the point.
+
+The adopted layout is a net gain in information as well as height: the bracket
+now states the sign direction, "Estimator (TCN − tree)", which the shipped
+version never said.
+
+One defect fixed on the way. The figure places its axes by measured millimetres,
+so constrained layout must stay off, and turning it off on the Figure object is
+not sufficient: the rc default is on and matplotlib re-attaches an engine between
+the first and second `savefig`, so the PDF was being laid out by an engine the
+PNG never saw. That is the "no gridspecs with layoutgrids" warning the renderer
+had been printing. The write now runs inside an `rc_context` that disables it.
+
+Result: Figure 4 is 139.7 × 56.7 mm, the manuscript is 25 pages, 19.5 PU.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-045: a cross-reference to a figure that no longer existed
+
+Found by an author reading page 8 of the PDF, not by any gate.
+
+Section 3.1 said the shared anchor–residual formulation is drawn in "Figure S11".
+It was, for about an hour: the page cut moved that figure to the Supporting
+Information as S11, the authors objected to a one-figure manuscript, and DLOG-043
+brought it back to the main text as Figure 2 — deleting the S11 entry from SI20
+and leaving the sentence pointing at a slot with nothing in it. The reference is
+now "Figure 2", and the surviving relocated figure moves from S12 to S11 so the
+SI series has no hole either.
+
+This is the third stale cross-reference in one day (the first two were claims
+bound to `section_4_9` and `section_4_10` after Section 4 was renumbered). The
+pattern is the same each time: an object moves, and the prose that points at it
+does not. Prose is not checkable in general, but a cross-reference is exactly the
+kind that has a referent, so it should never be a reader's job to find it broken.
+
+`check_cross_references_resolve` now fails the build when the text cites a
+figure or table that nothing defines, and when the main-text figure or table
+numbering has a gap — the latter being the defect the advisor review filed as
+M14 and that I reintroduced twice while restructuring. Verified against three
+injected states, including the exact one that shipped.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-046: the typography gate could not see type it was built to catch
+
+Found while checking a claim in the figure-layout study, not by the gate.
+
+`check_figure_typography.py` enforces a 6.0 pt floor by measuring word bounding
+boxes from `pdftotext -bbox`. A mathtext exponent is set at 0.7x the base size,
+so a log tick reading 10^-3 at 7.5 pt puts **5.25 pt digits on the page inside a
+word whose bounding box measures 7.5 pt**. The check passed it. The shipped
+information-axes figure carried 5.25 pt type for as long as it had power-of-ten
+ticks, and this gate reported it clean every time it ran.
+
+The fix is a second, independent measurement rather than a better heuristic:
+`declared_type_sizes` decompresses the PDF content stream and reads the `Tf`
+operators, which is what the renderer asked the typesetter for, per glyph run,
+with no inference from bounding boxes. Any declared size under the floor now
+fails the build.
+
+Turning it on found exactly one remaining offender across sixteen figures,
+`figS6_attrition_missingness`, from the same cause. Fixed at the source rather
+than exempted: its log axis now carries explicit decimal ticks. A first attempt
+using a `FuncFormatter` over the default locator was rejected by the collision
+gate, correctly -- `LogLocator` emits decades beyond the view limits and those
+labels are still text artists, so the figure grew a "1,000,000" and a
+"10,000,000" off its right edge. Explicit `set_xticks` inside the view limits is
+the fix.
+
+Note for whoever renders next: `render_post_main_figures_skeleton.py` rewrites
+several sibling figures even under `--figure figS6`, and three of its panels
+(fig03, fig04, fig05_hydrologic_mechanism) currently fail their own gates for
+reasons that predate this change -- fig03 on the same pandas `include_groups`
+incompatibility fixed elsewhere, the other two on real text collisions. Only the
+intended figure was kept; the siblings were reverted.
+
+Commit(s): (this worktree)

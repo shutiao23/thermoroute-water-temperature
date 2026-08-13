@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import zlib
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -128,15 +129,45 @@ def undersized(found: Sequence[dict[str, Any]], width: float) -> list[tuple[str,
     return small
 
 
+def declared_type_sizes(pdf: Path) -> list[float]:
+    """Every type size the PDF actually sets, read from its ``Tf`` operators.
+
+    The word-bbox measurement above cannot see a glyph smaller than the word it
+    belongs to.  A mathtext exponent is set at 0.7x the base size, so a log tick
+    reading "10^-3" at 7.5 pt puts 5.25 pt digits on the page inside a word whose
+    bounding box measures 7.5 pt -- and the bbox check passes it. The shipped
+    information-axes figure carried 5.25 pt type that way and this gate reported
+    it clean, which is how it was found: by decompressing the content stream,
+    not by the check that exists to find it.
+
+    Reading the ``Tf`` operators is the direct measurement: it is what the
+    renderer asked the typesetter for, per glyph run, with no inference from
+    bounding boxes.
+    """
+    sizes: set[float] = set()
+    data = pdf.read_bytes()
+    for match in re.finditer(rb"stream\r?\n(.*?)endstream", data, re.S):
+        try:
+            body = zlib.decompress(match.group(1))
+        except zlib.error:
+            continue
+        for size in re.findall(rb"/F\d+\s+([\d.]+)\s+Tf", body):
+            sizes.add(round(float(size), 2))
+    return sorted(sizes)
+
+
 def check(pdf: Path) -> dict[str, Any]:
     found, width = words(pdf)
     collisions = overlaps(found)
     tiny = undersized(found, width)
     bad_text = [w["text"] for w in found
                 if w["text"].lower() in {"nan", "+nan", "-nan", "inf", "none"}]
+    declared = declared_type_sizes(pdf)
     return {
         "figure": pdf.stem, "words": len(found), "width_pt": round(width, 1),
         "overlaps": collisions, "undersized": tiny, "non_finite_labels": bad_text,
+        "declared_sizes": declared,
+        "declared_undersized": [x for x in declared if x < MIN_POINT_SIZE],
     }
 
 
@@ -160,6 +191,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if report["non_finite_labels"]:
                 flags.append(
                     f"non-finite labels printed: {report['non_finite_labels']}")
+            if report["declared_undersized"]:
+                flags.append(
+                    f"sets type at {report['declared_undersized']} pt, under the "
+                    f"{MIN_POINT_SIZE} pt floor (usually a mathtext exponent: "
+                    f"write the tick as a decimal instead of a power of ten)")
             if flags:
                 problems += 1
                 print(f"FAIL {report['figure']}: {'; '.join(flags)}")
