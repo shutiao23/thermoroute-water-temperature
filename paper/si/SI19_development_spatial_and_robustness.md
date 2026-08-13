@@ -1,12 +1,12 @@
 # SI19 — development-period spatial analysis and robustness probes
 
-Relocated from manuscript Sections 4.4 and 4.5 by the advisory length plan (Batch A): development-window diagnostics that the independent-window Sections 4.4–4.6 supersede.
+Relocated from manuscript Sections 4.3 and 4.5 by the advisory length plan (Batch A): development-window diagnostics that the independent-window Sections 4.3–4.5 supersede.
 
-### 4.4 Whole-region holdout reduces the reported transfer skill in the development window
+### 4.3 Whole-region holdout reduces the reported transfer skill in the development window
 
 How much of a reported spatial transfer survives when the map is partitioned
 honestly? On the development window, between a quarter and a third of it does
-not; the independent-window re-test of Section 4.7 measures the same contrast
+not; the independent-window re-test of Section 4.6 measures the same contrast
 with a factorial design.
 
 | Arm | Design | 1 d | 3 d | 7 d |
@@ -23,7 +23,7 @@ persistence the same three arms give +0.168 / +0.076 / +0.038 (temporal),
 and the seven-day figure falls from +0.251 to +0.241 to +0.155. The gap between
 the second and third rows is a development-window measure of how much a random
 spatial split flatters a model on this panel: the random split retains 92% of the
-temporal-arm three-day skill, the regional split 62%; Section 4.7 re-tests this
+temporal-arm three-day skill, the regional split 62%; Section 4.6 re-tests this
 finding on the independent 2021–2023 window with a matched 2×2 factorial design
 that separates geometry from local adaptation and repeats the random split over
 five seeds.
@@ -52,7 +52,7 @@ whether the remaining skill is spatially and seasonally uniform.
 
 ---
 
-### 4.5 Skill is regionally uniform, and interval coverage is bought with width
+### 4.4 Skill is regionally uniform, and interval coverage is bought with width
 
 It is uniform, and this is the one place where the constrained model's behavior
 is unremarkable in a useful way. Region-weighted skill against persistence — the

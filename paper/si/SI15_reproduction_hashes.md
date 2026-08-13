@@ -39,7 +39,7 @@ cell instead of comparing with the archived key grid.
 python scripts/final/build_results_authority.py        # outputs/final/* + paper_values.tex
 python scripts/final/run_mechanism_analysis.py         # hydrologic states + basin attributes
 python scripts/final/run_missingness_sensitivity.py    # key-history strata
-python scripts/final/generate_manuscript_tables.py     # Section 4.6/4.8 table blocks
+python scripts/final/generate_manuscript_tables.py     # Section 4.5/4.8 table blocks
 python scripts/final/check_manuscript_consistency.py   # ledger + table + macro checks
 ```
 

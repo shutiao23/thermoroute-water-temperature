@@ -10,7 +10,7 @@ manuscript said these results were reported *outside* the Abstract and Key
 Points; that had stopped being true when three of them were promoted, and the
 correction is recorded as DLOG-040.
 
-This section exists because manuscript Sections 4.7–4.10 are the largest effects
+This section exists because manuscript Sections 4.7–4.10 (pre-merge numbering) are the largest effects
 the study measured and, until it was written, cited artifact paths and nothing
 else. A reader could reproduce them and could not read the method anywhere.
 
@@ -194,7 +194,7 @@ byte-for-byte against the one these numbers were computed from.
 
 ## 9. What these arms do not establish
 
-* Nothing here is confirmatory. Every effect in Sections 4.7–4.10 is
+* Nothing here is confirmatory. Every effect in Sections 4.7–4.10 (pre-merge numbering) is
   post-outcome and descriptive.
 * L2 withholds a station's own record from the model; it does not predict at a
   location that was never instrumented. The cohort, climatology and keys still
@@ -252,55 +252,18 @@ The main text was cut to 23 pages, and four objects moved here rather than being
 deleted. Nothing below is new; each is the version the manuscript carried, with
 its original caption.
 
-### Figure S11 — the formulation every compared model shares
-
-`paper/agu_submission/figures/fig02_model_concept.pdf`. LightGBM is a
-*raw-target* model with site identity; ResidualLightGBM, the plain causal TCN,
-and ThermoRoute predict a residual around the same anchor, with identical keys
-and information set. The figure is structural and carries no evidence from
-either period, which is why it is the first thing a length cut should move.
-
 ### Figure S12 — spatial transfer under matched holdouts
 
 `paper/agu_submission/figures/fig04_spatial_transfer.pdf`. (a) The four
 whole-HUC2 folds. Panels (b) and (c) show **ThermoRoute** under the earlier
 region-transfer run
 (`outputs/conventional/region_transfer_metrics_2021_2023.csv`), *not* the
-station-agnostic raw-target tree of the Section 4.5 factorial. That is why panel
+station-agnostic raw-target tree of the Section 4.4 factorial. That is why panel
 (b) annotates a region-minus-random gap of +0.02/+0.03/+0.01 °C where the main
 text quotes +0.006/+0.009/+0.007 °C: two different models under two different
 fold constructions, not two estimates of one number. Both sit inside their own
 resampling noise and neither resolves a geometry effect, which is the only
 conclusion either supports.
-
-### Figure S14 — study sites and evaluation design
-
-`paper/agu_submission/figures/fig01_study_design.pdf`. (a) The 120 U.S. gauges
-coloured by the four deterministic whole-HUC2-region folds, with a
-latitude/longitude graticule. (b) Temporal partitions. (c) The three evaluation
-tasks: known-site forecasting, random held-site transfer, and whole-region
-gauged transfer. (d) The issue-time information boundary — all models scored on
-the identical common forecast-key registry, no model-specific complete-case set
-permitted.
-
-Panel (b) is the main text's temporal-roles table and panels (c) and (d) are
-Sections 3.3 and 2.2 in prose, so the figure's unique content is the geography.
-It is orientation rather than argument, which is why it lost the last page.
-
-### Figure S13 — decomposition of reported skill on the held-out window
-
-`paper/agu_submission/figures/fig03_skill_decomposition.pdf`, 116 reportable
-stations. (a) Station-median RMSE by lead for every compared model. (b) The
-seven-day error budget: 0.49 °C of the reduction comes from damping the anchor
-and 0.07 °C from the learned residual. (c) Paired station effects for the five
-sealed tests, median and interquartile range; negative values favor ThermoRoute,
-and the range shown is the dispersion of the paired effects rather than the
-narrower cluster-bootstrap intervals of main-text Table 2.
-
-It moved here because panels (a) and (c) are the same numbers as main-text
-Tables 1 and 2. Only panel (b) is unique, and it is two values the text states.
-When a page budget forces a choice between a table of record and a figure that
-redraws it, the table is the one to keep.
 
 ### Table S20.1 — value of realized future meteorology
 

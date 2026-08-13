@@ -3,7 +3,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_4
+  - section_4_3
   - conclusions
   source_table: outputs/final/paired_effects.parquet
   filter:
@@ -18,7 +18,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_4
+  - section_4_3
   - conclusions
   source_table: outputs/final/paired_effects.parquet
   filter:
@@ -31,7 +31,8 @@
 - claim_id: RQ1_MEMORY_GAIN_7D
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_6
+  - section_4_5
+  - figure_3
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -43,7 +44,8 @@
 - claim_id: RQ1_LEARNED_GAIN_7D
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_6
+  - section_4_5
+  - figure_3
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -55,7 +57,7 @@
 - claim_id: RQ1_ALL_KEYS_7D_DELTA
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_6
+  - section_4_5
   source_table: outputs/final/paired_effects.parquet
   filter:
     period: 2021-2023
@@ -67,7 +69,7 @@
 - claim_id: RQ1_MEMORY_FRACTION_7D
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_6
+  - section_4_5
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -80,7 +82,8 @@
   status: PRIMARY_FROZEN
   used_in:
   - abstract
-  - section_4_4
+  - section_4_3
+  - figure_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -92,7 +95,7 @@
   status: PRIMARY_FROZEN
   used_in:
   - abstract
-  - section_4_4
+  - section_4_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -104,7 +107,7 @@
   status: PRIMARY_FROZEN
   used_in:
   - abstract
-  - section_4_4
+  - section_4_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -115,7 +118,7 @@
 - claim_id: RQ1_TR_7D_RMSE
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_4
+  - section_4_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -126,7 +129,7 @@
 - claim_id: RQ2_TCN_7D_DELTA
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_4
+  - section_4_3
   source_table: outputs/final/paired_effects.parquet
   filter:
     period: 2021-2023
@@ -138,7 +141,7 @@
 - claim_id: RQ2_LGBM_1D_RMSE
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_4
+  - section_4_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -149,7 +152,7 @@
 - claim_id: RQ2_LGBM_3D_RMSE
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_4
+  - section_4_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -160,7 +163,7 @@
 - claim_id: RQ2_TR_7D_VS_LGBM
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_4
+  - section_4_3
   - table_4_6
   source_table: outputs/final/paired_effects.parquet
   filter:
@@ -173,7 +176,7 @@
 - claim_id: RQ3_REGION_PENALTY_3D
   status: DESCRIPTIVE_PROVISIONAL
   used_in:
-  - section_4_5
+  - section_4_4
   source_table: outputs/final/spatial_effects.parquet
   filter:
     period: 2021-2023
@@ -185,7 +188,7 @@
 - claim_id: RQ3_DISTANCE_RANDOM_KM
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_5
+  - section_4_4
   source_table: outputs/final/spatial_effects.parquet
   filter:
     period: 2021-2023
@@ -196,7 +199,7 @@
 - claim_id: RQ3_DISTANCE_REGION_KM
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_5
+  - section_4_4
   source_table: outputs/final/spatial_effects.parquet
   filter:
     period: 2021-2023
@@ -207,7 +210,7 @@
 - claim_id: RQ4_HALFLIFE_MEDIAN
   status: PRIMARY_FROZEN
   used_in:
-  - section_4_6
+  - section_4_5
   source_table: outputs/final/basin_attributes.parquet
   filter:
     stat: half_life_days
@@ -216,7 +219,7 @@
 - claim_id: RQ4_RAPID_WARMING_7D_DELTA
   status: DESCRIPTIVE_PROVISIONAL
   used_in:
-  - section_4_6
+  - section_4_5
   source_table: outputs/final/hydrologic_state_effects.parquet
   filter:
     period: 2021-2023
@@ -228,7 +231,7 @@
 - claim_id: RQ4_ISSUE_TREND_7D_DELTA
   status: DESCRIPTIVE_PROVISIONAL
   used_in:
-  - section_4_6
+  - section_4_5
   source_table: outputs/final/hydrologic_state_effects.parquet
   filter:
     period: 2021-2023
@@ -335,7 +338,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_7
+  - section_4_6
   source_table: outputs/final/information_ladder_v6_authority_v1/information_ladder_v6_contrasts.parquet
   filter:
     contrast: L2-L0
@@ -348,7 +351,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_7
+  - section_4_6
   source_table: outputs/final/architecture_geometry_interaction_v1/architecture_geometry_interaction.parquet
   filter:
     quantity: architecture_penalty_tcn_minus_tree
@@ -363,7 +366,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_7
+  - section_4_6
   source_table: outputs/final/forcing_information_interaction_v1/forcing_information_interaction.parquet
   filter:
     quantity: interaction_L2_minus_L0

@@ -5,7 +5,7 @@ information-matched plain controls (PlainMLP-7var, PlainCausalTCN-7var)
 reproduce the stored development arm predictions exactly (max abs diff 0.0, G15
 gate) and, following the external review (Major Comment 5), were re-scored on
 the 2021–2023 holdout window with the same frozen weights, anchor, inputs, and
-common key registry (manuscript Section 4.6, Table 4.7a, and SI07). Their
+common key registry (manuscript Section 4.5, Table 4.7a, and SI07). Their
 held-out cells are uncalibrated (`NO_FROZEN_CALIBRATION`) and enter point
 comparisons only.
 
@@ -54,7 +54,7 @@ companion table to Figure S10.
 Figure S10 was for a long time described here as "POST-gated and blocked on the
 test-window evaluation receipt, so no coordinate in it is available yet". That
 was true when written and stopped being true when the held-out evaluation of
-manuscript Section 4.4 ran; the blocker outlived the block. The figure is now
+manuscript Section 4.3 ran; the blocker outlived the block. The figure is now
 rendered from `outputs/final/paired_effects.parquet` on the held-out 2021–2023
 window by `paper/si/figures/render_figS10_architecture_controls.py`, so it
 carries held-out coordinates while this table remains the development-period

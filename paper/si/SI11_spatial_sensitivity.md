@@ -1,11 +1,11 @@
 # SI11 — spatial, local-adaptation, and leave-cluster sensitivity
 
 **Status:** the matched spatial-transfer experiment on the independent
-2021–2023 window (manuscript Section 4.7) is a 2×2 factorial — geometry
+2021–2023 window (manuscript Section 4.6) is a 2×2 factorial — geometry
 {random-site, whole-region} × adaptation {target-local, training-pooled} —
 computed by `scripts/final/run_spatial_factorial.py` from `outputs/final/spatial_effects.parquet`
 (station-first metrics; identical keys and preprocessing policy within each
-cell). The development-period analysis of manuscript Section 4.4 remains a
+cell). The development-period analysis of manuscript Section 4.3 remains a
 separate diagnostic and is not folded into the independent-window numbers.
 
 **Station-set caveat (corrected).** A software defect in the factorial runner

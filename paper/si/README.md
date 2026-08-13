@@ -57,7 +57,7 @@ remain `[pending computation]`.
 | `SI15_reproduction_hashes.md` | commands, environment and immutable binding projection | replay and reproduction receipts |
 | `SI16_rights_data_dictionary.md` | rights-decision and machine-readable data-dictionary routing | qualified rights decisions and release manifest |
 | `SI20_information_arms.md` | method and estimands for the local-information, forcing, geometry and architecture arms of §§4.7–4.10 | scored authorities under `outputs/final/`; every result post-outcome and descriptive |
-| `SI19_development_spatial_and_robustness.md` | development-period spatial analysis and robustness probes relocated from manuscript §§4.4–4.5 | development-window evidence only; never compared numerically with a held-out value |
+| `SI19_development_spatial_and_robustness.md` | development-period spatial analysis and robustness probes relocated from manuscript §§4.4–4.4 | development-window evidence only; never compared numerically with a held-out value |
 
 The numbering jumps from SI16 to SI19 and there is no SI17 or SI18; SI20 was
 added last and continues from SI19. SI19 took
@@ -70,7 +70,7 @@ cross-references to buy tidiness. The gap is noted here so a reader who counts d
 Each visible value in the SI must bind the value, unit, evidence role, source
 pointer, derivation, and rounding. The held-out 2021--2023 metric table
 `outputs/conventional/holdout_metrics_2021_2023.csv` (long format:
-`model,horizon,metric,value,n`) is the source of truth for the Section 4.6
+`model,horizon,metric,value,n`) is the source of truth for the Section 4.5
 metric cells; values derived from it are permitted, but they must not be
 presented as independent of that table.
 

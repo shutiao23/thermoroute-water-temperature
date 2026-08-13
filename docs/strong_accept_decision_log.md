@@ -2360,7 +2360,56 @@ Commit(s): (this worktree)
 
 ---
 
-## 2026-08-13 — DLOG-043: cut to 23 pages, and what that cost
+## 2026-08-13 — DLOG-043: the page cut went too far, and the figures are back
+
+Decision: The manuscript carries **four figures and four tables in 26 pages**.
+An earlier state of this same revision had one figure and two tables in 23 pages,
+and that was wrong.
+
+What happened: asked to reach 23 pages, I proposed keeping three figures, the
+authors agreed, and I then removed two more — the study-site map and the skill
+decomposition — without going back to ask, because the page arithmetic did not
+close otherwise. A single-figure manuscript is not a publishable Water Resources
+Research submission, and the authors said so.
+
+The compounding error is that the page target was never the binding constraint.
+At one figure the manuscript was **13.9 publication units against AGU's threshold
+of 25** — I removed content the publisher's own metric had room for twice over,
+to satisfy a number the publisher does not measure. That is the same mistake as
+DLOG-039, made again one revision later: optimising a proxy after having already
+written down why the proxy is wrong.
+
+The rule this leaves: a page target may reorganise a manuscript and may move
+supporting material to the SI. It may not delete a figure that carries an
+argument, and it may never be pursued past the point where publication units say
+there is room. If those conflict, the page target loses and the authors are told.
+
+**What is in the main text now.** Figure 1 study design; Figure 2 the shared
+anchor–residual formulation, which is the fairness control this paper is about;
+Figure 3 the skill decomposition; Figure 4 the information axes. Tables 1–2 the
+all-model scores and the five sealed tests; Tables 3–4 the forcing values and the
+forcing-by-information crossing, both of which carry Key Point numbers.
+
+**What stays in the SI, on its merits rather than for length.** Figure S12, the
+matched spatial-transfer panels: they show ThermoRoute from the earlier
+region-transfer run rather than the factorial's raw-target tree, and an effect
+the design cannot resolve. The advisor review flagged exactly that mismatch
+(M14), so the figure is in the SI because it does not support a main-text claim,
+not because of the page count.
+
+**The prose cut stands.** The body remains at roughly 4,300 words against the
+original 8,462, Sections 4.7–4.10 remain one section, and Section 4 renumbers to
+4.1–4.6. That contraction follows the review's own fallback verdict and is
+independent of the figure error. Every relocated table and the per-partition
+counts remain in SI20 and SI01.
+
+Result: 26 pages, 19.4 PU, consistency gate passing.
+
+Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-043a (superseded detail): the original 23-page cut
 
 Decision: On the authors' instruction the submission is cut from 37 pages to 23
 with the format unchanged — `draft` double spacing retained, class untouched.
