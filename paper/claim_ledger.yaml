@@ -32,7 +32,6 @@
   status: PRIMARY_FROZEN
   used_in:
   - section_4_6
-  - figure_3
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -45,7 +44,6 @@
   status: PRIMARY_FROZEN
   used_in:
   - section_4_6
-  - figure_3
   source_table: outputs/final/decomposition_effects.parquet
   filter:
     period: 2021-2023
@@ -83,7 +81,6 @@
   used_in:
   - abstract
   - section_4_4
-  - figure_3
   source_table: outputs/final/station_metrics.parquet
   filter:
     period: 2021-2023
@@ -351,7 +348,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_10
+  - section_4_7
   source_table: outputs/final/architecture_geometry_interaction_v1/architecture_geometry_interaction.parquet
   filter:
     quantity: architecture_penalty_tcn_minus_tree
@@ -366,7 +363,7 @@
   used_in:
   - abstract
   - key_point_1
-  - section_4_9
+  - section_4_7
   source_table: outputs/final/forcing_information_interaction_v1/forcing_information_interaction.parquet
   filter:
     quantity: interaction_L2_minus_L0

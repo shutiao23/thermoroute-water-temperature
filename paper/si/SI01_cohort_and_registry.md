@@ -99,3 +99,19 @@ and 06 — so the largest region's share of the reportable cohort *rises* from
 concentrates the cluster structure slightly rather than balancing it, which is
 the direction that makes whole-HUC2 resampling more conservative, not less. No
 region is emptied.
+
+## Temporal partitions (relocated from main-text Section 2.2)
+
+Roles are fixed before any model is fitted, and a training sample is admitted
+only if its issue date and all of its target dates fall inside the same
+partition. Row counts are 120 sites times the calendar days in the interval;
+the `WTEMP` column counts rows carrying an observed daily-mean water
+temperature.
+
+| Role | Dates | Rows | Observed `WTEMP` |
+|---|---:|---:|---:|
+| Training | 2006–2015 | 438,240 | 341,646 |
+| Validation | 2016–2017 | 87,720 | 84,074 |
+| Calibration | 2018 | 43,800 | 42,279 |
+| Development evaluation | 2019–2020 | 87,720 | 85,621 |
+| Held-out test | 2021–2023 | — | observed |

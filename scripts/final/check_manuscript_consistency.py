@@ -236,6 +236,33 @@ _DENIAL_RE = re.compile(
 _DENIAL_SPANS = {"abstract": "abstract", "key points": "key_point_1"}
 
 
+def check_used_in_spans_exist(spans: dict[str, str], ledger: list[dict]) -> list[str]:
+    """Every ``used_in`` token must name a section the manuscript still has.
+
+    Restructuring Section 4 from ten subsections to seven left two claims
+    pointing at ``section_4_9`` and ``section_4_10``, which no longer existed.
+    Nothing failed: a claim whose span cannot be found resolves as PENDING, and
+    PENDING is the status reserved for "the experiment has not run", so a
+    bookkeeping error was silently reported as an honest gap in the science.
+    Those are not the same thing and must not share a code path.
+
+    SI tokens are exempt: they resolve against files rather than headings.
+    """
+    problems: list[str] = []
+    known = set(spans) | set(HEADLINE_SPANS)
+    for claim in ledger:
+        for span in claim.get("used_in") or []:
+            span = str(span)
+            if re.fullmatch(r"si\d+", span) or span in known:
+                continue
+            problems.append(
+                f"{claim.get('claim_id')}: used_in names {span!r}, which is not "
+                "a section of the manuscript; a claim bound to a section that "
+                "was renamed or removed resolves as PENDING and hides as an "
+                "unrun experiment")
+    return problems
+
+
 def check_placement_denials_are_true(
     manuscript: str, spans: dict[str, str], ledger: list[dict]) -> list[str]:
     """A sentence saying "reported outside the Abstract" must be true.
@@ -697,6 +724,7 @@ def main() -> int:
     problems += check_claim_status(ledger)
     problems += check_promoted_claims_disclose_their_status(
         _md_spans(manuscript), ledger)
+    problems += check_used_in_spans_exist(_md_spans(manuscript), ledger)
     problems += check_placement_denials_are_true(
         manuscript, _md_spans(manuscript), ledger)
     problems += check_highlights_match_the_key_points(manuscript)

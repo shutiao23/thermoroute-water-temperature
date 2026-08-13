@@ -245,3 +245,118 @@ not proof against a repository owner rewriting history. A referee can audit the
 chronology; a referee cannot be given proof of it from inside this repository.
 That limitation is stated in the manuscript rather than left for a reader to
 infer.
+
+## 10. Material relocated from the main text (2026-08-13)
+
+The main text was cut to 23 pages, and four objects moved here rather than being
+deleted. Nothing below is new; each is the version the manuscript carried, with
+its original caption.
+
+### Figure S11 — the formulation every compared model shares
+
+`paper/agu_submission/figures/fig02_model_concept.pdf`. LightGBM is a
+*raw-target* model with site identity; ResidualLightGBM, the plain causal TCN,
+and ThermoRoute predict a residual around the same anchor, with identical keys
+and information set. The figure is structural and carries no evidence from
+either period, which is why it is the first thing a length cut should move.
+
+### Figure S12 — spatial transfer under matched holdouts
+
+`paper/agu_submission/figures/fig04_spatial_transfer.pdf`. (a) The four
+whole-HUC2 folds. Panels (b) and (c) show **ThermoRoute** under the earlier
+region-transfer run
+(`outputs/conventional/region_transfer_metrics_2021_2023.csv`), *not* the
+station-agnostic raw-target tree of the Section 4.5 factorial. That is why panel
+(b) annotates a region-minus-random gap of +0.02/+0.03/+0.01 °C where the main
+text quotes +0.006/+0.009/+0.007 °C: two different models under two different
+fold constructions, not two estimates of one number. Both sit inside their own
+resampling noise and neither resolves a geometry effect, which is the only
+conclusion either supports.
+
+### Figure S14 — study sites and evaluation design
+
+`paper/agu_submission/figures/fig01_study_design.pdf`. (a) The 120 U.S. gauges
+coloured by the four deterministic whole-HUC2-region folds, with a
+latitude/longitude graticule. (b) Temporal partitions. (c) The three evaluation
+tasks: known-site forecasting, random held-site transfer, and whole-region
+gauged transfer. (d) The issue-time information boundary — all models scored on
+the identical common forecast-key registry, no model-specific complete-case set
+permitted.
+
+Panel (b) is the main text's temporal-roles table and panels (c) and (d) are
+Sections 3.3 and 2.2 in prose, so the figure's unique content is the geography.
+It is orientation rather than argument, which is why it lost the last page.
+
+### Figure S13 — decomposition of reported skill on the held-out window
+
+`paper/agu_submission/figures/fig03_skill_decomposition.pdf`, 116 reportable
+stations. (a) Station-median RMSE by lead for every compared model. (b) The
+seven-day error budget: 0.49 °C of the reduction comes from damping the anchor
+and 0.07 °C from the learned residual. (c) Paired station effects for the five
+sealed tests, median and interquartile range; negative values favor ThermoRoute,
+and the range shown is the dispersion of the paired effects rather than the
+narrower cluster-bootstrap intervals of main-text Table 2.
+
+It moved here because panels (a) and (c) are the same numbers as main-text
+Tables 1 and 2. Only panel (b) is unique, and it is two values the text states.
+When a page budget forces a choice between a table of record and a figure that
+redraws it, the table is the one to keep.
+
+### Table S20.1 — value of realized future meteorology
+
+Station-first forcing value *V_F* = median_i[RMSE_i(F0) − RMSE_i(F3)] in °C. CI
+is a 10,000-draw whole-HUC2 cluster bootstrap; MDE is the smallest effect this
+cohort's cluster structure can resolve at α = 0.05. Every value is three to four
+times its own MDE and no leave-one-HUC2-out range changes sign.
+
+| Model | Lead | RMSE F0 | RMSE F3 | V_F | 95% CI | MDE |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| LightGBM | 1 d | 0.614 | 0.451 | 0.130 | [0.081, 0.189] | 0.031 |
+| LightGBM | 3 d | 1.330 | 0.765 | 0.542 | [0.415, 0.721] | 0.152 |
+| LightGBM | 7 d | 1.742 | 1.063 | 0.627 | [0.423, 0.803] | 0.172 |
+| ResidualLightGBM | 1 d | 0.606 | 0.446 | 0.125 | [0.084, 0.183] | 0.028 |
+| ResidualLightGBM | 3 d | 1.327 | 0.752 | 0.578 | [0.406, 0.704] | 0.160 |
+| ResidualLightGBM | 7 d | 1.722 | 1.087 | 0.605 | [0.445, 0.795] | 0.151 |
+
+### Table S20.2 — value of realized future meteorology by information level
+
+Station-first paired values in °C under whole-region holdout, 116 reportable
+stations, 10,000-draw whole-HUC2 cluster bootstrap.
+
+| Forcing value | 1 d | 3 d | 7 d |
+| --- | ---: | ---: | ---: |
+| At L0, gauged | 0.116 [0.059, 0.174] | 0.474 [0.299, 0.693] | 0.580 [0.366, 0.779] |
+| At L2, obs. withheld | 0.038 [0.020, 0.072] | 0.331 [0.249, 0.496] | 0.596 [0.431, 0.804] |
+| **Interaction, L2 − L0** | **−0.076 [−0.098, −0.056]** | **−0.147 [−0.193, −0.079]** | **+0.016 [−0.035, +0.099]** |
+
+### Two further items the cut removed from the main text
+
+The **warm-tail warning value**: with the raw-target tree at seven days, the
+probability of detection for exceedance of a station's training 95th percentile
+rises from 0.18 to 0.55 under the oracle while the false-alarm ratio *falls*
+from 0.36 to 0.20, so this is not a base-rate trade. These are deterministic
+point predictors emitting no calibrated event probability; the comparison is an
+oracle bound in event space exactly as it is in RMSE space.
+
+**Which rivers depend on future weather.** Of six attributes declared before the
+relationships were inspected, the strongest is the one the physics predicts: the
+anomaly half-life of the station's own damped anchor, ρ = −0.49 [−0.66, −0.16]
+at seven days. One attribute is a nuisance control and is not null — stations
+with more complete training records show a smaller forcing value (ρ = −0.29
+[−0.45, −0.07]) — so part of the apparent physical gradient may be a
+record-quality gradient. These are exploratory covariation on a fixed
+non-probability cohort with about nine effective spatial clusters, not an
+attribution, and no multivariable model the design cannot carry is fitted.
+
+
+### Table S20.3 — development-period model comparison (relocated from Section 4.1)
+
+Station-median RMSE in °C on the 2019–2020 development partition, 249,072 common
+keys, five-seed ensemble means. These are development diagnostics, not a test:
+the partition participated in cohort construction and informed model selection.
+
+| Lead | Persistence | Damped persistence | LightGBM | LSTM | ThermoRoute |
+|---:|---:|---:|---:|---:|---:|
+| 1 d | 0.803 | 0.774 | 0.578 | 0.662 | 0.631 |
+| 3 d | 1.576 | 1.406 | 1.280 | 1.323 | 1.291 |
+| 7 d | 2.217 | 1.738 | 1.649 | 1.679 | 1.657 |

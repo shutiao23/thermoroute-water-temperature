@@ -2357,3 +2357,59 @@ trimming redundancy. The review's substance added length; the overage is a fee,
 and no result was deleted to avoid it.
 
 Commit(s): (this worktree)
+
+---
+
+## 2026-08-13 — DLOG-043: cut to 23 pages, and what that cost
+
+Decision: On the authors' instruction the submission is cut from 37 pages to 23
+with the format unchanged — `draft` double spacing retained, class untouched.
+The body prose goes from 8,462 words to 4,100 (a 52% cut), three of four figures
+and three of five tables move to the Supporting Information, and Sections
+4.7–4.10 become one Section 4.7.
+
+**What the cut is, structurally.** It follows the advisor review's own fallback
+verdict: without new confirmatory data the main text should contract to a
+benchmark-design audit and stop giving the post-outcome information arms the
+space of confirmed results. So the confirmatory core — the reference effect, the
+model ranking, the five sealed tests — keeps its room, and the four descriptive
+arms collapse into one section that states every number the Abstract and Key
+Points quote and sends method, per-cell tables and supporting arms to SI20.
+
+**Every number survives.** Nothing was cut because it was inconvenient. The
+relocations are listed in SI20 §10 and SI01, each with its original caption:
+Figure S11 the model-concept schematic (a diagram with no data in it), Figure
+S12 the matched spatial-transfer panels (a different model from the section they
+sat in, showing an effect the design cannot resolve), Figure S13 the skill
+decomposition (panels (a) and (c) are Tables 1 and 2 redrawn), Figure S14 the
+study-site map (panels (b)–(d) are the temporal-roles table and Sections 2.2 and
+3.3 in prose), Tables S20.1–S20.3 the forcing values, the forcing-by-information
+crossing and the development-period comparison, and SI01 the per-partition row
+counts. Table 1 keeps all nine models and loses its MAE and bias columns, which
+are the same rows in SI07 by that section's own definition.
+
+**What the cut costs, stated plainly.** The main text now has one figure. A
+reader who wants to see where the 120 gauges are, or the error budget behind the
+0.49/0.07 °C split, has to open the SI. That is a real loss of legibility and it
+is the price of the page target; the alternative was cutting references or
+deleting results, and neither was acceptable. The one figure kept is the
+information-axes synthesis, because it carries fifteen numbers that have no table
+equivalent in the main text and it is the only figure that makes an argument
+rather than illustrating one.
+
+**Publication units are now 13.9 against a threshold of 25**, well inside the
+limit that AGU actually charges on. The binding constraint here was the page
+target, not the publisher's.
+
+**Two gate holes closed on the way.** Restructuring Section 4 left two claims
+bound to `section_4_9` and `section_4_10`, which no longer existed — and nothing
+failed, because a claim whose span cannot be found resolves as PENDING, the
+status reserved for "the experiment has not run". A bookkeeping error was
+reported as an honest gap in the science. `check_used_in_spans_exist` now fails
+the build on a `used_in` token that names no section. Separately, moving a
+generated table to the SI made `check_generated_tables` call it missing, because
+that check searched only the main text; it now searches the SI too, since the
+property worth enforcing is that no shipped copy of a generated table drifts from
+the generator, not that every table lives in the main text.
+
+Commit(s): (this worktree)

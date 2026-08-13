@@ -97,10 +97,13 @@ def table_4_7a(station: pd.DataFrame) -> str:
     models = ["Persistence", "DampedPersistence", "Climatology", "LightGBM",
               "LSTM", "PlainMLP-7var", "PlainCausalTCN-7var", "Air2stream",
               "ThermoRoute"]
-    header = ["Model"] + [f"RMSE {h}" for h in (1, 3, 7)] \
-        + [f"MAE {h}" for h in (1, 3, 7)] + [f"bias {h}" for h in (1, 3, 7)]
-    rows = [header] + accuracy_rows(station, models)
-    return md_table(rows, ["l"] + ["r"] * 9)
+    # RMSE only.  The MAE and bias columns are the same numbers as SI07, which
+    # is defined as the all-model scores on the exact common keys, and every
+    # claim in the manuscript is an RMSE claim.  Ten columns of which six are
+    # duplicated elsewhere is a page the main text cannot afford.
+    header = ["Model"] + [f"RMSE {h} d" for h in (1, 3, 7)]
+    rows = [header] + [r[:4] for r in accuracy_rows(station, models)]
+    return md_table(rows, ["l", "r", "r", "r"])
 
 
 def skill_rows(effects: pd.DataFrame, models: list[str]) -> list[list[str]]:
