@@ -25,7 +25,10 @@ PDF     := $(TEX).pdf
 # counted over the abstract, body, captions and appendices only -- the title,
 # author block, plain-language summary, table interiors, Open Research,
 # references and Supporting Information are all excluded.  The threshold is 25
-# before excess-length fees.  `make units` is therefore the check that matters;
+# before excess-length fees -- fees, not rejection, which is why `units` warns
+# in a two-unit band above the cap and only fails past it.  A boundary crossed
+# by a rounding error should cost a small invoice, never a deleted result.
+# `make units` is therefore the check that matters;
 # the page count is reported for information because the submitted PDF is
 # double-spaced (the class's `draft` option) and its page count says more about
 # line spacing than about length.

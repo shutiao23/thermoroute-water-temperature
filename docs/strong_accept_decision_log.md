@@ -2201,11 +2201,19 @@ cap.
 the page count as information only, because a double-spaced manuscript's page
 count is a fact about line spacing rather than about length.
 
-**The margin is thin and worth a decision.** 24.7 against 25 leaves 0.3 PU, or
-about 133 words. Ten of the 24.7 units are the five figures and five tables, so
-the cheapest single reduction is to move a table to the Supporting Information:
-one unit of margin for one table. Table 3, the nineteen-row hydrologic-state
-grid, is the obvious candidate and its numbers are already quoted in the prose
-around it. That is a content decision and is left to the authors.
+**The margin is thin, and the decision has been taken: leave it.** 24.7 against
+25 is 0.3 PU, about 133 words, and the cheapest reduction available would have
+been to move a table to the Supporting Information for a full unit. The authors'
+instruction is that a small overage is acceptable and a large one is not, so no
+result is being moved to buy a third of a unit.
+
+That instruction is now encoded rather than remembered. `count_publication_units.py`
+takes a two-unit tolerance: it passes below 25, reports the expected
+excess-length fee between 25 and 27, and fails only past 27. The distinction is
+that 25 PU is where fees begin and not where a manuscript becomes
+unacceptable — a paper at 25.4 has a small invoice attached, not a defect — so a
+gate that failed at 25.0 exactly would invite cutting a figure or a paragraph to
+clear a boundary by a rounding error. That is the same mistake as optimising for
+page count, one threshold further down.
 
 Commit(s): (this worktree)

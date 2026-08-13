@@ -24,6 +24,14 @@ Counting is deliberately conservative wherever the rule is ambiguous -- a
 borderline inclusion is counted rather than dropped -- because the failure that
 matters is discovering an excess-length fee after submission, not overstating
 by a tenth of a unit.
+
+The threshold is enforced with a tolerance band rather than as a cliff. 25 PU is
+where excess-length *fees* begin, not where a manuscript becomes unacceptable,
+so a paper at 25.4 is a paper with a small invoice attached and not a paper that
+needs a result deleted. Failing at 25.0 exactly would invite exactly that: a
+figure or a paragraph cut to clear a boundary by a rounding error. The build
+therefore passes below the cap, warns inside the band, and fails only past it,
+where the overage is large enough to be worth paying for or cutting for.
 """
 
 from __future__ import annotations
@@ -93,6 +101,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manuscript", type=Path, default=MANUSCRIPT)
     parser.add_argument("--cap", type=float, default=25.0)
+    parser.add_argument("--tolerance", type=float, default=2.0,
+                        help="units above the cap that warn rather than fail; "
+                             "the cap is where fees start, not where the paper "
+                             "becomes unacceptable")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -107,16 +119,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"tables           {result['tables']:6d}  -> {result['tables']:5.1f} PU")
     print(f"TOTAL            {pu:11.1f} PU   (AGU threshold {args.cap:.0f})")
 
-    if pu > args.cap:
+    if pu > args.cap + args.tolerance:
         over = pu - args.cap
-        print(f"OVER by {over:.1f} PU: cut {over * 500:.0f} words, or "
+        print(f"OVER by {over:.1f} PU, beyond the {args.tolerance:.0f} PU "
+              f"tolerance: cut {over * 500:.0f} words, or "
               f"{over:.0f} figure(s)/table(s)")
         return 1
+    if pu > args.cap:
+        over = pu - args.cap
+        print(f"over by {over:.1f} PU, inside the {args.tolerance:.0f} PU "
+              f"tolerance: expect an excess-length fee for {over:.1f} units, "
+              "which is a cost and not a defect")
+        return 0
     margin = args.cap - pu
     print(f"inside by {margin:.1f} PU ({margin * 500:.0f} words of headroom)")
     if margin < 1.0:
-        print("NOTE: under one unit of margin -- one more figure or table, or "
-              "500 more words, crosses the threshold")
+        print(f"NOTE: less than one unit of margin. Adding a figure or table "
+              f"crosses the cap, which costs a fee rather than failing this "
+              f"check -- the build only fails past {args.cap + args.tolerance:.0f} PU")
     return 0
 
 
