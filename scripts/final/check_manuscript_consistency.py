@@ -41,12 +41,33 @@ TEX = ROOT / "paper" / "agu_submission" / "ThermoRoute_WRR.tex"
 #: result can be arithmetically reproducible and still not be admissible as a
 #: manuscript headline (post-outcome, known-defect upstream, or outcome-
 #: conditioned).  See docs/strong_accept_decision_log.md DLOG-027.
-CLAIM_STATUSES = ("PRIMARY_FROZEN", "DESCRIPTIVE_PROVISIONAL", "NOT_USED")
+CLAIM_STATUSES = (
+    "PRIMARY_FROZEN", "DESCRIPTIVE_PROVISIONAL", "POST_OUTCOME_PROMOTED",
+    "NOT_USED",
+)
 
 #: Spans in which only a PRIMARY_FROZEN claim may appear.  A provisional number
 #: may be reported and discussed in its own Results subsection; it may not be a
 #: summary-level conclusion of the paper.
 HEADLINE_SPANS = ("abstract", "key_point_1", "conclusions")
+
+#: ``POST_OUTCOME_PROMOTED`` is a deliberate third category and not a loophole.
+#:
+#: The information results of Sections 4.7-4.10 are the largest effects the
+#: study measured and are post-outcome, so the two available options were both
+#: bad: bury the paper's strongest evidence outside the Abstract, or promote it
+#: and let a reader assume it was pre-registered.  This status takes the third
+#: option -- promote the number, and require the span that carries it to say
+#: what it is.  A span holding a promoted claim must contain one of the phrases
+#: below, so deleting the disclosure fails the build rather than silently
+#: upgrading a descriptive result to a confirmatory one.
+#:
+#: The rule is checkable, which is the point.  "We were careful to mention it"
+#: is not a control; "the build fails if it is not mentioned" is.
+PROMOTION_DISCLOSURES = (
+    "post-outcome",
+    "descriptive",
+)
 
 #: Numbers withdrawn by DLOG-018/025 and never restored.  Matching is
 #: boundary-aware so an unrelated 0.48 in another context is not flagged, but
@@ -128,6 +149,75 @@ def check_claim_status(ledger: list[dict]) -> list[str]:
                     f"claim {cid} is DESCRIPTIVE_PROVISIONAL and may not appear "
                     f"in headline spans {leaked}; move it to a Results "
                     f"subsection or promote the evidence first")
+    return problems
+
+
+def check_highlights_match_the_key_points(manuscript: str) -> list[str]:
+    """paper/highlights.md declares itself byte-identical to the Key Points.
+
+    It was not: it trailed the manuscript by three revisions, still printing a
+    superseded skill value, the pre-attrition cohort size and a Key Point that
+    had been replaced. The file said the right thing about itself and nothing
+    checked it, which is the failure mode this whole gate exists to catch.
+
+    Comparison is on the bullet text with whitespace collapsed, so a rewrapped
+    line is not a difference but a changed word is.
+    """
+    highlights = ROOT / "paper" / "highlights.md"
+    if not highlights.exists():
+        return []
+
+    def bullets(text: str, marker: str) -> list[str]:
+        block = text.split(marker, 1)
+        if len(block) < 2:
+            return []
+        body = re.split(r"\n## ", block[1], maxsplit=1)[0]
+        items = re.findall(r"^\s*(?:-|\d+\.)\s+(.+?)(?=\n\s*(?:-|\d+\.)\s|\n\s*\n|\Z)",
+                           body, re.S | re.M)
+        return [" ".join(i.split()) for i in items]
+
+    want = bullets(manuscript, "## Key Points")
+    got = bullets(highlights.read_text(encoding="utf-8"), "## Key Points")
+    if not want:
+        return ["cannot locate the manuscript Key Points block"]
+    if want == got:
+        return []
+    problems = [f"paper/highlights.md Key Points differ from the manuscript "
+                f"({len(got)} vs {len(want)} items)"]
+    for i, (a, b) in enumerate(zip(want, got), 1):
+        if a != b:
+            problems.append(f"  point {i} manuscript: {a[:88]}")
+            problems.append(f"  point {i} highlights: {b[:88]}")
+    return problems
+
+
+def check_promoted_claims_disclose_their_status(
+    spans: dict[str, str], ledger: list[dict]) -> list[str]:
+    """A promoted post-outcome claim must be labelled where it is promoted.
+
+    Checked against the rendered span rather than against an author's promise,
+    because the failure this guards is exactly the one that happens by omission:
+    a later edit tightens the Abstract for length, the word "descriptive" goes,
+    and a post-outcome result silently becomes a confirmatory headline.
+    """
+    problems: list[str] = []
+    promoted = [c for c in ledger
+                if c.get("status") == "POST_OUTCOME_PROMOTED"]
+    if not promoted:
+        return problems
+    used = {span for c in promoted for span in (c.get("used_in") or [])}
+    for span in sorted(used & set(HEADLINE_SPANS)):
+        text = spans.get(span)
+        if not text:
+            problems.append(f"cannot locate span {span!r} to check its "
+                            "post-outcome disclosure")
+            continue
+        lowered = text.lower()
+        if not any(phrase in lowered for phrase in PROMOTION_DISCLOSURES):
+            problems.append(
+                f"span {span!r} carries a POST_OUTCOME_PROMOTED claim but "
+                f"discloses no status; it must contain one of "
+                f"{list(PROMOTION_DISCLOSURES)}")
     return problems
 
 
@@ -517,6 +607,9 @@ def main() -> int:
     for si_path in sorted((ROOT / "paper" / "si").glob("SI*.md")):
         documents[f"si/{si_path.name}"] = si_path.read_text(encoding="utf-8")
     problems += check_claim_status(ledger)
+    problems += check_promoted_claims_disclose_their_status(
+        _md_spans(manuscript), ledger)
+    problems += check_highlights_match_the_key_points(manuscript)
     problems += check_quarantined_content(documents)
     problems += check_provisional_not_in_headlines(manuscript, resolved)
     problems += check_manuscript_numbers(manuscript, resolved)

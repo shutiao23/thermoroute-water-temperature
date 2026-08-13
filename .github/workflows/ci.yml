@@ -79,14 +79,15 @@ jobs:
             tests/test_repro.py \
             tests/test_checkpoint.py \
             tests/test_prediction_schema.py -q
-      - name: Canonical Markdown to AGU TeX is current
+      # The Markdown-to-TeX generator is retired: the .tex is now the authored
+      # manuscript and a regeneration would overwrite typesetting.  See
+      # paper/agu_submission/RETIRED_build_agu.md.  The checks that mattered --
+      # withdrawn numbers, prohibited phrases, claim-to-artifact resolution and
+      # post-outcome disclosure -- run against the .tex in the consistency gate
+      # instead, and the page cap is enforced by the build itself.
+      - name: Manuscript consistency gate (covers the authored TeX)
         if: ${{ matrix.deps == 'locked' }}
-        run: |
-          PINNED_PANDOC="$(python -c \
-            "from pathlib import Path; import pypandoc; print(Path(pypandoc.__file__).resolve().parent / 'files' / 'pandoc')")"
-          test -x "$PINNED_PANDOC"
-          PANDOC_PATH="$PINNED_PANDOC" \
-            python paper/agu_submission/build_agu.py --check
+        run: python scripts/final/check_manuscript_consistency.py
       - name: Build and import the wheel outside the source tree
         if: ${{ matrix.deps == 'locked' }}
         run: |

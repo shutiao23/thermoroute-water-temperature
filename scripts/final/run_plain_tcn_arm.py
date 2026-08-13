@@ -72,6 +72,13 @@ LAG_PATTERN = re.compile(r"^(?P<var>[A-Za-z0-9]+)_lag(?P<lag>\d+)$")
 FIT_SEEDS = (0, 1, 2)
 BOUND_DEGC = 1.0
 EPOCHS = 40
+#: Stop when the in-fold validation loss has not improved for this many epochs.
+#: A fixed 40-epoch budget converged at L0 (median best epoch 9-23) but bound at
+#: L2, where the median was 37 and a third of cells were still improving at the
+#: cap -- so the L2 architecture penalty partly measured a training budget
+#: rather than a model class.  Patience makes the stopping rule a property of
+#: convergence instead of the clock, at a cost only in the cells that need it.
+PATIENCE = 20
 BATCH = 4096
 LEARNING_RATE = 3e-3
 CHANNELS = 32
@@ -227,6 +234,8 @@ def fit_cell(
     horizon: int,
     seed: int,
     bounded: bool,
+    epochs: int = EPOCHS,
+    patience: int = 0,
 ) -> tuple[pd.DataFrame, np.ndarray, dict[str, Any]]:
     """Fit on in-fold stations only and predict the held region's stations."""
     variables, lags, static = sequence_layout(columns)
@@ -273,7 +282,7 @@ def fit_cell(
 
     best_state: dict[str, torch.Tensor] | None = None
     best_loss, best_epoch = float("inf"), -1
-    for epoch in range(EPOCHS):
+    for epoch in range(epochs):
         model.train()
         order = torch.randperm(len(y_tr), generator=generator)
         for start in range(0, len(order), BATCH):
@@ -288,6 +297,8 @@ def fit_cell(
         if validation_loss < best_loss:
             best_loss, best_epoch = validation_loss, epoch
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        elif patience and epoch - best_epoch >= patience:
+            break
     if best_state is not None:
         model.load_state_dict(best_state)
 
@@ -309,6 +320,9 @@ def fit_cell(
         "validation_rows": len(validation),
         "held_rows": len(held),
         "best_epoch": best_epoch,
+        "epoch_budget": epochs,
+        "patience": patience,
+        "stopped_at_budget": bool(best_epoch >= epochs - 1),
         "best_validation_mse": best_loss,
         "bounded": bounded,
         "max_abs_residual": float(np.max(np.abs(residual))),
@@ -366,6 +380,7 @@ def execute(args: argparse.Namespace) -> int:
                         f"{prefix}{level_name}_{args.geometry}{split_tag}"
                         f"_fold{fold.index}"
                         f"_PlainTCN_{suffix}_seed{seed}_h{horizon}"
+                        f"{args.shard_suffix}"
                     )
                     path = shard_dir / f"{name}.parquet"
                     if path.exists():
@@ -374,6 +389,7 @@ def execute(args: argparse.Namespace) -> int:
                     held, prediction, evidence = fit_cell(
                         table, evaluation, columns, preprocessing,
                         fold, horizon, seed, args.bounded,
+                        epochs=args.epochs, patience=args.patience,
                     )
                     pd.DataFrame({
                         "key_id": held["key_id"].to_numpy(),
@@ -454,6 +470,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="fit seeds, which are a different axis from the "
                              "split seeds above")
     parser.add_argument("--bounded", action="store_true")
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--patience", type=int, default=0,
+                        help="stop after this many epochs without improvement; "
+                             "0 keeps the fixed-budget behaviour")
+    parser.add_argument("--shard-suffix", default="",
+                        help="suffix for shard names, so a sensitivity run "
+                             "cannot overwrite the primary arm's cells")
     parser.add_argument("--manifest-tag", default="")
     return parser
 

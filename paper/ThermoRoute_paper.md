@@ -15,52 +15,53 @@ ORCID, affiliation number, and institutional e-mail address]
 
 ## Key Points
 
-- A seven-day skill of +0.250 against persistence falls to +0.038 against a
-  damped-persistence reference at 116 reportable gauged sites.
-- A gradient-boosted tree with site identity is most accurate at 1- and 3-day
-  leads; the deep model matches it at 7 days.
-- Learned skill beyond the seasonal reference is largest at issue-time low
-  thermal anomaly and during rapid recent cooling.
+- Withholding a gauge's own recent water temperature costs 1.3-1.7 °C; changing
+  the model class costs under 0.01 °C at the same sites
+- Future weather is worth 0.13-0.63 °C and worth less, not more, once the local
+  gauge is gone, so the two are complements
+- Seven-day skill of +0.250 against persistence falls to +0.038 against damped
+  persistence; the information results are descriptive
 
 ## Abstract
 
-Daily river water temperature is strongly persistent and strongly seasonal, and
-machine-learning studies for it routinely quote skill against naive persistence
-or climatology, on random splits, with each model scored on its own predictable days. Such designs cannot separate learned river behavior from
-cheaper explanations: seasonal damping, favorable key selection, and spatial
-interpolation between instrumented neighbors. We hold the data fixed and vary the evaluation design,
-scoring a constrained deep predictor,
-damped persistence, gradient-boosted trees with and without site identity, a
-global LSTM, an information-matched plain causal convolutional network, and an
-empirical thermal-recurrence comparator on one common registry of
-station/date/horizon keys at 120 U.S. gauges (116 reportable on the 2021–2023
-test window) across 15 hydrologic regions, with all preprocessing fitted strictly
-backwards in time. On the independent window the deep model's
-seven-day station-median skill is +0.250 against persistence but +0.038 against
-damped persistence; the median station-level memory gain is 0.49 °C against a
-learned gain of 0.07 °C, and the median fraction of the station-level error
-reduction delivered by seasonal memory is 0.875. A gradient-boosted tree with
-site identity has the lowest station-median RMSE at one and three days (0.589
-and 1.304 °C); at seven days the two are not separated, on a comparison the
-design is underpowered to make. Every model here is issue-time-only, and a
-separate retrospective analysis bounds what perfect future weather could add at
-several times the architecture effect. Within that regime, reported skill is
-largely a statement about the reference model rather than the architecture.
+Daily river water temperature is strongly persistent and strongly seasonal, so
+reported machine-learning skill depends on what a model is compared against and
+on what it is allowed to see. Holding one frozen panel of 120 U.S. gauges across
+15 hydrologic regions fixed, we vary the evaluation design and the information
+supplied, scoring every arm on one common registry of station/date/horizon keys
+with all preprocessing fitted strictly backwards in time. On a pre-specified
+2021-2023 held-out window, a constrained deep predictor's seven-day
+station-median skill is +0.250 against persistence but +0.038 against damped
+persistence, and a gradient-boosted tree with site identity is the most accurate
+model at one and three days. Descriptive analyses on the same keys then measure
+what the information itself is worth. Withholding a gauge's own recent water
+temperature costs 1.3-1.7 °C at every lead and at every one of 116 stations,
+two orders of magnitude more than the model class, which is worth under
+0.01 °C wherever that history is present. Realized future meteorology is worth
+0.13-0.63 °C, is almost entirely future air temperature, survives two
+pre-registered placebos, and about half of it survives substitution of an
+archived fixed-lead forecast. Future weather and the local gauge are
+complements rather than substitutes: forcing is worth less once the gauge is
+removed. The estimator begins to matter only where information is scarce. The
+held-out comparison is confirmatory; every information result is post-outcome
+and descriptive.
 
 **Plain Language Summary.** River temperature changes slowly from day to day, so
 a forecast that repeats yesterday's reading is already fairly accurate, and one
-that also nudges it toward the usual value for the time of year is better
-still. We tested a river-temperature model at 120 U.S. gauges (116 reportable
-on the held-out test window) and deliberately made the evaluation demanding:
-every model was scored on exactly the same days and sites, none could see
-information from after the moment it was asked to predict, and in a separate
-experiment we held out entire river regions rather than scattered gauges.
-Measured against a simple seasonal adjustment of yesterday's reading, most of
-the advantage that a naive comparison would report disappeared, and a standard
-tree-based method was more accurate at the shortest forecast ranges. How well
-such a model performs depends mostly on what it is compared against and, to a
-smaller and measurable degree, on how the map is divided rather than on details
-of the model itself.
+that also nudges it toward the usual value for the time of year is better still.
+We tested predictions at 120 U.S. gauges under a deliberately demanding
+evaluation: every model scored on exactly the same days and sites, none allowed
+to see anything from after the moment it was asked to predict. Two things
+mattered far more than which method was used. The first is whether the river
+being predicted has a thermometer in it: taking away a gauge's own recent
+readings hurt accuracy roughly two hundred times more than switching between
+entirely different families of model. The second is knowing the weather that
+has not happened yet, which is worth about a third as much as the gauge, is
+almost entirely about air temperature, and turns out to be worth *less* at a
+river without a thermometer rather than more. Better forecasts of the weather
+therefore cannot substitute for putting a sensor in the water. Much of what is
+usually reported as a modelling advance is, on this evidence, a statement about
+what the model was given and what it was compared against.
 
 **Keywords:** river water temperature; benchmark design; strong baselines;
 spatial holdout; comparative evaluation; conformal prediction.

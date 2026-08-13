@@ -1708,6 +1708,15 @@ def render_figS4(metrics, summary, out_dir):
             spine.set_visible(False)
         low, high = span
         for (i, j), v in _ndenumerate(mat):
+            # Persistence scored against persistence is 0/0, so its skill row is
+            # NaN by definition rather than by failure.  Printing "+nan" three
+            # times across the top of panel (b) made a well-defined identity
+            # look like a broken pipeline; an em dash says the cell is not a
+            # number without inviting the reader to wonder which.
+            if not _np.isfinite(v):
+                ax.text(j, i, "\u2014", ha="center", va="center",
+                        fontsize=MIN_ABSOLUTE_PT, color=PALETTE["NEUTRAL_INK"])
+                continue
             shade = (v - low) / (high - low) if high > low else 0.5
             dark = shade > 0.66 or (span[0] < 0 and shade < 0.2)
             ax.text(j, i, fmt.format(v), ha="center", va="center",

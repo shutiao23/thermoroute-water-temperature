@@ -31,7 +31,6 @@
 - claim_id: RQ1_MEMORY_GAIN_7D
   status: PRIMARY_FROZEN
   used_in:
-  - abstract
   - section_4_6
   - figure_3
   source_table: outputs/final/decomposition_effects.parquet
@@ -45,7 +44,6 @@
 - claim_id: RQ1_LEARNED_GAIN_7D
   status: PRIMARY_FROZEN
   used_in:
-  - abstract
   - section_4_6
   - figure_3
   source_table: outputs/final/decomposition_effects.parquet
@@ -144,7 +142,6 @@
 - claim_id: RQ2_LGBM_1D_RMSE
   status: PRIMARY_FROZEN
   used_in:
-  - abstract
   - section_4_4
   source_table: outputs/final/station_metrics.parquet
   filter:
@@ -156,7 +153,6 @@
 - claim_id: RQ2_LGBM_3D_RMSE
   status: PRIMARY_FROZEN
   used_in:
-  - abstract
   - section_4_4
   source_table: outputs/final/station_metrics.parquet
   filter:
@@ -332,3 +328,51 @@
     set: unfiltered
   estimator: median_station_rmse
   latex_macro: Air2streamSevenDayRMSEUnfiltered
+# --- Sections 4.7-4.10: post-outcome results promoted to the Abstract.
+#
+# These are the largest effects the study measured and they are post-outcome.
+# Burying them outside the Abstract would hide the paper's strongest evidence;
+# promoting them silently would let a reader assume they were pre-registered.
+# POST_OUTCOME_PROMOTED takes neither option: the number is promoted, and the
+# gate fails the build unless the span carrying it also says what it is.
+- claim_id: INFO_LOCAL_THERMAL_STATE_7D
+  status: POST_OUTCOME_PROMOTED
+  used_in:
+  - abstract
+  - key_point_1
+  - section_4_7
+  source_table: outputs/final/information_ladder_v6_authority_v1/information_ladder_v6_contrasts.parquet
+  filter:
+    contrast: L2-L0
+    model: LightGBM
+    horizon: 7
+  estimator: median_station_paired_delta_rmse
+  latex_macro: SevenDayLocalThermalStateValue
+- claim_id: INFO_ARCHITECTURE_L0_7D
+  status: POST_OUTCOME_PROMOTED
+  used_in:
+  - abstract
+  - key_point_1
+  - section_4_10
+  source_table: outputs/final/architecture_geometry_interaction_v1/architecture_geometry_interaction.parquet
+  filter:
+    quantity: architecture_penalty_tcn_minus_tree
+    level: L0
+    geometry: whole_region
+    forcing: F0
+    horizon: 1
+  estimator: median_station_paired_delta_rmse
+  latex_macro: OneDayArchitecturePenaltyGauged
+- claim_id: INFO_FORCING_COMPLEMENT_3D
+  status: POST_OUTCOME_PROMOTED
+  used_in:
+  - abstract
+  - key_point_1
+  - section_4_9
+  source_table: outputs/final/forcing_information_interaction_v1/forcing_information_interaction.parquet
+  filter:
+    quantity: interaction_L2_minus_L0
+    model: LightGBM
+    horizon: 3
+  estimator: median_station_double_difference
+  latex_macro: ThreeDayForcingInformationInteraction
