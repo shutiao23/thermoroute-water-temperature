@@ -34,13 +34,21 @@ EDITS: tuple[tuple[str, str, str], ...] = (
     (
         "layout",
         "\\documentclass[draft,linenumbers]{agujournal2025}",
-        "% ``linenumbers'' without ``draft''.  The two are separable and only\n"
-        "% one is a review requirement: linenumbers gives referees something to\n"
-        "% cite, draft additionally double-spaces the body.  Double-spaced this\n"
-        "% manuscript is 33 pages; single-spaced with line numbers it is inside\n"
-        "% the 23-page cap, and no content differs between them.  Add ``draft''\n"
-        "% back if the editor requires double spacing.\n"
-        "\\documentclass[linenumbers]{agujournal2025}",
+        "% Both options are required for an AGU submission and neither is\n"
+        "% cosmetic.  ``linenumbers'' gives referees something to cite;\n"
+        "% ``draft'' sets \\draftskip=20 in agujournal2025.cls, which is the\n"
+        "% 1.5-2 line spacing AGU asks for in a submitted manuscript.\n"
+        "%\n"
+        "% This was briefly dropped to reach a 23-page PDF and that was a\n"
+        "% mistake: AGU measures length in publication units, not pages.\n"
+        "% PU = words/500 + figures + tables, counted over the abstract, body,\n"
+        "% captions and appendices only -- references, the plain-language\n"
+        "% summary, Open Research, table interiors and the SI are all excluded.\n"
+        "% This manuscript is 24.7 PU against a threshold of 25, so it was\n"
+        "% already inside the real limit at full double spacing, and the\n"
+        "% single-spaced build traded a required format for a metric the\n"
+        "% publisher does not use.\n"
+        "\\documentclass[draft,linenumbers]{agujournal2025}",
     ),
     (
         "hyperref",

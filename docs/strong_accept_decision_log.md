@@ -2066,6 +2066,10 @@ Commit(s): (this worktree)
 ## 2026-08-13 — DLOG-037: the manuscript is LaTeX now, and it fits
 
 **Length.** 58 pages to 22, inside the 23-page cap including references. Three
+*(Superseded by DLOG-039: AGU measures publication units, not pages, and the
+`draft` option this entry drops is a submission requirement. The length
+result stands; the page framing and the layout change do not.)*
+
 things did the work and only one of them was deletion.
 
 Prose fell from 18,650 words to 8,920, section by section against a budget, with
@@ -2155,5 +2159,53 @@ refers to the heading by line rather than reprinting it, and
 `test_a_missing_decision_log_token_is_recorded_and_not_refused` is what caught
 it — which is the argument for tamper tests that assert on observable behaviour
 rather than on a checker's internals.
+
+Commit(s): (this worktree)
+
+## 2026-08-13 — DLOG-039: the page target was the wrong target
+
+DLOG-037 reported the manuscript cut to 22 pages and recorded the last ten of
+those as bought by dropping the class's `draft` option, keeping `linenumbers`,
+on the reasoning that only line numbers are a review requirement. That
+reasoning was wrong, and it was wrong because I never checked the publisher's
+rule before optimising against my own model of it.
+
+**AGU does not measure pages.** It measures publication units:
+
+    PU = words / 500 + figures + tables
+
+against a threshold of 25 before excess-length fees, and the word count excludes
+the title, the author block, the plain-language summary, the interiors of
+tables, the Open Research section, the references, and the whole Supporting
+Information. This manuscript is **24.7 PU**: 7,367 countable words, five figures,
+five tables.
+
+Two consequences, both of which invert decisions taken earlier today.
+
+*References are free.* Converting 26 inline DOI links to apacite keys and
+deleting `\nocite{*}` removed four pages, and none of them counted. The
+conversion is still worth keeping -- a reference list should be what the paper
+cites, and 62 printed entries against 21 cited works was wrong on its own terms
+-- but it bought nothing against the limit it was done for.
+
+*`draft` is required, not optional.* `agujournal2025.cls` sets `\draftskip=20`
+under that option, which is the 1.5-2 line spacing AGU asks for in a submitted
+manuscript, and this repository's own `paper/agu_submission/README.md` already
+said `draft` "is what a manuscript submission wants". I removed it anyway to
+reach a page count the publisher does not use, and the resulting single-spaced
+PDF is what prompted the question that led here. Restored: the submission is
+34 pages double-spaced and 24.7 PU, which is the number that has to be under a
+cap.
+
+`make check` now gates on `scripts/final/count_publication_units.py` and reports
+the page count as information only, because a double-spaced manuscript's page
+count is a fact about line spacing rather than about length.
+
+**The margin is thin and worth a decision.** 24.7 against 25 leaves 0.3 PU, or
+about 133 words. Ten of the 24.7 units are the five figures and five tables, so
+the cheapest single reduction is to move a table to the Supporting Information:
+one unit of margin for one table. Table 3, the nineteen-row hydrologic-state
+grid, is the obvious candidate and its numbers are already quoted in the prose
+around it. That is a content decision and is left to the authors.
 
 Commit(s): (this worktree)

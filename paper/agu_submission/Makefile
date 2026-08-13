@@ -19,11 +19,21 @@
 
 TEX     := ThermoRoute_WRR
 PDF     := $(TEX).pdf
-PAGECAP := 23
+
+# AGU measures manuscript length in PUBLICATION UNITS, not pages:
+#   PU = words/500 + figures + tables
+# counted over the abstract, body, captions and appendices only -- the title,
+# author block, plain-language summary, table interiors, Open Research,
+# references and Supporting Information are all excluded.  The threshold is 25
+# before excess-length fees.  `make units` is therefore the check that matters;
+# the page count is reported for information because the submitted PDF is
+# double-spaced (the class's `draft` option) and its page count says more about
+# line spacing than about length.
+PUCAP   := 25
 
 LATEXMK := latexmk -pdf -interaction=nonstopmode -halt-on-error -file-line-error
 
-.PHONY: all watch pages clean distclean check
+.PHONY: all watch pages units clean distclean check
 
 all: $(PDF)
 
@@ -33,16 +43,17 @@ $(PDF): $(TEX).tex $(wildcard figures/*.pdf) $(wildcard *.cls) $(wildcard *.bib)
 watch:
 	$(LATEXMK) -pvc $(TEX).tex
 
-# The page count is a submission constraint, so it is a build target rather
-# than something to remember to check.
+# Reported, not enforced: a double-spaced submission's page count is a fact
+# about line spacing, not about whether the manuscript is too long.
 pages: $(PDF)
 	@n=$$(pdfinfo $(PDF) | awk '/^Pages:/ {print $$2}'); \
-	 echo "$(PDF): $$n pages (cap $(PAGECAP))"; \
-	 if [ "$$n" -gt "$(PAGECAP)" ]; then \
-	   echo "OVER by $$(( $$n - $(PAGECAP) )) pages"; exit 1; \
-	 fi
+	 echo "$(PDF): $$n pages (double-spaced submission format)"
 
-check: pages
+# This is the constraint AGU actually applies.
+units:
+	@python ../../scripts/final/count_publication_units.py --cap $(PUCAP)
+
+check: units pages
 
 clean:
 	$(LATEXMK) -c $(TEX).tex
