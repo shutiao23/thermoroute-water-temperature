@@ -2127,9 +2127,9 @@ Two identifiers were each used twice, on different days, for unrelated entries:
 
 This is recorded rather than repaired, because repairing it would break
 something real. `scripts/final/run_forcing_ladder_v5_observed.py` asserts on the
-literal bytes `DLOG-028: score-free semantic registries v4 authority frozen` as
-part of its governance check, so renumbering the 2026-08-09 entry fails the
-runner; and renumbering the 2026-08-10 entry would leave every citation of it --
+literal bytes of the 2026-08-09 heading at line 1313 of this file as part of its
+governance check, so renumbering that entry fails the runner; and renumbering
+the 2026-08-10 entry would leave every citation of it --
 in the manuscript, the protocols, and DLOG-029 onward -- pointing at a number
 that no longer exists. An append-only log cannot be renumbered after the fact
 without invalidating the references that make it worth keeping.
@@ -2143,5 +2143,17 @@ semantic-registries entry.
 
 Ids DLOG-029 onward are unique. Nothing in the numbering carries meaning beyond
 ordering, so the duplication costs disambiguation and nothing else.
+
+**A note on how this entry is worded.** It originally quoted the pinned heading
+verbatim in order to explain the constraint, and that broke the tamper test for
+the pin. The runner checks only that the token is *present somewhere* in the
+file, so a second verbatim copy anywhere in the log satisfies the check on its
+own: altering the real heading no longer produced the governance-drift notice,
+because this entry was still supplying the bytes. Documenting a byte pin by
+reproducing it makes the pin satisfiable by its own documentation. The entry now
+refers to the heading by line rather than reprinting it, and
+`test_a_missing_decision_log_token_is_recorded_and_not_refused` is what caught
+it — which is the argument for tamper tests that assert on observable behaviour
+rather than on a checker's internals.
 
 Commit(s): (this worktree)
