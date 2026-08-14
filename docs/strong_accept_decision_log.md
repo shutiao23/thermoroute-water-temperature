@@ -2700,3 +2700,70 @@ Result: 21 pages against the 22 asked for, 19.3 PU against a threshold of 25,
 four figures and four tables, all gates passing.
 
 Commit(s): (this worktree)
+
+## 2026-08-14 — DLOG-049: Figure 2 replaced with the one-fork design, at the third attempt
+
+The boxes-and-arrows Figure 2 is replaced by the one-fork schematic: one shared
+run supplying the information set and the anchor, a fork panel in which the
+regression target is the only thing that varies across four model rows, the
+anchor inset with the ±1 °C band, and the key registry — declining to predict
+is a failure, not an exclusion — feeding the station-first reduction. Both
+measured channels are now visible in the schematic; the old drawing showed one.
+
+It took three rendered attempts to ship. The first port compressed the design
+to a 69 mm canvas: two floating footnotes were squeezed between the anchor
+inset and the fork panel, where they collided with the inset — a patch, which
+the text-text collision gate cannot see — and the registry box set 7.5 pt type
+on a 7.3 pt pitch, which is what the user's "字体重叠" screenshot showed. The
+lesson recorded here: the gates check text against text and text against the
+canvas; they check nothing against patches, and they do not check leading.
+Those two properties have to be reviewed by eye on the rendered PNG at zoom,
+every time, before showing the figure.
+
+The shipped version is 240 pt (84.7 mm) tall. The footnotes were deleted
+rather than squeezed: the residual-bound sentence moved into the inset beside
+the band it describes, and the raw-target sentence was already in the caption.
+Every multi-line block sits on ≥ 9 pt pitch. The caption was rewritten in both
+sources — the Markdown and the .tex are separate since build_agu.py retired —
+and the §3.1 citation moved to the anchor-and-bound clause, because the router
+and mixture the sentence also names are Text S3's, not this figure's.
+
+Also closed: render_arch_figures.py still wrote fig02_model_concept from the
+retired drawing, one careless run away from clobbering the redesign. The stem
+now has exactly one owner, render_fig02_one_fork.py.
+
+Commit(s): 1d00893, e9c24d4.
+
+## 2026-08-14 — DLOG-050: the 7.5 pt floor is now enforced, not just written
+
+WRR_FIGURE_STYLE_GUIDE asks for ≥ 7.5 pt at final size; check_figure_typography
+enforced 6.0. Four shipped figures lived in the gap: Figure 1's graticule
+(6.0), Figure 4's legend (6.8), figS03's exponent (6.3, a 9 pt mathtext base ×
+0.7), and fig04_spatial_transfer's graticule (6.0). All four were raised and
+MIN_POINT_SIZE now reads 7.5. The general rule this instance confirms: a gate
+that enforces less than the written standard converts the standard into a
+suggestion, and the gap persists until someone measures it.
+
+Raising type in fixed layouts is not free, and the two places it cost were
+handled as layout, not tolerated as collisions: fig05_information_axes grew
+1.3 mm of canvas because its 7.5 pt legend rose 1.4 pt into the axis label
+(caught by the renderer's own vertical-budget assertion, which exists for
+exactly this), and the checker learned that a rotated single-glyph word
+reports its advance width as its page height — the "7" of a rotated "7 d"
+y-label measures 6.2 pt at a declared 7.5 — so one-character words now defer
+to the exact Tf-operator check.
+
+The same sweep cleared render_post_main_figures_skeleton.py's three standing
+failures, which decomposed into five defects: the include_groups kwarg on
+pandas < 2.2; a suptitle with an explicit y, which detaches it from
+constrained layout so no top space is reserved while the subplots_adjust meant
+to compensate is silently a no-op under an attached engine; undrawn
+auto-locator tick artists (0.94, 45, 0.4) parked above their axes, where the
+collision gate walks every Text on the figure and meets the suptitle; two
+panel titles running off the canvas edge; and two annotations anchored at
+data coordinates their axes no longer contain. Every renderer in the
+repository now runs gate-green: 20 of 20 figures pass at the 7.5 floor.
+
+Manuscript unchanged in substance: 21 pages, 19.4 PU, consistency gate green.
+
+Commit(s): 6282fda.
