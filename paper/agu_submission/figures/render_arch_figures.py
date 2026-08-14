@@ -36,16 +36,16 @@ OUT = ROOT / "paper" / "agu_submission" / "figures"
 PT_PER_MM = 72.0 / 25.4
 FULL_PT = figstyle.FULL_MM * PT_PER_MM  # 396.0 pt, the AGU \textwidth
 
-# Type scale.  AGU's floor is ~8 pt at final size; nothing here goes below 7 pt,
-# and 7 pt is used only for the secondary line inside a box.
+# Type scale.  The house floor is 7.5 pt at final size (WRR_FIGURE_STYLE_GUIDE);
+# nothing on the page may sit below it, including mathtext superscripts.
 TITLE = 9.0
 PANEL = 8.0
 BOXTITLE = 7.5
-BODY = 7.0
+BODY = 7.5
 # Formulas carrying a superscript are set larger: mathtext draws a superscript
-# at 0.7 of the base, so a 7 pt formula puts the exponent at 4.9 pt -- under
-# AGU's floor and under the 6 pt at which a printed glyph stops resolving.
-MATH = 9.0
+# at 0.7 of the base, so the base is chosen to land the exponent on the floor:
+# 10.75 * 0.7 = 7.5.  At the previous 9.0 the exponent printed at 6.3.
+MATH = 10.75
 MATH_LINE = 11.0
 
 INK = "#1A1A1A"
@@ -426,8 +426,11 @@ def main() -> int:
         "mathtext.fallback": None,
     })
     print("resolved font:", family)
-    for stem, fn in (("fig02_model_concept", draw_concept),
-                     ("figS03_thermoroute_architecture", draw_architecture)):
+    # fig02_model_concept is not rendered here any more.  The manuscript's
+    # Figure 2 is owned by render_fig02_one_fork.py; the draw_concept drawing
+    # below is the retired boxes-and-arrows version and must not write the
+    # shared stem, or the two renderers silently fight over one file.
+    for stem, fn in (("figS03_thermoroute_architecture", draw_architecture),):
         fig = fn()
         check_boxes_fit(fig, fig.axes[0], stem)
         written = figstyle.save(fig, stem, OUT)

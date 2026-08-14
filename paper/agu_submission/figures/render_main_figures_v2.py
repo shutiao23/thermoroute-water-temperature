@@ -138,8 +138,8 @@ def _graticule(ax):
            ax.get_ylim()[0] <= t <= ax.get_ylim()[1]]
     ax.set_xticks(lon)
     ax.set_yticks(lat)
-    ax.set_xticklabels([f"{abs(t)}°W" for t in lon], fontsize=6.0)
-    ax.set_yticklabels([f"{t}°N" for t in lat], fontsize=6.0)
+    ax.set_xticklabels([f"{abs(t)}°W" for t in lon], fontsize=7.5)
+    ax.set_yticklabels([f"{t}°N" for t in lat], fontsize=7.5)
     ax.tick_params(axis="both", length=1.6, width=0.4, pad=1.2,
                    colors=figstyle.MUTED)
     for name in ("top", "right"):

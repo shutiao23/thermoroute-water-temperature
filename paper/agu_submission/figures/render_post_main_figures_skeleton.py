@@ -2096,9 +2096,12 @@ def render_fig03(metrics, summary, out_dir):
     ax_a.set_xlabel("station-median RMSE (\u00b0C)")
     _panel_label(ax_a, "(a) Spatial arms, 2021\u20132023")
     _grid(ax_a, axis="x")
-    ax_a.text(1.78, len(rows) - 0.4, "damped reference",
-              fontsize=MIN_ABSOLUTE_PT, ha="right",
-              color=PALETTE["NEUTRAL_INK"])
+    # Inside the axes, beside the 1 d reference line: at len(rows) - 0.4 the
+    # label sat above the axes top (axes text is not clipped) and printed
+    # straight onto the panel title.
+    ax_a.text(damped[CONV_HORIZONS[0]] + 0.05, len(rows) - 0.95,
+              "damped reference", fontsize=MIN_ABSOLUTE_PT, ha="left",
+              va="center", color=PALETTE["NEUTRAL_INK"])
 
     ax_b = fig.add_subplot(gs[0, 1])
     for arm, colour, marker in (("random", figstyle.WONG["blue"], "o"),
@@ -2108,10 +2111,16 @@ def render_fig03(metrics, summary, out_dir):
         ax_b.scatter(g.nearest_km, g.rmse - g.rmse_damped, s=7, color=colour,
                      marker=marker, alpha=0.55, edgecolor="none", label=arm)
         g = g.sort_values("nearest_km")
-        b = g.groupby(_pd.qcut(g.nearest_km, 5), group_keys=False).apply(
-            lambda x: _pd.Series({"x": x.nearest_km.median(),
-                                  "y": (x.rmse - x.rmse_damped).median()}),
-            include_groups=False)
+        # pandas grew `include_groups` in 2.2; on older pandas the kwarg is
+        # forwarded to the callable and TypeErrors.  Same guard as
+        # render_main_figures_v2._apply, inlined at the only call site here.
+        binned = g.groupby(_pd.qcut(g.nearest_km, 5), group_keys=False)
+        summarise = lambda x: _pd.Series({  # noqa: E731
+            "x": x.nearest_km.median(),
+            "y": (x.rmse - x.rmse_damped).median()})
+        drops_keys = tuple(int(v) for v in _pd.__version__.split(".")[:2]) >= (2, 2)
+        b = binned.apply(summarise, include_groups=False) if drops_keys \
+            else binned.apply(summarise)
         ax_b.plot(b.x, b.y, color=colour, lw=1.8, ls="-",
                   marker="D", ms=3.5, markeredgecolor="white")
     ax_b.axhline(0.0, color=PALETTE["NEUTRAL_INK"], lw=0.7)
@@ -2183,18 +2192,26 @@ def render_fig04(metrics, summary, out_dir):
                      label=model)
 
     ax_b.axhline(0.90, color=PALETTE["NEUTRAL_INK"], lw=0.8, ls=(0, (3, 2)))
-    ax_b.text(1.0, 0.884, "nominal 90%", fontsize=MIN_ABSOLUTE_PT,
-              color=PALETTE["NEUTRAL_INK"], va="top")
+    from matplotlib.transforms import blended_transform_factory as _blend
+    ax_b.text(0.02, 0.8985, "nominal 90%", fontsize=MIN_ABSOLUTE_PT,
+              color=PALETTE["NEUTRAL_INK"], va="top",
+              transform=_blend(ax_b.transAxes, ax_b.transData))
     ax_b.set_xlabel("mean interval width (\u00b0C)")
     ax_b.set_ylabel("empirical coverage")
     ax_b.set_ylim(0.88, 0.935)
+    # Explicit ticks: the auto locator also proposes 0.94, outside the limits.
+    # It is never drawn, but the Text artist exists above the axes and the
+    # collision gate walks every Text on the figure.
+    ax_b.set_yticks([0.88, 0.89, 0.90, 0.91, 0.92, 0.93])
     _panel_label(ax_b, "(b) Coverage bought with width")
     _grid(ax_b)
     ax_b.legend(fontsize=MIN_ABSOLUTE_PT, frameon=False, loc="lower right")
 
-    fig.suptitle("Regional heterogeneity and interval cost, 2021\u20132023",
-                 y=0.99)
-    fig.subplots_adjust(top=0.86)
+    # No explicit y: passing one detaches the suptitle from constrained
+    # layout, so no top space is reserved and the title lands on the panel
+    # labels -- and the subplots_adjust that used to paper over it is a no-op
+    # while a layout engine is attached.
+    fig.suptitle("Regional heterogeneity and interval cost, 2021\u20132023")
     _fig_note(fig,
               "Coverage at the nominal 90% level from the frozen CQR + Platt "
               "calibration applied identically to the held-out predictions "
@@ -2326,6 +2343,7 @@ def render_fig05(metrics, summary, out_dir):
     ax_a.axvline(med, color=figstyle.WONG["orange"], lw=1.4)
     ymax = ax_a.get_ylim()[1]
     ax_a.set_ylim(0, ymax * 1.25)
+    ax_a.set_yticks(_np.arange(0, ymax * 1.25, 10))
     ax_a.text(0.02, 0.96, f"median {med:.1f} d", transform=ax_a.transAxes,
               fontsize=MIN_ABSOLUTE_PT, color=figstyle.WONG["orange"], va="top")
     ax_a.set_xlabel("thermal half-life (d)")
@@ -2345,7 +2363,8 @@ def render_fig05(metrics, summary, out_dir):
               fontsize=MIN_ABSOLUTE_PT, ha="right")
     ax_b.set_xlabel("thermal half-life (d)")
     ax_b.set_ylabel("1 d learned gain over damped (\u00b0C)")
-    _panel_label(ax_b, "(b) Longer memory, less to learn")
+    ax_b.set_yticks([-0.1, 0.0, 0.1, 0.2, 0.3])
+    _panel_label(ax_b, "(b) Memory vs learned gain")
     _grid(ax_b)
 
     ax_c = fig.add_subplot(gs[1, 0])
@@ -2384,8 +2403,10 @@ def render_fig05(metrics, summary, out_dir):
     ax_d.set_xticklabels(["Persistence\n(2.20 \u00b0C)", "Damped\n(1.77 \u00b0C)",
                           "ThermoRoute\n(1.69 \u00b0C)"], fontsize=MIN_ABSOLUTE_PT)
     ax_d.set_ylabel("RMSE contribution (\u00b0C)")
-    ax_d.set_ylim(0, 0.6)
-    _panel_label(ax_d, "(d) 7 d error-budget decomposition")
+    # Headroom follows the data: with a fixed 0.6 ceiling the topmost value
+    # label cleared the axes and landed on the panel title.
+    ax_d.set_ylim(0, max(s0 + e for s0, e in zip(starts, errors)) + 0.09)
+    _panel_label(ax_d, "(d) 7 d error budget")
     _grid(ax_d, axis="y")
 
     fig.suptitle("Hydrologic conditions governing incremental skill, 2021\u20132023")

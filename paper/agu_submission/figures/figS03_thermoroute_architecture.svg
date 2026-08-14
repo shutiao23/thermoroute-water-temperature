@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-08-10T22:13:52.337164</dc:date>
+    <dc:date>2026-08-14T09:56:17.344721</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -40,7 +40,7 @@ Q 0 26 0 29
 L 0 204.3 
 Q 0 207.3 3 207.3 
 z
-" clip-path="url(#peda466b642)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 207 207.3 
@@ -53,7 +53,7 @@ Q 204 26 204 29
 L 204 204.3 
 Q 204 207.3 207 207.3 
 z
-" clip-path="url(#peda466b642)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 3 397.7 
@@ -66,7 +66,7 @@ Q 0 215.3 0 218.3
 L 0 394.7 
 Q 0 397.7 3 397.7 
 z
-" clip-path="url(#peda466b642)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 207 397.7 
@@ -79,7 +79,7 @@ Q 204 215.3 204 218.3
 L 204 394.7 
 Q 204 397.7 207 397.7 
 z
-" clip-path="url(#peda466b642)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #f5f7fa; stroke: #c9d1db; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
     <path d="M 3 451.5 
@@ -92,7 +92,7 @@ Q 0 405.7 0 408.7
 L 0 448.5 
 Q 0 451.5 3 451.5 
 z
-" clip-path="url(#peda466b642)" style="fill: #fff6ec; stroke: #e8c9a0; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #fff6ec; stroke: #e8c9a0; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
     <path d="M 7.5 86.8 
@@ -105,7 +105,7 @@ Q 5 41 5 43.5
 L 5 84.3 
 Q 5 86.8 7.5 86.8 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #3f4a57; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #3f4a57; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_8">
     <path d="M 7.5 120.4 
@@ -118,7 +118,7 @@ Q 5 91.8 5 94.3
 L 5 117.9 
 Q 5 120.4 7.5 120.4 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #3f4a57; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #3f4a57; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_9">
     <path d="M 7.5 162.6 
@@ -131,7 +131,7 @@ Q 5 125.4 5 127.9
 L 5 160.1 
 Q 5 162.6 7.5 162.6 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke-dasharray: 2,1.28; stroke-dashoffset: 0; stroke: #cc79a7; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke-dasharray: 2,1.28; stroke-dashoffset: 0; stroke: #cc79a7; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_10">
     <path d="M 7.5 185.1 
@@ -144,7 +144,7 @@ Q 5 167.6 5 170.1
 L 5 182.6 
 Q 5 185.1 7.5 185.1 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke-dasharray: 2,1.28; stroke-dashoffset: 0; stroke: #6e6e6e; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke-dasharray: 2,1.28; stroke-dashoffset: 0; stroke: #6e6e6e; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_11">
     <path d="M 211.5 58.5 
@@ -157,7 +157,7 @@ Q 209 41 209 43.5
 L 209 56 
 Q 209 58.5 211.5 58.5 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_12">
     <path d="M 211.5 92.1 
@@ -170,7 +170,7 @@ Q 209 63.5 209 66
 L 209 89.6 
 Q 209 92.1 211.5 92.1 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_13">
     <path d="M 307.5 92.1 
@@ -183,7 +183,7 @@ Q 305 63.5 305 66
 L 305 89.6 
 Q 305 92.1 307.5 92.1 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_14">
     <path d="M 211.5 114.6 
@@ -196,7 +196,7 @@ Q 209 97.1 209 99.6
 L 209 112.1 
 Q 209 114.6 211.5 114.6 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #e69f00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_15">
     <path d="M 211.5 156.8 
@@ -209,7 +209,7 @@ Q 209 119.6 209 122.1
 L 209 154.3 
 Q 209 156.8 211.5 156.8 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_16">
     <path d="M 7.5 267.5 
@@ -222,7 +222,7 @@ Q 5 230.3 5 232.8
 L 5 265 
 Q 5 267.5 7.5 267.5 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_17">
     <path d="M 7.5 314.7 
@@ -235,7 +235,7 @@ Q 5 277.5 5 280
 L 5 312.2 
 Q 5 314.7 7.5 314.7 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_18">
     <path d="M 7.5 361.9 
@@ -248,7 +248,7 @@ Q 5 324.7 5 327.2
 L 5 359.4 
 Q 5 361.9 7.5 361.9 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #d55e00; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_19">
     <path d="M 211.5 247.8 
@@ -261,7 +261,7 @@ Q 209 230.3 209 232.8
 L 209 245.3 
 Q 209 247.8 211.5 247.8 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #1a1a1a; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #1a1a1a; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_20">
     <path d="M 211.5 286.4 
@@ -274,7 +274,7 @@ Q 209 257.8 209 260.3
 L 209 283.9 
 Q 209 286.4 211.5 286.4 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_21">
     <path d="M 211.5 325 
@@ -287,7 +287,7 @@ Q 209 296.4 209 298.9
 L 209 322.5 
 Q 209 325 211.5 325 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_22">
     <path d="M 307.5 325 
@@ -300,7 +300,7 @@ Q 305 296.4 305 298.9
 L 305 322.5 
 Q 305 325 307.5 325 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_23">
     <path d="M 211.5 372.2 
@@ -313,81 +313,81 @@ Q 209 335 209 337.5
 L 209 369.7 
 Q 209 372.2 211.5 372.2 
 z
-" clip-path="url(#peda466b642)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #ffffff; stroke: #00706c; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <text style="fill: #1a1a1a; font: 700 9px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="0" y="10.299922" transform="rotate(-0 0 10.299922)">Full ThermoRoute architecture and calibration dataflow</text>
    </g>
    <g id="text_2">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="0" y="20.830391" transform="rotate(-0 0 20.830391)">Scientific modules; computational operators simplified.</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="0" y="20.961133" transform="rotate(-0 0 20.961133)">Scientific modules; computational operators simplified.</text>
    </g>
    <g id="patch_24">
     <path d="M 296.499023 77.8 
 Q 300.00028 77.8 302.495306 77.8 
-" clip-path="url(#peda466b642)" style="fill: none; stroke: #e69f00; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: none; stroke: #e69f00; stroke-width: 0.9; stroke-linecap: round"/>
     <path d="M 300.095306 76.6 
 L 302.495306 77.8 
 L 300.095306 79 
 z
-" clip-path="url(#peda466b642)" style="fill: #e69f00; stroke: #e69f00; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #e69f00; stroke: #e69f00; stroke-width: 0.9; stroke-linecap: round"/>
    </g>
    <g id="patch_25">
     <path d="M 96 268.999023 
 Q 96 272.50028 96 274.995306 
-" clip-path="url(#peda466b642)" style="fill: none; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: none; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
     <path d="M 97.2 272.595306 
 L 96 274.995306 
 L 94.8 272.595306 
 z
-" clip-path="url(#peda466b642)" style="fill: #d55e00; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #d55e00; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
    </g>
    <g id="patch_26">
     <path d="M 96 316.199023 
 Q 96 319.70028 96 322.195306 
-" clip-path="url(#peda466b642)" style="fill: none; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: none; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
     <path d="M 97.2 319.795306 
 L 96 322.195306 
 L 94.8 319.795306 
 z
-" clip-path="url(#peda466b642)" style="fill: #d55e00; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #d55e00; stroke: #d55e00; stroke-width: 0.9; stroke-linecap: round"/>
    </g>
    <g id="patch_27">
     <path d="M 300 249.299023 
 Q 300 252.80028 300 255.295306 
-" clip-path="url(#peda466b642)" style="fill: none; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: none; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
     <path d="M 301.2 252.895306 
 L 300 255.295306 
 L 298.8 252.895306 
 z
-" clip-path="url(#peda466b642)" style="fill: #00706c; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #00706c; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
    </g>
    <g id="patch_28">
     <path d="M 254.568604 287.837988 
 Q 253.499397 291.402009 252.719329 294.002236 
-" clip-path="url(#peda466b642)" style="fill: none; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: none; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
     <path d="M 254.558356 292.048271 
 L 252.719329 294.002236 
 L 252.259573 291.358636 
 z
-" clip-path="url(#peda466b642)" style="fill: #00706c; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #00706c; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
    </g>
    <g id="patch_29">
     <path d="M 345.431396 287.837988 
 Q 346.500603 291.402009 347.280671 294.002236 
-" clip-path="url(#peda466b642)" style="fill: none; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: none; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
     <path d="M 347.740427 291.358636 
 L 347.280671 294.002236 
 L 345.441644 292.048271 
 z
-" clip-path="url(#peda466b642)" style="fill: #00706c; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
+" clip-path="url(#p75353c7f0c)" style="fill: #00706c; stroke: #00706c; stroke-width: 0.9; stroke-linecap: round"/>
    </g>
    <g id="text_3">
-    <text style="fill: #9a4a0c; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="6" y="416.238828" transform="rotate(-0 6 416.238828)">Interpretive limits</text>
+    <text style="fill: #9a4a0c; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="6" y="416.366602" transform="rotate(-0 6 416.366602)">Interpretive limits</text>
    </g>
    <g id="text_4">
-    <text style="fill: #9a4a0c; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(6 426.386563)">±1 °C bounds the deviation from the anchor only — not absolute error, event-tail error, or interval width.</text>
-    <text style="fill: #9a4a0c; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(6 434.215133)">F3 is a retrospective realized-meteorology oracle, not an operational forecast.</text>
-    <text style="fill: #9a4a0c; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(6 442.120386)">Fitting, loss, calibration and ablation detail remain in the SI text and tables.</text>
+    <text style="fill: #9a4a0c; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(6 426.757031)">±1 °C bounds the deviation from the anchor only — not absolute error, event-tail error, or interval width.</text>
+    <text style="fill: #9a4a0c; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(6 435.144785)">F3 is a retrospective realized-meteorology oracle, not an operational forecast.</text>
+    <text style="fill: #9a4a0c; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(6 443.614699)">Fitting, loss, calibration and ablation detail remain in the SI text and tables.</text>
    </g>
    <g id="text_5">
     <text style="fill: #1a1a1a; font: 700 8px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="6" y="37.044375" transform="rotate(-0 6 37.044375)">(a) Inputs and masks</text>
@@ -405,19 +405,19 @@ z
     <text style="fill: #3f4a57; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="51.6625" transform="rotate(-0 9.5 51.6625)">32-day construction buffer</text>
    </g>
    <g id="text_10">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 61.603437)">WTEMP, FLOW, TEMP, PRCP,</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 69.406447)">RHMEAN, DH, WDSP; each value</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 77.209456)">paired with an observedness mask</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 61.967969)">WTEMP, FLOW, TEMP, PRCP,</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 70.328336)">RHMEAN, DH, WDSP; each value</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 78.688703)">paired with an observedness mask</text>
    </g>
    <g id="text_11">
     <text style="fill: #3f4a57; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="102.466602" transform="rotate(-0 9.5 102.466602)">Calendar and horizon</text>
    </g>
    <g id="text_12">
     <!-- season encoding; lead $h$ = 1, 3, 7 days -->
-    <g style="fill: #6e6e6e" transform="translate(9.5 112.41)">
+    <g style="fill: #6e6e6e" transform="translate(9.5 112.775)">
      <text>
-      <tspan style="font: 7px 'Nimbus Sans'" x="0 3.5 7.391998 11.283997 14.783997 18.675995 22.567993 24.513992 28.405991 32.297989 35.797989 39.689987 43.581985 45.135971 49.027969 52.919968 54.865967 56.811966 58.365952 62.25795 66.149948 70.041946 75.879944 77.825943 81.91394 83.85994 87.751938 89.697937 91.643936 95.535934 97.481934 99.427933 103.319931 105.26593 109.157928 113.049927 116.549927" y="-0.5625">season encoding; lead  = 1, 3, 7 days</tspan>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="71.987946" y="-0.5625">h</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="0 3.749985 7.919968 12.089951 15.839935 20.009918 24.179901 26.264893 30.434875 34.604858 38.354843 42.524826 46.694809 48.359802 52.529785 56.699768 58.78476 60.869751 62.534744 66.704727 70.87471 75.044693 81.299667 83.384659 87.764648 89.84964 94.019623 96.104614 98.189606 102.359589 104.44458 106.529572 110.699554 112.784546 116.954529 121.124512 124.874496" y="-0.25">season encoding; lead  = 1, 3, 7 days</tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="77.129684" y="-0.25">h</tspan>
      </text>
     </g>
    </g>
@@ -425,33 +425,33 @@ z
     <text style="fill: #cc79a7; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="136.066602" transform="rotate(-0 9.5 136.066602)">Forcing-regime extension (optional)</text>
    </g>
    <g id="text_14">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 146.003438)">future TEMP, PRCP, RHMEAN, DH, wind</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 153.806447)">F3 is a realized gridded oracle</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 146.367969)">future TEMP, PRCP, RHMEAN, DH, wind</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 154.728336)">F3 is a realized gridded oracle</text>
    </g>
    <g id="text_15">
-    <text style="fill: #6e6e6e; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="178.135" transform="rotate(-0 9.5 178.135)">WLEVEL excluded from every head</text>
+    <text style="fill: #6e6e6e; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="178.2625" transform="rotate(-0 9.5 178.2625)">WLEVEL excluded from every head</text>
    </g>
    <g id="text_16">
     <!-- Predictors are dated ≤ $t$; the target -->
-    <g style="fill: #6e6e6e" transform="translate(5 196.583495)">
+    <g style="fill: #6e6e6e" transform="translate(5 196.432316)">
      <text>
-      <tspan style="font: 7px 'Nimbus Sans'" x="0 4.668991 6.999985 10.891983 14.783981 16.337967 19.837967 21.783966 25.675964 28.006958 31.506958 33.452957 37.344955 39.675949 43.567947 45.513947 49.405945 53.297943 55.243942 59.135941 63.027939 64.973938 68.816925 72.708923 74.654922 76.600922 78.546921 82.438919 86.330917 88.276917 90.222916 94.114914 96.445908 100.337906 104.229904" y="-0.5625">Predictors are dated ≤ ; the target</tspan>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="70.762924" y="-0.5625">t</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="0 5.002487 7.499985 11.669968 15.839951 17.504944 21.254929 23.33992 27.509903 30.007401 33.757385 35.842377 40.01236 42.509857 46.67984 48.764832 52.934814 57.104797 59.189789 63.359772 67.529755 69.614746 73.732239 77.902222 79.987213 82.072205 84.157196 88.327179 92.497162 94.582153 96.667145 100.837128 103.334625 107.504608 111.674591" y="-0.25">Predictors are dated ≤ ; the target</tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="75.81723" y="-0.25">t</tspan>
      </text>
     </g>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 204.400723)">is never a predictor.</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 204.807918)">is never a predictor.</text>
    </g>
    <g id="text_17">
-    <text style="fill: #e69f00; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="51.538828" transform="rotate(-0 213.5 51.538828)">Fixed damped-persistence branch</text>
+    <text style="fill: #e69f00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="51.666602" transform="rotate(-0 213.5 51.666602)">Fixed damped-persistence branch</text>
    </g>
    <g id="text_18">
     <text style="fill: #e69f00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="74.207031" transform="rotate(-0 213.5 74.207031)">Climatology</text>
    </g>
    <g id="text_19">
     <!-- $c$ -->
-    <g style="fill: #6e6e6e" transform="translate(213.5 84.103437)">
+    <g style="fill: #6e6e6e" transform="translate(213.5 84.467969)">
      <text>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="0" y="-0.890625">c</tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="0" y="-0.671875">c</tspan>
      </text>
     </g>
    </g>
@@ -460,10 +460,10 @@ z
    </g>
    <g id="text_21">
     <!-- $\varphi^{\,h}$ -->
-    <g style="fill: #6e6e6e" transform="translate(309.5 86.74)">
+    <g style="fill: #6e6e6e" transform="translate(309.5 88.245)">
      <text>
-      <tspan style="font: italic 9px 'Nimbus Sans'" x="0" y="-0.1254375000000003">φ</tspan>
-      <tspan style="font: italic 6.3px 'Nimbus Sans'" x="7.202257" y="-3.2203125000000004">h</tspan>
+      <tspan style="font: italic 10.75px 'Nimbus Sans'" x="0" y="-0.6267812500000005">φ</tspan>
+      <tspan style="font: italic 7.525px 'Nimbus Sans'" x="8.594424" y="-4.323437500000001">h</tspan>
      </text>
     </g>
    </g>
@@ -481,61 +481,61 @@ z
    </g>
    <g id="text_24">
     <!-- equilibrium $e$ and rate $\kappa$ -->
-    <g style="fill: #6e6e6e" transform="translate(213.5 140.21)">
+    <g style="fill: #6e6e6e" transform="translate(213.5 140.575)">
      <text>
-      <tspan style="font: 7px 'Nimbus Sans'" x="0 3.891998 7.783997 11.675995 13.22998 14.783966 16.337952 20.22995 22.560944 24.114929 28.006927 33.837921 39.675919 41.621918 45.513916 49.405914 53.297913 55.243912 57.574905 61.466904 63.412903 67.304901" y="-0.5625">equilibrium  and rate </tspan>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="35.78392 69.2509" y="-0.5625">eκ</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="0 4.169983 8.339966 12.509949 14.174942 15.839935 17.504929 21.674911 24.172409 25.837402 30.007385 36.254868 42.509842 44.594833 48.764816 52.934799 57.104782 59.189774 61.687271 65.857254 67.942245 72.112228" y="-0.25">equilibrium  and rate </tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="38.339859 74.19722" y="-0.25">eκ</tspan>
      </text>
     </g>
     <!-- give the proposal $P$ -->
-    <g style="fill: #6e6e6e" transform="translate(213.5 148.0353)">
+    <g style="fill: #6e6e6e" transform="translate(213.5 148.95925)">
      <text>
-      <tspan style="font: 7px 'Nimbus Sans'" x="0 3.891998 5.445984 8.945984 12.837982 14.783981 16.72998 20.621979 24.513977 26.459976 30.351974 32.682968 36.574966 40.466965 44.358963 47.858963 51.750961 53.304947" y="-0.5625">give the proposal </tspan>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="55.250946" y="-0.5625">P</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="0 4.169983 5.834976 9.584961 13.754944 15.839935 17.924927 22.09491 26.264893 28.349884 32.519867 35.017365 39.187347 43.35733 47.527313 51.277298 55.447281 57.112274" y="-0.25">give the proposal </tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="59.197266" y="-0.25">P</tspan>
      </text>
     </g>
    </g>
    <g id="text_25">
     <!-- $\kappa$ is a statistical allocation parameter, -->
-    <g style="fill: #6e6e6e" transform="translate(209 168.283495)">
+    <g style="fill: #6e6e6e" transform="translate(209 168.132316)">
      <text>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="0" y="-0.5625">κ</tspan>
-      <tspan style="font: 7px 'Nimbus Sans'" x="3.5 5.445999 6.999985 10.499985 12.445984 16.337982 18.283981 21.783981 23.72998 27.621979 29.567978 31.121964 34.621964 36.567963 38.121948 41.621948 45.513947 47.067932 49.013931 52.90593 54.459915 56.013901 59.905899 63.405899 67.297897 69.243896 70.797882 74.68988 78.581879 80.527878 84.419876 88.311874 90.642868 94.534866 100.36586 104.257858 106.203857 110.095856 112.426849" y="-0.5625"> is a statistical allocation parameter,</tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="0" y="-0.25">κ</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="3.749985 5.834976 7.499969 11.249954 13.334946 17.504929 19.58992 23.339905 25.424896 29.594879 31.679871 33.344864 37.094849 39.17984 40.844833 44.594818 48.764801 50.429794 52.514786 56.684769 58.349762 60.014755 64.184738 67.934723 72.104706 74.189697 75.854691 80.024673 84.194656 86.279648 90.449631 94.619614 97.117111 101.287094 107.534576 111.704559 113.789551 117.959534 120.457031" y="-0.25"> is a statistical allocation parameter,</tspan>
      </text>
     </g>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(209 176.100723)">not a heat-transfer coefficient.</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(209 176.507918)">not a heat-transfer coefficient.</text>
    </g>
    <g id="text_26">
     <text style="fill: #d55e00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="240.966602" transform="rotate(-0 9.5 240.966602)">Router (variable × lag)</text>
    </g>
    <g id="text_27">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 250.903438)">7 variables × lags 0–14,</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 258.706447)">sparsemax allocation</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 251.267969)">7 variables × lags 0–14,</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 259.628336)">sparsemax allocation</text>
    </g>
    <g id="text_28">
     <text style="fill: #d55e00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="288.166602" transform="rotate(-0 9.5 288.166602)">Left-looking temporal encoder</text>
    </g>
    <g id="text_29">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 298.103438)">TCN: 2 residual blocks, kernel 3,</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 305.906447)">dilations 1 and 2</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 298.467969)">TCN: 2 residual blocks, kernel 3,</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 306.828336)">dilations 1 and 2</text>
    </g>
    <g id="text_30">
     <text style="fill: #d55e00; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="9.5" y="335.366602" transform="rotate(-0 9.5 335.366602)">Three-expert mixture</text>
    </g>
    <g id="text_31">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 345.324219)">soft gate combines experts and</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(9.5 345.690234)">soft gate combines experts and</text>
     <!-- emits the residual $r$ -->
-    <g style="fill: #6e6e6e" transform="translate(9.5 353.127228)">
+    <g style="fill: #6e6e6e" transform="translate(9.5 354.050602)">
      <text>
-      <tspan style="font: 7px 'Nimbus Sans'" x="0 3.891998 9.722992 11.276978 13.222977 16.722977 18.668976 20.614975 24.506973 28.398972 30.344971 32.675964 36.567963 40.067963 41.621948 45.513947 49.405945 53.297943 54.851929" y="-0.5625">emits the residual </tspan>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="56.797928" y="-0.5625">r</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="0 4.169983 10.417465 12.082458 14.16745 17.917435 20.002426 22.087418 26.257401 30.427383 32.512375 35.009872 39.179855 42.92984 44.594833 48.764816 52.934799 57.104782 58.769775" y="-0.25">emits the residual </tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="60.854767" y="-0.25">r</tspan>
      </text>
     </g>
    </g>
    <g id="text_32">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 378.773038)">The router allocates weight over lags. It is</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 386.601609)">not river-network routing: no verified</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 394.404618)">topology or travel time enters.</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 378.342541)">The router allocates weight over lags. It is</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 386.730295)">not river-network routing: no verified</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(5 395.090662)">topology or travel time enters.</text>
    </g>
    <g id="text_33">
     <!-- Combine  $z = P - A + r$ -->
@@ -552,10 +552,10 @@ z
    </g>
    <g id="text_35">
     <!-- $ŷ = A + \delta\,\tanh(z/\delta)$,  $\delta = 1.0$ °C -->
-    <g style="fill: #6e6e6e" transform="translate(255.41 278.55)">
+    <g style="fill: #6e6e6e" transform="translate(252.225 278.925)">
      <text>
-      <tspan style="font: italic 7px 'Nimbus Sans'" x="0 9.920395 21.009781 41.826619 47.272618 59.333607" y="-0.484375">ŷAδzδδ</tspan>
-      <tspan style="font: 7px 'Nimbus Sans'" x="4.666199 15.755585 25.873631 27.81963 31.711628 35.603627 39.495625 45.326619 51.164616 53.49561 55.441609 57.387608 64.391804 69.646 73.537999 75.483998 79.375996 81.321995 84.121983" y="-0.484375">=+tanh(/),  =1.0 °C</tspan>
+      <tspan style="font: italic 7.5px 'Nimbus Sans'" x="0 10.628967 22.510437 44.814126 50.649102 63.571557" y="-0.15625">ŷAδzδδ</tspan>
+      <tspan style="font: 7.5px 'Nimbus Sans'" x="4.999481 16.880951 27.721688 29.806679 33.976662 38.146645 42.316628 48.56411 54.819085 57.316582 59.401574 61.486565 68.991036 74.620522 78.790505 80.875496 85.045479 87.130471 90.130455" y="-0.15625">=+tanh(/),  =1.0 °C</tspan>
      </text>
     </g>
    </g>
@@ -563,25 +563,25 @@ z
     <text style="fill: #00706c; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="307.066602" transform="rotate(-0 213.5 307.066602)">Quantile heads</text>
    </g>
    <g id="text_37">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="317.003438" transform="rotate(-0 213.5 317.003438)">q05, q50, q95</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="317.367969" transform="rotate(-0 213.5 317.367969)">q05, q50, q95</text>
    </g>
    <g id="text_38">
     <text style="fill: #00706c; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="309.5" y="307.066602" transform="rotate(-0 309.5 307.066602)">Event head</text>
    </g>
    <g id="text_39">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="309.5" y="317.003438" transform="rotate(-0 309.5 317.003438)">q90 exceedance</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="309.5" y="317.367969" transform="rotate(-0 309.5 317.367969)">q90 exceedance</text>
    </g>
    <g id="text_40">
-    <text style="fill: #00706c; font: 700 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="345.576563" transform="rotate(-0 213.5 345.576563)">Calibration fitted on 2018 only</text>
+    <text style="fill: #00706c; font: 700 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start" x="213.5" y="345.707031" transform="rotate(-0 213.5 345.707031)">Calibration fitted on 2018 only</text>
    </g>
    <g id="text_41">
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(213.5 355.686563)">CQR offset for intervals; Platt map</text>
-    <text style="fill: #6e6e6e; font: 7px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(213.5 363.515133)">for event probability</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(213.5 356.057031)">CQR offset for intervals; Platt map</text>
+    <text style="fill: #6e6e6e; font: 7.5px 'Helvetica', 'Nimbus Sans', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif" transform="translate(213.5 364.444785)">for event probability</text>
    </g>
   </g>
  </g>
  <defs>
-  <clipPath id="peda466b642">
+  <clipPath id="p75353c7f0c">
    <rect x="0" y="0" width="396" height="451.5"/>
   </clipPath>
  </defs>

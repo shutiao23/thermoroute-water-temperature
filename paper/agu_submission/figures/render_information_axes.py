@@ -191,7 +191,9 @@ def collect() -> pd.DataFrame:
 
 # ---------------------------------------------------------------- geometry
 W_MM = figstyle.FULL_MM          # 139.7, mandatory
-H_MM = 56.7                      # the number this candidate is competing on
+H_MM = 58.0                      # 56.7 fitted the 6.8-7.2 pt type scale; the
+                                 # extra 1.3 mm is the bottom band's growth at
+                                 # the 7.5 pt floor
 
 PITCH_MM = 3.4                   # centre-to-centre, rows inside a group
 GROUP_GAP_MM = 1.7               # extra space between groups
@@ -204,13 +206,17 @@ GUTTER_MM = 2.6                  # group name -> row label column
 TICKPAD_MM = 1.3                 # row label -> axis spine
 M_RIGHT_MM = 1.6
 M_TOP_MM = 0.8
-M_BOTTOM_MM = 9.9                # tick labels + axis label + one-line legend
+M_BOTTOM_MM = 11.2               # tick labels + axis label + one-line legend;
+                                 # 9.9 fitted the 6.8-7.2 pt type scale, and at
+                                 # the 7.5 pt floor the legend rose 1.4 pt into
+                                 # the axis label
 
-FS_LABEL = 7.0                   # row labels
-FS_GROUP = 7.0                   # group names (bold)
-FS_TICK = 7.0
-FS_AXIS = 7.2
-FS_LEGEND = 6.8                  # smallest type in the figure; floor is 6.0
+FS_LABEL = 7.5                   # row labels
+FS_GROUP = 7.5                   # group names (bold)
+FS_TICK = 7.5
+FS_AXIS = 7.5
+FS_LEGEND = 7.5                  # the house floor is 7.5 pt at final size;
+                                 # nothing on the page may sit below it
 
 FLOOR = 1e-3
 XMAX = 2.6

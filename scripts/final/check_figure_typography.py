@@ -51,11 +51,12 @@ FIGURE_DIRS = (
     ROOT / "paper" / "si" / "figures",
 )
 
-#: AGU asks for roughly 8 pt minimum in figures.  figstyle draws this paper's
-#: figures at 7-7.5 pt by design and at final size, so the floor here is set to
-#: catch a figure that was drawn oversized and scaled down, not to relitigate
-#: that choice.
-MIN_POINT_SIZE = 6.0
+#: The house floor: WRR_FIGURE_STYLE_GUIDE and figstyle both ask for >= 7.5 pt
+#: at final size, and every figure in the repository now meets it.  This used
+#: to be 6.0 -- a permissive placeholder that let four shipped figures sit at
+#: 6.0-6.8 pt for months while the style guide said otherwise.  A gate that
+#: enforces less than the written standard is how that happens.
+MIN_POINT_SIZE = 7.5
 #: Cap height as a fraction of point size for the sans faces in use.  Only
 #: words containing a capital or an ascender are measured, so this ratio is the
 #: right one; x-height-only words are skipped rather than guessed at.
@@ -123,6 +124,15 @@ def undersized(found: Sequence[dict[str, Any]], width: float) -> list[tuple[str,
     for word in found:
         if not (_ASCENDER & set(word["text"])):
             continue          # x-height only: the ratio would be a guess
+        if len(word["text"]) < 2:
+            # A single glyph inside a rotated label reports its advance width
+            # as its page height -- the "7" of a rotated "7 d ..." y-label
+            # measures 6.2 pt at a declared 7.5.  One-character words are
+            # covered by declared_type_sizes instead, which reads the Tf
+            # operator and is exact for these unscaled single-page PDFs; the
+            # box route exists to catch figures drawn oversized and shrunk at
+            # placement, and any such figure flags its multi-character words.
+            continue
         point_size = (word["y1"] - word["y0"]) * scale / CAP_HEIGHT_RATIO
         if point_size < MIN_POINT_SIZE:
             small.append((word["text"], round(point_size, 2)))
