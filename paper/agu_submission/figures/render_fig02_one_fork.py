@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Figure 2 candidate: ONE PIPE, ONE FORK.
+r"""Figure 2: ONE PIPE, ONE FORK.
 
 A single wide left-to-right channel.  Shared information enters, passes the
 shared damped-persistence anchor, splits at exactly one point -- the regression
@@ -14,7 +14,15 @@ panel whose header reads "schematic - not data", under a figure subtitle that
 says no results are shown.
 
 Everything is laid out in points on a full-bleed axes, so one data unit is one
-printed point: a declared 6.8 pt label is 6.8 pt on the page.
+printed point: a declared 7.5 pt label is 7.5 pt on the page.
+
+A first version of this figure carried two floating footnotes squeezed between
+the anchor inset and the fork panel, at a 69 mm canvas height.  They collided
+with the inset (a patch, invisible to the text-text collision gate) and forced
+every line stack on the page down to sub-1.0 leading.  The footnotes are gone:
+the residual-bound sentence lives in the inset next to the band it describes,
+the raw-target sentence is the caption's, and every multi-line block now sets
+7.5 pt type on a >= 9 pt pitch.
 """
 from __future__ import annotations
 
@@ -34,29 +42,25 @@ OUT = pathlib.Path(__file__).resolve().parent
 
 PT_PER_MM = 72.0 / 25.4
 W = figstyle.FULL_MM * PT_PER_MM   # 396.0 pt = 139.7 mm, the AGU \textwidth
-H = 196.0                          # 69.2 mm
+H = 240.0                          # 84.7 mm
 
 # ---------------------------------------------------------------------------
-# Type scale.  The floor here is the *house* one, not the checker's: figstyle
-# and WRR_FIGURE_STYLE_GUIDE both ask for body >= 8 pt with an absolute minimum
-# of 7.5 pt at final size, while check_figure_typography enforces only 6.0.  The
-# design brief that produced this figure quoted the checker, so it came in at
-# 6.3 pt; these are the guide's numbers.  Superscripts are set
-# at 0.7x: the only superscript on the page is the h in phi^h, and it is set at
-# 9.0 pt so the exponent prints at 6.3 pt.  Nothing else uses one.
+# Type scale.  Floor is the house 7.5 pt (WRR_FIGURE_STYLE_GUIDE), not the
+# checker's 6.0.  The only superscript on the page is the h in phi^h; mathtext
+# sets superscripts at 0.7x, so the formula base size is chosen to land the
+# exponent exactly on the floor: 10.75 * 0.7 = 7.5.
 # ---------------------------------------------------------------------------
-TITLE = 9.5
+TITLE = 10.0
 SUB = 7.5
-STAMP = 7.5    # "THE ONLY FORK"
+STAMP = 8.0    # zone headers: ONE SHARED RUN / THE ONLY FORK
 NAME = 7.5     # model names in the fork
 CHIP = 8.5     # the regression target itself
 STATION = 7.5  # bold labels under the shared trunk
-BOXT = 8.0     # box titles in the scoring cascade
+BOXT = 8.0     # box titles in the right column
 BODY = 7.5
 SMALL = 7.5
 TINY = 7.5
-MATH = 10.75   # anchor definition; the 0.7x superscript lands at 7.5 pt,
-               # which is the house floor -- at 9.0 it was 6.3 and under it
+MATH = 10.75
 
 INK = "#1A1A1A"
 MUTED = figstyle.MUTED
@@ -73,24 +77,26 @@ MODELS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Geometry, in points.  x runs 0..396, y runs 0..190.
+# Geometry, in points.  x runs 0..396, y runs 0..240, y up.
+# Three columns: shared run + anchor inset (0..150), fork panel (158..286),
+# prediction / registry / reduction (292..396).  A banner row of zone headers
+# sits at y = 184.5 across all three.
 # ---------------------------------------------------------------------------
-YC = 97.0        # the axis of the shared channel
-TRUNK_H = 13.0
-SEG_A = (0.0, 80.0)      # same information
-SEG_B = (80.0, 122.0)    # same anchor -- the island the raw-target stream skirts
-FORK_X0, FORK_X1 = 156.0, 284.0
-NAME_X = 164.0
-CHIP_X0, CHIP_X1 = 238.0, 280.0
-ISLAND = (152.0, 48.0, 288.0, 157.0)     # x0, y0, x1, y1
-STUB = (298.0, 312.0)
-COL_X0, COL_X1 = 292.0, 396.0            # scoring cascade
-LANE_H = 18.0
-FORK_TOP = 142.0
-LANE_GAPS = (8.0, 5.0, 5.0)              # lane 1 sits apart: it is the exception
+YC = 134.0       # the axis of the shared channel = centre of fork lane 2
+TRUNK_H = 14.0
+SEG_A = (0.0, 86.0)      # same information
+SEG_B = (86.0, 128.0)    # same anchor -- the island the raw-target stream skirts
+FORK_X0, FORK_X1 = 158.0, 286.0
+NAME_X = 166.0
+CHIP_X0, CHIP_X1 = 240.0, 283.0
+ISLAND = (154.0, 63.0, 290.0, 193.0)     # x0, y0, x1, y1
+COL_X0, COL_X1 = 292.0, 396.0            # right column
+LANE_H = 20.0
+FORK_TOP = 170.0                          # top edge of lane 1
+LANE_GAPS = (9.0, 6.0, 6.0)              # lane 1 sits apart: it is the exception
+BANNER_Y = 184.5
 
-INSET = (0.0, 4.0, 146.0, 58.0)
-NOTE_X, NOTE_TEXT_X, NOTE_X1 = 130.0, 140.0, 286.0
+INSET = (0.0, 6.0, 150.0, 86.0)
 
 _fits: list = []
 
@@ -183,36 +189,35 @@ def draw_trunk(ax):
     rrect(ax, SEG_B[0], y0, SEG_B[1], y1, fill=tint(C_ANCHOR, 0.72),
           edge=C_ANCHOR, lw=1.0, r=3.0, z=2)
 
-    # Set on the same baseline as "THE ONLY FORK" so the three zones read as
-    # one banner across the top: shared run, the fork, prediction.
-    txt(ax, 2, 149.5, "ONE SHARED RUN", SMALL, MUTED, weight="bold",
-        box=(2, SEG_A[1] + 8))
-    txt(ax, 2, 84, "Same information set", STATION, INK, weight="bold",
-        box=(2, SEG_A[1]))
+    txt(ax, 2, BANNER_Y, "ONE SHARED RUN", STAMP, MUTED, weight="bold",
+        box=(2, 118))
+    # Two label columns under the trunk, separated by a real gutter: the first
+    # ends by x = 88 and the second starts at 92.  The fit boxes are the
+    # gutter's enforcement, not decoration.
+    txt(ax, 2, 115, "Same information set", STATION, INK, weight="bold",
+        box=(2, 88))
     # Naming the regime matters: "nothing dated after the issue time" is true
     # of F0, and the paper also runs an F3 arm in which realized future
     # meteorology is handed to every model.  Unqualified, this label would
     # claim a control the paper does not hold everywhere.
-    txt(ax, 2, 75.5, "nothing dated after the", SMALL, MUTED, box=(2, SEG_A[1]))
-    txt(ax, 2, 68.0, "issue time (regime F0)", SMALL, MUTED, box=(2, SEG_A[1]))
+    txt(ax, 2, 105.5, "nothing dated after the", SMALL, MUTED, box=(2, 88))
+    txt(ax, 2, 96.5, "issue time (regime F0)", SMALL, MUTED, box=(2, 88))
 
-    txt(ax, SEG_B[0] + 2, 84, "Same anchor", STATION, INK, weight="bold",
-        box=(SEG_B[0] + 2, SEG_B[1] + 16))
-    txt(ax, SEG_B[0] + 2, 75.5, "used by three", SMALL, MUTED,
-        box=(SEG_B[0] + 2, SEG_B[1] + 6))
-    txt(ax, SEG_B[0] + 2, 68.0, "of the four", SMALL, MUTED,
-        box=(SEG_B[0] + 2, SEG_B[1] + 6))
+    txt(ax, 90, 115, "Same anchor", STATION, INK, weight="bold",
+        box=(90, 144))
+    txt(ax, 90, 105.5, "used by three", SMALL, MUTED, box=(90, 144))
+    txt(ax, 90, 96.5, "of the four", SMALL, MUTED, box=(90, 144))
 
 
 def draw_fork(ax):
     x0, y0, x1, y1 = ISLAND
     rrect(ax, x0, y0, x1, y1, fill="#F1F3F6", edge="#5F6A75", lw=1.4, r=4.0, z=1)
-    txt(ax, NAME_X, 149.5, "THE ONLY FORK", STAMP, INK, weight="bold",
-        box=(NAME_X, 232))
+    txt(ax, NAME_X, BANNER_Y, "THE ONLY FORK", STAMP, INK, weight="bold",
+        box=(NAME_X, 240))
     # Right-aligned to the panel edge rather than centred on the chip column:
     # at house type sizes the centred label is wider than the column it names,
     # and the panel edge is the only fixed landmark it can hang from.
-    txt(ax, FORK_X1 - 6, 149.5, "target", SMALL, MUTED,
+    txt(ax, FORK_X1 - 6, BANNER_Y, "target", SMALL, MUTED,
         ha="right", box=(FORK_X1 - 60, FORK_X1 - 4))
 
     for (name, colour, target, raw), (ly0, ly1, lyc) in zip(MODELS, ROWS):
@@ -228,7 +233,7 @@ def draw_fork(ax):
         # The chips are the argument: three identical, one not.  The odd one is
         # separated by shape (dashed, unfilled) as well as by the extra gap
         # above its lane, so the contrast survives greyscale printing.
-        rrect(ax, CHIP_X0, lyc - 6.5, CHIP_X1, lyc + 6.5,
+        rrect(ax, CHIP_X0, lyc - 7.0, CHIP_X1, lyc + 7.0,
               fill="#FFFFFF" if raw else "#EFF1F4",
               edge=INK, lw=1.0 if raw else 0.9, r=2.0, z=3, dashed=raw)
         txt(ax, (CHIP_X0 + CHIP_X1) / 2, lyc, target, CHIP, INK, ha="center",
@@ -238,84 +243,92 @@ def draw_fork(ax):
     for (_, _, lyc), (_, _, _, raw) in zip(ROWS, MODELS):
         if raw:
             continue
-        sflow(ax, (SEG_B[1], YC), (FORK_X0, lyc), C_ANCHOR, lw=2.0, head=True)
+        sflow(ax, (SEG_B[1], YC), (FORK_X0, lyc), C_ANCHOR, lw=2.0, head=True,
+              c1=(148.0, YC), c2=(FORK_X0 - 12.0, lyc))
     # ... and the fourth braids around the anchor island: same information,
-    # no anchor.  This is the raw-target exception drawn as geometry, so a
-    # reader who never reads the notes still sees one stream skirt the anchor.
+    # no anchor.  It leaves the trunk on the grey segment, before the anchor
+    # chip begins, and climbs steeply enough to clear the chip's top edge --
+    # a reader who never reads the caption still sees one stream skirt the
+    # anchor.
     blue = MODELS[0][1]
-    sflow(ax, (SEG_A[1] - 16, YC + 2.0), (FORK_X0, ROWS[0][2]), blue, lw=2.0,
-          head=True, c1=(SEG_A[1] - 2, YC + 44), c2=(FORK_X0 - 20, ROWS[0][2]))
-    txt(ax, SEG_A[1] - 14, 140.5, "skips the anchor", TINY, blue,
-        box=(SEG_A[1] - 15, ISLAND[0] - 4))
+    sflow(ax, (58.0, YC + 4.0), (FORK_X0, ROWS[0][2]), blue, lw=2.0,
+          head=True, c1=(68.0, 172.0), c2=(112.0, ROWS[0][2]))
+    txt(ax, 88.0, 173.0, "skips the anchor", TINY, blue, box=(86, 156))
 
 
 def draw_merge(ax):
+    # The four streams converge behind the registry box: they are one channel
+    # from the moment scoring starts, which is the point of the box they enter.
     for (_, colour, _, _), (_, _, lyc) in zip(MODELS, ROWS):
-        sflow(ax, (FORK_X1, lyc), (STUB[0] + 3, YC), colour, lw=1.3, bow=0.62)
-    # The stub runs under the registry box so the four streams read as one
-    # channel entering it, not as four arrows stopping at a grey button.
-    rrect(ax, STUB[0], YC - TRUNK_H / 2, STUB[1] + 8, YC + TRUNK_H / 2,
-          fill=PIPE_FILL, edge=PIPE_EDGE, lw=0.7, r=3.0, z=4)
+        sflow(ax, (FORK_X1, lyc), (COL_X0 + 10, YC), colour, lw=1.3, bow=0.62)
 
 
-def draw_cascade(ax):
-    rrect(ax, COL_X0, 130, COL_X1, 158, fill="#FBFBFC", edge="#C9D1DB",
+def draw_column(ax):
+    # Prediction box: how a residual becomes a forecast, and the one exception.
+    rrect(ax, COL_X0, 160, COL_X1, 196, fill="#FBFBFC", edge="#C9D1DB",
           lw=0.6, r=3.0, z=1)
-    txt(ax, COL_X0 + 5, 152.5, "Prediction", BOXT, INK, weight="bold",
-        box=(COL_X0 + 4, COL_X1 - 4))
-    txt(ax, COL_X0 + 5, 142.5, r"$ŷ = A + r$", CHIP, INK,
-        box=(COL_X0 + 4, COL_X1 - 4))
-    txt(ax, COL_X0 + 5, 134.0, "LightGBM: ŷ direct", SMALL, MUTED,
-        box=(COL_X0 + 4, COL_X1 - 4))
+    txt(ax, COL_X0 + 6, 188.0, "Prediction", BOXT, INK, weight="bold",
+        box=(COL_X0 + 5, COL_X1 - 4))
+    txt(ax, COL_X0 + 6, 177.0, r"$ŷ = A + r$", CHIP, INK,
+        box=(COL_X0 + 5, COL_X1 - 4))
+    txt(ax, COL_X0 + 6, 166.5, "LightGBM: ŷ direct", SMALL, MUTED,
+        box=(COL_X0 + 5, COL_X1 - 4))
 
-    rrect(ax, COL_X0, 66, COL_X1, 122, fill="#FFFFFF", edge=INK, lw=1.1,
+    # The registry box is the fairness claim, so it gets the ink border and
+    # the bold close.  7.5 pt on a 9 pt pitch: the first version of this figure
+    # set these five lines on 7.3 pt and they read as one smear.
+    rrect(ax, COL_X0, 92, COL_X1, 154, fill="#FFFFFF", edge=INK, lw=1.1,
           r=3.0, z=5)
-    txt(ax, COL_X0 + 5, 113.3, "One key registry", BOXT, INK, weight="bold",
-        box=(COL_X0 + 5, COL_X1 - 5))
-    # The last sentence is the whole fairness claim, so it is set in ink and
-    # bold rather than left to die in 6.5 pt grey with the rest of the body.
-    body = (("Every model scored on", MUTED, "normal"),
-            ("the same station × date", MUTED, "normal"),
-            ("× lead keys.", MUTED, "normal"),
-            ("Declining to predict", INK, "bold"),
-            ("is a failure.", INK, "bold"))
-    for i, (line, colour, weight) in enumerate(body):
-        txt(ax, COL_X0 + 5, 103.0 - i * 7.3, line, SMALL, colour,
-            weight=weight, box=(COL_X0 + 5, COL_X1 - 5))
+    txt(ax, COL_X0 + 6, 146.0, "One key registry", BOXT, INK, weight="bold",
+        box=(COL_X0 + 6, COL_X1 - 5))
+    body = (("Every model scored on", MUTED, "normal", 135.5),
+            ("the same station × date", MUTED, "normal", 126.5),
+            ("× lead keys.", MUTED, "normal", 117.5),
+            ("Declining to predict", INK, "bold", 107.5),
+            ("is a failure.", INK, "bold", 98.5))
+    for line, colour, weight, y in body:
+        txt(ax, COL_X0 + 6, y, line, SMALL, colour,
+            weight=weight, box=(COL_X0 + 6, COL_X1 - 5))
 
-    steps = (("RMSE within station", 47.0, 60.0),
-             ("Paired station contrast", 28.0, 41.0),
-             ("Median across stations", 9.0, 22.0))
-    prev_bottom = 66.0
+    steps = (("RMSE within station", 62.0, 77.0),
+             ("Paired station contrast", 36.0, 51.0),
+             ("Median across stations", 10.0, 25.0))
+    prev_bottom = 92.0
     for label, sy0, sy1 in steps:
         vdown(ax, (COL_X0 + COL_X1) / 2, prev_bottom, sy1)
         rrect(ax, COL_X0, sy0, COL_X1, sy1, fill="#FFFFFF", edge=INK, lw=0.7,
               r=2.5, z=2)
         txt(ax, (COL_X0 + COL_X1) / 2, (sy0 + sy1) / 2, label, BODY, INK,
-            ha="center", box=(COL_X0 + 4, COL_X1 - 4))
+            ha="center", box=(COL_X0 + 3, COL_X1 - 3), z=6)
         prev_bottom = sy0
 
 
 def draw_inset(ax):
-    """The shape of the anchor.  Schematic: no axes, no ticks, no numbers."""
+    """The shape of the anchor.  Schematic: no axes, no ticks, no numbers.
+
+    The residual-bound sentence lives here, right-aligned under the |r| band
+    it describes, because this is the only place the band is drawn.  In the
+    first version it floated in the middle of the figure as a footnote and
+    collided with this panel.
+    """
     x0, y0, x1, y1 = INSET
     rrect(ax, x0, y0, x1, y1, fill="#FBFBFC", edge="#C9D1DB", lw=0.6, r=3.0, z=1)
-    txt(ax, x0 + 5, 52.5, "The anchor A", BODY, INK, weight="bold",
-        box=(x0 + 4, 72))
-    txt(ax, x1 - 5, 52.5, "schematic — not data", TINY, C_TR, ha="right",
-        box=(58, x1 - 2))
-    txt(ax, (x0 + x1) / 2, 39.0, r"$A = c + \varphi^{\,h}\,(y - c)$", MATH, INK,
+    txt(ax, x0 + 5, 78.0, "The anchor A", BODY, INK, weight="bold",
+        box=(x0 + 4, 66))
+    txt(ax, x1 - 5, 78.0, "schematic — not data", TINY, C_TR, ha="right",
+        box=(68, x1 - 3))
+    txt(ax, (x0 + x1) / 2, 62.5, r"$A = c + \varphi^{\,h}\,(y - c)$", MATH, INK,
         ha="center", box=(x0 + 4, x1 - 4))
 
     # One analytic exponential, drawn once, with no markers and no scale.  The
     # value axis carries no ticks and no units, so there is nothing on it a
     # reader could read a number off.
-    cx0, cx1 = 18.0, 126.0
-    y_c, y_start = 16.5, 29.0
+    cx0, cx1 = 16.0, 132.0
+    y_c, y_start = 30.0, 48.0
     u = np.linspace(0.0, 1.0, 240)
     xs = cx0 + u * (cx1 - cx0)
     ys = y_c + (y_start - y_c) * np.exp(-3.1 * u)
-    band = 2.5
+    band = 2.6
     ax.fill_between(xs, ys - band, ys + band, facecolor=tint(C_TR, 0.72),
                     edgecolor="none", zorder=2)
     ax.plot([cx0 - 4, cx1 + 2], [y_c, y_c], lw=0.7, color=MUTED,
@@ -323,30 +336,15 @@ def draw_inset(ax):
     ax.plot(xs, ys, lw=1.6, color=C_ANCHOR, zorder=4, solid_capstyle="round")
     ax.plot([cx0], [y_start], marker="o", ms=2.6, color=C_ANCHOR, zorder=5)
 
-    txt(ax, cx0 - 6, y_start, "y", SMALL, MUTED, ha="right", box=(x0 + 3, cx0 - 5))
-    txt(ax, cx1 + 5, y_c, "c", SMALL, MUTED, box=(cx1 + 4, x1 - 3))
-    ax.plot([112, 112], [23.6, 19.6], lw=0.6, color=C_TR, zorder=5)
-    txt(ax, x1 - 6, 26.6, r"$|r| < 1$ °C", TINY, C_TR, ha="right",
-        box=(84, x1 - 4))
-    txt(ax, x0 + 5, 8.5, "lead time h, from the issue time", TINY, MUTED,
+    txt(ax, cx0 - 5, y_start, "y", SMALL, MUTED, ha="right", box=(x0 + 3, cx0 - 4))
+    txt(ax, cx1 + 4, y_c, "c", SMALL, MUTED, box=(cx1 + 3, x1 - 3))
+    ax.plot([120, 120], [33.4, 37.4], lw=0.6, color=C_TR, zorder=5)
+    txt(ax, x1 - 6, 41.0, r"$|r| < 1$ °C", TINY, C_TR, ha="right",
+        box=(96, x1 - 4))
+    txt(ax, x1 - 6, 20.5, "bounds r about A, not the error", TINY, MUTED,
+        ha="right", box=(24, x1 - 4))
+    txt(ax, x0 + 5, 12.0, "lead time h, from the issue time", TINY, MUTED,
         box=(x0 + 4, x1 - 4))
-
-
-def draw_notes(ax):
-    rows = (
-        (MODELS[0][1], 40.0, ("LightGBM predicts ŷ directly (raw target +",
-                              "site identity); scored on the same keys.")),
-        (C_TR, 20.0, ("ThermoRoute bounds $|r| < 1$ °C about the",
-                      "anchor only — not a bound on error.")),
-    )
-    for colour, ytop, lines in rows:
-        ax.add_patch(FancyBboxPatch(
-            (NOTE_X, ytop - 2.0), 4.0, 4.0,
-            boxstyle="round,pad=0,rounding_size=0.6",
-            facecolor=colour, edgecolor=colour, linewidth=0, zorder=4))
-        for i, line in enumerate(lines):
-            txt(ax, NOTE_TEXT_X, ytop - i * 8.4, line, BODY, MUTED,
-                box=(NOTE_TEXT_X, NOTE_X1))
 
 
 def check_fits(fig, ax, stem="fig02_model_concept"):
@@ -376,10 +374,10 @@ def build():
     # Not "same anchor" in the headline: the anchor is shared by three of the
     # four, and the figure says so twice below.  Information and keys are the
     # controls that hold for all four; the target is the axis that varies.
-    txt(ax, 0, 179.0,
+    txt(ax, 0, 229.0,
         "Same information, same keys — the only fork is the regression target",
         TITLE, INK, weight="bold", box=(0, W))
-    txt(ax, 0, 166.5,
+    txt(ax, 0, 216.5,
         "Protocol schematic; no results shown. Tuning is not equalised; "
         "the optional F3 forcing axis is not drawn.",
         SUB, MUTED, box=(0, W))
@@ -387,8 +385,7 @@ def build():
     draw_trunk(ax)
     draw_fork(ax)
     draw_merge(ax)
-    draw_cascade(ax)
-    draw_notes(ax)
+    draw_column(ax)
     return fig, ax
 
 
