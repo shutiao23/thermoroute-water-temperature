@@ -372,21 +372,27 @@ no-intercept least squares on training-period consecutive-day anomaly pairs. The
 same object, fitted identically, is the damped-persistence reference. The
 residual comes from a strictly left-looking temporal convolutional encoder over
 a 14-lag window, with a horizon-conditioned router, a three-expert mixture and a
-\(\pm1\,{}^\circ\)C algebraic bound on the deviation from the anchor; one model
-serves all three leads, 38,505 trainable parameters, five seeds averaged (Text
-S3, Figure 2). The architecture is the object under test rather than the
+\(\pm1\,{}^\circ\)C algebraic bound on the deviation from the anchor (Figure 2);
+one model serves all three leads, 38,505 trainable parameters, five seeds
+averaged (Text S3). The architecture is the object under test rather than the
 contribution: Section 4.2 shows an information-matched plain causal network
 reproduces it to within 0.023 °C.
 
 \begin{figure}[!t]
 \centering
-\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Common anchor--residual formulation under matched information.}]{figures/fig02_model_concept.pdf}}
-\caption{\textbf{The formulation every compared model shares.} LightGBM is a
-\emph{raw-target} model with site identity; ResidualLightGBM, the plain causal TCN
-and ThermoRoute predict a residual around the same anchor, on identical keys and
-the same information set. The figure is structural and carries no evidence from
-either period; the fairness controls this paper is about are easier to check in
-a diagram than in prose.}
+\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={One shared run, one key registry, and a single fork at the regression target.}]{figures/fig02_model_concept.pdf}}
+\caption{\textbf{Everything the compared models share, and the one thing they do
+not.} A single run supplies every model the same information set --- nothing
+dated after the issue time (regime F0) --- and the same damped-persistence
+anchor $A$ (inset), which three of the four predict a residual around while
+LightGBM predicts the raw target $y$ directly with site identity. That target is
+the only fork. All models are then scored on one registry of station $\times$
+date $\times$ lead keys, on which declining to predict counts as a failure
+rather than an exclusion, and reduced by the same station-first path: RMSE
+within station, paired contrast, median across stations. The
+$\pm1\,{}^\circ$C bound constrains the residual about the anchor, not the
+forecast error. The figure is structural and carries no evidence from either
+period; tuning is not equalised and the optional F3 forcing axis is not drawn.}
 \end{figure}
 
 \subsection{The reference set}\label{the-reference-set}
