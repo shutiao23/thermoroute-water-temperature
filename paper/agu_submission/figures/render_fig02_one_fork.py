@@ -339,7 +339,7 @@ def draw_inset(ax):
     txt(ax, cx0 - 5, y_start, "y", SMALL, MUTED, ha="right", box=(x0 + 3, cx0 - 4))
     txt(ax, cx1 + 4, y_c, "c", SMALL, MUTED, box=(cx1 + 3, x1 - 3))
     ax.plot([120, 120], [33.4, 37.4], lw=0.6, color=C_TR, zorder=5)
-    txt(ax, x1 - 6, 41.0, r"$|r| < 1$ °C", TINY, C_TR, ha="right",
+    txt(ax, x1 - 6, 41.0, r"$|r\,| < 1$ °C", TINY, C_TR, ha="right",
         box=(96, x1 - 4))
     txt(ax, x1 - 6, 20.5, "bounds r about A, not the error", TINY, MUTED,
         ha="right", box=(24, x1 - 4))
