@@ -326,7 +326,7 @@ The last three files were added because they are the remaining tests that load
 Evidence:
 
 1. All 17 are in `tests/test_manifest_release.py`, in post-opening / transport /
-   checkpoint / lineage fixtures, and fail inside another agent's in-flight
+   checkpoint / lineage fixtures, and fail during an unrelated in-flight
    `RunIdentity` v2→v3 migration — representative traceback
    `ValueError: Git stage09_completion RunIdentity v3 is malformed`, raised
    around `verify_release.py:1393`, far from anything added here. That change is

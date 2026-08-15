@@ -22,8 +22,8 @@ import scripts.final.run_forcing_ladder_v5_observed as V5  # noqa: E402
 
 @pytest.fixture(scope="module")
 def base_capture() -> dict[str, V5._BoundFile]:
-    # Document/attack tests need a coherent snapshot even while other agents
-    # are editing a pinned source in the shared worktree.  Production still
+    # Document/attack tests need a coherent snapshot even while concurrent work
+    # is editing a pinned source in the shared worktree.  Production still
     # uses the literal runner pins and fails closed until the final pin refresh.
     def live_hashes(paths) -> MappingProxyType:
         return MappingProxyType(

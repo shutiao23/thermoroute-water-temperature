@@ -1,8 +1,8 @@
 # WRR information-regime completion tracker
 
 Snapshot: 2026-08-10 UTC (DLOG-027 pass)
-Scope: all work requested by the external review in
-`pasted-text.txt`, reconciled with the current repository evidence state.
+Scope: all work requested by the external review, reconciled with the current
+repository evidence state.
 
 This tracker is operational. The detailed scientific rationale remains in
 `docs/WRR_REFEREE_REPORT_AND_COMPLETION_PLAN_20260809.md`; evidence eligibility
@@ -53,16 +53,13 @@ is governed only by `docs/SCIENTIFIC_EVIDENCE_STATUS.md` and the decision log.
 | T25 | P0 | Submission metadata and FAIR release | NEEDS AUTHOR/RIGHTS INPUT | Author/affiliation/ORCID/funding/CRediT/conflict fields, data/software DOI, licence, tag, URL and independent reproduction are closed |
 | T26 | P0 | Final verification | BLOCKED BY ALL ABOVE | Full tests collect and pass in declared environments; Ruff/format, manuscript consistency, injection tests, manifests and hashes pass |
 
-## Model allocation for future work
+## Review requirements for future work
 
 - Scientific architecture, protocol, experiment design, core model code and
-  evidence review: `gpt-5.6-sol` with `max` reasoning.
-- Paper drafting and substantive scientific revision: `gpt-5.6-sol` with
-  `xhigh` reasoning.
-- Ordinary code/control changes: `gpt-5.6-sol` with `high` reasoning.
-- The requested `gpt-5.6-luna` model is not available in this runtime. Small
-  automation work uses the lowest suitable available model/effort without
-  lowering the review level of scientific artifacts.
+  evidence changes require the highest review level.
+- Paper drafting and substantive scientific revision require independent
+  scientific review.
+- Ordinary code and control changes require the standard test and review path.
 
 ## User- or institution-controlled closeout items
 

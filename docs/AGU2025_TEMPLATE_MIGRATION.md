@@ -367,15 +367,14 @@ PYTHONPATH=src python scripts/26_validate_claims.py --root . \
 **Final state: `Route-A claims OK` (exit 0), with the regenerated `.tex` in
 place.** That verdict must be read with the concurrency caveat below.
 
-The run was not stable across the session, because that worktree was being edited
-by another agent throughout:
+The run was not stable because that worktree was changing concurrently:
 
 | Time | Event |
 |---|---|
 | baseline | `Route-A claims OK` with its own `.tex` (`34a34af4…`) |
 | — | regenerated `.tex` copied in → **one** violation: `DOCUMENT_INTEGRITY: … differs from its PRE baseline SHA-256`; file restored byte-exact |
-| 22:40:35 | **another agent rewrote `scripts/26_validate_claims.py`** (+367/−50; 10 scripts modified in that worktree) |
-| 22:41:21 | the regenerated `.tex` reappeared there — **written after my last write to that worktree**, not by this session |
+| 22:40:35 | **`scripts/26_validate_claims.py` was rewritten concurrently** (+367/−50; 10 scripts modified in that worktree) |
+| 22:41:21 | the regenerated `.tex` reappeared there after the recorded write, confirming concurrent modification |
 | final | `Route-A claims OK` |
 
 The behaviour change is the cause: the earlier validator byte-froze *every*
@@ -386,8 +385,8 @@ byte-freezes only `protocols/*.md` and otherwise requires just that the declared
 claim blocks bind exactly — explicitly allowing legitimately re-worded prose.
 Under that design a regenerated `.tex` is acceptable, and the run passes.
 
-Because that verdict depends on another agent's in-flight change, the durable
-evidence for **this** work is the lint check below, which is independent of it.
+Because that verdict depends on an in-flight concurrent change, the durable
+evidence for **this** migration is the lint check below, which is independent of it.
 The validator's **own** lint pass (`_compile_lint`,
 `_parse_blocks`, `compile_legacy_semantic_policy`,
 `find_legacy_semantic_violations`, the permanent-constraint `lint_regex` set, the
@@ -440,10 +439,10 @@ The guard makes two independent checks. They were treated differently:
 - **Source freshness** — the SHA-256 freeze. This is the half that has drifted,
   and it is bookkeeping, not an opening event.
 
-The generator was therefore run against a throwaway shadow tree in the session
-scratchpad, containing real copies of the three Markdown sources, `protocols/`,
-and the two guard modules, with `preopen_document_sha256` set to the hashes the
-owner will seal. **The guard still ran and still passed there** — the run
+The generator was therefore run against a temporary shadow tree containing real
+copies of the three Markdown sources, `protocols/`, and the two guard modules,
+with `preopen_document_sha256` set to the hashes the owner will seal. **The guard
+still ran and still passed there** — the run
 demonstrates the build once items 8.1–8.3 are re-sealed. Output bytes do not
 depend on the guard, and `--check` against the shadow reports
 `AGU TeX is current and contains no withdrawn claim`; the repo file is

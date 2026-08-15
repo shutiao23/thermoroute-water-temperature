@@ -6,10 +6,9 @@ PRE-OPEN prose, removes machine-only HTML claim comments from visible Word
 content, preserves the eight scope sentences as ordinary paragraphs, and fails
 if a known legacy result claim survives into an artifact.
 
-Run with the Codex primary runtime Python because it provides python-docx:
+Run with a Python environment that provides python-docx:
 
-    /path/to/codex-primary-runtime/dependencies/python/bin/python \
-        scripts/29_render_preopen_manuscripts.py
+    python scripts/29_render_preopen_manuscripts.py
 """
 # ruff: noqa: E402 -- the PRE guard must run before any python-docx import.
 

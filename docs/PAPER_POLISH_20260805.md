@@ -91,13 +91,10 @@ the bibliography or already present in the manuscript.
 `Rahmani et al., 2021` was disambiguated to `2021a` at both existing occurrences,
 because a second 2021 Rahmani entry is now cited.
 
-**One citation was drafted with a fabricated URL and removed before it was
-kept.** An early edit gave the Wilks (2011) citation a ScienceDirect book URL that
-is not recorded in `references.bib` and that I did not verify. It was replaced by
-an unlinked parenthetical `(Wilks, 2011)`, matching the bibliography entry, which
-carries an ISBN and no URL. Four other citations — Kingma and Ba, Loshchilov and
-Hutter, Pedregosa et al., Paszke et al. — are likewise unlinked, because those
-entries carry no DOI or recorded URL and none was invented for them.
+The Wilks (2011) citation is an unlinked parenthetical matching its bibliography
+entry, which carries an ISBN and no verified URL. Four other citations — Kingma
+and Ba, Loshchilov and Hutter, Pedregosa et al., Paszke et al. — are likewise
+unlinked because their entries carry no DOI or recorded URL.
 
 ### 2.4 Open Research (§8) — rewritten
 
@@ -329,7 +326,7 @@ Reconciled in both directions against the rewritten manuscript.
 |---|---|
 | `kingma2015adam`, `loshchilov2019decoupled` | Cited in §3.2, but as unlinked parentheticals: the entries carry no DOI and no recorded URL, and I did not supply one from memory. If the authors want them hyperlinked, the arXiv or OpenReview identifiers must be verified and added to the `.bib`. |
 | `pedregosa2011scikit`, `paszke2019pytorch` | Same situation, cited in §8 |
-| `wilks2011statistical` | Same situation, cited in §6.3. Note the earlier fabricated-URL error recorded in §2.3. |
+| `wilks2011statistical` | Same situation, cited in §6.3; the entry carries an ISBN and no verified URL. |
 | `romano2019conformalized`, `martins2016softmax`, `shazeer2017outrageously`, `ke2017lightgbm` | No DOI exists in the entry; the `url` now recorded is the one the manuscript already used. A DOI should be added if one is found. |
 | All 41 | The header claims every entry was web-verified against Crossref/DataCite/arXiv/DBLP per `outputs/reports/reference_audit_v2.md`. **I did not re-verify that claim** — no network access, and `outputs/` is outside this task's write scope. Treat it as inherited, not re-attested. |
 

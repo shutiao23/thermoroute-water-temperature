@@ -84,8 +84,8 @@ Verified by inspection of `DEFAULT_SOURCE_PATTERNS`: none of these match any pat
 
 `git checkout -- <path>`, `git restore <path>`, `git stash`, `git reset` and
 `git clean` all discard uncommitted content. In a worktree where work is in
-progress — especially one several agents are writing to — they destroy it
-silently and without a prompt.
+progress — especially one with concurrent writers — they destroy it silently
+and without a prompt.
 
 This happened twice on 2026-08-05/06:
 

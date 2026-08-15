@@ -9,10 +9,10 @@
 | Review mode | Fork A (recommended) is assumed throughout, unless a step is explicitly marked "Fork B only" |
 | Verification method | `grep` import-graph sweep over `src/`, `scripts/`, `tests/`, `ops/`, `.github/`; line-range reads of every EDIT-file gate site; KEEP-closure transitive check |
 
-This document is the output of the architecture-review sub-agent. It (a) records
-verification findings against the live tree, (b) gives a dependency-ordered
-execution sequence that fixes the gaps found, (c) lists every surgical-edit site
-at file:line precision, and (d) specifies the post-deletion verification regime.
+This document records the architecture-review findings against the live tree,
+gives a dependency-ordered execution sequence that fixes the gaps found, lists
+every surgical-edit site at file:line precision, and specifies the post-deletion
+verification regime.
 **It does not perform any deletion or edit.**
 
 ---

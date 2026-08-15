@@ -4,11 +4,10 @@
 **Scope:** README.md and docs/ only. No code, tests, scripts, paper/, or .github/
 files were touched. Nothing was committed.
 
-This record documents the Phase 3 text portion of
-`/home/lzq/.claude/plans/feat-conventional-hidden-fox.md`: removing the
-Route-A sealed pre-registration narrative (seals, one-time opening, receipts,
-claim registry, inference gates) from the repository's user-facing text and
-retiring the apparatus-era design documents.
+This record documents the Phase 3 text cleanup: removing the Route-A sealed
+pre-registration narrative (seals, one-time opening, receipts, claim registry,
+inference gates) from the repository's user-facing text and retiring the
+apparatus-era design documents.
 
 ## 1. README.md — rewritten
 
