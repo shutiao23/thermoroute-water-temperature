@@ -118,8 +118,7 @@
 % this generator.  Replace with one \authors entry carrying the final agreed
 % order in the 2025 form --- ``Name\affil{1}\thanks{funding}, Name\affil{2}''
 % --- one \affiliation per distinct affiliation, and a verified institutional
-% address.  The signed intake schema is
-% docs/FAIR_SUBMISSION_READINESS_AND_TEMPLATES.md section 2.
+% address. Complete and verify all author metadata before submission.
 \authors{[AUTHOR LIST TO BE COMPLETED]\affil{1}}
 \affiliation{1}{[AFFILIATION 1 TO BE COMPLETED --- department or laboratory, institution, city, postcode, country]}
 \affiliation{2}{[AFFILIATION 2 TO BE COMPLETED --- add or delete affiliation lines to match the final author list]}
@@ -282,7 +281,7 @@ Section 3.1; its architecture is the object under test, not the contribution.
 
 \subsection{The frozen panel and the cohort it defines}\label{the-frozen-panel-and-the-cohort-it-defines}
 
-The development record is a single derived panel bound by a manifest to a station
+The development record comprises a single derived panel and a fixed station
 registry (SI01). Each of 120 sites carries one row per calendar day from
 2006-01-01 through 2020-12-31, giving 657,480 rows, missing observations being
 explicit nulls rather than absent rows. The models consume seven raw variables ---
@@ -321,17 +320,6 @@ failing to predict is a failure, not an exclusion. Section 4.1 measures what
 that rule is worth. The development registry holds 249,072 keys, 83,024 per
 lead, and never carries a held-out claim.
 
-\begin{figure}[!t]
-\centering
-\pandocbounded{\includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio,alt={Study sites and evaluation design.}]{figures/fig01_study_design.pdf}}
-\caption{\textbf{Study sites and evaluation design.} (a) The 120 U.S. gauges coloured
-by the four deterministic whole-HUC2-region folds. (b) Temporal partitions.
-(c) The three evaluation tasks: known-site forecasting, random held-site
-transfer, and whole-region gauged transfer. (d) The issue-time information
-boundary --- every model scored on the identical common forecast-key registry, no
-model-specific complete-case set permitted.}
-\end{figure}
-
 \subsection{Evaluation-period inputs and the information boundary}\label{evaluation-period-inputs-and-the-information-boundary}
 
 The test interval is 2021-01-01 through 2023-12-31 for the same cohort, with
@@ -351,8 +339,24 @@ quantity, but the panel column is not m³ s⁻¹. Values are retained irrespecti
 of approval qualifier; 2,059 of 657,480 rows carry negative discharge, a real
 measurement at tidal and regulated reaches, and observed water temperature spans
 −0.90 to 34.30 °C. The qualifier ledger and the provider-specific day
-definitions are in SI12. Test-window daily means are outcomes only: no model-,
-feature-, threshold-, calibration- or station-selection code reads them.
+definitions are in SI12. Test-window daily means are used only as outcomes and
+do not enter model fitting, feature construction, threshold estimation,
+calibration, or station selection.
+
+\begin{figure}[!t]
+\centering
+\pandocbounded{\includegraphics[width=\linewidth,keepaspectratio,alt={Station map, HUC2 cluster geometry, and persistence challenge.}]{figures/fig01_preopening_concept.pdf}}
+\caption{\textbf{Cohort geometry and persistence challenge.} (a) The 120
+availability-selected CONUS gauges, redundantly encoded by HUC2 region, and
+their nearest-neighbour distances. (b) HUC2 counts and three prespecified
+geometry checks; two fail, restricting inference to fixed-cohort descriptive
+statements. Target water temperature at $t+h$ and post-issue weather are
+excluded from predictor inputs. (c) Across 120 equally weighted stations,
+distributions of median observed $\lvert T_{t+h}-T_t\rvert$ at 1-, 3- and 7-day
+horizons from exact-day pairs wholly within 2006--2015. This is a
+training-period motivation quantity, not a model score.}
+\end{figure}
+\clearpage
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -363,9 +367,10 @@ feature-, threshold-, calibration- or station-selection code reads them.
 ThermoRoute predicts at issue time \emph{t}, station \emph{i} and lead \emph{h} by adding a
 bounded learned residual to a damped-persistence anchor,
 
-\begin{quote}
-\textbf{(1)} \(A_{i,t+h} = c_{i,t+h} + \phi_i^h\,(y_{i,t} - c_{i,t})\)
-\end{quote}
+\begin{equation}
+A_{i,t+h} = c_{i,t+h} + \phi_i^h\bigl(y_{i,t} - c_{i,t}\bigr),
+\label{eq:damped-persistence}
+\end{equation}
 
 where \(c\) is a seasonal climatology and \(\phi_i\) a per-station decay fitted by
 no-intercept least squares on training-period consecutive-day anomaly pairs. The
@@ -399,8 +404,8 @@ period; tuning is not equalised and the optional F3 forcing axis is not drawn.}
 
 The reference set is what a reported gain is a gain over, and each member removes
 one alternative explanation for apparent skill. \textbf{Persistence}
-(\texttt{ŷ\_\allowbreak{}\{t+h\}\ \allowbreak{}=\ \allowbreak{}y\_\allowbreak{}t}) quantifies raw series memory; \textbf{damped persistence}, equation
-(1) fitted on the training period, is the primary reference; \textbf{climatology}
+(\(\hat y_{t+h}=y_t\)) quantifies raw series memory; \textbf{damped persistence}, equation
+\eqref{eq:damped-persistence}, fitted on the training period, is the primary reference; \textbf{climatology}
 isolates the seasonal cycle. \textbf{LightGBM}
 \cite{ke2017lightgbm}
 is the principal learned reference, run globally with site identity and per
@@ -418,22 +423,21 @@ boosting in general.
 
 \subsection{Leakage control and spatial partitions}\label{leakage-control-and-spatial-partitions}
 
-Leakage control is a set of mechanisms checkable against the code, not a
-statement of intent: every predictor carries a date no later than the issue
-date, the encoder is strictly left-looking, standardization constants, q90 event
-thresholds (2006--2015) and the 2018 conformal offsets and Platt calibrators are
-each fitted strictly before the interval they apply to, and a fresh interpreter
-replays every trained member rather than trusting self-consistent prediction
-files. The mask covers the primary predictor path; the issue-date auxiliary
-quantities behind the relaxation proposal and the regime gate share it rather
-than carrying one of their own, so invariance to fill values is enforced for the
-predictors and not proved for those two paths (SI02).
+Leakage control was enforced by construction: every predictor carries a date no
+later than the issue date, the encoder is strictly left-looking, and
+standardization constants, q90 event thresholds (2006--2015), 2018 conformal
+offsets, and Platt calibrators are each estimated strictly before the interval
+to which they apply. Predictions were regenerated independently from each
+fitted model for verification. The same mask is applied to the primary
+predictors and to the issue-date auxiliary quantities used by the relaxation
+proposal and regime gate; fill-value invariance is therefore established for
+the predictors but not separately for those auxiliary quantities (SI02).
 
 Random held-site splits can be optimistic, because a held gauge\textquotesingle s neighbours
 remain in training and the model reaches its thermal regime through correlated
 forcing and shared preprocessing. We therefore compare four balanced random
 folds against four leave-HUC2-region folds of {[}30, 30, 31, 29{]} stations, at a
-mean 289 km from the nearest training gauge (protocol v1; SI11). Held sites
+mean 289 km from the nearest training gauge (SI11). Held sites
 still supply their own water temperature through the issue date, so this is
 \textbf{gauged} transfer to a region whose gauges were not fitted, not prediction at
 a site with no record. Split-conformalized intervals are calibrated on 2018 only
@@ -441,12 +445,21 @@ and reported as a marginal coverage diagnostic (SI08).
 
 \subsection{Estimand, metrics, and comparison set}\label{estimand-metrics-and-comparison-set}
 
-\textbf{Two differently signed quantities are reported and never combined:} the
-paired effect \textbf{(2)} \(\Delta\mathrm{RMSE} = \mathrm{RMSE}(\mathrm{cand}) -
-\mathrm{RMSE}(\mathrm{ref})\) in \({}^\circ\)C, where \textbf{negative} favors the
-candidate, and the skill score \textbf{(3)} \(\mathrm{skill} = 1 -
-\mathrm{RMSE}(\mathrm{cand})/\mathrm{RMSE}(\mathrm{ref})\), dimensionless,
-where \textbf{positive} does. Every value in Section 4 is labeled with which it is.
+\textbf{Two differently signed quantities are reported and never combined.}
+The paired effect, in \({}^\circ\)C, is
+\begin{equation}
+\Delta\mathrm{RMSE}
+= \mathrm{RMSE}(\mathrm{cand}) - \mathrm{RMSE}(\mathrm{ref}),
+\label{eq:delta-rmse}
+\end{equation}
+where \textbf{negative} favors the candidate. The dimensionless skill score is
+\begin{equation}
+\mathrm{skill}
+= 1 - \frac{\mathrm{RMSE}(\mathrm{cand})}{\mathrm{RMSE}(\mathrm{ref})},
+\label{eq:skill-score}
+\end{equation}
+where \textbf{positive} favors the candidate. Every value in Section 4 is
+labeled with which quantity it is.
 The sampling unit is the station: unweighted RMSE is computed on the common
 daily keys per reportable station and the primary effect is the unweighted
 median across stations, a station/lead cell being reportable only with at least
@@ -472,13 +485,13 @@ decision evidence.
 
 \section{Results}\label{results}
 
-\textbf{Three evidence grades are used and they are not interchangeable.} Sections
+\textbf{Three analysis categories are used and they are not interchangeable.} Sections
 4.1 and 4.3 are \emph{confirmatory}: suite, family, estimand, margins and decision
 rules were fixed on data through 2020 and the window opened only to score them.
 Section 4.2 is a \emph{development diagnostic} on the 2019--2020 partition, which
 participated in cohort construction. Sections 4.4--4.6 are \emph{post-outcome
 descriptive}, specified after the window had been opened; they carry that label
-wherever they are quoted, and SI20 maps each to its grade, artifact and
+wherever they are quoted. SI20 records each analysis\textquotesingle s category and
 specification date. Every value below is an unweighted station median over
 reportable stations on the relevant common key registry, in °C.
 
@@ -487,7 +500,8 @@ reportable stations on the relevant common key registry, in °C.
 \textbf{The reference collapse is a property of the panel, not of one model.} On
 identical keys the same fixed model reports a seven-day median station skill of
 +0.251 against persistence and +0.038 against damped persistence, a factor of
-6.6 between two numbers differing only in the denominator of equation (3). That
+6.6 between two numbers differing only in the denominator of equation
+\eqref{eq:skill-score}. That
 would be a fact about ThermoRoute if it stopped there. It does not: every model
 in the suite behaves the same way (Table 1). All six lie between +0.218 and
 +0.250 against persistence --- a band narrow enough that a reader comparing two
@@ -501,7 +515,7 @@ persistence. The same fitted object, on the same days, either captures a fifth
 of the seven-day error budget or is indistinguishable from the baseline,
 according only to which reference sits in the denominator. Rebuilding the anchor
 under seven predeclared one-factor variants moves ThermoRoute\textquotesingle s seven-day skill
-from +0.025 to +0.063 (\texttt{outputs/\allowbreak{}final/\allowbreak{}anchor\_\allowbreak{}sensitivity.parquet}); the better
+from +0.025 to +0.063 (SI20); the better
 the anchor, the less any learned model adds.
 
 \textbf{The key set is the second channel, and this cohort measures it.} Fourteen of
@@ -514,14 +528,13 @@ ability to handle it. Whether that subset is easier needs no counterfactual
 model, because fourteen models did predict those keys: \textbf{every one of six
 witnesses spanning persistence to deep learning scores 17--25\% worse on the
 declined keys than on the rest} (median ratio 1.21; ThermoRoute 1.560 against
-1.300 °C, damped persistence 1.720 against 1.396 °C;
-\texttt{outputs/\allowbreak{}final/\allowbreak{}key\_\allowbreak{}set\_\allowbreak{}counterfactual\_\allowbreak{}v1/\allowbreak{}}). The days a model drops, when it is
+1.300 °C, damped persistence 1.720 against 1.396 °C). The days a model drops, when it is
 allowed to drop days, are materially harder than the days it keeps. That is the
 size of the advantage the common-key registry removes by construction.
 
 \textbf{Table 1 --- every model, its accuracy, and what it reports against each
 reference.} Station-median RMSE in °C at each lead and median station skill
-(equation 3) at seven days, all on the identical held-out registry, 116
+(equation~\eqref{eq:skill-score}) at seven days, all on the identical held-out registry, 116
 reportable stations, with whole-HUC2 cluster-bootstrap intervals. Reading down a
 column compares models; reading across a row shows what the reference alone does
 to one fitted object. The three reference models carry no skill against
@@ -536,13 +549,13 @@ themselves. MAE and bias are the same rows in SI07.
 Model & RMSE 1 d & RMSE 3 d & RMSE 7 d & Skill 7 d vs. persistence & Skill 7 d vs. damped \\
 \midrule\noalign{}
 Persistence & 0.813 & 1.638 & 2.202 & --- & --- \\
-DampedPersistence & 0.789 & 1.454 & 1.773 & --- & --- \\
+Damped persistence & 0.789 & 1.454 & 1.773 & --- & --- \\
 Climatology & 1.899 & 1.902 & 1.903 & --- & --- \\
 LightGBM & 0.589 & 1.304 & 1.735 & +0.248 {[}+0.230, +0.263{]} & +0.030 {[}+0.027, +0.037{]} \\
 LSTM & 0.663 & 1.358 & 1.712 & +0.244 {[}+0.225, +0.256{]} & +0.028 {[}+0.027, +0.034{]} \\
-PlainMLP-7var & 0.690 & 1.374 & 1.720 & +0.243 {[}+0.220, +0.255{]} & +0.023 {[}+0.020, +0.032{]} \\
-PlainCausalTCN-7var & 0.646 & 1.330 & 1.710 & +0.246 {[}+0.223, +0.258{]} & +0.028 {[}+0.024, +0.034{]} \\
-Air2stream & 0.719 & 1.459 & 1.825 & +0.218 {[}+0.167, +0.233{]} & \ensuremath{-}0.011 {[}\ensuremath{-}0.031, +0.007{]} \\
+Plain MLP & 0.690 & 1.374 & 1.720 & +0.243 {[}+0.220, +0.255{]} & +0.023 {[}+0.020, +0.032{]} \\
+Plain causal TCN & 0.646 & 1.330 & 1.710 & +0.246 {[}+0.223, +0.258{]} & +0.028 {[}+0.024, +0.034{]} \\
+air2stream & 0.719 & 1.459 & 1.825 & +0.218 {[}+0.167, +0.233{]} & \ensuremath{-}0.011 {[}\ensuremath{-}0.031, +0.007{]} \\
 ThermoRoute & 0.640 & 1.337 & 1.694 & +0.250 {[}+0.235, +0.268{]} & +0.038 {[}+0.033, +0.046{]} \\
 \bottomrule\noalign{}
 \end{tabularx}
@@ -554,12 +567,12 @@ ThermoRoute & 0.640 & 1.337 & 1.694 & +0.250 {[}+0.235, +0.268{]} & +0.038 {[}+0
 \caption{\textbf{Decomposition of reported skill on the held-out 2021--2023 window (116 reportable stations).} (a) Station-median RMSE by lead, every compared
 model. (b) The seven-day error budget: 0.49 °C of the reduction comes from
 damping the anchor and 0.07 °C from the learned residual. (c) Paired station
-effects for the five sealed tests, median and interquartile range; negative
+effects for the five prespecified comparisons, median and interquartile range; negative
 values favor ThermoRoute. Panel (c) shows the dispersion of the paired effects,
 not the narrower cluster-bootstrap intervals of Table 2.}
 \end{figure}
 
-\subsection{A tree is the most accurate model, and the architecture is reproducible}\label{a-tree-is-the-most-accurate-model-and-the-architecture-is-reproducible}
+\subsection{Development-window ranking and architectural reproducibility}\label{development-window-ranking-and-architectural-reproducibility}
 
 On the development window the tree has the lowest station-median RMSE at all
 three leads (0.578, 1.280 and 1.649 °C against ThermoRoute\textquotesingle s 0.631, 1.291 and
@@ -582,25 +595,26 @@ against damped persistence, the tree with site identity leads at one and three
 days (0.589 and 1.304 °C), and at seven days ThermoRoute reaches 1.694 °C
 against the tree\textquotesingle s 1.735 °C. Against the information-matched plain convolutional
 network the paired station median is −0.015 °C at seven days in ThermoRoute\textquotesingle s
-favour, a contrast outside the sealed family carrying no decision.
+favour, a contrast outside the prespecified comparison set and therefore
+interpreted descriptively.
 
-\textbf{Each test is read at the margin it was sealed at} (Section 3.4). All five
-rows meet their sealed decision rule. Two readings are worth stating: row 4
+\textbf{Each comparison is evaluated against its prespecified margin} (Section 3.4).
+All five meet their prespecified decision rule. Two readings are worth stating: row 4
 meets a non-inferiority margin at a lead where the tree is the better model
 (+0.015 °C, interval excluding zero from above), and at seven days the median of
 −0.009 °C has an interval covering zero, so that row establishes the ceiling
-rather than a win. The seal is repository-internal Git and SHA-256 evidence and
-its scope is set out in SI20.
+rather than a win. The comparison set, margins, and decision rules are
+documented in SI05--SI06.
 
-\textbf{Table 2 --- the five sealed tests, each at its registered margin.} ThermoRoute is
+\textbf{Table 2 --- the five prespecified comparisons, each evaluated at its
+prespecified margin.} ThermoRoute is
 the candidate and 116 stations are reportable throughout. Station-level ΔRMSE in
 °C, negative favors ThermoRoute; whole-HUC2 cluster-bootstrap intervals; sign-flip
 p computed against the row\textquotesingle s own margin, Holm-adjusted (unadjusted p ≤ 6.1 × 10⁻⁵
-throughout, the floor for 15 clusters). Rows 4 and 5 were registered as
+throughout, the floor for 15 clusters). Rows 4 and 5 were prespecified as
 non-inferiority tests, so a margin of zero would misreport them. "Meets margin"
 is the literal reading and not a claim that the candidate won: row 4 meets its
-margin at a lead where the tree is the better model
-(\texttt{outputs/\allowbreak{}final/\allowbreak{}sealed\_\allowbreak{}confirmatory\_\allowbreak{}family\_\allowbreak{}v1/\allowbreak{}}).
+margin at a lead where the tree is the better model.
 
 {\small
 \setlength{\tabcolsep}{3pt}
@@ -608,13 +622,13 @@ margin at a lead where the tree is the better model
 \noindent
 \begin{tabularx}{\dimexpr\linewidth-24pt\relax}{@{}r>{\hsize=1.9566\hsize\raggedright\arraybackslash}Xl>{\hsize=0.7583\hsize\raggedleft\arraybackslash}X>{\hsize=0.9031\hsize\raggedleft\arraybackslash}X>{\hsize=0.9600\hsize\raggedright\arraybackslash}X>{\hsize=0.4783\hsize\raggedleft\arraybackslash}Xr>{\hsize=0.9437\hsize\raggedright\arraybackslash}X@{}}
 \toprule\noalign{}
-\# & Reference & Lead & Margin (°C) & ΔRMSE (°C) & 95\% CI & Win rate & Holm p & Sealed decision \\
+\# & Reference & Lead & Margin (°C) & ΔRMSE (°C) & 95\% CI & Win rate & Holm p & Decision \\
 \midrule\noalign{}
-1 & DampedPersistence & 1 d & +0.00 & \ensuremath{-}0.129 & {[}\ensuremath{-}0.199, \ensuremath{-}0.076{]} & 0.90 & 1.5e\ensuremath{-}04 & Meets margin \\
-2 & DampedPersistence & 3 d & +0.00 & \ensuremath{-}0.108 & {[}\ensuremath{-}0.143, \ensuremath{-}0.074{]} & 0.91 & 1.5e\ensuremath{-}04 & Meets margin \\
-3 & DampedPersistence & 7 d & +0.00 & \ensuremath{-}0.069 & {[}\ensuremath{-}0.084, \ensuremath{-}0.057{]} & 0.95 & 1.8e\ensuremath{-}04 & Meets margin \\
-4 & LightGBM & 3 d & +0.05 & 0.015 & {[}0.010, 0.025{]} & 0.24 & 1.8e\ensuremath{-}04 & Meets margin \\
-5 & LightGBM & 7 d & +0.05 & \ensuremath{-}0.009 & {[}\ensuremath{-}0.017, 0.003{]} & 0.59 & 1.8e\ensuremath{-}04 & Meets margin \\
+1 & Damped persistence & 1 d & +0.00 & \ensuremath{-}0.129 & {[}\ensuremath{-}0.199, \ensuremath{-}0.076{]} & 0.90 & \(1.5\times10^{-4}\) & Meets margin \\
+2 & Damped persistence & 3 d & +0.00 & \ensuremath{-}0.108 & {[}\ensuremath{-}0.143, \ensuremath{-}0.074{]} & 0.91 & \(1.5\times10^{-4}\) & Meets margin \\
+3 & Damped persistence & 7 d & +0.00 & \ensuremath{-}0.069 & {[}\ensuremath{-}0.084, \ensuremath{-}0.057{]} & 0.95 & \(1.8\times10^{-4}\) & Meets margin \\
+4 & LightGBM & 3 d & +0.05 & 0.015 & {[}0.010, 0.025{]} & 0.24 & \(1.8\times10^{-4}\) & Meets margin \\
+5 & LightGBM & 7 d & +0.05 & \ensuremath{-}0.009 & {[}\ensuremath{-}0.017, 0.003{]} & 0.59 & \(1.8\times10^{-4}\) & Meets margin \\
 \bottomrule\noalign{}
 \end{tabularx}
 }
@@ -623,7 +637,7 @@ margin at a lead where the tree is the better model
 
 The development-period whole-region finding (SI19) is re-tested on the
 independent window under four leave-HUC2-region folds and four balanced random
-folds over five split seeds (protocol v1; SI11, Figure S11), moving the median
+folds over five split seeds (SI11, Figure S11), moving the median
 nearest-training-gauge distance from 60 to 263 km. The region-minus-random
 paired penalty for the raw-target tree is +0.006, +0.009 and +0.007 °C.
 
@@ -635,7 +649,7 @@ direction. The numbers are the local-adaptation condition; the pooled-adaptation
 arm is reported separately in SI11, where a preprocessing defect confines it to
 a sensitivity.
 
-\subsection{Hydrologic conditions governing incremental skill}\label{hydrologic-conditions-governing-incremental-skill}
+\subsection{Hydrologic states where the remaining gain concentrates}\label{hydrologic-states-where-the-remaining-gain-concentrates}
 
 The remaining gain concentrates in specific states. Station thermal memory --- the
 anomaly half-life of the train-fitted anchor, not an e-folding time --- has a
@@ -651,7 +665,7 @@ issue-time state reversing the ordering. The sixteen-stratum table, the
 outcome-conditioned strata that a manager cannot identify at issue time, and the
 reportability and multiplicity caveats that keep them descriptive are in SI11.
 
-\subsection{What the information is worth, and where the estimator starts to matter}\label{what-the-information-is-worth-and-where-the-estimator-starts-to-matter}
+\subsection{What the information is worth and what the estimator adds}\label{what-the-information-is-worth-and-what-the-estimator-adds}
 
 Sections 4.4 and 4.5 leave one question open: the residual learned gain is
 small, but is that a limit of the models or of what they were given? Four
@@ -661,8 +675,8 @@ substitutes realized meteorology over t+1 \ldots{} t+h as an oracle bound, \text
 holdout geometry and \textbf{A} swaps the tree for the information-matched network.
 Prohibited inputs are dropped rather than filled, all 24 mask-invariance proofs
 return exactly zero, and a negative control re-admitting one water-temperature
-lag is caught with a 147 °C shift. Levels, estimands, sealing and per-cell
-tables are in SI20.
+lag is caught with a 147 °C shift. Levels, estimands, analysis status, and
+per-cell results are in SI20.
 
 \textbf{Local thermal state dominates.} Withholding it costs 1.3--1.7 °C at every lead
 and at all 116 stations --- two to thirteen times realized future meteorology and
@@ -757,7 +771,7 @@ property of the reference rather than of the river.}
 
 \section{Discussion}\label{discussion}
 
-\subsection{Why these numbers are smaller than published gains, and what transfers}\label{why-these-numbers-are-smaller-than-published-gains-and-what-transfers}
+\subsection{Why these numbers are smaller, and what transfers}\label{why-these-numbers-are-smaller-and-what-transfers}
 
 The difference is design, not model quality, and Section 4.1 puts numbers on two
 of the channels. A study quoting skill against persistence or climatology reports
@@ -876,32 +890,28 @@ this fixed, availability-selected cohort.
 
 \section*{Open Research Statement}
 
-\textbf{Data.} The derived panel, the station registry, their manifests and the
-test-window acquisition record are deposited as one versioned dataset at
-\texttt{{[}DATA\ \allowbreak{}DOI\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}MINTED{]}} under \texttt{{[}DATA\ \allowbreak{}LICENCE\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}ASSIGNED{]}}, pending the
-byte-level rights review, since a derived product does not inherit the most
-permissive of its upstream terms; where redistribution terms are unresolved the
-deposit carries the request specification and a SHA-256 manifest in place of the
-bytes (SI16). Primary sources are USGS NWIS
+\textbf{Data.} The derived panel, station registry, and metadata describing
+acquisition of the 2021--2023 evaluation data will be deposited as one versioned
+dataset at \texttt{{[}DATA\ \allowbreak{}DOI\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}MINTED{]}} under \texttt{{[}DATA\ \allowbreak{}LICENCE\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}ASSIGNED{]}},
+subject to the redistribution terms of the source products. Where source data
+cannot be redistributed, SI16 provides the corresponding acquisition
+instructions and provenance metadata. Primary sources are USGS NWIS
 \cite{usgs2024nwis}, Daymet V4 R1
 \cite{thornton2022daymet} and gridMET
 \cite{abatzoglou2013development}, each under its own terms.
 
-\textbf{Software and reproduction.} The analysis software, per-stage manifests and
-Python 3.12 dependency lock with package hashes are archived at
-\texttt{{[}SOFTWARE\ \allowbreak{}DOI\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}MINTED{]}}; the MIT licence covers neither the observational
-data nor the archived provider responses. Sections 4.1--4.2 reproduce from the
-archived panel, bundles and pinned environment and Section 4.3 from the
-acquisition record, with bit-level equality expected for the trees and a
-documented tolerance for the neural members (SI15). Independent reproduction on
-a third-party host is planned and has not yet been performed.
+\textbf{Software and reproduction.} The analysis software and a reproducible
+Python 3.12 computational environment will be archived at
+\texttt{{[}SOFTWARE\ \allowbreak{}DOI\ \allowbreak{}TO\ \allowbreak{}BE\ \allowbreak{}MINTED{]}}. The MIT licence applies to the software but not
+to observational data obtained from third-party providers. SI15 documents the
+procedures needed to reproduce Sections 4.1--4.3 and the numerical tolerances
+used for stochastic neural-network results. Independent reproduction on a
+third-party host has not yet been performed.
 
 \acknowledgments
 
-{[}FUNDING, COMPUTATIONAL RESOURCES, COMPETING INTERESTS AND CREDIT ROLES TO BE
-COMPLETED --- each funder with its award number or an explicit statement of none;
-a competing-interests declaration from every author; the signed intake form is
-\texttt{docs/\allowbreak{}FAIR\_\allowbreak{}SUBMISSION\_\allowbreak{}READINESS\_\allowbreak{}AND\_\allowbreak{}TEMPLATES.md} §2.{]}
+{[}FUNDING, COMPUTATIONAL RESOURCES, COMPETING INTERESTS, AND CRediT ROLES TO BE
+COMPLETED BEFORE SUBMISSION.{]}
 
 We acknowledge the U.S. Geological Survey, the ORNL DAAC and the Northwest
 Knowledge Network for the products named in Open Research; acknowledgment of a
@@ -910,22 +920,22 @@ provider is not an endorsement of this analysis.
 \section*{Supporting Information}
 
 SI01 cohort, registry and partition counts; SI02 issue-time boundary; SI03
-equations and units; SI04 protocol, chronology and decision log; SI05--SI06 the
+equations and units; SI04 analysis plan and chronology; SI05--SI06 the
 comparison set; SI07 all-model scores with MAE and bias; SI08 probability and
 reliability schemas; SI09 architecture and information-matched controls with
-seed and budget provenance; SI10 temporal coverage; SI11 the spatial folds,
+training and tuning details; SI10 temporal coverage; SI11 the spatial folds,
 cluster geometry and the hydrologic-state strata; SI12 outcome quality control
 and qualifiers; SI13 the history-dependent external arm; SI14 missingness and
-failure cases; SI15 reproduction hashes and environment parity; SI16 rights and
+failure cases; SI15 reproduction procedures and computational environment; SI16 rights and
 data dictionary; SI19 development-period spatial analyses; SI20 the method,
-estimands, sealing, evidence-grade table, seal provenance and relocated objects
-of the Section 4.6 arms.
+estimands, prespecification status, analysis classification, and complete
+Section 4.6 results.
 
 Figures S1--S3 give cohort geometry, temporal roles and model dataflow; S4--S8
 expand Sections 4.3 and 4.5; S9 is a development-period conformal sensitivity not
-comparable with any held-out figure; S10 the architecture controls; S11 the
-matched spatial-transfer panels, relocated because they show a different model
-from the section that cites them and an effect the design cannot resolve.
+comparable with any held-out figure; S10 gives the architecture controls; and
+S11 presents the matched spatial-transfer panels and the unresolved geometry
+contrast.
 
 % BIBLIOGRAPHY.  agujournal2025.cls loads apacite and sets
 % \bibliographystyle{apacite} itself, so no \bibliographystyle is emitted here
