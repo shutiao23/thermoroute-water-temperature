@@ -199,8 +199,8 @@ deposit or DOI action is authorized by this audit.
 
 ## 7. Dynamic-ref follow-up
 
-A later `git for-each-ref` snapshot found 12 local refs: four Codex tree refs and
-eight commit refs, resolving to eight unique object IDs. The previously discussed
+A later `git for-each-ref` snapshot found 12 local refs resolving to eight unique
+object IDs. The previously discussed
 `origin/pull/1/head` ref was not present locally. Therefore the final generator
 must enumerate live refs at execution time and record the resulting ref set; it
 must not hard-code the earlier ref list or assume that ref count is stationary.
@@ -217,8 +217,8 @@ A read-only GitHub/remote snapshot later on 2026-08-01 returned:
   branch.
 
 The pull ref exists on the remote even though no matching local remote-tracking
-ref was present. A still later local snapshot contained 11 refs (four Codex tree
-refs and seven commit refs) resolving to eight unique object IDs. The change from
+ref was present. A still later local snapshot contained 11 refs resolving to
+eight unique object IDs. The change from
 the earlier local count illustrates why the final manifest must separately
 capture `git for-each-ref` and `git ls-remote --refs origin` at execution time.
 Neither public visibility nor remote reachability supplies redistribution rights.

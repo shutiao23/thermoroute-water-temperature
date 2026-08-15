@@ -330,4 +330,4 @@ build.
 | 4 | **`preopen_document_sha256` is stale for all three manuscript sources and for the regenerated `.tex`** | protocol/lineage owner | a `protocols/` edit in the gating tier; the escape is R6, already queued in the remediation lineage. Until then `build_agu.py --check` refuses in this worktree |
 | 5 | **Per-station LightGBM has no scored summary** | analysis owner | recorded in SI07; §3.2 names the variant without a number and §4.1 omits it. Not a primary model, so no registered claim is weakened |
 | 6 | **air2stream cannot be compared** | external | five conditions listed in SI07, starting with a Fortran toolchain that does not exist in this environment |
-| 7 | `[TRAINING WALL-CLOCK …]`, `[INFERENCE COST …]`, author block, DOIs, licence, release tag, repository URL | authors / rights review | unchanged by this task; tracked in `docs/WRR_SUBMISSION_CHECKLIST.md` |
+| 7 | `[TRAINING WALL-CLOCK …]`, `[INFERENCE COST …]`, author block, DOIs, licence, release tag, repository URL | authors / rights review | unchanged by this revision; tracked in `docs/WRR_SUBMISSION_CHECKLIST.md` |

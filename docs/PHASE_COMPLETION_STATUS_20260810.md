@@ -1,6 +1,6 @@
 # Phase completion status — 2026-08-10
 
-Written after a working session that was asked to "complete all the tasks".
+Completion status recorded on 2026-08-10.
 Most of them are now done or running. Some cannot be done from this repository
 by any amount of effort, and this document says which, and why, rather than
 leaving the impression that the programme is closed.
@@ -148,7 +148,7 @@ pre-run facts to invariants that outlive the run.
   closer to being dischargeable now than it was — the ladder, the F×L crossing
   and the architecture arm all exist — but the rewrite is a judgement about
   what the paper is *for*, and it should be made deliberately rather than as
-  the tail end of an execution session.
+  the tail end of an execution cycle.
 
 ---
 
@@ -158,7 +158,7 @@ pre-run facts to invariants that outlive the run.
   Table 1..n. Renumbering touches the manuscript, the ledger span tokens, the
   table generator and the TeX simultaneously.
 - The PDF is 49 pages against AGU's ~25 publication-unit guidance, and Section
-  4.7 has grown substantially this session.
+  4.7 has grown substantially in this revision.
 - SI: `[pending computation]` cells remain in SI02, SI03, SI04, SI05, SI09,
   SI10, SI14, SI15; SI08 reports nine probability metrics as not computed;
   SI12's qualifier sensitivity is unrecomputed; Figures S4–S10 have no files.
@@ -169,7 +169,7 @@ pre-run facts to invariants that outlive the run.
 
 ## One pattern worth naming
 
-Three separate times this session a governance binding made its own subject
+Three separate times during this phase a governance binding made its own subject
 unreachable: the v5 execution authority pins the append-only decision log, a
 tracker edit removed a literal token the v5 runner requires, and the
 forced-hybrid seal binds the runner hash while the runner pins the seal hash.

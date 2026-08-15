@@ -141,7 +141,7 @@ does not mention this.
 #### ISSUE 6 — LOW: `conftest.py` trim is a no-op
 Plan §3 / Phase 3 says "trim `tests/conftest.py` fixtures referencing deleted
 modules." `conftest.py` (24 lines) has **zero** apparatus references — only a
-session umask fixture. No trim is needed; the instruction is inaccurate (harmless).
+session umask fixture. No trim is needed; the planned trim is unnecessary.
 
 #### ISSUE 7 — LOW: `confirmatory.py` blocker mis-cited
 Plan §1a says `confirmatory` is "blocked by `09b` + `data_usgs/*` scripts."

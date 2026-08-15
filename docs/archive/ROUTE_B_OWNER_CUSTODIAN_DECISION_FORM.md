@@ -40,7 +40,7 @@ effects, attrition and favorable subgroups are not Route B design evidence.
 
 ## D01 — Inferential target and population
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A, because it preserves the intended
 design-based Route B claim while keeping the population inside the eligible
@@ -60,7 +60,7 @@ estimand, power claim or population headline may be constructed.
 
 ## D02 — Geography and frame exclusions
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A (CONUS only) until immutable topology,
 provider and measurement evidence establishes equal frame coverage elsewhere.
@@ -82,7 +82,7 @@ contracted after target access, and no candidate frame may be promoted.
 
 ## D03 — Primary task arm and information set
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A is the lowest-evidence-risk starting
 point if the scientific question genuinely concerns history-dependent hindcast.
@@ -106,7 +106,7 @@ information contract, operational/ungauged label or primary claim.
 
 ## D04 — Untouched period and year scope
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A unless enough genuinely independent
 untouched years and a justified small-sample year method support option B. Three
@@ -133,7 +133,7 @@ and neither fixed-period nor year-superpopulation inference is eligible.
 
 ## D05 — Point estimand and weighting
 
-**Required selecting/signing subject:** scientific owner/user; statistical
+**Required selecting/signing subject:** scientific owner; statistical
 reviewer concurrence required.
 
 **Advisory recommendation only:** option A, the package's recommended point
@@ -156,7 +156,7 @@ interval or directional headline may be defined.
 
 ## D06 — Hypothesis family, margins and multiplicity
 
-**Required selecting/signing subject:** scientific owner/user; statistical
+**Required selecting/signing subject:** scientific owner; statistical
 reviewer concurrence required.
 
 **Advisory recommendation only:** option A for a small, scientifically primary
@@ -190,7 +190,7 @@ precision may not be substituted as a scientific margin.
 
 ## D07 — Assurance, power and precision
 
-**Required selecting/signing subject:** scientific owner/user; statistical
+**Required selecting/signing subject:** scientific owner; statistical
 reviewer concurrence required.
 
 **Advisory recommendation only:** option B (0.90 power) for the primary family if
@@ -225,7 +225,7 @@ margin or power target may be relaxed in response to target evidence.
 
 ## D08 — Primary flow/tidal domain and calendar semantics
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A preserves the broader monitored-domain
 question and avoids discarding difficult flow regimes, while marking ineligible
@@ -250,7 +250,7 @@ semantics and comparator eligibility are undefined.
 
 ## D09 — Comparator matrix and common resource budget
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A, because the package identifies N-HiTS
 as the preferred candidate for a development-only budgeted pilot. It remains
@@ -293,7 +293,7 @@ N-HiTS/TFT remain candidates while G08 is open.
 
 ## D10 — Contribution class and identifiability
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option A, matching the package's recommendation
 and the current absence of independent physical-state/identifiability evidence.
@@ -315,7 +315,7 @@ language as `PREDICTIVE_ONLY_LATENTS_NOT_IDENTIFIED`, even if prediction continu
 
 ## D11 — History, QA, missingness and calibration rules
 
-**Required selecting/signing subject:** scientific owner/user.
+**Required selecting/signing subject:** scientific owner.
 
 **Advisory recommendation only:** option C: keep an observed/history-gated primary
 analysis and allow a mask-aware imputed branch only as a registered sensitivity.
@@ -356,7 +356,7 @@ post-opening threshold or series substitution is permitted.
 
 ## D12 — Space×time uncertainty branch
 
-**Required selecting/signing subjects:** scientific owner/user and statistical
+**Required selecting/signing subjects:** scientific owner and statistical
 reviewer (joint selection).
 
 **Advisory recommendation only:** option A when D04 selects a fixed period or only
@@ -392,7 +392,7 @@ independent-site or independent-day uncertainty.
 ## D13 — Custody, seal and opening mechanics
 
 **Required selecting/signing subjects:** independent custodian selects the custody
-implementation; scientific owner/user provides dual sign-off. The analyst cannot
+implementation; the scientific owner provides dual sign-off. The analyst cannot
 self-issue an opening receipt.
 
 **Advisory recommendation only:** option A where an institution can provide true
@@ -496,7 +496,7 @@ Unresolved mismatch (any entry prevents signature): `________________________`
 
 ## Signatures and non-authorization attestation
 
-### Scientific owner/user
+### Scientific owner
 
 I attest that the scientific choices recorded in D01–D12 are my explicit choices,
 not defaults inferred from advisory recommendations. I understand the resulting

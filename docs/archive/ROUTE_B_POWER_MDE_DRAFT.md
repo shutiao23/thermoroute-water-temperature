@@ -4,7 +4,7 @@
 | --- | --- |
 | Date | 2026-08-01 |
 | Status | **PRELABEL DESIGN ONLY / NO TARGET OUTCOME INPUT** |
-| Dependency | Final task arm, estimand, hypothesis family, scientific margin and year scope require user choice |
+| Dependency | Final task arm, estimand, hypothesis family, scientific margin and year scope require owner choice |
 
 ## 1. Estimand and screening formula
 
@@ -101,7 +101,7 @@ K_0=\min_{45\le K\le60}
 \{K:\Pr(K_{reportable}\ge30)\ge A,\ Power\ge P,\ CI\ halfwidth\le W\}.
 \]
 
-The user freezes assurance `A`, power `P` and precision `W`. Under deterministic
+The protocol owner freezes assurance `A`, power `P` and precision `W`. Under deterministic
 loss only, K=45/50/55/60 can lose at most 15/20/25/30 PSUs and retain 30; correlated
 attrition must instead use the beta-binomial assurance calculation.
 

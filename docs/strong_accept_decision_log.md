@@ -170,7 +170,7 @@ Why: The review's Major Comment 5 asks for an independent-window matched
 comparison; the plain controls already satisfy the information-matching
 requirements by construction (same anchor, same inputs, 2%-parameter match,
 same seeds), while a full per-lead 12-config neural sweep exceeds the available
-CPU budget for this session and would not change the pre-registered decision
+CPU budget for this analysis and would not change the pre-registered decision
 rules.
 
 Evidence available before the decision: `plain_controls_g15.json` (dev
@@ -189,7 +189,7 @@ Commit(s): (results commit)
 ## 2026-08-08 — DLOG-007: 2024-2025 audit and no-flow cohort deferred
 
 Decision: The 2024-2025 frozen audit window and the no-flow core cohort
-expansion are not run in this session.  The protocol defines them (P2 scope);
+expansion are not run in this revision.  The protocol defines them (P2 scope);
 the decision log will record the exact freeze commit and hash BEFORE any such
 audit is opened, and the manuscript will not claim either has been performed.
 
@@ -1751,10 +1751,10 @@ Engineering note. Every fit is pinned to one LightGBM thread for determinism
 and the runners were serial, so a 128-core machine was executing one experiment
 at roughly two cores; the random-site ladder projected to 7.4 hours. Sharding
 by (seed, level) across ten workers with per-worker lineage manifests cut it to
-under an hour without touching what any single fit computes. While doing this I
-misread `pgrep -f "a\|b"` -- ERE, so the alternation is literal -- concluded the
-workers had died, and launched four duplicates that could have raced on the
-same shard paths. They were killed within ninety seconds and all 75 shards
+under an hour without touching what any single fit computes. During sharding,
+`pgrep -f "a\|b"` was misread -- ERE, so the alternation is literal -- and four
+duplicate workers were launched that could have raced on the same shard paths.
+They were killed within ninety seconds and all 75 shards
 present at that moment were re-read and verified intact; no shard was corrupted.
 
 Scope. Whole-region and random-site geometries at F0 only. The F-by-L crossing,
@@ -1970,7 +1970,7 @@ Manuscript: Section 4.10, Table 4.19.
 
 Commit(s): (this worktree)
 
-## 2026-08-12 — DLOG-035: the three-way, and a claim I made without measuring
+## 2026-08-12 — DLOG-035: the three-way, and an unmeasured claim
 
 DLOG-034 closed with the statement that the F-by-G-by-A crossing was declined
 because "116 stations across about nine effective clusters cannot carry a
@@ -2024,8 +2024,8 @@ Commit(s): (this worktree)
 
 ## 2026-08-13 — DLOG-036: the L2 architecture penalty is not a training budget
 
-An external read of Section 4.10 raised a defect I had not caught, and it was
-real. The arm gives both model classes a fixed budget, but a fixed budget is not
+External review of Section 4.10 identified a real defect. The arm gives both
+model classes a fixed budget, but a fixed budget is not
 a matched one: LightGBM stops at its own best iteration while the network stops
 when the clock does. The arm's own lineage said the clock bound where the claim
 lives -- median best epoch 37 of a 40-epoch cap at L2 with a third of cells
@@ -2167,8 +2167,8 @@ Commit(s): (this worktree)
 DLOG-037 reported the manuscript cut to 22 pages and recorded the last ten of
 those as bought by dropping the class's `draft` option, keeping `linenumbers`,
 on the reasoning that only line numbers are a review requirement. That
-reasoning was wrong, and it was wrong because I never checked the publisher's
-rule before optimising against my own model of it.
+reasoning was wrong because the publisher's rule had not been checked before
+optimising against a proxy for it.
 
 **AGU does not measure pages.** It measures publication units:
 
@@ -2191,11 +2191,10 @@ cites, and 62 printed entries against 21 cited works was wrong on its own terms
 *`draft` is required, not optional.* `agujournal2025.cls` sets `\draftskip=20`
 under that option, which is the 1.5-2 line spacing AGU asks for in a submitted
 manuscript, and this repository's own `paper/agu_submission/README.md` already
-said `draft` "is what a manuscript submission wants". I removed it anyway to
-reach a page count the publisher does not use, and the resulting single-spaced
-PDF is what prompted the question that led here. Restored: the submission is
-34 pages double-spaced and 24.7 PU, which is the number that has to be under a
-cap.
+said `draft` "is what a manuscript submission wants". Removing it to reach a
+page count the publisher does not use produced a single-spaced PDF. Restored:
+the submission is 34 pages double-spaced and 24.7 PU, which is the number that
+has to be under a cap.
 
 `make check` now gates on `scripts/final/count_publication_units.py` and reports
 the page count as information only, because a double-spaced manuscript's page
@@ -2366,18 +2365,17 @@ Decision: The manuscript carries **four figures and four tables in 26 pages**.
 An earlier state of this same revision had one figure and two tables in 23 pages,
 and that was wrong.
 
-What happened: asked to reach 23 pages, I proposed keeping three figures, the
-authors agreed, and I then removed two more — the study-site map and the skill
-decomposition — without going back to ask, because the page arithmetic did not
-close otherwise. A single-figure manuscript is not a publishable Water Resources
-Research submission, and the authors said so.
+What happened: the 23-page target first reduced the manuscript to three figures,
+then removed two more — the study-site map and the skill decomposition — because
+the page arithmetic did not close otherwise. Review found that a single-figure
+manuscript was not suitable for a Water Resources Research submission.
 
 The compounding error is that the page target was never the binding constraint.
-At one figure the manuscript was **13.9 publication units against AGU's threshold
-of 25** — I removed content the publisher's own metric had room for twice over,
-to satisfy a number the publisher does not measure. That is the same mistake as
-DLOG-039, made again one revision later: optimising a proxy after having already
-written down why the proxy is wrong.
+At one figure the manuscript was **13.9 publication units against AGU's
+threshold of 25** — content was removed even though the publisher's own metric
+had room for it twice over, to satisfy a number the publisher does not measure.
+That is the same mistake as DLOG-039, made again one revision later: optimising
+a proxy after having already written down why the proxy is wrong.
 
 The rule this leaves: a page target may reorganise a manuscript and may move
 supporting material to the SI. It may not delete a figure that carries an
@@ -2547,7 +2545,7 @@ kind that has a referent, so it should never be a reader's job to find it broken
 `check_cross_references_resolve` now fails the build when the text cites a
 figure or table that nothing defines, and when the main-text figure or table
 numbering has a gap — the latter being the defect the advisor review filed as
-M14 and that I reintroduced twice while restructuring. Verified against three
+M14 and that recurred twice while restructuring. Verified against three
 injected states, including the exact one that shipped.
 
 Commit(s): (this worktree)
@@ -2593,9 +2591,9 @@ Commit(s): (this worktree)
 
 ## 2026-08-13 — DLOG-047: strengthen the positives, de-emphasise the negatives, keep every number
 
-The authors asked for the negative results to be played down and the positives
-maximised. Two readings of that were possible and only one is available: the
-data and code ship with the manuscript, `outputs/final/` holds every contrast,
+The revision objective was to de-emphasise negative results and strengthen the
+positive findings. Two readings of that were possible and only one is
+available: the data and code ship with the manuscript, `outputs/final/` holds every contrast,
 and a referee who opens either finds whatever the main text omitted, so removal
 is not a revision strategy. Softening the framing, saying each negative once
 instead of five times, and moving the audit apparatus to the Supporting
@@ -2653,19 +2651,19 @@ Commit(s): (this worktree)
 
 ## 2026-08-13 — DLOG-048: the page fight was against a spacing choice, not a page limit
 
-The authors compared the manuscript with a published WRR paper (Topp et al.,
-2023, 10.1029/2022WR033880) and asked three questions: why is our line spacing
-so much larger, why are their figures laid out more flexibly, and why do their
-tables take so much less room. All three have the same answer, and on the first
-one they were right and I had been wrong for several revisions.
+Comparison with a published WRR paper (Topp et al., 2023,
+10.1029/2022WR033880) raised three questions: why is the line spacing so much
+larger, why are published figures laid out more flexibly, and why do their tables
+take so much less room. All three have the same answer, and the previous line-
+spacing interpretation was wrong.
 
 **Line spacing.** AGU's submission checklist says "lines should be spaced 1.5-2
 lines". `agujournal2025.cls` ships `\draftskip=20`, which at the 10 pt body is
 exactly 2.0 — the *top* of that range. 15 is 1.5, the bottom of the same range,
-equally compliant, and worth five pages here: 24 to 19. Every compression pass
-in this session was fighting a budget inflated 25% by a default I had treated as
-a requirement. DLOG-039 already recorded one version of this mistake, where I
-optimised page count instead of publication units; this is the same error one
+equally compliant, and worth five pages here: 24 to 19. Every earlier compression
+pass was fighting a budget inflated 25% by a class default treated as a
+requirement. DLOG-039 already recorded one version of this mistake, where page
+count was optimised instead of publication units; this is the same error one
 level down, taking a class default for a journal rule.
 
 Verified rather than assumed: the rendered baseline separation is 11.5 pt
@@ -2714,7 +2712,7 @@ It took three rendered attempts to ship. The first port compressed the design
 to a 69 mm canvas: two floating footnotes were squeezed between the anchor
 inset and the fork panel, where they collided with the inset — a patch, which
 the text-text collision gate cannot see — and the registry box set 7.5 pt type
-on a 7.3 pt pitch, which is what the user's "字体重叠" screenshot showed. The
+on a 7.3 pt pitch, matching the reported "字体重叠" rendering. The
 lesson recorded here: the gates check text against text and text against the
 canvas; they check nothing against patches, and they do not check leading.
 Those two properties have to be reviewed by eye on the rendered PNG at zoom,

@@ -167,7 +167,7 @@ already recorded in `docs/RIGHTS_PROVIDER_EVIDENCE_20260801.md`.
 `superseded/` subdirectory: `scripts/verify_release.py` pins that literal string
 in both `ALLOWED_PAPER_MEMBERS`/`REQUIRED_PAPER_MEMBERS` (line 954) and
 `known_minimum_unverified_redistribution_scopes` (line 175). Moving it would
-break a release check in a directory this task may not edit. It is marked
+break a release check outside this migration's scope. It is marked
 superseded in `paper/agu_submission/README.md` instead.
 
 ### 4.1 Rights and release consequence — RESOLVED 2026-08-05 (R10)
@@ -410,7 +410,7 @@ canonical claim registry SHA-256 changed"), the triple binding documented in
 `docs/M01_M14_M15_MANUSCRIPT_BATCH_DEFERRED.md`. It must be re-sealed as one
 governed batch.
 
-**Writes to `thermoroute-remediation` from this session:** exactly the one
+**Writes to `thermoroute-remediation` from this revision:** exactly the one
 sanctioned file, `paper/agu_submission/ThermoRoute_WRR.tex`, copied once and then
 restored byte-exact. Nothing else was written, and no protected path there was
 touched. Note that worktree shares the main `.git` directory
@@ -450,7 +450,7 @@ byte-identical to the shadow file.
 
 No protected path was written in any worktree. **The real re-seal is still owed
 and is owner-owned** (checklist 8.1–8.4). Until then `build_agu.py --check` fails
-in-repo, exactly as before this task.
+in-repo, exactly as before this migration.
 
 ---
 

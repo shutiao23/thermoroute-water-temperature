@@ -27,7 +27,7 @@ or the evidence role (`development_only_exploratory`).
 
 ## 2. Authorization prerequisites
 
-Work may begin only after the user explicitly authorizes **all** of the
+Work may begin only after the project owner explicitly authorizes **all** of the
 following:
 
 1. modification of the protected production script and the minimal tests in
@@ -328,7 +328,7 @@ inference boundary.
 
 ## 11. Authorization record
 
-**Authorization #1 — 2026-08-02 (14:23 UTC+01:00).** The user provided the
+**Authorization #1 — 2026-08-02 (14:23 UTC+01:00).** The project owner provided the
 following explicit authorization, which satisfies the prerequisites in
 Section 2 (original wording, for source `a4b174e1...`):
 
@@ -339,11 +339,11 @@ Section 2 (original wording, for source `a4b174e1...`):
 > receipt construction.
 
 **Authorization #2 — 2026-08-02 (16:40 UTC+01:00) — 96-core throughput change.**
-The user chose to raise the execution-only worker caps to use the full target
+The project owner chose to raise the execution-only worker caps to use the full target
 host (128-core Intel Xeon Gold 6430). This changes `MAX_CONTROL_WORKERS` in
 `src/thermoroute/stage09_parallel.py` (8 → 96) and `MAX_PARALLEL_WORKERS` in
 `src/thermoroute/stage09b_precompute.py` (8 → 96), both inside the source-hash
-boundary, plus the matching ops launcher clamps. The user authorized this
+boundary, plus the matching ops launcher clamps. The project owner authorized this
 change and the resulting new source identity. Worker counts remain
 execution-only parameters that never enter RunIdentity; determinism gates
 (single-threaded members, OMP_NUM_THREADS=1) are unchanged.
@@ -364,5 +364,4 @@ Authorized scope, bound to this work order and to
    opening; protocol/model-matrix amendment; manual construction or editing of
    receipts, work orders, or manifests; direct member-worker invocation;
    promotion of `7cb2...`, `bb02498a...`, or `a930...` artifacts.
-
 

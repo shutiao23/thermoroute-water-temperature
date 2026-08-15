@@ -10,7 +10,6 @@ build/
 
 # OS / editor / local
 .DS_Store
-.claude/
 .idea/
 .vscode/
 

@@ -553,6 +553,6 @@ that each permanent caveat be stated in full exactly once.
 4. **Nothing under `src/`, `scripts/`, `tests/`, `protocols/` was touched**, and
    nothing was committed. `preopen_document_sha256` for
    `paper/ThermoRoute_paper.md`, `paper/highlights.md` and `paper/cover_letter.md`
-   is now stale — it was already stale before this session
+   is now stale — it predates this review
    (`docs/OPTION_A_DESCRIPTIVE_BENCHMARK_SCOPE.md` §2.5). The escape is the R6
    block-binding change, already queued in the remediation lineage.

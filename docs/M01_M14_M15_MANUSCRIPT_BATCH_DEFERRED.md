@@ -56,7 +56,7 @@ negative values stratified), WLEVEL (ft, 00065, raw evidence only), TEMP (°C,
 Daymet daily mean), PRCP (mm day⁻¹), RHMEAN (%, derived proxy, not measured),
 DH (W m⁻², daylight-period mean, not daily energy), WDSP (m s⁻¹, gridMET packed,
 scale 0.1). Add the LOD/LOQ N/A statement and source-precision rounding note.
-SI16 already contains the full QA/QC dictionary text (prepared in this session).
+SI16 already contains the full QA/QC dictionary text prepared in this revision.
 
 ### M-15 — literature coverage
 

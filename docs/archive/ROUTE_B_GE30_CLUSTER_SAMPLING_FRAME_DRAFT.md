@@ -115,7 +115,7 @@ than from the desired journal result.
 | Strict ungauged | no target-site WTEMP used in fit, transforms, selection or issue-time input | ungauged transfer |
 | Operational | archived as-issued predictors/NWP and latency/vintage replay | operational only if the archive actually exists |
 
-The user must select the primary arm before protocol freeze. A result from one arm
+The protocol owner must select the primary arm before protocol freeze. A result from one arm
 cannot rescue or rename another.
 
 ## 4. Required artifacts and schemas

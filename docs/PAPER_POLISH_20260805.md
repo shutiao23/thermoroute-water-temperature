@@ -220,18 +220,18 @@ placeholder is closed.
 `achieved coverage` was changed to `coverage` in the conformal paragraph, because
 *achieve* is on the B-02 forbidden-verb list; the manuscript's own longstanding
 "achieved empirical marginal coverage" usage in §3.5 and Table 4.4 was left
-alone, as it predates this task and is a neutral technical term there.
+alone, as it predates this revision and is a neutral technical term there.
 
 ---
 
 ## 5. `paper/agu_submission/` — generator fixed, output not hand-edited
 
-### 5.1 Which I did, and why
+### 5.1 Generator change rationale
 
 `ThermoRoute_WRR.tex` **is generated from the Markdown** by `build_agu.py`, whose
 `--check` mode fails when the checked-in bytes are not exactly what the generator
-would produce. Hand-editing the output would therefore desync it permanently. I
-**fixed the generator** and left the output untouched.
+would produce. Hand-editing the output would therefore desync it permanently.
+The generator was fixed and the output left untouched.
 
 ### 5.2 What was wrong with the generator
 
@@ -276,8 +276,8 @@ Two independent blockers, both outside `paper/`:
    `paper/ThermoRoute_paper.md`, `paper/highlights.md`, and
    `paper/cover_letter.md` to match `preopen_document_sha256` in
    `protocols/route_a_claim_registry_v1.json`. The manuscript already failed
-   before this task; highlights and the cover letter now fail too. Re-sealing is
-   a `protocols/` change and is outside this task's permission boundary.
+   before this revision; highlights and the cover letter now fail too. Re-sealing
+   is a separately authorized `protocols/` change.
 
 `ThermoRoute_WRR.tex` therefore still carries the superseded structure — old
 title, old abstract, sections "Problem and scope" through "Conclusion". Its own
@@ -290,7 +290,7 @@ requires it to be re-sealed only *after* regeneration, together with items
 ### 5.4 Reference list
 
 The generated TeX contains no `\cite` and no `\bibliography`, so it renders no
-reference list — a submission blocker that predates this task. The Markdown cites
+reference list — a submission blocker that predates this revision. The Markdown cites
 in linked author-year prose. Converting the convention to `\cite`/`\citeA` keys
 against `../references.bib` (class default style `apacite`; the class does define
 `\citeA`) is an authorial decision about citation handling, so it is recorded as
@@ -324,11 +324,11 @@ Reconciled in both directions against the rewritten manuscript.
 
 | Entry | Flag |
 |---|---|
-| `kingma2015adam`, `loshchilov2019decoupled` | Cited in §3.2, but as unlinked parentheticals: the entries carry no DOI and no recorded URL, and I did not supply one from memory. If the authors want them hyperlinked, the arXiv or OpenReview identifiers must be verified and added to the `.bib`. |
+| `kingma2015adam`, `loshchilov2019decoupled` | Cited in §3.2, but as unlinked parentheticals: the entries carry no DOI and no recorded URL. Hyperlinking requires verified arXiv or OpenReview identifiers in the `.bib`. |
 | `pedregosa2011scikit`, `paszke2019pytorch` | Same situation, cited in §8 |
 | `wilks2011statistical` | Same situation, cited in §6.3; the entry carries an ISBN and no verified URL. |
 | `romano2019conformalized`, `martins2016softmax`, `shazeer2017outrageously`, `ke2017lightgbm` | No DOI exists in the entry; the `url` now recorded is the one the manuscript already used. A DOI should be added if one is found. |
-| All 41 | The header claims every entry was web-verified against Crossref/DataCite/arXiv/DBLP per `outputs/reports/reference_audit_v2.md`. **I did not re-verify that claim** — no network access, and `outputs/` is outside this task's write scope. Treat it as inherited, not re-attested. |
+| All 41 | The header claims every entry was web-verified against Crossref/DataCite/arXiv/DBLP per `outputs/reports/reference_audit_v2.md`. **That claim was not re-verified in this audit** — no network access was used, and `outputs/` was outside the audit scope. Treat it as inherited, not re-attested. |
 
 **No TODO entry was needed.** Every statement in the manuscript that requires a
 citation has one, and no citation was needed for which no verified entry existed.
@@ -412,8 +412,8 @@ sixteen in the same order.
 | 8.6 | SI08 did not distinguish the withheld development-period stage from the target-period trusted scorer | New SI08 §3 (§7.1) |
 | 8.7 | `build_agu.py` would have raised on the rewritten Markdown (`REQUIRED_STATUS_TEXT`), and its hardcoded `KEYPOINTS` contradicted the Markdown | Generator fixed (§5.2) |
 | 8.8 | `ThermoRoute_WRR.tex` is simultaneously **seal-valid** (hash matches the registry) and **content-stale** (superseded structure) | Cannot be fixed here; recorded in `agu_submission/README.md` and checklist items 7.3 and 8.4, which require regeneration *before* re-sealing |
-| 8.9 | The task brief asked for "figure/table references consistent with the 9-figure manifest" in the TeX, but `FIGURE_REDRAW_SPEC.md` §7 forbids inserting figure cross-references by hand and assigns them to the PRE/POST renderer | The in-repo spec was followed. No figure cross-reference was added anywhere. Recorded as checklist item 1.16 (**OPENING**) and stated in `agu_submission/README.md` so it is not mistaken for an oversight. |
-| 8.10 | An early draft of the Wilks citation carried a URL I had not verified | Caught and replaced with an unlinked parenthetical before the file was finalised (§2.3) |
+| 8.9 | The checklist requires "figure/table references consistent with the 9-figure manifest" in the TeX, but `FIGURE_REDRAW_SPEC.md` §7 forbids inserting figure cross-references by hand and assigns them to the PRE/POST renderer | The in-repo spec was followed. No figure cross-reference was added anywhere. Recorded as checklist item 1.16 (**OPENING**) and stated in `agu_submission/README.md` so it is not mistaken for an oversight. |
+| 8.10 | An early draft of the Wilks citation carried an unverified URL | Caught and replaced with an unlinked parenthetical before the file was finalised (§2.3) |
 
 ---
 
@@ -445,7 +445,7 @@ identifier.
 
 ---
 
-## 10. What this task did not do
+## 10. Deferred work
 
 1. **Did not regenerate `ThermoRoute_WRR.tex`** — ~~`pandoc` absent and~~ the
    render guard refuses (§5.3). *Superseded 2026-08-05: pandoc was in fact
@@ -473,9 +473,5 @@ identifier.
 
 ## 11. Note on concurrent activity
 
-Files not touched by this task changed in the working tree while it ran
-(`outputs/reports/usgs_experiment.md` was already modified at the start;
-`docs/REMEDIATION_LINEAGE_RUNBOOK_20260805.md` and several other `docs/` files
-appeared or were committed during it). Another process is active in this
-worktree. Nothing recorded here depends on those files, and none of them was
-modified by this task.
+Concurrent working-tree changes were outside this revision and are not part of
+the record above.

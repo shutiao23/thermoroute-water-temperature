@@ -99,9 +99,9 @@ new-source rerun remains mandatory.
 
 ## 6. Safe execution cut
 
-1. Keep all current hashed paths unchanged while the user considers the Stage-09
+1. Keep all current hashed paths unchanged while the project owner considers the Stage-09
    terminal/relaunch decision.
-2. Do not start Stage-09b/16/25 until the user chooses between (a) a complete
+2. Do not start Stage-09b/16/25 until the project owner chooses between (a) a complete
    same-source A1 producer suite followed by a separately implemented dual-hash
    adoption, or (b) a full formal chain under the future A0 source.
 3. Release the source boundary only after either (a) a valid completion receipt,

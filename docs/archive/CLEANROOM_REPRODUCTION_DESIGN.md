@@ -4,7 +4,7 @@
 | --- | --- |
 | Date | 2026-08-01 |
 | Status | **DESIGN ONLY / NO HASHED-PATH CHANGE / NO TEST EXECUTION** |
-| Stage-09 constraint | Implementation is deferred until run `7cb2bfb18c1f9aa3dba7` has a validated completion receipt, or the user explicitly abandons it and releases the boundary through the governed watcher/lock procedure; no related formal process may be running. |
+| Stage-09 constraint | Implementation is deferred until run `7cb2bfb18c1f9aa3dba7` has a validated completion receipt, or the project owner explicitly abandons it and releases the boundary through the governed watcher/lock procedure; no related formal process may be running. |
 | Goal | A fresh, fixed Linux environment can validate the authorized evidence chain and reproduce the paper without reading or writing a live experiment namespace. |
 
 ## 1. Current capability and gap

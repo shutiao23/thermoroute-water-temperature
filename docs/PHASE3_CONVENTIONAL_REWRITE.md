@@ -100,7 +100,7 @@ state) and are listed here as *intentionally retained*:
   `PAPER_POLISH_20260805.md`, `PAPER_FIGURE_SI_RECONCILIATION.md`,
   `FIGURE_PLAN_STAGE19_INDEPENDENT_20260805.md`,
   `FIG01_RESTRUCTURE_RERENDER_20260806.md`, `WRR_SUBMISSION_CHECKLIST.md`
-  (its §3.7 "one-time acquisition" row is the other sessions' to re-map),
+  (its §3.7 "one-time acquisition" row belongs to another work stream),
   `WRR_FIGURE_STYLE_TEARDOWN.md`, `M01_M14_M15_MANUSCRIPT_BATCH_DEFERRED.md`,
   `AGU2025_TEMPLATE_MIGRATION.md`, `LITERATURE_EVIDENCE_MAP_2021_2026.md`
   (Route A/B there are arm labels, not governance).
@@ -117,10 +117,10 @@ state) and are listed here as *intentionally retained*:
 |---|---|---|
 | `docs/C1_*`, `docs/C2_*`, `docs/APPARATUS_DELETION_PLAN.md` | seal/opening/receipt/claim registry | They are the live deletion work orders for the code deletion; they describe what is being removed. They become historical once the deletion completes. |
 | `docs/CODE_FREEZE_DISCIPLINE_20260805.md` | opening | Stale end-condition; kept for the safe-path discipline. |
-| `docs/WRR_SUBMISSION_CHECKLIST.md` | one-time acquisition/opening receipt | Active submission tracker owned by the manuscript session; rows pending re-mapping. |
+| `docs/WRR_SUBMISSION_CHECKLIST.md` | one-time acquisition/opening receipt | Active submission tracker owned by the manuscript work stream; rows pending re-mapping. |
 | `docs/B3_NUMBER_PLACEHOLDER_MAP.md` | seal/opening/receipt | It is itself the SI-vocabulary audit of the paper. |
-| `docs/FIGURE_PLAN_STAGE19_*`, `docs/PAPER_*` | opening/gate | Transition-era paper working docs; superseded rows are the paper session's scope. |
-| `src/thermoroute/*` docstrings (e.g. `conventional_score.py`) | "Route-A models", "pre-registration apparatus" | Code comments/strings are the deletion session's scope; none of these modules were renamed here. |
+| `docs/FIGURE_PLAN_STAGE19_*`, `docs/PAPER_*` | opening/gate | Transition-era paper working docs; superseded rows belong to the paper work stream. |
+| `src/thermoroute/*` docstrings (e.g. `conventional_score.py`) | "Route-A models", "pre-registration apparatus" | Code comments/strings belong to the cleanup work stream; none of these modules were renamed here. |
 
 Stale cross-references to archived files (e.g. `PAPER_BENCHMARK_RESTRUCTURE.md`
 citing `OPTION_A_*` §1, `PAPER_RESTRUCTURE_20260805.md` citing
@@ -128,7 +128,7 @@ citing `OPTION_A_*` §1, `PAPER_RESTRUCTURE_20260805.md` citing
 citing `CLEANROOM_REPRODUCTION_DESIGN.md`, `CODE_FREEZE_DISCIPLINE` citing
 `SOURCE_HASH_SCOPE_REMEDIATION_PLAN.md`) now point at paths under
 `docs/archive/`. Content is preserved; rewriting those prose references is
-deferred to the owning sessions.
+deferred to the owning work streams.
 
 ## 4. Verification
 
@@ -138,4 +138,4 @@ deferred to the owning sessions.
   rewrites of historical facts.
 - `git status` shows only the intended docs/ moves, the header additions, the
   README rewrite, and the new record file on top of the pre-existing staged
-  work from other sessions.
+  work from other work streams.

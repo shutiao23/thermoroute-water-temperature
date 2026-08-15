@@ -131,7 +131,7 @@ Rules:
 - Events may not be defined by model error, residual, rank, skill, coverage
   failure or any other evaluated outcome.
 
-The user must choose the event family and threshold source. A training-derived
+The protocol owner must choose the event family and threshold source. A training-derived
 quantile probability, an absolute temperature, a flow recurrence threshold or a
 compound rule remains `UNRESOLVED_PRELABEL_DECISION`; this draft assigns none.
 
@@ -142,7 +142,7 @@ time basis. Native Route-A storage uses USGS daily mean `00060/00003` in cubic
 feet per second (`ft3 s-1`, commonly `cfs`); Route B must bind the actual parameter,
 statistic and unit from its own raw series rather than inherit them by name.
 
-`flow_time_basis` is currently `UNRESOLVED_PRELABEL_DECISION`: the user/protocol
+`flow_time_basis` is currently `UNRESOLVED_PRELABEL_DECISION`: the protocol
 must choose issue-date flow, target-date post-hoc context or a named antecedent
 window before seal.
 
@@ -189,7 +189,7 @@ month or UTC date. The timezone/local-day source must be the same bound source a
 the B3 measurement/calendar registry.
 
 This conventional definition is a **proposed draft choice**, not yet a seal. If
-the user instead selects hydrologic, thermal or region-specific seasons, every
+the protocol owner instead selects hydrologic, thermal or region-specific seasons, every
 boundary, region map and provenance source must replace this table before target
 access; no competing season definition may be chosen after results.
 
@@ -389,7 +389,7 @@ be written as confirmatory evidence. UQ intervals quantify descriptive
 uncertainty; they do not become a decision rule by comparison with zero or a
 margin.
 
-If the user wants a formal stratum-specific hypothesis, it must be defined in a
+If the protocol owner wants a formal stratum-specific hypothesis, it must be defined in a
 separate outcome-free Route-B amendment before target access. That amendment must
 freeze the exact cell, estimand, direction, scientific margin, alpha allocation,
 multiplicity method and failure rule. It cannot be added after seeing an overall

@@ -155,7 +155,7 @@ reported atomically without upgrading its containing P0 work package.
 5. Build the 2021–2026 literature and SI evidence map without inserting any
    pending performance value.
 6. Preserve the completed `7cb2...` receipt and the failed `a930...` pre-member
-   record. If the user authorizes the protected config fix, record the new source
+   record. If the project owner authorizes the protected config fix, record the new source
    identity and use only the guarded entrypoint for the resulting new Stage-09
    lifecycle; do not resume or fabricate 09b artifacts.
 

@@ -106,7 +106,7 @@ content-addressed run IDs must be derived and verified normally.
 
 ## 6. Authorized recovery sequence
 
-No step below may begin until the user explicitly authorizes the protected
+No step below may begin until the project owner explicitly authorizes the protected
 source edit and the resulting new lineage.
 
 1. Apply only the canonical list-shape repair and its regression tests.

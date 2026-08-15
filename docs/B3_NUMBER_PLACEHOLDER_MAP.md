@@ -2,7 +2,7 @@
 
 - **Branch:** `feat/conventional`
 - **Date:** 2026-08-06
-- **Mode:** read-only audit (no repository file was modified by this task; this is the only file written)
+- **Mode:** read-only audit (no repository file was modified during the audit; this is the audit record)
 - **Scope of fill targets:** `paper/ThermoRoute_paper.md` (1335 lines, current conventional rewrite)
 - **CSV producer inspected:** `scripts/conventional_holdout_2021_2023.py` → `src/thermoroute/conventional_score.py::compute_metrics_long` → `outputs/conventional/holdout_metrics_2021_2023.csv` (columns `model, horizon, metric, value, n`). The CSV was **not yet present** at audit time (holdout run in progress; `run_2021_2023.log` shows fetching up to 40/120 stations).
 - **Cross-checks:** `paper/agu_submission/ThermoRoute_WRR.tex` (the AGU build mirrors the markdown 1:1: every `<<TOKEN>>` becomes `\ph{TOKEN}`); model-name constants in the run script's `TEMPORAL_BUNDLES` / `LSTM_BUNDLE` / `EXTERNAL_BUNDLES` dicts and `conventional_score.py::baseline_frames`.
@@ -146,7 +146,7 @@ CSV `model` column values come from the run script's bundle dicts (`TEMPORAL_BUN
 
 ## 4. Metric naming mapping
 
-The task brief states CSV `metric ∈ {RMSE, MAE, BIAS, skill_vs_persistence, skill_vs_climatology}`, but the actual producer (`compute_metrics_long`) writes uppercase / underscore metric names and an extra count metric. The placeholder token prefixes use a different casing. Mapping required:
+The initial requirements state CSV `metric ∈ {RMSE, MAE, BIAS, skill_vs_persistence, skill_vs_climatology}`, but the actual producer (`compute_metrics_long`) writes uppercase / underscore metric names and an extra count metric. The placeholder token prefixes use a different casing. Mapping required:
 
 | Placeholder token prefix | CSV `metric` value | CSV `n` column | Notes |
 |---|---|---|---|

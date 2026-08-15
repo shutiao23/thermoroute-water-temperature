@@ -5,7 +5,7 @@
 | Target file | `paper/ThermoRoute_paper.md` |
 | Branch | `feat/route-a-completion` |
 | Prior bytes | SHA-256 `4843656b5858c8d0f997d0bc5dcc55aa79e77fc8c974b1b7a1ee17ce519104e7` (recoverable at commit `b0699a8`) |
-| New bytes | rewritten this session; see §5 for the binding consequence |
+| New bytes | rewritten in this revision; see §5 for the binding consequence |
 | Files touched | `paper/ThermoRoute_paper.md`, `docs/PAPER_RESTRUCTURE_20260805.md` (this file) |
 | Files deliberately NOT touched | `src/`, `scripts/`, `tests/`, `protocols/`, `pyproject.toml`, `requirements*.txt`, `.github/workflows/`, `ops/`, `outputs/`, the sibling `…-multicore` worktree (read-only) |
 | Target venue | Water Resources Research (AGU) |
@@ -79,7 +79,7 @@ framed the paper as an incomplete deliverable.
 **§1 Introduction.** Restructured around four named difficulties (persistence
 strength, issue-time leakage, structured incompleteness, spatial dependence), each
 with a concrete number from the panel and each mapped to a later design decision.
-Related work is folded in rather than given a subsection, per the instruction to
+Related work is folded in rather than given a subsection, following the requirement to
 keep the introduction hydrologically motivated. Added citations to
 `corona2025ml`, `sadler2022multitask` from `paper/references.bib`. The legacy
 three-station paragraph is retained with both allowlisted sentences preserved
@@ -172,13 +172,13 @@ routing and a placeholder-inventory paragraph. The old text's admission that the
 
 ---
 
-## 3. Correction applied mid-task: the Stage-19 blocker
+## 3. Correction applied during the revision: the Stage-19 blocker
 
-The task brief originally described the blocker as "64 crossing rows out of
+The initial plan described the blocker as "64 crossing rows out of
 1,245,360 member-level rows (0.0051%) where exported q05/q50/q95 are
 non-monotone", which matches the comment at
 `…-multicore/ops/stage09/chain_stage09_remaining.sh:5-9`. That characterisation
-was superseded mid-task by a direct measurement of the prediction table. The
+was superseded during the revision by a direct measurement of the prediction table. The
 manuscript uses the measured version, and the phrase "quantile crossing" does not
 appear anywhere in the new §6.3.
 
@@ -243,7 +243,7 @@ and `free_text_policy` states
 necessarily invalidates that binding, so `scripts/26_validate_claims.py` will
 report a document-hash mismatch for this file until the registry is re-sealed.
 Re-sealing is a `protocols/` edit and is **outside the permission boundary of
-this task**; it must be authorized separately and will create a new document
+this revision**; it must be authorized separately and will create a new document
 lineage. The previous bytes remain recoverable at commit `b0699a8`.
 
 Mitigations applied so that nothing else in the validator chain breaks:

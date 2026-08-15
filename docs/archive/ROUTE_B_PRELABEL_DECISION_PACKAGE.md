@@ -90,14 +90,14 @@ an outcome-free acquisition.
 
 ### 2.3 Separation of authority
 
-The scientific owner/user chooses the scientific question. An independent
+The scientific owner chooses the scientific question. An independent
 custodian verifies evidence separation and controls access. The custodian must
 not silently choose scientific margins, arms or estimands, and the analyst must
 not self-issue an opening receipt.
 
 | Authority | Required responsibility |
 | --- | --- |
-| Scientific owner/user | Select the population, geography, task arm, target period/year scope, estimand, hypothesis family, scientific margins, power/precision targets, comparator policy, contribution class and any primary-domain restrictions |
+| Scientific owner | Select the population, geography, task arm, target period/year scope, estimand, hypothesis family, scientific margins, power/precision targets, comparator policy, contribution class and any primary-domain restrictions |
 | Independent custodian | Hold or mediate target credentials/paths; verify target paths were absent or inaccessible during design; verify hashes, chronology and external timestamp; independently replay selection and freeze receipts; reject an incomplete opening request |
 | Dual sign-off | Approve the final four-stage freeze manifest and, later, a separate exact target-acquisition request ledger |
 | Analyst | Implement only the sealed decisions, retain failures, and make no post-opening discretionary substitutions |
@@ -111,7 +111,7 @@ auditable identity, timestamp and signed/self-hashed receipt.
 Each decision below must be resolved explicitly. A default or recommendation is
 not a selection. An omitted row is a freeze failure.
 
-### D01 — Inferential target and population (user)
+### D01 — Inferential target and population (scientific owner)
 
 Choose whether Route B is intended to support a design-based claim for the
 **eligible monitored-component frame** or only a fixed sampled-component
@@ -122,14 +122,14 @@ days or ungauged basins generally.
 If design weights and positive inclusion probabilities cannot be implemented,
 the only allowed closure is the fixed-frame descriptive branch.
 
-### D02 — Geography and frame exclusions (user)
+### D02 — Geography and frame exclusions (scientific owner)
 
 Choose CONUS only versus inclusion of Alaska, Hawaii and territories, and freeze
 all outcome-free domain exclusions. Route A sites and every network component
 containing a Route A site must be excluded. Geography cannot be expanded after
 target access to restore power.
 
-### D03 — Primary task arm/information set (user)
+### D03 — Primary task arm/information set (scientific owner)
 
 Choose exactly one primary arm:
 
@@ -145,7 +145,7 @@ The arms may be separately registered, but one cannot rescue or rename another.
 Masking target history from a model selected for target-history use does not
 create a fair strict-ungauged arm.
 
-### D04 — Untouched period and year scope (user)
+### D04 — Untouched period and year scope (scientific owner)
 
 Choose the exact untouched period and one of:
 
@@ -157,7 +157,7 @@ The sampling draft requires at least three untouched years, or a separately
 justified untouched retrospective period plus a prospective season. Three years
 alone are weak evidence for a year-superpopulation claim.
 
-### D05 — Point estimand and weighting (user)
+### D05 — Point estimand and weighting (scientific owner)
 
 The recommended point estimand is the design-weighted mean paired RMSE difference,
 negative favoring the candidate. Site effects are first estimated inside PSU×year,
@@ -168,7 +168,7 @@ self-weighting design.
 Choose this estimand or predeclare another robust functional before power work.
 Route A's station median is not inherited automatically.
 
-### D06 — Hypothesis family, margins and multiplicity (user)
+### D06 — Hypothesis family, margins and multiplicity (scientific owner)
 
 For each comparison/horizon, select superiority, non-inferiority or descriptive
 estimation; identify the reference and direction; supply the scientific source
@@ -176,7 +176,7 @@ for every margin; and freeze familywise error control. Route A's `+0.05 °C`
 ceiling, storage precision and the power formula do not provide a Route B
 scientific margin.
 
-### D07 — Assurance, power and precision (user)
+### D07 — Assurance, power and precision (scientific owner)
 
 Select:
 
@@ -191,7 +191,7 @@ power and precision while retaining at least 30 reportable PSUs. If K=60 fails,
 the design is not feasible under the current frame/rules; no gate or margin may be
 relaxed in response.
 
-### D08 — Primary flow/tidal domain and calendar semantics (user)
+### D08 — Primary flow/tidal domain and calendar semantics (scientific owner)
 
 Choose whether the primary population includes tidal/backwater/negative-flow
 sites. If a positive-flow non-tidal restriction is necessary for an official
@@ -199,7 +199,7 @@ process comparator, it must enter the frame now and the resulting claim must sta
 inside that domain. Negative flows remain in raw evidence and are not silently
 clipped or renamed. Freeze the local-day/UTC alignment rule and its sensitivity.
 
-### D09 — Comparator matrix and budget (user)
+### D09 — Comparator matrix and budget (scientific owner)
 
 Select the current strong probabilistic comparator, the exact eligible models per
 arm and a common resource policy. The current draft budget is 40 search trials,
@@ -223,7 +223,7 @@ Current candidate evidence is:
   training-network and zero-history contract. It is not official Air2stream,
   N-HiTS or TFT by substitution.
 
-### D10 — Contribution class and identifiability (user)
+### D10 — Contribution class and identifiability (scientific owner)
 
 Choose:
 
@@ -238,7 +238,7 @@ latent automatically yields `PREDICTIVE_ONLY_LATENTS_NOT_IDENTIFIED`. Prediction
 benchmarking may continue, but learned κ, equilibrium, router weights and experts
 cannot be physical findings.
 
-### D11 — History, QA, missingness and calibration rules (user)
+### D11 — History, QA, missingness and calibration rules (scientific owner)
 
 Using training/calibration evidence only, choose the minimum observed-history
 fraction, maximum gap, drift/flatline/change-point tests, duplicate-series rule,
@@ -260,7 +260,7 @@ training/calibration residual dependence, not target results.
 Name the custodian; define credential and target-path isolation; select the
 external timestamp/signature mechanism; define independent replay; and specify
 the exact one-time request scope. Completion of this row does not authorize
-opening. The user must later issue a separate explicit target-acquisition
+opening. The project owner must later issue a separate explicit target-acquisition
 authorization after the clean-room gate passes.
 
 ## 4. Evidence gaps before any freeze can pass
@@ -518,8 +518,8 @@ a sealed artifact in place.
 
 ### Separate target-acquisition authorization
 
-Only after all prior receipts pass may the user and custodian sign an exact
-request ledger and the user issue a separate explicit authorization. That event
+Only after all prior receipts pass may the project owner and custodian sign an exact
+request ledger and the project owner issue a separate explicit authorization. That event
 is the one-way opening boundary. It defines endpoints, parameter/statistic codes,
 sites, dates, expected raw-response handling and credentials.
 

@@ -171,7 +171,7 @@ and compares it to what `scripts/deterministic_zip.py` writes from a **hardcoded
 15-name tuple**. Adding a key there without editing `deterministic_zip.py` would
 have broken the manifest binding on every archive. `known_minimum_unverified_
 redistribution_scopes` is also pinned by exact-set assertion in
-`tests/test_manifest_release.py`. Both files are outside this task's edit scope,
+`tests/test_manifest_release.py`. Both files are outside this change's scope,
 so the exclusion was expressed as its own registry instead — which is the better
 model anyway: that field lists bytes the archive *carries* under a warning, and
 these bytes are not carried at all.
@@ -287,7 +287,7 @@ step, and it is the step AGU's own workflow already assumes.
   `tests/test_manifest_release.py`, and it is declared in
   `known_minimum_unverified_redistribution_scopes` — i.e. carried *with* a
   standing warning inside a `LOCAL_EVIDENCE_ONLY` package that may not be
-  transferred to anyone. Removing it touches two files outside this task's edit
+  transferred to anyone. Removing it touches two files outside this change's
   scope. It is also now **dead weight**: nothing in the build reads it. Recommend
   a follow-up that drops it from all three lists together.
 - **Repository exposure is a separate question.** The five files remain committed
@@ -331,7 +331,7 @@ Evidence:
    `ValueError: Git stage09_completion RunIdentity v3 is malformed`, raised
    around `verify_release.py:1393`, far from anything added here. That change is
    not fixed or worked around here.
-2. A run started **before** any edit in this task produced a byte-identical
+2. A run started **before** this change produced a byte-identical
    17-name failure list.
 3. The tests that actually cover the changed code paths all pass:
    `test_release_boundary_requires_contract_and_rejects_traversal` (which
